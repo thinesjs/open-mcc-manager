@@ -1,6 +1,6 @@
 import { type CreateHostInput, can, type Role } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
-import type { Db } from "@open-mcc/db"
+import type { Db, HostRow } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
@@ -96,6 +96,9 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const scope = { organizationId: ctx.organizationId }
 		const found = await deps.hosts.findById(scope, hostId)
 		if (!found) throw new HostNotFoundError(`Host not found: ${hostId}`)
+		if (found.status === "provisioning") {
+			throw new HostConcurrentlyModifiedError(`Host ${hostId} is already provisioning`)
+		}
 		if (!found.sshKeyId) {
 			throw new HostMisconfiguredError(`Host ${hostId} has no ssh key configured`)
 		}
@@ -103,16 +106,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
 		const expectedFingerprint = found.hostKeyFingerprint
+		const expectedStatus = found.status
 
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
-
-		const startedProvisioning = await deps.hosts.update(scope, hostId, { status: "provisioning" })
-		if (!startedProvisioning) {
-			throw new HostConcurrentlyModifiedError(
-				`Host ${hostId} changed before provisioning could start`,
-			)
-		}
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
 			try {
@@ -143,22 +140,30 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			}
 		}
 
-		const runProvisionTracked = async (): Promise<ProvisionResult> => {
+		type ProvisionOutcome = { kind: "success"; updated: HostRow } | { kind: "error"; error: Error }
+
+		const outcome = await deps.withTransaction(async (repos): Promise<ProvisionOutcome> => {
+			await repos.hosts.lockHost(hostId)
+
+			const claimed = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
+			if (!claimed) {
+				throw new HostConcurrentlyModifiedError(
+					`Host ${hostId} changed before provisioning could start`,
+				)
+			}
+
+			let result: ProvisionResult
 			try {
-				return await runProvision()
+				result = await runProvision()
 			} catch (error) {
 				try {
-					await deps.hosts.update(scope, hostId, { status: "error" })
+					await repos.hosts.update(scope, hostId, { status: "error" })
 				} catch (updateError) {
 					console.error("provision: failed to record error status", updateError)
 				}
-				throw error
+				return { kind: "error", error: error instanceof Error ? error : new Error(String(error)) }
 			}
-		}
 
-		const result = await runProvisionTracked()
-
-		return deps.withTransaction(async (repos) => {
 			const updated = await repos.hosts.update(scope, hostId, {
 				status: "ready",
 				dockerVersion: result.dockerVersion,
@@ -178,8 +183,11 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				detail: { dockerVersion: result.dockerVersion },
 			})
 
-			return updated
+			return { kind: "success", updated }
 		})
+
+		if (outcome.kind === "error") throw outcome.error
+		return outcome.updated
 	},
 
 	list: async (ctx: ActorContext) => {
@@ -191,6 +199,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.delete")
 		const scope = { organizationId: ctx.organizationId }
 		return deps.withTransaction(async (repos) => {
+			await repos.hosts.lockHost(hostId)
 			const removed = await repos.hosts.delete(scope, hostId)
 			if (removed) {
 				await repos.audit.record(scope, {

@@ -138,3 +138,43 @@ describe("host repository trust attribution label", () => {
 		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
 	})
 })
+
+describe("host repository provisioning claim (real Postgres)", () => {
+	it("lets exactly one of two concurrent claim attempts on the same pending host succeed", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-14", hostname: "10.0.0.14", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		const [first, second] = await Promise.all([
+			repo.claimForProvisioning({ organizationId: orgA }, created.id, "pending"),
+			repo.claimForProvisioning({ organizationId: orgA }, created.id, "pending"),
+		])
+
+		const claimed = [first, second].filter((row) => row !== undefined)
+		expect(claimed).toHaveLength(1)
+		const finalRow = await repo.findById({ organizationId: orgA }, created.id)
+		expect(finalRow?.status).toBe("provisioning")
+	})
+
+	it("does not let a stale caller re-claim a host that has since become provisioning", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-15", hostname: "10.0.0.15", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const claimed = await repo.claimForProvisioning({ organizationId: orgA }, created.id, "pending")
+		expect(claimed).toBeDefined()
+
+		const staleReclaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"pending",
+		)
+		expect(staleReclaim).toBeUndefined()
+
+		const finalRow = await repo.findById({ organizationId: orgA }, created.id)
+		expect(finalRow?.status).toBe("provisioning")
+	})
+})

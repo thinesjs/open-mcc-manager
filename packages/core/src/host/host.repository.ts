@@ -1,5 +1,5 @@
 import { type Executor, type HostInsert, type HostRow, host } from "@open-mcc/db"
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
@@ -104,6 +104,29 @@ export const createHostRepository = (db: Executor) => ({
 			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
 			.returning()
 		return rows.length > 0
+	},
+
+	lockHost: async (id: string): Promise<void> => {
+		await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`)
+	},
+
+	claimForProvisioning: async (
+		scope: OrgScope,
+		id: string,
+		expectedStatus: HostRow["status"],
+	): Promise<HostRow | undefined> => {
+		const rows = await db
+			.update(host)
+			.set({ status: "provisioning", organizationId: scope.organizationId })
+			.where(
+				and(
+					eq(host.id, id),
+					eq(host.organizationId, scope.organizationId),
+					eq(host.status, expectedStatus),
+				),
+			)
+			.returning()
+		return rows[0]
 	},
 })
 

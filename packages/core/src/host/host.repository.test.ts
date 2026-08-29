@@ -1,0 +1,72 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
+import { createHostRepository } from "./host.repository"
+
+const repo = createHostRepository(testDb())
+let orgA = ""
+let orgB = ""
+
+beforeAll(async () => {
+	orgA = await seedOrganization("org-a")
+	orgB = await seedOrganization("org-b")
+})
+
+afterAll(async () => {
+	await teardownTestDb()
+})
+
+describe("host repository organization scoping", () => {
+	it("returns a host to its own organization", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-1", hostname: "10.0.0.1", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const found = await repo.findById({ organizationId: orgA }, created.id)
+		expect(found?.name).toBe("vps-1")
+	})
+
+	it("hides that host from another organization", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-2", hostname: "10.0.0.2", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		expect(await repo.findById({ organizationId: orgB }, created.id)).toBeUndefined()
+	})
+
+	it("never lists another organization's hosts", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-3", hostname: "10.0.0.3", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		expect(await repo.list({ organizationId: orgB })).toEqual([])
+	})
+
+	it("refuses to update across organizations", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-4", hostname: "10.0.0.4", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const updated = await repo.update({ organizationId: orgB }, created.id, {
+			status: "ready",
+		})
+		expect(updated).toBeUndefined()
+		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
+		expect(unchanged?.status).toBe("pending")
+	})
+
+	it("refuses to delete across organizations", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-5", hostname: "10.0.0.5", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const deleted = await repo.delete({ organizationId: orgB }, created.id)
+		expect(deleted).toBe(false)
+		const stillThere = await repo.findById({ organizationId: orgA }, created.id)
+		expect(stillThere?.name).toBe("vps-5")
+	})
+})

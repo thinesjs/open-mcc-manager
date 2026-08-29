@@ -49,23 +49,45 @@ describe("tenant foreign key integrity", () => {
 	afterEach(async () => {
 		const created = seeded
 		seeded = emptySeededIds()
-		if (created.auditEventIds.length > 0) {
-			await db.delete(auditEvent).where(inArray(auditEvent.id, created.auditEventIds))
-		}
-		if (created.hostIds.length > 0) {
-			await db.delete(host).where(inArray(host.id, created.hostIds))
-		}
-		if (created.sshKeyIds.length > 0) {
-			await db.delete(sshKey).where(inArray(sshKey.id, created.sshKeyIds))
-		}
-		if (created.memberIds.length > 0) {
-			await db.delete(member).where(inArray(member.id, created.memberIds))
-		}
-		if (created.userIds.length > 0) {
-			await db.delete(user).where(inArray(user.id, created.userIds))
-		}
-		if (created.organizationIds.length > 0) {
-			await db.delete(organization).where(inArray(organization.id, created.organizationIds))
+		const steps: Array<() => Promise<void>> = [
+			async () => {
+				if (created.auditEventIds.length > 0) {
+					await db.delete(auditEvent).where(inArray(auditEvent.id, created.auditEventIds))
+				}
+			},
+			async () => {
+				if (created.hostIds.length > 0) {
+					await db.delete(host).where(inArray(host.id, created.hostIds))
+				}
+			},
+			async () => {
+				if (created.sshKeyIds.length > 0) {
+					await db.delete(sshKey).where(inArray(sshKey.id, created.sshKeyIds))
+				}
+			},
+			async () => {
+				if (created.memberIds.length > 0) {
+					await db.delete(member).where(inArray(member.id, created.memberIds))
+				}
+			},
+			async () => {
+				if (created.userIds.length > 0) {
+					await db.delete(user).where(inArray(user.id, created.userIds))
+				}
+			},
+			async () => {
+				if (created.organizationIds.length > 0) {
+					await db.delete(organization).where(inArray(organization.id, created.organizationIds))
+				}
+			},
+		]
+
+		for (const step of steps) {
+			try {
+				await step()
+			} catch (error) {
+				console.error("tenant-fk.test.ts teardown: cleanup step failed", error)
+			}
 		}
 	})
 

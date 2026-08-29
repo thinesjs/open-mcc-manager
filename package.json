@@ -10,7 +10,8 @@
 		"test": "turbo run test",
 		"typecheck": "turbo run typecheck",
 		"check": "biome check --write .",
-		"lint": "biome check ."
+		"check:types-policy": "node scripts/check-type-policy.mjs",
+		"lint": "biome check . && node scripts/check-type-policy.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.7",

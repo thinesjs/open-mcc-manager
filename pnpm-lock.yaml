@@ -26,6 +26,16 @@ importers:
 
   packages/config: {}
 
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@open-mcc/config':
+        specifier: workspace:*
+        version: link:../config
+
   packages/core:
     dependencies:
       libsodium-wrappers-sumo:

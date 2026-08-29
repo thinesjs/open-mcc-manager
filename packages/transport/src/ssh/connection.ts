@@ -1,5 +1,6 @@
 import { Client } from "ssh2"
 import type { ConnectionState, ConnectOptions, ExecResult, HostTransport } from "../types"
+import { type ExecChannel, execViaChannel } from "./exec"
 import { verifyHostKey } from "./verify"
 
 export const createSshTransport = (): HostTransport => {
@@ -56,24 +57,21 @@ export const createSshTransport = (): HostTransport => {
 						reject(error)
 						return
 					}
-					let stdout = ""
-					let stderr = ""
-					const timer = setTimeout(() => {
-						stream.close()
-						reject(new Error(`Command timed out: ${command}`))
-					}, timeoutMs)
-
-					stream
-						.on("data", (chunk: Buffer) => {
-							stdout += chunk.toString()
-						})
-						.on("close", (exitCode: number) => {
-							clearTimeout(timer)
-							resolve({ stdout, stderr, exitCode: exitCode ?? 0 })
-						})
-					stream.stderr.on("data", (chunk: Buffer) => {
-						stderr += chunk.toString()
-					})
+					const channel: ExecChannel = {
+						onStdout: (listener) => {
+							stream.on("data", listener)
+						},
+						onStderr: (listener) => {
+							stream.stderr.on("data", listener)
+						},
+						onClose: (listener) => {
+							stream.on("close", listener)
+						},
+						destroy: () => {
+							stream.destroy()
+						},
+					}
+					execViaChannel(channel, command, timeoutMs).then(resolve, reject)
 				})
 			}),
 

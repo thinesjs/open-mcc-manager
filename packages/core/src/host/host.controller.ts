@@ -1,4 +1,5 @@
 import { type CreateHostInput, can, type Role } from "@open-mcc/contracts"
+import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import type { AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
@@ -24,7 +25,6 @@ export type HostControllerDeps = {
 
 const PROBE_TIMEOUT_MS = 10_000
 const CONNECT_TIMEOUT_MS = 10_000
-const HOST_KEY_ALGORITHM = "ssh-ed25519"
 
 export class ForbiddenError extends Error {}
 export class FingerprintMismatchError extends Error {}
@@ -43,6 +43,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				`Host key fingerprint mismatch: presented ${verification.presented}, expected ${verification.expected}`,
 			)
 		}
+		const algorithm = algorithmFromKey(presented)
 
 		const scope = { organizationId: ctx.organizationId }
 		const created = await deps.hosts.insert(scope, {
@@ -51,7 +52,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			port: input.port,
 			username: input.username,
 			sshKeyId: input.sshKeyId,
-			hostKeyAlgorithm: HOST_KEY_ALGORITHM,
+			hostKeyAlgorithm: algorithm,
 			hostKeyFingerprint: verification.fingerprint,
 			hostKeyTrustedBy: ctx.memberId,
 			hostKeyTrustedAt: new Date(),

@@ -1,3 +1,4 @@
+import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
 import { type ConnectionState, createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
@@ -9,6 +10,15 @@ import type { HostCreateValues, HostRepository, OrgScope } from "./host.reposito
 import { provisionHost } from "./provision"
 
 const ctx = { organizationId: "org-1", memberId: "mem-1", role: "owner" as const }
+
+const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
+	const name = Buffer.from(algorithm, "ascii")
+	const length = Buffer.alloc(4)
+	length.writeUInt32BE(name.length, 0)
+	return Buffer.concat([length, name, extra])
+}
+
+const DEFAULT_HOST_KEY_BLOB = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("host-key-material"))
 
 const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	id: "host-1",
@@ -115,7 +125,7 @@ const deps = (overrides: Partial<HostControllerDeps> = {}): HostControllerDeps =
 		activeKeyId: "k1",
 		seal: vi.fn(),
 	} satisfies SecretStore,
-	probeHostKey: vi.fn(async () => Buffer.from("host-key-material")),
+	probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
 	createTransport: vi.fn(() =>
 		createFakeTransport({
 			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
@@ -165,8 +175,7 @@ describe("host controller enrollment", () => {
 
 	it("enrolls and audits when the fingerprint matches", async () => {
 		const d = deps()
-		const { fingerprintFromKey } = await import("@open-mcc/contracts/boundary/ssh")
-		const expected = fingerprintFromKey(Buffer.from("host-key-material"))
+		const expected = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)
 		const controller = createHostController(d)
 		const created = await controller.enroll(ctx, {
 			name: "vps",
@@ -177,6 +186,15 @@ describe("host controller enrollment", () => {
 			expectedFingerprint: expected,
 		})
 		expect(created.id).toBe("host-1")
+		expect(d.hosts.insert).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: expected,
+				hostKeyTrustedBy: "mem-1",
+				hostKeyTrustedAt: expect.any(Date),
+			}),
+		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
 		expect(d.audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
@@ -185,6 +203,27 @@ describe("host controller enrollment", () => {
 				actorId: "mem-1",
 				detail: expect.objectContaining({ fingerprint: expected }),
 			}),
+		)
+	})
+
+	it("stores the algorithm parsed from the presented key, not a hardcoded constant", async () => {
+		const blob = encodeAlgorithmBlob("ssh-rsa", Buffer.from("rsa-host-key-material"))
+		const expected = fingerprintFromKey(blob)
+		const d = deps({ probeHostKey: vi.fn(async () => blob) })
+		const controller = createHostController(d)
+
+		await controller.enroll(ctx, {
+			name: "vps",
+			hostname: "10.0.0.1",
+			port: 22,
+			username: "mcc",
+			sshKeyId: "key-1",
+			expectedFingerprint: expected,
+		})
+
+		expect(d.hosts.insert).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ hostKeyAlgorithm: "ssh-rsa" }),
 		)
 	})
 })

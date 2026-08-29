@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto"
 import { type Executor, type HostInsert, type HostRow, host } from "@open-mcc/db"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, lt, or, sql } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
@@ -46,6 +47,11 @@ const resolveHostKeyTrustedByLabel = (values: HostCreateValues): string => {
 	}
 	return requireNonBlankLabel(label)
 }
+
+export const PROVISIONING_LEASE_MS = 5 * 60 * 1000
+
+export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
+	claimedAt !== null && now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
 
 const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.name !== undefined && { name: patch.name }),
@@ -119,14 +125,50 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		expectedStatus: HostRow["status"],
 	): Promise<HostRow | undefined> => {
+		const now = new Date()
+		const staleBefore = new Date(now.getTime() - PROVISIONING_LEASE_MS)
+		const staleClaimCondition = and(
+			eq(host.status, "provisioning"),
+			lt(host.provisioningClaimedAt, staleBefore),
+		)
+		const statusCondition =
+			expectedStatus === "provisioning"
+				? staleClaimCondition
+				: or(eq(host.status, expectedStatus), staleClaimCondition)
+
 		const rows = await db
 			.update(host)
-			.set({ status: "provisioning", organizationId: scope.organizationId })
+			.set({
+				status: "provisioning",
+				provisioningAttemptId: randomUUID(),
+				provisioningClaimedAt: now,
+				organizationId: scope.organizationId,
+			})
+			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId), statusCondition))
+			.returning()
+		return rows[0]
+	},
+
+	finalizeProvisioning: async (
+		scope: OrgScope,
+		id: string,
+		attemptId: string,
+		patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+	): Promise<HostRow | undefined> => {
+		const rows = await db
+			.update(host)
+			.set({
+				...patch,
+				provisioningAttemptId: null,
+				provisioningClaimedAt: null,
+				organizationId: scope.organizationId,
+			})
 			.where(
 				and(
 					eq(host.id, id),
 					eq(host.organizationId, scope.organizationId),
-					eq(host.status, expectedStatus),
+					eq(host.status, "provisioning"),
+					eq(host.provisioningAttemptId, attemptId),
 				),
 			)
 			.returning()

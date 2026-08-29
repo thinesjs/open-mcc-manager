@@ -1,14 +1,24 @@
+import { host } from "@open-mcc/db"
+import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
 import {
 	createHostRepository,
 	type HostKeyTrustUpdate,
 	type HostUpdateValues,
+	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 
 const repo = createHostRepository(testDb())
 let orgA = ""
 let orgB = ""
+
+const backdateProvisioningClaim = async (hostId: string, ageMs: number): Promise<void> => {
+	await testDb()
+		.update(host)
+		.set({ provisioningClaimedAt: new Date(Date.now() - ageMs) })
+		.where(eq(host.id, hostId))
+}
 
 beforeAll(async () => {
 	orgA = await seedOrganization("org-a")
@@ -320,5 +330,131 @@ describe("host repository provisioning claim (real Postgres)", () => {
 
 		const finalRow = await repo.findById({ organizationId: orgA }, created.id)
 		expect(finalRow?.status).toBe("provisioning")
+	})
+})
+
+describe("host repository provisioning lease expiry (real Postgres)", () => {
+	it("does not let a fresh claim be reclaimed before the lease expires", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-16", hostname: "10.0.0.16", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const firstClaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"pending",
+		)
+		expect(firstClaim).toBeDefined()
+
+		const reclaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"provisioning",
+		)
+		expect(reclaim).toBeUndefined()
+
+		const finalRow = await repo.findById({ organizationId: orgA }, created.id)
+		expect(finalRow?.provisioningAttemptId).toBe(firstClaim?.provisioningAttemptId)
+	})
+
+	it("lets an abandoned claim be reclaimed once the lease has expired", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-17", hostname: "10.0.0.17", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const firstClaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"pending",
+		)
+		expect(firstClaim).toBeDefined()
+		await backdateProvisioningClaim(created.id, PROVISIONING_LEASE_MS + 1_000)
+
+		const reclaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"provisioning",
+		)
+
+		expect(reclaim).toBeDefined()
+		expect(reclaim?.provisioningAttemptId).not.toBe(firstClaim?.provisioningAttemptId)
+		const finalRow = await repo.findById({ organizationId: orgA }, created.id)
+		expect(finalRow?.status).toBe("provisioning")
+		expect(finalRow?.provisioningAttemptId).toBe(reclaim?.provisioningAttemptId)
+	})
+})
+
+describe("host repository provisioning finalisation (real Postgres)", () => {
+	it("lets the current attempt finalise the host to ready", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-18", hostname: "10.0.0.18", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const claimed = await repo.claimForProvisioning({ organizationId: orgA }, created.id, "pending")
+		const attemptId = claimed?.provisioningAttemptId
+		if (!attemptId) throw new Error("expected a claimed attempt id")
+
+		const finalised = await repo.finalizeProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			attemptId,
+			{
+				status: "ready",
+				dockerVersion: "Docker version 27.3.1",
+			},
+		)
+
+		expect(finalised?.status).toBe("ready")
+		expect(finalised?.dockerVersion).toBe("Docker version 27.3.1")
+		expect(finalised?.provisioningAttemptId).toBeNull()
+		expect(finalised?.provisioningClaimedAt).toBeNull()
+	})
+
+	it("refuses to let a stale finaliser overwrite a newer attempt's result", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-19", hostname: "10.0.0.23", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		const staleClaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"pending",
+		)
+		const staleAttemptId = staleClaim?.provisioningAttemptId
+		if (!staleAttemptId) throw new Error("expected a claimed attempt id")
+		await backdateProvisioningClaim(created.id, PROVISIONING_LEASE_MS + 1_000)
+
+		const freshClaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"provisioning",
+		)
+		const freshAttemptId = freshClaim?.provisioningAttemptId
+		if (!freshAttemptId) throw new Error("expected a reclaimed attempt id")
+		expect(freshAttemptId).not.toBe(staleAttemptId)
+
+		const staleFinalise = await repo.finalizeProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			staleAttemptId,
+			{ status: "ready", dockerVersion: "Docker version 27.3.1" },
+		)
+		expect(staleFinalise).toBeUndefined()
+
+		const stillInFlight = await repo.findById({ organizationId: orgA }, created.id)
+		expect(stillInFlight?.status).toBe("provisioning")
+		expect(stillInFlight?.provisioningAttemptId).toBe(freshAttemptId)
+
+		const freshFinalise = await repo.finalizeProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			freshAttemptId,
+			{ status: "ready", dockerVersion: "Docker version 27.3.1" },
+		)
+		expect(freshFinalise?.status).toBe("ready")
 	})
 })

@@ -5,7 +5,11 @@ import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import { createHostRepository, type HostRepository } from "./host.repository"
+import {
+	createHostRepository,
+	type HostRepository,
+	isProvisioningClaimStale,
+} from "./host.repository"
 import { type ProvisionResult, provisionHost } from "./provision"
 
 export type ActorContext = {
@@ -97,7 +101,8 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const scope = { organizationId: ctx.organizationId }
 		const found = await deps.hosts.findById(scope, hostId)
 		if (!found) throw new HostNotFoundError(`Host not found: ${hostId}`)
-		if (found.status === "provisioning") {
+		const wasAbandonedProvisioning = found.status === "provisioning"
+		if (wasAbandonedProvisioning && !isProvisioningClaimStale(found.provisioningClaimedAt)) {
 			throw new HostConcurrentlyModifiedError(`Host ${hostId} is already provisioning`)
 		}
 		if (!found.sshKeyId) {
@@ -114,12 +119,27 @@ export const createHostController = (deps: HostControllerDeps) => ({
 
 		const claimed = await deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(hostId)
-			return repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
+			const row = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
+			if (row && wasAbandonedProvisioning) {
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "host.provision.reclaim",
+					subjectType: "host",
+					subjectId: hostId,
+					detail: { previousAttemptId: found.provisioningAttemptId ?? "" },
+				})
+			}
+			return row
 		})
 		if (!claimed) {
 			throw new HostConcurrentlyModifiedError(
 				`Host ${hostId} changed before provisioning could start`,
 			)
+		}
+		const attemptId = claimed.provisioningAttemptId
+		if (attemptId === null) {
+			throw new Error(`Host ${hostId} was claimed for provisioning without an attempt id`)
 		}
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
@@ -158,7 +178,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				try {
 					await deps.withTransaction(async (repos) => {
 						await repos.hosts.lockHost(hostId)
-						await repos.hosts.update(scope, hostId, { status: "error" })
+						await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })
 					})
 				} catch (updateError) {
 					console.error("provision: failed to record error status", updateError)
@@ -172,7 +192,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		return deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(hostId)
 
-			const updated = await repos.hosts.update(scope, hostId, {
+			const updated = await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, {
 				status: "ready",
 				dockerVersion: result.dockerVersion,
 			})
@@ -206,7 +226,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		return deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(hostId)
 			const found = await repos.hosts.findById(scope, hostId)
-			if (found?.status === "provisioning") {
+			if (
+				found?.status === "provisioning" &&
+				!isProvisioningClaimStale(found.provisioningClaimedAt)
+			) {
 				throw new HostProvisioningInProgressError(
 					`Host ${hostId} cannot be deleted while its status is 'provisioning'`,
 				)

@@ -1,6 +1,7 @@
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
+import { host } from "@open-mcc/db"
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuditRepository } from "../audit/audit.repository"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -21,7 +22,7 @@ import {
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
-import { createHostRepository } from "./host.repository"
+import { createHostRepository, PROVISIONING_LEASE_MS } from "./host.repository"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -32,6 +33,13 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0))
 
 const HOST_KEY_BLOB = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("tx-test-key-material"))
 const EXPECTED_FINGERPRINT = fingerprintFromKey(HOST_KEY_BLOB)
+
+const backdateProvisioningClaim = async (hostId: string, ageMs: number): Promise<void> => {
+	await testDb()
+		.update(host)
+		.set({ provisioningClaimedAt: new Date(Date.now() - ageMs) })
+		.where(eq(host.id, hostId))
+}
 
 const throwingAudit = {
 	record: vi.fn(async () => Promise.reject(new Error("audit insert failed"))),
@@ -440,6 +448,47 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
 		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
 	})
+
+	it("deletes a host whose provisioning claim has expired past the lease", async () => {
+		const { organizationId, memberId, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-expired-delete")
+		await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+		await backdateProvisioningClaim(hostId, PROVISIONING_LEASE_MS + 1_000)
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(testDb()),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
+		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
+	})
+
+	it("still refuses to delete a host whose provisioning claim is still within its lease", async () => {
+		const { organizationId, memberId, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-live-claim-delete")
+		await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(testDb()),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await expect(controller.remove(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
+		expect((await hosts.findById({ organizationId }, hostId))?.status).toBe("provisioning")
+	})
 })
 
 describe("host controller keeps no transaction open across remote provisioning work (real Postgres)", () => {
@@ -589,5 +638,110 @@ describe("host controller keeps no transaction open across remote provisioning w
 
 		expect(result?.status).toBe("ready")
 		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({ status: "ready" })
+	})
+})
+
+describe("host controller provisioning lease reclaim (real Postgres)", () => {
+	afterAll(async () => {
+		await teardownTestDb()
+	})
+
+	const seedProvisionableHost = async (slugPrefix: string) => {
+		const organizationId = await seedOrganization(slugPrefix)
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const sshKeyRow = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-key`,
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+		const created = await hosts.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-host`,
+				hostname: "10.0.0.93",
+				port: 22,
+				username: "mcc",
+				sshKeyId: sshKeyRow.id,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: EXPECTED_FINGERPRINT,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyTrustedAt: new Date(),
+				status: "pending",
+			},
+		)
+		trackHostId(created.id)
+		return { organizationId, memberId, db, hosts, sshKeys, hostId: created.id }
+	}
+
+	const actorFor = (organizationId: string, memberId: string): ActorContext => ({
+		organizationId,
+		memberId,
+		actorLabel: "actor@example.com",
+		role: "owner",
+	})
+
+	it("reclaims an abandoned provisioning claim once its lease has expired, auditing the reclaim", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-reclaim-audit")
+		const abandonedClaim = await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+		const abandonedAttemptId = abandonedClaim?.provisioningAttemptId
+		if (!abandonedAttemptId) throw new Error("expected a claimed attempt id")
+		await backdateProvisioningClaim(hostId, PROVISIONING_LEASE_MS + 1_000)
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() =>
+				createFakeTransport({
+					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+				}),
+			),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const result = await controller.provision(ctx, hostId)
+
+		expect(result?.status).toBe("ready")
+		expect(result?.provisioningAttemptId).toBeNull()
+
+		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		const reclaimEvent = auditEvents.find((event) => event.action === "host.provision.reclaim")
+		expect(reclaimEvent).toBeDefined()
+		expect(reclaimEvent?.detail).toMatchObject({ previousAttemptId: abandonedAttemptId })
+	})
+
+	it("does not reclaim, or audit a reclaim of, a provisioning claim that is still within its lease", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-no-reclaim-audit")
+		await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostConcurrentlyModifiedError)
+
+		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		expect(auditEvents.find((event) => event.action === "host.provision.reclaim")).toBeUndefined()
 	})
 })

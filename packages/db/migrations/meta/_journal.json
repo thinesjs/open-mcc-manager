@@ -15,6 +15,13 @@
 			"when": 1788033907226,
 			"tag": "0001_public_franklin_richards",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1788040486888,
+			"tag": "0002_magical_omega_red",
+			"breakpoints": true
 		}
 	]
 }

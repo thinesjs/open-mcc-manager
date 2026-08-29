@@ -49,6 +49,8 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostKeyTrustedByLabel: "unknown",
 	hostKeyTrustedAt: null,
 	status: "pending",
+	provisioningAttemptId: null,
+	provisioningClaimedAt: null,
 	dockerVersion: null,
 	osRelease: null,
 	cpuCount: null,
@@ -132,7 +134,26 @@ const deps = (
 		delete: vi.fn(async () => true),
 		lockHost: vi.fn(async () => undefined),
 		claimForProvisioning: vi.fn(async (_scope: OrgScope, id: string) =>
-			makeHostRow({ id, status: "provisioning" }),
+			makeHostRow({
+				id,
+				status: "provisioning",
+				hostKeyFingerprint: "SHA256:trusted",
+				provisioningAttemptId: "attempt-1",
+				provisioningClaimedAt: new Date(),
+			}),
+		),
+		finalizeProvisioning: vi.fn(
+			async (
+				_scope: OrgScope,
+				id: string,
+				_attemptId: string,
+				patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+			) =>
+				makeHostRow({
+					id,
+					status: patch.status ?? "pending",
+					dockerVersion: patch.dockerVersion ?? null,
+				}),
 		),
 		updateHostKeyTrust: vi.fn(async (_scope: OrgScope, id: string, trust: HostKeyTrustUpdate) =>
 			makeHostRow({ id, ...trust }),
@@ -294,7 +315,7 @@ describe("host controller provisioning", () => {
 		expect(d.hosts.findById).not.toHaveBeenCalled()
 		expect(d.secrets.open).not.toHaveBeenCalled()
 		expect(d.createTransport).not.toHaveBeenCalled()
-		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.hosts.finalizeProvisioning).not.toHaveBeenCalled()
 	})
 
 	it("rejects provisioning a host that is already provisioning, without touching secrets or transport", async () => {
@@ -309,6 +330,7 @@ describe("host controller provisioning", () => {
 				delete: vi.fn(async () => true),
 				lockHost: vi.fn(async () => undefined),
 				claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
+				finalizeProvisioning: vi.fn(async () => makeHostRow()),
 				updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 			},
 		})
@@ -334,6 +356,7 @@ describe("host controller provisioning", () => {
 					delete: vi.fn(async () => true),
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning,
+					finalizeProvisioning: vi.fn(async () => makeHostRow()),
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: {
@@ -357,7 +380,7 @@ describe("host controller provisioning", () => {
 	})
 
 	it("aborts and skips the audit write when the final transition affects no row", async () => {
-		const finalUpdate = vi.fn(async () => undefined)
+		const finalizeProvisioning = vi.fn(async () => undefined)
 		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
 			makeAuditEventRow({ ...entry }),
 		)
@@ -367,10 +390,18 @@ describe("host controller provisioning", () => {
 					insert: vi.fn(async () => makeHostRow()),
 					findById: vi.fn(async () => undefined),
 					list: vi.fn(async () => []),
-					update: finalUpdate,
+					update: vi.fn(async () => makeHostRow()),
 					delete: vi.fn(async () => false),
 					lockHost: vi.fn(async () => undefined),
-					claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
+					claimForProvisioning: vi.fn(async () =>
+						makeHostRow({
+							status: "provisioning",
+							hostKeyFingerprint: "SHA256:trusted",
+							provisioningAttemptId: "attempt-1",
+							provisioningClaimedAt: new Date(),
+						}),
+					),
+					finalizeProvisioning,
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: { record: auditRecord },
@@ -380,9 +411,10 @@ describe("host controller provisioning", () => {
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/changed/i)
 
-		expect(finalUpdate).toHaveBeenCalledWith(
+		expect(finalizeProvisioning).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
 			"host-1",
+			"attempt-1",
 			expect.objectContaining({ status: "ready" }),
 		)
 		expect(auditRecord).not.toHaveBeenCalled()
@@ -408,11 +440,16 @@ describe("host controller provisioning", () => {
 			"host-1",
 			"pending",
 		)
-		expect(d.hosts.update).toHaveBeenCalledTimes(1)
-		expect(d.hosts.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1", {
-			status: "ready",
-			dockerVersion: "Docker version 27.3.1",
-		})
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledTimes(1)
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			"attempt-1",
+			{
+				status: "ready",
+				dockerVersion: "Docker version 27.3.1",
+			},
+		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
 		expect(d.audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
@@ -443,10 +480,13 @@ describe("host controller provisioning", () => {
 
 		expect(transport.state()).toBe("disconnected")
 		expect(d.hosts.claimForProvisioning).toHaveBeenCalledTimes(1)
-		expect(d.hosts.update).toHaveBeenCalledTimes(1)
-		expect(d.hosts.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1", {
-			status: "error",
-		})
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledTimes(1)
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			"attempt-1",
+			{ status: "error" },
+		)
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
@@ -458,9 +498,12 @@ describe("host controller provisioning", () => {
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection refused/i)
 
 		expect(transport.wasClosed()).toBe(true)
-		expect(d.hosts.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1", {
-			status: "error",
-		})
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			"attempt-1",
+			{ status: "error" },
+		)
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
@@ -472,9 +515,12 @@ describe("host controller provisioning", () => {
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
 
 		expect(transport.wasClosed()).toBe(true)
-		expect(d.hosts.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1", {
-			status: "error",
-		})
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			"attempt-1",
+			{ status: "error" },
+		)
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
@@ -486,9 +532,12 @@ describe("host controller provisioning", () => {
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
 
 		expect(transport.wasClosed()).toBe(true)
-		expect(d.hosts.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1", {
-			status: "error",
-		})
+		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			"attempt-1",
+			{ status: "error" },
+		)
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 })

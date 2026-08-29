@@ -25,6 +25,8 @@ export const host = pgTable(
 		hostKeyTrustedByLabel: text("hostKeyTrustedByLabel").notNull().default("unknown"),
 		hostKeyTrustedAt: timestamp("hostKeyTrustedAt"),
 		status: text("status", { enum: hostStatus }).notNull().default("pending"),
+		provisioningAttemptId: text("provisioningAttemptId"),
+		provisioningClaimedAt: timestamp("provisioningClaimedAt"),
 		dockerVersion: text("dockerVersion"),
 		osRelease: text("osRelease"),
 		cpuCount: integer("cpuCount"),

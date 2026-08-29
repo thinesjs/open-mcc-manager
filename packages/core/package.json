@@ -1,0 +1,19 @@
+{
+	"name": "@open-mcc/core",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"libsodium-wrappers-sumo": "0.7.15",
+		"nanoid": "^5.0.9"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*",
+		"@types/libsodium-wrappers-sumo": "^0.7.8"
+	}
+}

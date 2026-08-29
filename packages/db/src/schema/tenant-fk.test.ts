@@ -4,9 +4,13 @@ import { afterAll, afterEach, describe, expect, it } from "vitest"
 import { createDb } from "../client"
 import { auditEvent, host, member, organization, sshKey, user } from "./index"
 
-const db = createDb(
-	process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:55432/postgres",
-)
+const requireTestDatabaseUrl = (): string => {
+	const url = process.env.TEST_DATABASE_URL
+	if (!url) throw new Error("TEST_DATABASE_URL is required to run repository tests")
+	return url
+}
+
+const db = createDb(requireTestDatabaseUrl())
 
 type SeededIds = {
 	organizationIds: string[]

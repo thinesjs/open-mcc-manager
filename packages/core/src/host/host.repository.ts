@@ -3,7 +3,10 @@ import { and, eq } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
-export type HostCreateValues = Omit<HostInsert, "id" | "organizationId" | "createdAt">
+export type HostCreateValues = Omit<
+	HostInsert,
+	"id" | "organizationId" | "createdAt" | "hostKeyTrustedByLabel"
+>
 
 const MUTABLE_HOST_COLUMNS = [
 	"name",
@@ -49,7 +52,11 @@ export const createHostRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
 		const rows = await db
 			.insert(host)
-			.values({ ...values, organizationId: scope.organizationId })
+			.values({
+				...values,
+				organizationId: scope.organizationId,
+				hostKeyTrustedByLabel: values.hostKeyTrustedBy ?? "unknown",
+			})
 			.returning()
 		const row = rows[0]
 		if (!row) throw new Error("Host insert returned no row")

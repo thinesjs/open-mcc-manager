@@ -12,6 +12,7 @@ export const auditEvent = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		actorId: text("actorId"),
+		actorLabel: text("actorLabel").notNull().default("system"),
 		action: text("action").notNull(),
 		subjectType: text("subjectType").notNull(),
 		subjectId: text("subjectId").notNull(),

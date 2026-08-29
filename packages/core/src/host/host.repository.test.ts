@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
+import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
 import { createHostRepository, type HostUpdateValues } from "./host.repository"
 
 const repo = createHostRepository(testDb())
@@ -88,5 +88,33 @@ describe("host repository organization scoping", () => {
 		expect(deleted).toBe(false)
 		const stillThere = await repo.findById({ organizationId: orgA }, created.id)
 		expect(stillThere?.name).toBe("vps-5")
+	})
+})
+
+describe("host repository trust attribution label", () => {
+	it("records the trusting member's id as an immutable label at insert", async () => {
+		const memberId = await seedMember(orgA)
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{
+				name: "vps-7",
+				hostname: "10.0.0.7",
+				port: 22,
+				username: "mcc",
+				sshKeyId: null,
+				hostKeyTrustedBy: memberId,
+			},
+		)
+		trackHostId(created.id)
+		expect(created.hostKeyTrustedByLabel).toBe(memberId)
+	})
+
+	it("falls back to a placeholder label when no member trusted the host key yet", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-8", hostname: "10.0.0.8", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+		expect(created.hostKeyTrustedByLabel).toBe("unknown")
 	})
 })

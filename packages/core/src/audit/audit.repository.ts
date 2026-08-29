@@ -14,7 +14,11 @@ export const createAuditRepository = (db: Executor) => ({
 	record: async (scope: OrgScope, entry: AuditEntry): Promise<AuditEventRow> => {
 		const rows = await db
 			.insert(auditEvent)
-			.values({ ...entry, organizationId: scope.organizationId })
+			.values({
+				...entry,
+				organizationId: scope.organizationId,
+				actorLabel: entry.actorId ?? "system",
+			})
 			.returning()
 		const row = rows[0]
 		if (!row) throw new Error("Audit insert returned no row")

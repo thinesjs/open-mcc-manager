@@ -22,6 +22,7 @@ export const host = pgTable(
 		hostKeyAlgorithm: text("hostKeyAlgorithm"),
 		hostKeyFingerprint: text("hostKeyFingerprint"),
 		hostKeyTrustedBy: text("hostKeyTrustedBy"),
+		hostKeyTrustedByLabel: text("hostKeyTrustedByLabel").notNull().default("unknown"),
 		hostKeyTrustedAt: timestamp("hostKeyTrustedAt"),
 		status: text("status", { enum: hostStatus }).notNull().default("pending"),
 		dockerVersion: text("dockerVersion"),

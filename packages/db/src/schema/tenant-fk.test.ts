@@ -99,7 +99,7 @@ describe("tenant foreign key integrity", () => {
 		await db.$client.end()
 	})
 
-	it("keeps the host row and nulls only hostKeyTrustedBy when the trusting member is deleted", async () => {
+	it("keeps the host row and nulls only hostKeyTrustedBy when the trusting member is deleted, preserving hostKeyTrustedByLabel", async () => {
 		const organizationId = await seedOrganization()
 		const memberId = await seedMember(organizationId)
 		const hostId = randomUUID()
@@ -109,6 +109,7 @@ describe("tenant foreign key integrity", () => {
 			name: "vps",
 			hostname: "10.0.0.9",
 			hostKeyTrustedBy: memberId,
+			hostKeyTrustedByLabel: memberId,
 		})
 		seeded.hostIds.push(hostId)
 
@@ -118,9 +119,10 @@ describe("tenant foreign key integrity", () => {
 		if (!found) throw new Error("expected the host row to survive the member delete")
 		expect(found.organizationId).toBe(organizationId)
 		expect(found.hostKeyTrustedBy).toBeNull()
+		expect(found.hostKeyTrustedByLabel).toBe(memberId)
 	})
 
-	it("keeps the auditEvent row and nulls only actorId when the acting member is deleted", async () => {
+	it("keeps the auditEvent row and nulls only actorId when the acting member is deleted, preserving actorLabel", async () => {
 		const organizationId = await seedOrganization()
 		const memberId = await seedMember(organizationId)
 		const eventId = randomUUID()
@@ -128,6 +130,7 @@ describe("tenant foreign key integrity", () => {
 			id: eventId,
 			organizationId,
 			actorId: memberId,
+			actorLabel: memberId,
 			action: "host.create",
 			subjectType: "host",
 			subjectId: "n/a",
@@ -140,6 +143,7 @@ describe("tenant foreign key integrity", () => {
 		if (!found) throw new Error("expected the auditEvent row to survive the member delete")
 		expect(found.organizationId).toBe(organizationId)
 		expect(found.actorId).toBeNull()
+		expect(found.actorLabel).toBe(memberId)
 	})
 
 	it("rejects a host in one organization referencing an sshKey from another", async () => {

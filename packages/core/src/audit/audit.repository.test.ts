@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { seedOrganization, teardownTestDb, testDb, trackAuditEventId } from "../test/db"
+import { seedMember, seedOrganization, teardownTestDb, testDb, trackAuditEventId } from "../test/db"
 import { createAuditRepository } from "./audit.repository"
 
 const repo = createAuditRepository(testDb())
@@ -45,5 +45,38 @@ describe("audit repository organization scoping", () => {
 		)
 		trackAuditEventId(created.id)
 		expect(await repo.list({ organizationId: orgB })).toEqual([])
+	})
+})
+
+describe("audit repository actor attribution label", () => {
+	it("records the acting member's id as an immutable label at insert", async () => {
+		const memberId = await seedMember(orgA)
+		const created = await repo.record(
+			{ organizationId: orgA },
+			{
+				actorId: memberId,
+				action: "host.enroll",
+				subjectType: "host",
+				subjectId: "n/a",
+				detail: {},
+			},
+		)
+		trackAuditEventId(created.id)
+		expect(created.actorLabel).toBe(memberId)
+	})
+
+	it("falls back to a placeholder label when the event has no actor", async () => {
+		const created = await repo.record(
+			{ organizationId: orgA },
+			{
+				actorId: null,
+				action: "host.enroll",
+				subjectType: "host",
+				subjectId: "n/a",
+				detail: {},
+			},
+		)
+		trackAuditEventId(created.id)
+		expect(created.actorLabel).toBe("system")
 	})
 })

@@ -1,6 +1,6 @@
 import { type CreateHostInput, can, type Role } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
-import type { Db, HostRow } from "@open-mcc/db"
+import type { Db } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
@@ -111,6 +111,16 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
 
+		const claimed = await deps.withTransaction(async (repos) => {
+			await repos.hosts.lockHost(hostId)
+			return repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
+		})
+		if (!claimed) {
+			throw new HostConcurrentlyModifiedError(
+				`Host ${hostId} changed before provisioning could start`,
+			)
+		}
+
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
 			try {
 				await transport.close()
@@ -140,29 +150,26 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			}
 		}
 
-		type ProvisionOutcome = { kind: "success"; updated: HostRow } | { kind: "error"; error: Error }
-
-		const outcome = await deps.withTransaction(async (repos): Promise<ProvisionOutcome> => {
-			await repos.hosts.lockHost(hostId)
-
-			const claimed = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
-			if (!claimed) {
-				throw new HostConcurrentlyModifiedError(
-					`Host ${hostId} changed before provisioning could start`,
-				)
-			}
-
-			let result: ProvisionResult
+		const runProvisionTracked = async (): Promise<ProvisionResult> => {
 			try {
-				result = await runProvision()
+				return await runProvision()
 			} catch (error) {
 				try {
-					await repos.hosts.update(scope, hostId, { status: "error" })
+					await deps.withTransaction(async (repos) => {
+						await repos.hosts.lockHost(hostId)
+						await repos.hosts.update(scope, hostId, { status: "error" })
+					})
 				} catch (updateError) {
 					console.error("provision: failed to record error status", updateError)
 				}
-				return { kind: "error", error: error instanceof Error ? error : new Error(String(error)) }
+				throw error
 			}
+		}
+
+		const result = await runProvisionTracked()
+
+		return deps.withTransaction(async (repos) => {
+			await repos.hosts.lockHost(hostId)
 
 			const updated = await repos.hosts.update(scope, hostId, {
 				status: "ready",
@@ -183,11 +190,8 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				detail: { dockerVersion: result.dockerVersion },
 			})
 
-			return { kind: "success", updated }
+			return updated
 		})
-
-		if (outcome.kind === "error") throw outcome.error
-		return outcome.updated
 	},
 
 	list: async (ctx: ActorContext) => {

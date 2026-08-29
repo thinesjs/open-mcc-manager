@@ -1,6 +1,8 @@
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
+import { sql } from "drizzle-orm"
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { createAuditRepository } from "../audit/audit.repository"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	seedMember,
@@ -16,6 +18,7 @@ import {
 	createHostControllerTransaction,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	type WithTransaction,
 } from "./host.controller"
 import { createHostRepository } from "./host.repository"
 
@@ -204,64 +207,6 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		role: "owner",
 	})
 
-	it("blocks a concurrent delete until the in-flight provisioning transaction commits", async () => {
-		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
-			await seedProvisionableHost("org-lock-delete")
-
-		let releaseGate: () => void = () => {}
-		const gate = new Promise<void>((resolve) => {
-			releaseGate = resolve
-		})
-		let signalConnectStarted: () => void = () => {}
-		const connectStarted = new Promise<void>((resolve) => {
-			signalConnectStarted = resolve
-		})
-
-		const gatedTransport = (): HostTransport => {
-			const inner = createFakeTransport({
-				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
-			})
-			return {
-				state: inner.state,
-				connect: async (options) => {
-					signalConnectStarted()
-					await gate
-					await inner.connect(options)
-				},
-				exec: inner.exec,
-				close: inner.close,
-			}
-		}
-
-		const controller = createHostController({
-			hosts,
-			sshKeys,
-			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
-			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
-			createTransport: vi.fn(gatedTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
-			withTransaction: createHostControllerTransaction(db),
-		})
-
-		const ctx = actorFor(organizationId, memberId)
-		const provisionPromise = controller.provision(ctx, hostId)
-		await connectStarted
-
-		const removePromise = controller.remove(ctx, hostId)
-		const raceResult = await Promise.race([
-			removePromise.then(() => "removed" as const),
-			new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 150)),
-		])
-		expect(raceResult).toBe("timeout")
-
-		releaseGate()
-		const [provisionResult, removeResult] = await Promise.all([provisionPromise, removePromise])
-
-		expect(provisionResult?.status).toBe("ready")
-		expect(removeResult).toBe(true)
-		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
-	})
-
 	it("lets exactly one of two concurrent provision calls on the same host succeed", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-lock-race")
@@ -326,5 +271,155 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		expect(createTransport).not.toHaveBeenCalled()
 		const stillProvisioning = await hosts.findById({ organizationId }, hostId)
 		expect(stillProvisioning?.status).toBe("provisioning")
+	})
+})
+
+describe("host controller keeps no transaction open across remote provisioning work (real Postgres)", () => {
+	afterAll(async () => {
+		await teardownTestDb()
+	})
+
+	const seedProvisionableHost = async (slugPrefix: string) => {
+		const organizationId = await seedOrganization(slugPrefix)
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const sshKeyRow = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-key`,
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+		const created = await hosts.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-host`,
+				hostname: "10.0.0.92",
+				port: 22,
+				username: "mcc",
+				sshKeyId: sshKeyRow.id,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: EXPECTED_FINGERPRINT,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyTrustedAt: new Date(),
+				status: "pending",
+			},
+		)
+		trackHostId(created.id)
+		return { organizationId, memberId, db, hosts, sshKeys, hostId: created.id }
+	}
+
+	const actorFor = (organizationId: string, memberId: string): ActorContext => ({
+		organizationId,
+		memberId,
+		actorLabel: "actor@example.com",
+		role: "owner",
+	})
+
+	const instrumentWithTransaction = (
+		inner: WithTransaction,
+	): { withTransaction: WithTransaction; isInsideTransaction: () => boolean } => {
+		let openCount = 0
+		const withTransaction: WithTransaction = async (fn) => {
+			openCount += 1
+			try {
+				return await inner(fn)
+			} finally {
+				openCount -= 1
+			}
+		}
+		return { withTransaction, isInsideTransaction: () => openCount > 0 }
+	}
+
+	it("never has a transaction open while the transport is doing remote work", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-no-open-txn")
+
+		const { withTransaction, isInsideTransaction } = instrumentWithTransaction(
+			createHostControllerTransaction(db),
+		)
+
+		const sightings: boolean[] = []
+		const instrumentedTransport = (): HostTransport => {
+			const inner = createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			})
+			return {
+				state: inner.state,
+				connect: async (options) => {
+					sightings.push(isInsideTransaction())
+					await inner.connect(options)
+				},
+				exec: async (command, timeoutMs) => {
+					sightings.push(isInsideTransaction())
+					return inner.exec(command, timeoutMs)
+				},
+				close: inner.close,
+			}
+		}
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(instrumentedTransport),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction,
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await controller.provision(ctx, hostId)
+
+		expect(sightings.length).toBeGreaterThan(0)
+		expect(sightings.every((insideTransaction) => insideTransaction === false)).toBe(true)
+	})
+
+	it("completes successfully even when the remote work outlasts a short idle-in-transaction timeout", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-no-idle-txn")
+
+		const withShortIdleTimeout: WithTransaction = (fn) =>
+			db.transaction(async (tx) => {
+				await tx.execute(sql`set local idle_in_transaction_session_timeout = '200ms'`)
+				return fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) })
+			})
+
+		const slowTransport = (): HostTransport => {
+			const inner = createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			})
+			return {
+				state: inner.state,
+				connect: async (options) => {
+					await new Promise((resolve) => setTimeout(resolve, 400))
+					await inner.connect(options)
+				},
+				exec: inner.exec,
+				close: inner.close,
+			}
+		}
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(slowTransport),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: withShortIdleTimeout,
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const result = await controller.provision(ctx, hostId)
+
+		expect(result?.status).toBe("ready")
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({ status: "ready" })
 	})
 })

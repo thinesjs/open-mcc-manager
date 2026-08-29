@@ -9,7 +9,9 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@open-mcc/contracts": "workspace:*",
 		"@open-mcc/db": "workspace:*",
+		"@open-mcc/transport": "workspace:*",
 		"drizzle-orm": "^0.38.0",
 		"libsodium-wrappers-sumo": "0.7.15"
 	},

@@ -38,9 +38,15 @@ importers:
 
   packages/core:
     dependencies:
+      '@open-mcc/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@open-mcc/db':
         specifier: workspace:*
         version: link:../db
+      '@open-mcc/transport':
+        specifier: workspace:*
+        version: link:../transport
       drizzle-orm:
         specifier: ^0.38.0
         version: 0.38.4(postgres@3.4.9)

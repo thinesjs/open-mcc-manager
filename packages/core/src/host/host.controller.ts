@@ -87,6 +87,16 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
 
+		await deps.hosts.update(scope, hostId, { status: "provisioning" })
+
+		const closeQuietly = async (transport: HostTransport): Promise<void> => {
+			try {
+				await transport.close()
+			} catch (error) {
+				console.error("provision: failed to close transport", error)
+			}
+		}
+
 		const runProvision = async (): Promise<ProvisionResult> => {
 			const transport = deps.createTransport()
 			try {
@@ -104,11 +114,24 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				})
 				return await provisionHost(transport, { instancesRoot: deps.instancesRoot })
 			} finally {
-				await transport.close()
+				await closeQuietly(transport)
 			}
 		}
 
-		const result = await runProvision()
+		const runProvisionTracked = async (): Promise<ProvisionResult> => {
+			try {
+				return await runProvision()
+			} catch (error) {
+				try {
+					await deps.hosts.update(scope, hostId, { status: "error" })
+				} catch (updateError) {
+					console.error("provision: failed to record error status", updateError)
+				}
+				throw error
+			}
+		}
+
+		const result = await runProvisionTracked()
 
 		const updated = await deps.hosts.update(scope, hostId, {
 			status: "ready",

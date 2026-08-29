@@ -67,12 +67,14 @@ const makeAuditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRo
 })
 
 type RejectingTransportMode = "connect" | "exec"
+type RejectingTransportOptions = { closeThrows?: boolean }
 
 const createRejectingTransport = (
 	mode: RejectingTransportMode,
+	options: RejectingTransportOptions = {},
 ): HostTransport & { wasClosed: () => boolean } => {
 	let state: ConnectionState = "disconnected"
-	let closed = false
+	let closeAttempted = false
 
 	return {
 		state: () => state,
@@ -88,10 +90,11 @@ const createRejectingTransport = (
 			return { stdout: "", stderr: "", exitCode: 0 }
 		},
 		close: async () => {
-			closed = true
+			closeAttempted = true
+			if (options.closeThrows) throw new Error("close failed")
 			state = "disconnected"
 		},
-		wasClosed: () => closed,
+		wasClosed: () => closeAttempted,
 	}
 }
 
@@ -238,9 +241,10 @@ describe("host controller provisioning", () => {
 		expect(d.hosts.findById).not.toHaveBeenCalled()
 		expect(d.secrets.open).not.toHaveBeenCalled()
 		expect(d.createTransport).not.toHaveBeenCalled()
+		expect(d.hosts.update).not.toHaveBeenCalled()
 	})
 
-	it("decrypts the host's ssh key, provisions it, and audits the result", async () => {
+	it("transitions status to provisioning before the attempt and to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
 			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 		})
@@ -254,6 +258,14 @@ describe("host controller provisioning", () => {
 		expect(transport.commands).toContain("install -d -m 0770 /var/lib/open-mcc-manager/instances")
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.dockerVersion).toBe("Docker version 27.3.1")
+		expect(d.hosts.update).toHaveBeenNthCalledWith(1, { organizationId: "org-1" }, "host-1", {
+			status: "provisioning",
+		})
+		expect(d.hosts.update).toHaveBeenNthCalledWith(2, { organizationId: "org-1" }, "host-1", {
+			status: "ready",
+			dockerVersion: "Docker version 27.3.1",
+		})
+		expect(d.hosts.update).toHaveBeenCalledTimes(2)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
 		expect(d.audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
@@ -261,7 +273,7 @@ describe("host controller provisioning", () => {
 		)
 	})
 
-	it("fails without persisting or auditing when docker is missing, and never leaks the private key", async () => {
+	it("transitions status to error and rethrows the original error when docker is missing, without auditing or leaking the private key", async () => {
 		const transport = createFakeTransport({
 			"docker --version": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
@@ -279,11 +291,17 @@ describe("host controller provisioning", () => {
 		}
 
 		expect(transport.state()).toBe("disconnected")
-		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.hosts.update).toHaveBeenNthCalledWith(1, { organizationId: "org-1" }, "host-1", {
+			status: "provisioning",
+		})
+		expect(d.hosts.update).toHaveBeenNthCalledWith(2, { organizationId: "org-1" }, "host-1", {
+			status: "error",
+		})
+		expect(d.hosts.update).toHaveBeenCalledTimes(2)
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
-	it("propagates a connect() rejection without persisting a host update or audit entry", async () => {
+	it("propagates a connect() rejection, marks the host errored, and writes no audit entry", async () => {
 		const transport = createRejectingTransport("connect")
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
@@ -291,11 +309,13 @@ describe("host controller provisioning", () => {
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection refused/i)
 
 		expect(transport.wasClosed()).toBe(true)
-		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.hosts.update).toHaveBeenNthCalledWith(2, { organizationId: "org-1" }, "host-1", {
+			status: "error",
+		})
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
-	it("propagates an exec() rejection without persisting a host update or audit entry", async () => {
+	it("propagates an exec() rejection, marks the host errored, and writes no audit entry", async () => {
 		const transport = createRejectingTransport("exec")
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
@@ -303,7 +323,23 @@ describe("host controller provisioning", () => {
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
 
 		expect(transport.wasClosed()).toBe(true)
-		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.hosts.update).toHaveBeenNthCalledWith(2, { organizationId: "org-1" }, "host-1", {
+			status: "error",
+		})
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	it("does not let a close() failure mask the original provisioning error", async () => {
+		const transport = createRejectingTransport("exec", { closeThrows: true })
+		const d = deps({ createTransport: vi.fn(() => transport) })
+		const controller = createHostController(d)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+
+		expect(transport.wasClosed()).toBe(true)
+		expect(d.hosts.update).toHaveBeenNthCalledWith(2, { organizationId: "org-1" }, "host-1", {
+			status: "error",
+		})
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 })

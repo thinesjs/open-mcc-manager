@@ -49,6 +49,7 @@ export class HostNotFoundError extends Error {}
 export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
 export class HostConcurrentlyModifiedError extends Error {}
+export class HostProvisioningInProgressError extends Error {}
 
 export const createHostController = (deps: HostControllerDeps) => ({
 	enroll: async (ctx: ActorContext, input: CreateHostInput) => {
@@ -204,6 +205,12 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const scope = { organizationId: ctx.organizationId }
 		return deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(hostId)
+			const found = await repos.hosts.findById(scope, hostId)
+			if (found?.status === "provisioning") {
+				throw new HostProvisioningInProgressError(
+					`Host ${hostId} cannot be deleted while its status is 'provisioning'`,
+				)
+			}
 			const removed = await repos.hosts.delete(scope, hostId)
 			if (removed) {
 				await repos.audit.record(scope, {

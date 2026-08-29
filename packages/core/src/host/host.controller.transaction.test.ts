@@ -18,6 +18,7 @@ import {
 	createHostControllerTransaction,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
 import { createHostRepository } from "./host.repository"
@@ -271,6 +272,173 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		expect(createTransport).not.toHaveBeenCalled()
 		const stillProvisioning = await hosts.findById({ organizationId }, hostId)
 		expect(stillProvisioning?.status).toBe("provisioning")
+	})
+})
+
+describe("host controller refuses to delete a provisioning host (real Postgres)", () => {
+	afterAll(async () => {
+		await teardownTestDb()
+	})
+
+	const seedProvisionableHost = async (slugPrefix: string) => {
+		const organizationId = await seedOrganization(slugPrefix)
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const sshKeyRow = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-key`,
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+		const created = await hosts.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-host`,
+				hostname: "10.0.0.91",
+				port: 22,
+				username: "mcc",
+				sshKeyId: sshKeyRow.id,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: EXPECTED_FINGERPRINT,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyTrustedAt: new Date(),
+				status: "pending",
+			},
+		)
+		trackHostId(created.id)
+		return { organizationId, memberId, db, hosts, sshKeys, hostId: created.id }
+	}
+
+	const actorFor = (organizationId: string, memberId: string): ActorContext => ({
+		organizationId,
+		memberId,
+		actorLabel: "actor@example.com",
+		role: "owner",
+	})
+
+	it("rejects deleting a host whose status is provisioning, leaving the row in place", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-refuse-delete")
+		await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await expect(controller.remove(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
+
+		const stillThere = await hosts.findById({ organizationId }, hostId)
+		expect(stillThere?.status).toBe("provisioning")
+	})
+
+	it("still deletes a host in any other status", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-allow-delete")
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
+		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
+	})
+
+	it("rejects a delete attempted during the remote-work window, then completes provisioning normally", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-refuse-mid-flight")
+
+		let releaseGate: () => void = () => {}
+		const gate = new Promise<void>((resolve) => {
+			releaseGate = resolve
+		})
+		let signalConnectStarted: () => void = () => {}
+		const connectStarted = new Promise<void>((resolve) => {
+			signalConnectStarted = resolve
+		})
+
+		const gatedTransport = (): HostTransport => {
+			const inner = createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			})
+			return {
+				state: inner.state,
+				connect: async (options) => {
+					signalConnectStarted()
+					await gate
+					await inner.connect(options)
+				},
+				exec: inner.exec,
+				close: inner.close,
+			}
+		}
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(gatedTransport),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = controller.provision(ctx, hostId)
+		await connectStarted
+
+		await expect(controller.remove(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
+
+		releaseGate()
+		const provisionResult = await provisionPromise
+		expect(provisionResult?.status).toBe("ready")
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({ status: "ready" })
+	})
+
+	it("succeeds once provisioning has completed and status is no longer provisioning", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-refuse-then-allow")
+
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() =>
+				createFakeTransport({
+					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+				}),
+			),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		await controller.provision(ctx, hostId)
+		expect((await hosts.findById({ organizationId }, hostId))?.status).toBe("ready")
+
+		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
+		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
 	})
 })
 

@@ -120,6 +120,58 @@ not a goal of the current architecture.
   barrier once the application process itself is compromised — an attacker
   with code execution in that process can open anything the process can.
 
+## Gate: required before the HTTP API ships
+
+Two controls were deferred to the future HTTP API layer. A deferral is only
+legitimate if the work that lands the API actually implements it, so this
+section exists to make each one a checkable requirement rather than a note
+that can be lost. **None of the following may be skipped, watered down, or
+left for a later task when the HTTP API is built.** Each MUST hold, and each
+MUST be proven by a test against real server code — not by a comment, a
+TODO, or a mention in a design document:
+
+- **`actorLabel` MUST be derived server-side from the authenticated user,
+  never accepted from the client and never defaulted.** The router MUST
+  populate `ActorContext.actorLabel` from the session the request
+  authenticated with (for example, the user's email on that session) before
+  calling into `host.controller.ts`. It MUST NOT read a label from the
+  request body, query, or headers, and MUST NOT substitute a placeholder when
+  an actor id is present — the repository layer already throws in that case,
+  and the API must not paper over the throw by inventing a label.
+  **Required test:** send a request with a client-supplied field shaped like
+  an actor label (in the body or a header) and assert that the label
+  actually persisted on the resulting `host.hostKeyTrustedByLabel` or
+  `auditEvent.actorLabel` row is the session-derived value, not the
+  client-supplied one — proving a client cannot make its own label reach
+  host trust or audit records.
+- **The secret store MUST be constructed, and startup MUST fail if it
+  rejects, before the server listens.** The bootstrap path MUST call
+  `await createSecretStore(env.SEALBOX_KEYS)` and MUST NOT call
+  `listen()`/start accepting connections until that call has resolved.
+  If it rejects, startup MUST fail (a thrown error or non-zero exit), not a
+  logged warning followed by a running server.
+  **Required test:** start the server with a `SEALBOX_KEYS` value containing
+  a mismatched key pair (a `keyId` whose public and private halves do not
+  correspond) and assert the process fails to start, rather than starting
+  and serving requests against a secret store that cannot actually open what
+  it seals.
+- **No error serializer may reflect internal error fields to the client.**
+  `FingerprintMismatchError` was deliberately stripped of the presented and
+  expected fingerprint values (see `host.controller.ts`) so that an operator
+  cannot submit a dummy fingerprint, read the real one back from the failure,
+  and resubmit it — which would collapse out-of-band verification into
+  two-request trust-on-first-use. The HTTP error handler MUST map known
+  domain errors to a stable code and a generic message, and MUST NOT
+  serialize an error's raw `message`, `stack`, or `cause` verbatim into the
+  response for errors that intentionally withhold detail.
+  **Required test:** trigger a host-key fingerprint mismatch through the HTTP
+  layer and assert the JSON response contains neither the presented nor the
+  expected fingerprint (nor a stack trace), mirroring the existing unit test
+  that asserts this at the controller layer today.
+
+Until all three checks above pass against real server code, the HTTP API
+must not be merged or deployed.
+
 ## Reporting a vulnerability
 
 If you find a security issue in open-mcc-manager, please report it privately

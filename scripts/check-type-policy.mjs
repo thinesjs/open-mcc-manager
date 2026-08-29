@@ -10,19 +10,24 @@ const walk = (dir, acc = []) => {
 		if (SKIP.has(entry)) continue
 		const full = join(dir, entry)
 		if (statSync(full).isDirectory()) walk(full, acc)
-		else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) acc.push(full)
+		else if (/\.tsx?$/.test(entry)) acc.push(full)
 	}
 	return acc
 }
 
 const stripNoise = (line) =>
-	line.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'(?:[^'\\]|\\.)*'/g, "''")
+	line
+		.replace(/"(?:[^"\\]|\\.)*"/g, '""')
+		.replace(/'(?:[^'\\]|\\.)*'/g, "''")
+		.replace(/`(?:[^`\\]|\\.)*`/g, "``")
+		.replace(/\/\/.*$/g, "")
+		.replace(/\/\*[\s\S]*?\*\//g, "")
 
 export const findViolations = (root) => {
 	const violations = []
 	for (const file of walk(root)) {
 		const rel = relative(root, file)
-		const inUnknownDir = rel.split(sep).join(sep).startsWith(UNKNOWN_ALLOWED)
+		const inUnknownDir = rel === UNKNOWN_ALLOWED || rel.startsWith(UNKNOWN_ALLOWED + sep)
 		const isNeverFile = rel === NEVER_ALLOWED
 		const lines = readFileSync(file, "utf8").split("\n")
 		lines.forEach((raw, index) => {

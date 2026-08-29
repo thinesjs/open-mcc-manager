@@ -5,6 +5,46 @@ export type OrgScope = { organizationId: string }
 
 export type HostCreateValues = Omit<HostInsert, "id" | "organizationId" | "createdAt">
 
+const MUTABLE_HOST_COLUMNS = [
+	"name",
+	"hostname",
+	"port",
+	"username",
+	"sshKeyId",
+	"hostKeyAlgorithm",
+	"hostKeyFingerprint",
+	"hostKeyTrustedBy",
+	"hostKeyTrustedAt",
+	"status",
+	"dockerVersion",
+	"osRelease",
+	"cpuCount",
+	"memoryMb",
+	"capacityLimit",
+	"lastSeenAt",
+] as const
+
+export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
+
+const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
+	...(patch.name !== undefined && { name: patch.name }),
+	...(patch.hostname !== undefined && { hostname: patch.hostname }),
+	...(patch.port !== undefined && { port: patch.port }),
+	...(patch.username !== undefined && { username: patch.username }),
+	...(patch.sshKeyId !== undefined && { sshKeyId: patch.sshKeyId }),
+	...(patch.hostKeyAlgorithm !== undefined && { hostKeyAlgorithm: patch.hostKeyAlgorithm }),
+	...(patch.hostKeyFingerprint !== undefined && { hostKeyFingerprint: patch.hostKeyFingerprint }),
+	...(patch.hostKeyTrustedBy !== undefined && { hostKeyTrustedBy: patch.hostKeyTrustedBy }),
+	...(patch.hostKeyTrustedAt !== undefined && { hostKeyTrustedAt: patch.hostKeyTrustedAt }),
+	...(patch.status !== undefined && { status: patch.status }),
+	...(patch.dockerVersion !== undefined && { dockerVersion: patch.dockerVersion }),
+	...(patch.osRelease !== undefined && { osRelease: patch.osRelease }),
+	...(patch.cpuCount !== undefined && { cpuCount: patch.cpuCount }),
+	...(patch.memoryMb !== undefined && { memoryMb: patch.memoryMb }),
+	...(patch.capacityLimit !== undefined && { capacityLimit: patch.capacityLimit }),
+	...(patch.lastSeenAt !== undefined && { lastSeenAt: patch.lastSeenAt }),
+})
+
 export const createHostRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
 		const rows = await db
@@ -31,11 +71,11 @@ export const createHostRepository = (db: Executor) => ({
 	update: async (
 		scope: OrgScope,
 		id: string,
-		patch: Partial<HostCreateValues> & Partial<Pick<HostRow, "status">>,
+		patch: HostUpdateValues,
 	): Promise<HostRow | undefined> => {
 		const rows = await db
 			.update(host)
-			.set(patch)
+			.set({ ...whitelistHostUpdate(patch), organizationId: scope.organizationId })
 			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
 			.returning()
 		return rows[0]

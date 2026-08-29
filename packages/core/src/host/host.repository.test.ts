@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
-import { createHostRepository } from "./host.repository"
+import { createHostRepository, type HostUpdateValues } from "./host.repository"
 
 const repo = createHostRepository(testDb())
 let orgA = ""
@@ -56,6 +56,26 @@ describe("host repository organization scoping", () => {
 		expect(updated).toBeUndefined()
 		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
 		expect(unchanged?.status).toBe("pending")
+	})
+
+	it("ignores a foreign organizationId smuggled into the patch and does not move the row", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-6", hostname: "10.0.0.6", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		const smuggledPatch: HostUpdateValues & { organizationId: string } = {
+			status: "ready",
+			organizationId: orgB,
+		}
+		const updated = await repo.update({ organizationId: orgA }, created.id, smuggledPatch)
+
+		expect(updated?.organizationId).toBe(orgA)
+		expect(updated?.status).toBe("ready")
+		const stillInOrgA = await repo.findById({ organizationId: orgA }, created.id)
+		expect(stillInOrgA?.organizationId).toBe(orgA)
+		expect(await repo.findById({ organizationId: orgB }, created.id)).toBeUndefined()
 	})
 
 	it("refuses to delete across organizations", async () => {

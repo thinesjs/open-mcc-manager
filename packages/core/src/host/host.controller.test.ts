@@ -10,7 +10,12 @@ import {
 	type HostControllerDeps,
 	type WithTransaction,
 } from "./host.controller"
-import type { HostCreateValues, HostRepository, OrgScope } from "./host.repository"
+import type {
+	HostCreateValues,
+	HostRepository,
+	HostUpdateValues,
+	OrgScope,
+} from "./host.repository"
 import { provisionHost } from "./provision"
 
 const ctx = { organizationId: "org-1", memberId: "mem-1", role: "owner" as const }
@@ -109,17 +114,12 @@ const deps = (
 		insert: vi.fn(async (_scope: OrgScope, _values: HostCreateValues) => makeHostRow()),
 		findById: vi.fn(async () => makeHostRow({ hostKeyFingerprint: "SHA256:trusted" })),
 		list: vi.fn(async () => []),
-		update: vi.fn(
-			async (
-				_scope: OrgScope,
-				id: string,
-				patch: Partial<HostCreateValues> & Partial<Pick<HostRow, "status">>,
-			) =>
-				makeHostRow({
-					id,
-					status: patch.status ?? "pending",
-					dockerVersion: patch.dockerVersion ?? null,
-				}),
+		update: vi.fn(async (_scope: OrgScope, id: string, patch: HostUpdateValues) =>
+			makeHostRow({
+				id,
+				status: patch.status ?? "pending",
+				dockerVersion: patch.dockerVersion ?? null,
+			}),
 		),
 		delete: vi.fn(async () => true),
 	}

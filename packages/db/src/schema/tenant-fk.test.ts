@@ -110,6 +110,9 @@ describe("tenant foreign key integrity", () => {
 			hostname: "10.0.0.9",
 			hostKeyTrustedBy: memberId,
 			hostKeyTrustedByLabel: memberId,
+			hostKeyFingerprint: "SHA256:tenant-fk-test",
+			hostKeyAlgorithm: "ssh-ed25519",
+			hostKeyTrustedAt: new Date(),
 		})
 		seeded.hostIds.push(hostId)
 

@@ -106,18 +106,76 @@ describe("host repository organization scoping", () => {
 })
 
 describe("host repository trust attribution label", () => {
+	it("rejects a partial trust tuple that sets the label without a fingerprint, algorithm, or timestamp", async () => {
+		const memberId = await seedMember(orgA)
+		await expect(
+			repo.insert(
+				{ organizationId: orgA },
+				{
+					name: "vps-7",
+					hostname: "10.0.0.7",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+					hostKeyTrustedBy: memberId,
+					hostKeyTrustedByLabel: "actor@example.com",
+				},
+			),
+		).rejects.toThrow(/hostKeyTrustedBy cannot be set without/i)
+	})
+
+	it("rejects a partial trust evidence trio (fingerprint without algorithm or timestamp)", async () => {
+		await expect(
+			repo.insert(
+				{ organizationId: orgA },
+				{
+					name: "vps-7c",
+					hostname: "10.0.0.21",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+					hostKeyFingerprint: "SHA256:partial",
+				},
+			),
+		).rejects.toThrow(
+			/hostKeyFingerprint, hostKeyAlgorithm, hostKeyTrustedAt.*must be set all at once/i,
+		)
+	})
+
+	it("allows a full trust evidence trio with no attributed truster, as member deletion leaves behind", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{
+				name: "vps-7d",
+				hostname: "10.0.0.22",
+				port: 22,
+				username: "mcc",
+				sshKeyId: null,
+				hostKeyFingerprint: "SHA256:orphaned",
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyTrustedAt: new Date(),
+			},
+		)
+		trackHostId(created.id)
+		expect(created.hostKeyTrustedBy).toBeNull()
+		expect(created.hostKeyFingerprint).toBe("SHA256:orphaned")
+	})
+
 	it("records the caller-supplied label, not the member id, as immutable attribution", async () => {
 		const memberId = await seedMember(orgA)
 		const created = await repo.insert(
 			{ organizationId: orgA },
 			{
-				name: "vps-7",
-				hostname: "10.0.0.7",
+				name: "vps-7b",
+				hostname: "10.0.0.20",
 				port: 22,
 				username: "mcc",
 				sshKeyId: null,
 				hostKeyTrustedBy: memberId,
 				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyFingerprint: "SHA256:cccc",
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyTrustedAt: new Date(),
 			},
 		)
 		trackHostId(created.id)
@@ -147,6 +205,9 @@ describe("host repository trust attribution label", () => {
 					sshKeyId: null,
 					hostKeyTrustedBy: memberId,
 					hostKeyTrustedByLabel: "",
+					hostKeyFingerprint: "SHA256:dddd",
+					hostKeyAlgorithm: "ssh-ed25519",
+					hostKeyTrustedAt: new Date(),
 				},
 			),
 		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
@@ -165,6 +226,9 @@ describe("host repository trust attribution label", () => {
 					sshKeyId: null,
 					hostKeyTrustedBy: memberId,
 					hostKeyTrustedByLabel: "   ",
+					hostKeyFingerprint: "SHA256:eeee",
+					hostKeyAlgorithm: "ssh-ed25519",
+					hostKeyTrustedAt: new Date(),
 				},
 			),
 		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)

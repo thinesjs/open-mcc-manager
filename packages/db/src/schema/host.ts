@@ -1,4 +1,5 @@
-import { foreignKey, integer, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { check, foreignKey, integer, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
 import { nanoid } from "nanoid"
 import { member, organization } from "./auth"
 import { sshKey } from "./ssh-key"
@@ -47,6 +48,14 @@ export const host = pgTable(
 			foreignColumns: [member.organizationId, member.id],
 			name: "host_hostKeyTrustedBy_org_fk",
 		}).onDelete("set null"),
+		check(
+			"host_trust_evidence_all_or_none",
+			sql`num_nonnulls(${t.hostKeyFingerprint}, ${t.hostKeyAlgorithm}, ${t.hostKeyTrustedAt}) in (0, 3)`,
+		),
+		check(
+			"host_trust_attribution_requires_evidence",
+			sql`${t.hostKeyTrustedBy} is null or ${t.hostKeyFingerprint} is not null`,
+		),
 	],
 )
 

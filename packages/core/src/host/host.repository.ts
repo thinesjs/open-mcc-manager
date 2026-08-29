@@ -48,6 +48,31 @@ const resolveHostKeyTrustedByLabel = (values: HostCreateValues): string => {
 	return requireNonBlankLabel(label)
 }
 
+const TRUST_EVIDENCE_FIELDS = [
+	"hostKeyFingerprint",
+	"hostKeyAlgorithm",
+	"hostKeyTrustedAt",
+] as const
+
+const isPresent = (value: string | Date | null | undefined): boolean =>
+	value !== null && value !== undefined
+
+const requireConsistentTrustTuple = (values: HostCreateValues): void => {
+	const presentEvidenceCount = TRUST_EVIDENCE_FIELDS.filter((field) =>
+		isPresent(values[field]),
+	).length
+	if (presentEvidenceCount !== 0 && presentEvidenceCount !== TRUST_EVIDENCE_FIELDS.length) {
+		throw new Error(
+			"Host key trust evidence (hostKeyFingerprint, hostKeyAlgorithm, hostKeyTrustedAt) must be set all at once or not at all",
+		)
+	}
+	if (isPresent(values.hostKeyTrustedBy) && presentEvidenceCount === 0) {
+		throw new Error(
+			"hostKeyTrustedBy cannot be set without hostKeyFingerprint, hostKeyAlgorithm, and hostKeyTrustedAt",
+		)
+	}
+}
+
 export const PROVISIONING_LEASE_MS = 5 * 60 * 1000
 
 export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
@@ -70,6 +95,7 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 
 export const createHostRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
+		requireConsistentTrustTuple(values)
 		const rows = await db
 			.insert(host)
 			.values({

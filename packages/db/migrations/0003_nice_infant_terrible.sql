@@ -1,0 +1,2 @@
+ALTER TABLE "host" ADD CONSTRAINT "host_trust_evidence_all_or_none" CHECK (num_nonnulls("host"."hostKeyFingerprint", "host"."hostKeyAlgorithm", "host"."hostKeyTrustedAt") in (0, 3));--> statement-breakpoint
+ALTER TABLE "host" ADD CONSTRAINT "host_trust_attribution_requires_evidence" CHECK ("host"."hostKeyTrustedBy" is null or "host"."hostKeyFingerprint" is not null);

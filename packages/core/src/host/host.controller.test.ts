@@ -269,11 +269,21 @@ describe("host controller provisioning", () => {
 	})
 })
 
+const provisionConnectOptions = {
+	hostname: "10.0.0.1",
+	port: 22,
+	username: "mcc",
+	privateKey: "PRIVATE KEY",
+	expectedFingerprint: "SHA256:trusted",
+	timeoutMs: 1000,
+}
+
 describe("provisionHost", () => {
 	it("installs docker and creates the instances directory", async () => {
 		const transport = createFakeTransport({
 			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 		})
+		await transport.connect(provisionConnectOptions)
 		const result = await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
 		expect(result.dockerVersion).toBe("Docker version 27.3.1")
 		expect(transport.commands).toContain("install -d -m 0770 /var/lib/open-mcc-manager/instances")
@@ -283,6 +293,7 @@ describe("provisionHost", () => {
 		const transport = createFakeTransport({
 			"docker --version": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
+		await transport.connect(provisionConnectOptions)
 		await expect(
 			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
 		).rejects.toThrow(/docker/i)

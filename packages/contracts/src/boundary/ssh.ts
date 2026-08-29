@@ -13,6 +13,14 @@ export const parseHostKey = (value: unknown): HostKey => hostKeySchema.parse(val
 export const fingerprintFromKey = (key: Buffer): string =>
 	`SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`
 
+const isAllowedSshNameByte = (byte: number): boolean =>
+	(byte >= 0x30 && byte <= 0x39) ||
+	(byte >= 0x41 && byte <= 0x5a) ||
+	(byte >= 0x61 && byte <= 0x7a) ||
+	byte === 0x2d ||
+	byte === 0x2e ||
+	byte === 0x40
+
 export const algorithmFromKey = (key: Buffer): string => {
 	if (key.length < 4) {
 		throw new Error("Host key blob is too short to contain an algorithm name")
@@ -24,5 +32,11 @@ export const algorithmFromKey = (key: Buffer): string => {
 	if (length > key.length - 4) {
 		throw new Error("Host key blob declares an algorithm length exceeding the buffer")
 	}
-	return key.subarray(4, 4 + length).toString("ascii")
+	const nameBytes = key.subarray(4, 4 + length)
+	for (const byte of nameBytes) {
+		if (!isAllowedSshNameByte(byte)) {
+			throw new Error("Host key blob declares an algorithm name outside the allowed character set")
+		}
+	}
+	return nameBytes.toString("ascii")
 }

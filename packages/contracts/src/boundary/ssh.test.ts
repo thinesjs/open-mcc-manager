@@ -56,4 +56,13 @@ describe("algorithmFromKey", () => {
 		length.writeUInt32BE(0, 0)
 		expect(() => algorithmFromKey(length)).toThrow(/empty/i)
 	})
+
+	it("rejects an algorithm name whose bytes have the high bit set instead of laundering it into a plausible name", () => {
+		const asciiName = Buffer.from("ssh-ed25519", "ascii")
+		const highBitName = Buffer.from(Array.from(asciiName, (byte) => byte | 0x80))
+		const length = Buffer.alloc(4)
+		length.writeUInt32BE(highBitName.length, 0)
+		const blob = Buffer.concat([length, highBitName])
+		expect(() => algorithmFromKey(blob)).toThrow(/character set/i)
+	})
 })

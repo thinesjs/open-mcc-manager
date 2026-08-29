@@ -280,6 +280,55 @@ describe("host controller provisioning", () => {
 		expect(d.hosts.update).not.toHaveBeenCalled()
 	})
 
+	it("aborts before decrypting the key or contacting the host when the host was concurrently deleted", async () => {
+		const update = vi.fn(async () => undefined)
+		const d = deps({
+			hosts: {
+				insert: vi.fn(async () => makeHostRow()),
+				findById: vi.fn(async () => makeHostRow({ hostKeyFingerprint: "SHA256:trusted" })),
+				list: vi.fn(async () => []),
+				update,
+				delete: vi.fn(async () => true),
+			},
+		})
+		const controller = createHostController(d)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/changed/i)
+
+		expect(update).toHaveBeenCalledTimes(1)
+		expect(d.secrets.open).not.toHaveBeenCalled()
+		expect(d.createTransport).not.toHaveBeenCalled()
+	})
+
+	it("aborts and skips the audit write when the final transition affects no row", async () => {
+		const finalUpdate = vi.fn(async () => undefined)
+		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
+			makeAuditEventRow({ ...entry }),
+		)
+		const withTransaction: WithTransaction = async (fn) =>
+			fn({
+				hosts: {
+					insert: vi.fn(async () => makeHostRow()),
+					findById: vi.fn(async () => undefined),
+					list: vi.fn(async () => []),
+					update: finalUpdate,
+					delete: vi.fn(async () => false),
+				},
+				audit: { record: auditRecord },
+			})
+		const d = deps({ withTransaction })
+		const controller = createHostController(d)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/changed/i)
+
+		expect(finalUpdate).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			expect.objectContaining({ status: "ready" }),
+		)
+		expect(auditRecord).not.toHaveBeenCalled()
+	})
+
 	it("transitions status to provisioning before the attempt and to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
 			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },

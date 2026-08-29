@@ -47,6 +47,7 @@ export class FingerprintMismatchError extends Error {}
 export class HostNotFoundError extends Error {}
 export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
+export class HostConcurrentlyModifiedError extends Error {}
 
 export const createHostController = (deps: HostControllerDeps) => ({
 	enroll: async (ctx: ActorContext, input: CreateHostInput) => {
@@ -103,7 +104,12 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
 
-		await deps.hosts.update(scope, hostId, { status: "provisioning" })
+		const startedProvisioning = await deps.hosts.update(scope, hostId, { status: "provisioning" })
+		if (!startedProvisioning) {
+			throw new HostConcurrentlyModifiedError(
+				`Host ${hostId} changed before provisioning could start`,
+			)
+		}
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
 			try {
@@ -154,6 +160,11 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				status: "ready",
 				dockerVersion: result.dockerVersion,
 			})
+			if (!updated) {
+				throw new HostConcurrentlyModifiedError(
+					`Host ${hostId} changed before provisioning could complete`,
+				)
+			}
 
 			await repos.audit.record(scope, {
 				actorId: ctx.memberId,

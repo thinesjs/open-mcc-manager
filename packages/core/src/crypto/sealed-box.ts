@@ -47,6 +47,14 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 		.map((s) => s.trim())
 		.filter((s) => s.length > 0)
 		.map(parseEntry)
+	const seenKeyIds = new Set<string>()
+	for (const entry of entries) {
+		if (seenKeyIds.has(entry.keyId)) {
+			throw new Error(`Duplicate keyId '${entry.keyId}' in SEALBOX_KEYS`)
+		}
+		seenKeyIds.add(entry.keyId)
+	}
+
 	const active = entries[0]
 	if (!active) throw new Error("SEALBOX_KEYS must contain at least one key")
 	const byId = new Map(entries.map((e) => [e.keyId, e]))

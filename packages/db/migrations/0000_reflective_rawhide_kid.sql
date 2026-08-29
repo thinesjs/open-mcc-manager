@@ -113,4 +113,16 @@ ALTER TABLE "session" ADD CONSTRAINT "session_userId_user_id_fk" FOREIGN KEY ("u
 ALTER TABLE "host" ADD CONSTRAINT "host_organizationId_organization_id_fk" FOREIGN KEY ("organizationId") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "host" ADD CONSTRAINT "host_sshKey_org_fk" FOREIGN KEY ("organizationId","sshKeyId") REFERENCES "public"."sshKey"("organizationId","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "host" ADD CONSTRAINT "host_hostKeyTrustedBy_org_fk" FOREIGN KEY ("organizationId","hostKeyTrustedBy") REFERENCES "public"."member"("organizationId","id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "sshKey" ADD CONSTRAINT "sshKey_organizationId_organization_id_fk" FOREIGN KEY ("organizationId") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "sshKey" ADD CONSTRAINT "sshKey_organizationId_organization_id_fk" FOREIGN KEY ("organizationId") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+-- Hand-edited: drizzle-orm 0.38's ForeignKeyBuilder.onDelete() only accepts a single
+-- action for the whole composite key, so the generated constraints above null every
+-- column in the key, including the NOT NULL organizationId, which blocks deleting a
+-- member who ever trusted a host key or authored an audit event. Postgres 15+ lets
+-- ON DELETE SET NULL name the subset of columns to null; these two statements narrow
+-- the generated constraints to that. Regenerating this migration from src/schema will
+-- not reproduce this narrowing since drizzle-kit cannot express it — see
+-- .superpowers/sdd/2026-08-30-open-mcc-manager-p0/task-3-report.md.
+ALTER TABLE "host" DROP CONSTRAINT "host_hostKeyTrustedBy_org_fk";--> statement-breakpoint
+ALTER TABLE "host" ADD CONSTRAINT "host_hostKeyTrustedBy_org_fk" FOREIGN KEY ("organizationId","hostKeyTrustedBy") REFERENCES "public"."member"("organizationId","id") ON DELETE SET NULL ("hostKeyTrustedBy") ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "auditEvent" DROP CONSTRAINT "auditEvent_actor_org_fk";--> statement-breakpoint
+ALTER TABLE "auditEvent" ADD CONSTRAINT "auditEvent_actor_org_fk" FOREIGN KEY ("organizationId","actorId") REFERENCES "public"."member"("organizationId","id") ON DELETE SET NULL ("actorId") ON UPDATE no action;

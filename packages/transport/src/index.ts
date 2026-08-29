@@ -1,0 +1,6 @@
+export { createFakeTransport } from "./fake"
+export { createSshTransport } from "./ssh/connection"
+export { probeHostKey } from "./ssh/probe"
+export type { VerificationResult } from "./ssh/verify"
+export { verifyHostKey } from "./ssh/verify"
+export type * from "./types"

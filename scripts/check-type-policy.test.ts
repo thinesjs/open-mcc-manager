@@ -125,4 +125,31 @@ describe("findViolations", () => {
 			{ file: "packages/core/src/k.ts", line: 2, token: "unknown" },
 		])
 	})
+
+	it("reports parse errors that hide forbidden tokens", () => {
+		const root = seed({
+			"packages/core/src/l.ts": "function broken( {\nconst x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/l.ts", line: 2, token: "parse-error" },
+		])
+	})
+
+	it("does not report parse-error for syntactically valid files", () => {
+		const root = seed({
+			"packages/core/src/m.ts": "const x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/m.ts", line: 1, token: "unknown" },
+		])
+	})
+
+	it("reports parse errors exactly once without walking", () => {
+		const root = seed({
+			"packages/core/src/n.ts": "function broken( {\nconst x: unknown = 1\nconst y: never = 2\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/n.ts", line: 2, token: "parse-error" },
+		])
+	})
 })

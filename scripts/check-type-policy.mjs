@@ -32,9 +32,20 @@ export const findViolations = (root) => {
 			rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
 		)
 
+		if (sf.parseDiagnostics.length > 0) {
+			const lines = sf.parseDiagnostics.map(
+				(d) => ts.getLineAndCharacterOfPosition(sf, d.start ?? 0).line + 1,
+			)
+			const line = Math.min(...lines)
+			violations.push({ file: rel, line, token: "parse-error" })
+			continue
+		}
+
+		const getLine = (node) => ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
+
 		const visit = (node) => {
 			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) {
-				const line = ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
+				const line = getLine(node)
 				const key = `${rel}:${line}:unknown`
 				if (!seen.has(key)) {
 					seen.add(key)
@@ -42,7 +53,7 @@ export const findViolations = (root) => {
 				}
 			}
 			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) {
-				const line = ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
+				const line = getLine(node)
 				const key = `${rel}:${line}:never`
 				if (!seen.has(key)) {
 					seen.add(key)
@@ -59,6 +70,12 @@ export const findViolations = (root) => {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const found = findViolations(process.cwd())
-	for (const v of found) console.error(`${v.file}:${v.line} forbidden token '${v.token}'`)
+	for (const v of found) {
+		const msg =
+			v.token === "parse-error"
+				? `${v.file}:${v.line} parse error`
+				: `${v.file}:${v.line} forbidden token '${v.token}'`
+		console.error(msg)
+	}
 	process.exit(found.length === 0 ? 0 : 1)
 }

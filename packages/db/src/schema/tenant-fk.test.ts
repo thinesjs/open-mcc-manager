@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { eq } from "drizzle-orm"
-import { afterAll, describe, expect, it } from "vitest"
+import { eq, inArray } from "drizzle-orm"
+import { afterAll, afterEach, describe, expect, it } from "vitest"
 import { createDb } from "../client"
 import { auditEvent, host, member, organization, sshKey, user } from "./index"
 
@@ -8,21 +8,67 @@ const db = createDb(
 	process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:55432/postgres",
 )
 
+type SeededIds = {
+	organizationIds: string[]
+	userIds: string[]
+	memberIds: string[]
+	hostIds: string[]
+	sshKeyIds: string[]
+	auditEventIds: string[]
+}
+
+const emptySeededIds = (): SeededIds => ({
+	organizationIds: [],
+	userIds: [],
+	memberIds: [],
+	hostIds: [],
+	sshKeyIds: [],
+	auditEventIds: [],
+})
+
+let seeded = emptySeededIds()
+
 const seedOrganization = async () => {
 	const id = randomUUID()
 	await db.insert(organization).values({ id, name: "org", slug: `org-${id.slice(0, 8)}` })
+	seeded.organizationIds.push(id)
 	return id
 }
 
 const seedMember = async (organizationId: string) => {
 	const userId = randomUUID()
 	await db.insert(user).values({ id: userId, name: "actor", email: `${userId}@example.com` })
+	seeded.userIds.push(userId)
 	const memberId = randomUUID()
 	await db.insert(member).values({ id: memberId, organizationId, userId })
+	seeded.memberIds.push(memberId)
 	return memberId
 }
 
 describe("tenant foreign key integrity", () => {
+	afterEach(async () => {
+		const created = seeded
+		seeded = emptySeededIds()
+		if (created.auditEventIds.length > 0) {
+			await db.delete(auditEvent).where(inArray(auditEvent.id, created.auditEventIds))
+		}
+		if (created.hostIds.length > 0) {
+			await db.delete(host).where(inArray(host.id, created.hostIds))
+		}
+		if (created.sshKeyIds.length > 0) {
+			await db.delete(sshKey).where(inArray(sshKey.id, created.sshKeyIds))
+		}
+		if (created.memberIds.length > 0) {
+			await db.delete(member).where(inArray(member.id, created.memberIds))
+		}
+		if (created.userIds.length > 0) {
+			await db.delete(user).where(inArray(user.id, created.userIds))
+		}
+		if (created.organizationIds.length > 0) {
+			await db.delete(organization).where(inArray(organization.id, created.organizationIds))
+		}
+	})
+
 	afterAll(async () => {
 		await db.$client.end()
 	})
@@ -38,6 +84,7 @@ describe("tenant foreign key integrity", () => {
 			hostname: "10.0.0.9",
 			hostKeyTrustedBy: memberId,
 		})
+		seeded.hostIds.push(hostId)
 
 		await db.delete(member).where(eq(member.id, memberId))
 
@@ -59,6 +106,7 @@ describe("tenant foreign key integrity", () => {
 			subjectType: "host",
 			subjectId: "n/a",
 		})
+		seeded.auditEventIds.push(eventId)
 
 		await db.delete(member).where(eq(member.id, memberId))
 
@@ -80,6 +128,7 @@ describe("tenant foreign key integrity", () => {
 			privateKeyEncrypted: "enc",
 			privateKeyKeyId: "kid",
 		})
+		seeded.sshKeyIds.push(keyId)
 
 		await expect(
 			db.insert(host).values({

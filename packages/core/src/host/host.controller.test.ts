@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import { createHostController, type HostControllerDeps } from "./host.controller"
+import {
+	createHostController,
+	type HostControllerDeps,
+	type WithTransaction,
+} from "./host.controller"
 import type { HostCreateValues, HostRepository, OrgScope } from "./host.repository"
 import { provisionHost } from "./provision"
 
@@ -98,8 +102,10 @@ const createRejectingTransport = (
 	}
 }
 
-const deps = (overrides: Partial<HostControllerDeps> = {}): HostControllerDeps => ({
-	hosts: {
+const deps = (
+	overrides: Partial<HostControllerDeps> = {},
+): HostControllerDeps & { audit: Pick<AuditRepository, "record"> } => {
+	const hosts: HostRepository = {
 		insert: vi.fn(async (_scope: OrgScope, _values: HostCreateValues) => makeHostRow()),
 		findById: vi.fn(async () => makeHostRow({ hostKeyFingerprint: "SHA256:trusted" })),
 		list: vi.fn(async () => []),
@@ -116,27 +122,34 @@ const deps = (overrides: Partial<HostControllerDeps> = {}): HostControllerDeps =
 				}),
 		),
 		delete: vi.fn(async () => true),
-	} satisfies HostRepository,
-	sshKeys: {
-		findById: vi.fn(async () => makeSshKeyRow()),
-	} satisfies Pick<SshKeyRepository, "findById">,
-	audit: {
+	}
+	const audit: Pick<AuditRepository, "record"> = {
 		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => makeAuditEventRow({ ...entry })),
-	} satisfies Pick<AuditRepository, "record">,
-	secrets: {
-		open: vi.fn(() => "PRIVATE KEY"),
-		activeKeyId: "k1",
-		seal: vi.fn(),
-	} satisfies SecretStore,
-	probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
-	createTransport: vi.fn(() =>
-		createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
-		}),
-	),
-	instancesRoot: "/var/lib/open-mcc-manager",
-	...overrides,
-})
+	}
+	const withTransaction: WithTransaction = async (fn) => fn({ hosts, audit })
+
+	return {
+		hosts,
+		sshKeys: {
+			findById: vi.fn(async () => makeSshKeyRow()),
+		} satisfies Pick<SshKeyRepository, "findById">,
+		audit,
+		secrets: {
+			open: vi.fn(() => "PRIVATE KEY"),
+			activeKeyId: "k1",
+			seal: vi.fn(),
+		} satisfies SecretStore,
+		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
+		createTransport: vi.fn(() =>
+			createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			}),
+		),
+		instancesRoot: "/var/lib/open-mcc-manager",
+		withTransaction,
+		...overrides,
+	}
+}
 
 describe("host controller enrollment", () => {
 	it("rejects a role without host.enroll", async () => {

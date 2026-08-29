@@ -8,3 +8,5 @@ export const createDb = (url: string) => {
 }
 
 export type Db = ReturnType<typeof createDb>
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
+export type Executor = Db | Tx

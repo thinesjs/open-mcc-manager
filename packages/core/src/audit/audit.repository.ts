@@ -1,4 +1,4 @@
-import { type AuditEventRow, auditEvent, type Db } from "@open-mcc/db"
+import { type AuditEventRow, auditEvent, type Executor } from "@open-mcc/db"
 import { desc, eq } from "drizzle-orm"
 import type { OrgScope } from "../host/host.repository"
 
@@ -10,7 +10,7 @@ export type AuditEntry = {
 	detail: Record<string, string>
 }
 
-export const createAuditRepository = (db: Db) => ({
+export const createAuditRepository = (db: Executor) => ({
 	record: async (scope: OrgScope, entry: AuditEntry): Promise<AuditEventRow> => {
 		const rows = await db
 			.insert(auditEvent)

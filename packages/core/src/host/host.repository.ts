@@ -1,11 +1,11 @@
-import { type Db, type HostInsert, type HostRow, host } from "@open-mcc/db"
+import { type Executor, type HostInsert, type HostRow, host } from "@open-mcc/db"
 import { and, eq } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
 export type HostCreateValues = Omit<HostInsert, "id" | "organizationId" | "createdAt">
 
-export const createHostRepository = (db: Db) => ({
+export const createHostRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
 		const rows = await db
 			.insert(host)

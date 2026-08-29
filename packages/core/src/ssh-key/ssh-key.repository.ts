@@ -1,10 +1,10 @@
-import { type Db, type SshKeyInsert, type SshKeyRow, sshKey } from "@open-mcc/db"
+import { type Executor, type SshKeyInsert, type SshKeyRow, sshKey } from "@open-mcc/db"
 import { and, eq } from "drizzle-orm"
 import type { OrgScope } from "../host/host.repository"
 
 export type SshKeyCreateValues = Omit<SshKeyInsert, "id" | "organizationId" | "createdAt">
 
-export const createSshKeyRepository = (db: Db) => ({
+export const createSshKeyRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: SshKeyCreateValues): Promise<SshKeyRow> => {
 		const rows = await db
 			.insert(sshKey)

@@ -1,10 +1,11 @@
 import { type CreateHostInput, can, type Role } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
+import type { Db } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
-import type { AuditRepository } from "../audit/audit.repository"
+import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import type { HostRepository } from "./host.repository"
+import { createHostRepository, type HostRepository } from "./host.repository"
 import { type ProvisionResult, provisionHost } from "./provision"
 
 export type ActorContext = {
@@ -13,14 +14,29 @@ export type ActorContext = {
 	role: Role
 }
 
+export type HostTransactionRepos = {
+	hosts: HostRepository
+	audit: Pick<AuditRepository, "record">
+}
+
+export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T>) => Promise<T>
+
+export const createHostControllerTransaction = (db: Db): WithTransaction => {
+	const withTransaction: WithTransaction = (fn) =>
+		db.transaction((tx) =>
+			fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) }),
+		)
+	return withTransaction
+}
+
 export type HostControllerDeps = {
 	hosts: HostRepository
 	sshKeys: Pick<SshKeyRepository, "findById">
-	audit: Pick<AuditRepository, "record">
 	secrets: SecretStore
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
 	instancesRoot: string
+	withTransaction: WithTransaction
 }
 
 const PROBE_TIMEOUT_MS = 10_000
@@ -44,28 +60,30 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const algorithm = algorithmFromKey(presented)
 
 		const scope = { organizationId: ctx.organizationId }
-		const created = await deps.hosts.insert(scope, {
-			name: input.name,
-			hostname: input.hostname,
-			port: input.port,
-			username: input.username,
-			sshKeyId: input.sshKeyId,
-			hostKeyAlgorithm: algorithm,
-			hostKeyFingerprint: verification.fingerprint,
-			hostKeyTrustedBy: ctx.memberId,
-			hostKeyTrustedAt: new Date(),
-			status: "pending",
-		})
+		return deps.withTransaction(async (repos) => {
+			const created = await repos.hosts.insert(scope, {
+				name: input.name,
+				hostname: input.hostname,
+				port: input.port,
+				username: input.username,
+				sshKeyId: input.sshKeyId,
+				hostKeyAlgorithm: algorithm,
+				hostKeyFingerprint: verification.fingerprint,
+				hostKeyTrustedBy: ctx.memberId,
+				hostKeyTrustedAt: new Date(),
+				status: "pending",
+			})
 
-		await deps.audit.record(scope, {
-			actorId: ctx.memberId,
-			action: "host.enroll",
-			subjectType: "host",
-			subjectId: created.id,
-			detail: { hostname: input.hostname, fingerprint: verification.fingerprint },
-		})
+			await repos.audit.record(scope, {
+				actorId: ctx.memberId,
+				action: "host.enroll",
+				subjectType: "host",
+				subjectId: created.id,
+				detail: { hostname: input.hostname, fingerprint: verification.fingerprint },
+			})
 
-		return created
+			return created
+		})
 	},
 
 	provision: async (ctx: ActorContext, hostId: string) => {
@@ -131,20 +149,22 @@ export const createHostController = (deps: HostControllerDeps) => ({
 
 		const result = await runProvisionTracked()
 
-		const updated = await deps.hosts.update(scope, hostId, {
-			status: "ready",
-			dockerVersion: result.dockerVersion,
-		})
+		return deps.withTransaction(async (repos) => {
+			const updated = await repos.hosts.update(scope, hostId, {
+				status: "ready",
+				dockerVersion: result.dockerVersion,
+			})
 
-		await deps.audit.record(scope, {
-			actorId: ctx.memberId,
-			action: "host.provision",
-			subjectType: "host",
-			subjectId: hostId,
-			detail: { dockerVersion: result.dockerVersion },
-		})
+			await repos.audit.record(scope, {
+				actorId: ctx.memberId,
+				action: "host.provision",
+				subjectType: "host",
+				subjectId: hostId,
+				detail: { dockerVersion: result.dockerVersion },
+			})
 
-		return updated
+			return updated
+		})
 	},
 
 	list: async (ctx: ActorContext) => {
@@ -155,17 +175,19 @@ export const createHostController = (deps: HostControllerDeps) => ({
 	remove: async (ctx: ActorContext, hostId: string) => {
 		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.delete")
 		const scope = { organizationId: ctx.organizationId }
-		const removed = await deps.hosts.delete(scope, hostId)
-		if (removed) {
-			await deps.audit.record(scope, {
-				actorId: ctx.memberId,
-				action: "host.delete",
-				subjectType: "host",
-				subjectId: hostId,
-				detail: {},
-			})
-		}
-		return removed
+		return deps.withTransaction(async (repos) => {
+			const removed = await repos.hosts.delete(scope, hostId)
+			if (removed) {
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					action: "host.delete",
+					subjectType: "host",
+					subjectId: hostId,
+					detail: {},
+				})
+			}
+			return removed
+		})
 	},
 })
 

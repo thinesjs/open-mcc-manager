@@ -40,6 +40,26 @@ const parseEntry = (raw: string): KeyEntry => {
 	}
 }
 
+const SELF_TEST_PLAINTEXT = "open-mcc-manager sealed-box self-test"
+
+const verifyKeyPair = (entry: KeyEntry): void => {
+	if (entry.publicKey.length !== sodium.crypto_box_PUBLICKEYBYTES) {
+		throw new Error(`Key pair '${entry.keyId}' has an invalid public key length`)
+	}
+	if (entry.privateKey.length !== sodium.crypto_box_SECRETKEYBYTES) {
+		throw new Error(`Key pair '${entry.keyId}' has an invalid private key length`)
+	}
+	try {
+		const sealed = sodium.crypto_box_seal(sodium.from_string(SELF_TEST_PLAINTEXT), entry.publicKey)
+		const opened = sodium.to_string(
+			sodium.crypto_box_seal_open(sealed, entry.publicKey, entry.privateKey),
+		)
+		if (opened !== SELF_TEST_PLAINTEXT) throw new Error("self-test mismatch")
+	} catch {
+		throw new Error(`Key pair '${entry.keyId}' failed its seal/open self-test`)
+	}
+}
+
 export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 	await sodium.ready
 	const entries = spec
@@ -53,6 +73,9 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 			throw new Error(`Duplicate keyId '${entry.keyId}' in SEALBOX_KEYS`)
 		}
 		seenKeyIds.add(entry.keyId)
+	}
+	for (const entry of entries) {
+		verifyKeyPair(entry)
 	}
 
 	const active = entries[0]

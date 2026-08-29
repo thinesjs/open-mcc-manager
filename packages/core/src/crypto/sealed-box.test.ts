@@ -73,3 +73,42 @@ describe("createSecretStore duplicate keyId handling", () => {
 		}
 	})
 })
+
+describe("createSecretStore mismatched key pair handling", () => {
+	it("rejects a public key from one pair combined with a private key from another", async () => {
+		const a = await generateKeyPair("k1")
+		const b = await generateKeyPair("k2")
+		const aParts = a.split(":")
+		const bParts = b.split(":")
+		const aPub = aParts[1]
+		const bPriv = bParts[2]
+		if (!aPub || !bPriv) throw new Error("test setup: malformed generated key pair")
+
+		await expect(createSecretStore(`k1:${aPub}:${bPriv}`)).rejects.toThrow(/k1/)
+	})
+
+	it("still constructs and round-trips a store built entirely from valid pairs", async () => {
+		const store = await createSecretStore(specAB)
+		const sealed = store.seal("still-valid")
+		expect(store.open(sealed.ciphertext, sealed.keyId)).toBe("still-valid")
+	})
+
+	it("keeps key material out of the self-test failure message", async () => {
+		const a = await generateKeyPair("k1")
+		const b = await generateKeyPair("k2")
+		const aParts = a.split(":")
+		const bParts = b.split(":")
+		const aPub = aParts[1]
+		const bPriv = bParts[2]
+		if (!aPub || !bPriv) throw new Error("test setup: malformed generated key pair")
+
+		try {
+			await createSecretStore(`k1:${aPub}:${bPriv}`)
+			throw new Error("expected createSecretStore to reject a mismatched key pair")
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			expect(message).not.toContain(aPub)
+			expect(message).not.toContain(bPriv)
+		}
+	})
+})

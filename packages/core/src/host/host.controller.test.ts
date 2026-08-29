@@ -176,6 +176,29 @@ describe("host controller enrollment", () => {
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
 
+	it("never hands the presented fingerprint back in the mismatch error", async () => {
+		const d = deps()
+		const controller = createHostController(d)
+		const realFingerprint = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)
+
+		try {
+			await controller.enroll(ctx, {
+				name: "vps",
+				hostname: "10.0.0.1",
+				port: 22,
+				username: "mcc",
+				sshKeyId: "key-1",
+				expectedFingerprint: "SHA256:wrong",
+			})
+			throw new Error("expected enroll to reject")
+		} catch (error) {
+			expect(error).toBeInstanceOf(Error)
+			const message = error instanceof Error ? error.message : ""
+			expect(message).not.toContain(realFingerprint)
+			expect(message).not.toContain(realFingerprint.slice("SHA256:".length, "SHA256:".length + 12))
+		}
+	})
+
 	it("enrolls and audits when the fingerprint matches", async () => {
 		const d = deps()
 		const expected = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)

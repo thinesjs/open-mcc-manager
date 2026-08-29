@@ -39,9 +39,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const presented = await deps.probeHostKey(input.hostname, input.port, PROBE_TIMEOUT_MS)
 		const verification = verifyHostKey(presented, input.expectedFingerprint)
 		if (!verification.ok) {
-			throw new FingerprintMismatchError(
-				`Host key fingerprint mismatch: presented ${verification.presented}, expected ${verification.expected}`,
-			)
+			throw new FingerprintMismatchError(`Host key fingerprint mismatch for ${input.hostname}`)
 		}
 		const algorithm = algorithmFromKey(presented)
 

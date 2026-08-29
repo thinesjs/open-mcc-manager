@@ -101,4 +101,21 @@ describe("audit repository actor attribution label", () => {
 			),
 		).rejects.toThrow(/actorLabel is required/i)
 	})
+
+	it("rejects a real actor with a whitespace-only label", async () => {
+		const memberId = await seedMember(orgA)
+		await expect(
+			repo.record(
+				{ organizationId: orgA },
+				{
+					actorId: memberId,
+					actorLabel: "   ",
+					action: "host.enroll",
+					subjectType: "host",
+					subjectId: "n/a",
+					detail: {},
+				},
+			),
+		).rejects.toThrow(/actorLabel is required/i)
+	})
 })

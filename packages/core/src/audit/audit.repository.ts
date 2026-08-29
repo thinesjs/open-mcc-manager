@@ -15,9 +15,9 @@ const SYSTEM_ACTOR_LABEL = "system"
 
 const resolveActorLabel = (entry: Pick<AuditEntry, "actorId" | "actorLabel">): string => {
 	if (entry.actorId === null) {
-		return entry.actorLabel.length > 0 ? entry.actorLabel : SYSTEM_ACTOR_LABEL
+		return entry.actorLabel.trim().length > 0 ? entry.actorLabel : SYSTEM_ACTOR_LABEL
 	}
-	if (entry.actorLabel.length === 0) {
+	if (entry.actorLabel.trim().length === 0) {
 		throw new Error("actorLabel is required when actorId is set")
 	}
 	return entry.actorLabel

@@ -10,7 +10,13 @@ import {
 	type HostControllerDeps,
 	type WithTransaction,
 } from "./host.controller"
-import type { HostCreateValues, HostRepository, HostUpdateValues, OrgScope } from "./host.repository"
+import type {
+	HostCreateValues,
+	HostKeyTrustUpdate,
+	HostRepository,
+	HostUpdateValues,
+	OrgScope,
+} from "./host.repository"
 import { provisionHost } from "./provision"
 
 const ctx = {
@@ -127,6 +133,9 @@ const deps = (
 		lockHost: vi.fn(async () => undefined),
 		claimForProvisioning: vi.fn(async (_scope: OrgScope, id: string) =>
 			makeHostRow({ id, status: "provisioning" }),
+		),
+		updateHostKeyTrust: vi.fn(async (_scope: OrgScope, id: string, trust: HostKeyTrustUpdate) =>
+			makeHostRow({ id, ...trust }),
 		),
 	}
 	const audit: Pick<AuditRepository, "record"> = {
@@ -300,6 +309,7 @@ describe("host controller provisioning", () => {
 				delete: vi.fn(async () => true),
 				lockHost: vi.fn(async () => undefined),
 				claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
+				updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 			},
 		})
 		const controller = createHostController(d)
@@ -324,6 +334,7 @@ describe("host controller provisioning", () => {
 					delete: vi.fn(async () => true),
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning,
+					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: {
 					record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
@@ -360,6 +371,7 @@ describe("host controller provisioning", () => {
 					delete: vi.fn(async () => false),
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
+					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: { record: auditRecord },
 			})

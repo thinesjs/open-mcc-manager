@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
-import { createHostRepository, type HostUpdateValues } from "./host.repository"
+import {
+	createHostRepository,
+	type HostKeyTrustUpdate,
+	type HostUpdateValues,
+} from "./host.repository"
 
 const repo = createHostRepository(testDb())
 let orgA = ""
@@ -135,6 +139,146 @@ describe("host repository trust attribution label", () => {
 					hostKeyTrustedByLabel: "",
 				},
 			),
+		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
+	})
+
+	it("rejects a real truster with a whitespace-only label", async () => {
+		const memberId = await seedMember(orgA)
+		await expect(
+			repo.insert(
+				{ organizationId: orgA },
+				{
+					name: "vps-9b",
+					hostname: "10.0.0.19",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+					hostKeyTrustedBy: memberId,
+					hostKeyTrustedByLabel: "   ",
+				},
+			),
+		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
+	})
+
+	it("cannot alter any trust field through the generic update", async () => {
+		const memberId = await seedMember(orgA)
+		const otherMemberId = await seedMember(orgA)
+		const trustedAt = new Date("2024-01-01T00:00:00Z")
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{
+				name: "vps-10",
+				hostname: "10.0.0.10",
+				port: 22,
+				username: "mcc",
+				sshKeyId: null,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "trusted@example.com",
+				hostKeyFingerprint: "SHA256:original",
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyTrustedAt: trustedAt,
+			},
+		)
+		trackHostId(created.id)
+
+		const smuggledPatch: HostUpdateValues & {
+			hostKeyTrustedBy: string
+			hostKeyTrustedByLabel: string
+			hostKeyFingerprint: string
+			hostKeyAlgorithm: string
+			hostKeyTrustedAt: Date
+		} = {
+			status: "ready",
+			hostKeyTrustedBy: otherMemberId,
+			hostKeyTrustedByLabel: "attacker@example.com",
+			hostKeyFingerprint: "SHA256:forged",
+			hostKeyAlgorithm: "ssh-rsa",
+			hostKeyTrustedAt: new Date(),
+		}
+		const updated = await repo.update({ organizationId: orgA }, created.id, smuggledPatch)
+
+		expect(updated?.status).toBe("ready")
+		expect(updated?.hostKeyTrustedBy).toBe(memberId)
+		expect(updated?.hostKeyTrustedByLabel).toBe("trusted@example.com")
+		expect(updated?.hostKeyFingerprint).toBe("SHA256:original")
+		expect(updated?.hostKeyAlgorithm).toBe("ssh-ed25519")
+		expect(updated?.hostKeyTrustedAt?.toISOString()).toBe(trustedAt.toISOString())
+	})
+})
+
+describe("host repository dedicated host key trust update", () => {
+	it("updates the whole trust tuple atomically", async () => {
+		const memberId = await seedMember(orgA)
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-11", hostname: "10.0.0.11", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		const trustedAt = new Date("2025-01-01T00:00:00Z")
+		const trust: HostKeyTrustUpdate = {
+			hostKeyTrustedBy: memberId,
+			hostKeyTrustedByLabel: "trusted@example.com",
+			hostKeyFingerprint: "SHA256:aaaa",
+			hostKeyAlgorithm: "ssh-ed25519",
+			hostKeyTrustedAt: trustedAt,
+		}
+		const updated = await repo.updateHostKeyTrust({ organizationId: orgA }, created.id, trust)
+
+		expect(updated?.hostKeyTrustedBy).toBe(memberId)
+		expect(updated?.hostKeyTrustedByLabel).toBe("trusted@example.com")
+		expect(updated?.hostKeyFingerprint).toBe("SHA256:aaaa")
+		expect(updated?.hostKeyAlgorithm).toBe("ssh-ed25519")
+		expect(updated?.hostKeyTrustedAt?.toISOString()).toBe(trustedAt.toISOString())
+	})
+
+	it("records the new actor's label on re-trust, not the previous one", async () => {
+		const firstMember = await seedMember(orgA)
+		const secondMember = await seedMember(orgA)
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-12", hostname: "10.0.0.12", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await repo.updateHostKeyTrust({ organizationId: orgA }, created.id, {
+			hostKeyTrustedBy: firstMember,
+			hostKeyTrustedByLabel: "first@example.com",
+			hostKeyFingerprint: "SHA256:aaaa",
+			hostKeyAlgorithm: "ssh-ed25519",
+			hostKeyTrustedAt: new Date("2025-01-01T00:00:00Z"),
+		})
+		const retrusted = await repo.updateHostKeyTrust({ organizationId: orgA }, created.id, {
+			hostKeyTrustedBy: secondMember,
+			hostKeyTrustedByLabel: "second@example.com",
+			hostKeyFingerprint: "SHA256:bbbb",
+			hostKeyAlgorithm: "ssh-rsa",
+			hostKeyTrustedAt: new Date("2025-02-01T00:00:00Z"),
+		})
+
+		expect(retrusted?.hostKeyTrustedBy).toBe(secondMember)
+		expect(retrusted?.hostKeyTrustedByLabel).toBe("second@example.com")
+		expect(retrusted?.hostKeyTrustedByLabel).not.toBe("first@example.com")
+		expect(retrusted?.hostKeyFingerprint).toBe("SHA256:bbbb")
+		expect(retrusted?.hostKeyAlgorithm).toBe("ssh-rsa")
+	})
+
+	it("rejects a whitespace-only label on re-trust", async () => {
+		const memberId = await seedMember(orgA)
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-13", hostname: "10.0.0.13", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await expect(
+			repo.updateHostKeyTrust({ organizationId: orgA }, created.id, {
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "   ",
+				hostKeyFingerprint: "SHA256:aaaa",
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyTrustedAt: new Date(),
+			}),
 		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
 	})
 })

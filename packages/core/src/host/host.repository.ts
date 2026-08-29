@@ -11,10 +11,6 @@ const MUTABLE_HOST_COLUMNS = [
 	"port",
 	"username",
 	"sshKeyId",
-	"hostKeyAlgorithm",
-	"hostKeyFingerprint",
-	"hostKeyTrustedBy",
-	"hostKeyTrustedAt",
 	"status",
 	"dockerVersion",
 	"osRelease",
@@ -26,17 +22,29 @@ const MUTABLE_HOST_COLUMNS = [
 
 export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
 
+export type HostKeyTrustUpdate = {
+	hostKeyTrustedBy: string
+	hostKeyTrustedByLabel: string
+	hostKeyFingerprint: string
+	hostKeyAlgorithm: string
+	hostKeyTrustedAt: Date
+}
+
 const UNKNOWN_TRUSTED_BY_LABEL = "unknown"
+
+const requireNonBlankLabel = (label: string): string => {
+	if (label.trim().length === 0) {
+		throw new Error("hostKeyTrustedByLabel is required when hostKeyTrustedBy is set")
+	}
+	return label
+}
 
 const resolveHostKeyTrustedByLabel = (values: HostCreateValues): string => {
 	const label = values.hostKeyTrustedByLabel ?? ""
 	if (values.hostKeyTrustedBy === null || values.hostKeyTrustedBy === undefined) {
-		return label.length > 0 ? label : UNKNOWN_TRUSTED_BY_LABEL
+		return label.trim().length > 0 ? label : UNKNOWN_TRUSTED_BY_LABEL
 	}
-	if (label.length === 0) {
-		throw new Error("hostKeyTrustedByLabel is required when hostKeyTrustedBy is set")
-	}
-	return label
+	return requireNonBlankLabel(label)
 }
 
 const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
@@ -45,10 +53,6 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.port !== undefined && { port: patch.port }),
 	...(patch.username !== undefined && { username: patch.username }),
 	...(patch.sshKeyId !== undefined && { sshKeyId: patch.sshKeyId }),
-	...(patch.hostKeyAlgorithm !== undefined && { hostKeyAlgorithm: patch.hostKeyAlgorithm }),
-	...(patch.hostKeyFingerprint !== undefined && { hostKeyFingerprint: patch.hostKeyFingerprint }),
-	...(patch.hostKeyTrustedBy !== undefined && { hostKeyTrustedBy: patch.hostKeyTrustedBy }),
-	...(patch.hostKeyTrustedAt !== undefined && { hostKeyTrustedAt: patch.hostKeyTrustedAt }),
 	...(patch.status !== undefined && { status: patch.status }),
 	...(patch.dockerVersion !== undefined && { dockerVersion: patch.dockerVersion }),
 	...(patch.osRelease !== undefined && { osRelease: patch.osRelease }),
@@ -125,6 +129,27 @@ export const createHostRepository = (db: Executor) => ({
 					eq(host.status, expectedStatus),
 				),
 			)
+			.returning()
+		return rows[0]
+	},
+
+	updateHostKeyTrust: async (
+		scope: OrgScope,
+		id: string,
+		trust: HostKeyTrustUpdate,
+	): Promise<HostRow | undefined> => {
+		const label = requireNonBlankLabel(trust.hostKeyTrustedByLabel)
+		const rows = await db
+			.update(host)
+			.set({
+				hostKeyTrustedBy: trust.hostKeyTrustedBy,
+				hostKeyTrustedByLabel: label,
+				hostKeyFingerprint: trust.hostKeyFingerprint,
+				hostKeyAlgorithm: trust.hostKeyAlgorithm,
+				hostKeyTrustedAt: trust.hostKeyTrustedAt,
+				organizationId: scope.organizationId,
+			})
+			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
 			.returning()
 		return rows[0]
 	},

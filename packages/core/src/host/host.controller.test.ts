@@ -1,5 +1,5 @@
 import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import { type ConnectionState, createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
@@ -55,6 +55,35 @@ const makeAuditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRo
 	createdAt: new Date(),
 	...overrides,
 })
+
+type RejectingTransportMode = "connect" | "exec"
+
+const createRejectingTransport = (
+	mode: RejectingTransportMode,
+): HostTransport & { wasClosed: () => boolean } => {
+	let state: ConnectionState = "disconnected"
+	let closed = false
+
+	return {
+		state: () => state,
+		connect: async () => {
+			if (mode === "connect") {
+				state = "failed"
+				throw new Error("Connection refused")
+			}
+			state = "ready"
+		},
+		exec: async () => {
+			if (mode === "exec") throw new Error("Connection reset by peer")
+			return { stdout: "", stderr: "", exitCode: 0 }
+		},
+		close: async () => {
+			closed = true
+			state = "disconnected"
+		},
+		wasClosed: () => closed,
+	}
+}
 
 const deps = (overrides: Partial<HostControllerDeps> = {}): HostControllerDeps => ({
 	hosts: {
@@ -214,6 +243,30 @@ describe("host controller provisioning", () => {
 		expect(d.hosts.update).not.toHaveBeenCalled()
 		expect(d.audit.record).not.toHaveBeenCalled()
 	})
+
+	it("propagates a connect() rejection without persisting a host update or audit entry", async () => {
+		const transport = createRejectingTransport("connect")
+		const d = deps({ createTransport: vi.fn(() => transport) })
+		const controller = createHostController(d)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection refused/i)
+
+		expect(transport.wasClosed()).toBe(true)
+		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	it("propagates an exec() rejection without persisting a host update or audit entry", async () => {
+		const transport = createRejectingTransport("exec")
+		const d = deps({ createTransport: vi.fn(() => transport) })
+		const controller = createHostController(d)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+
+		expect(transport.wasClosed()).toBe(true)
+		expect(d.hosts.update).not.toHaveBeenCalled()
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
 })
 
 describe("provisionHost", () => {
@@ -233,5 +286,12 @@ describe("provisionHost", () => {
 		await expect(
 			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
 		).rejects.toThrow(/docker/i)
+	})
+
+	it("propagates when exec() rejects mid-command rather than resolving as if disconnected", async () => {
+		const transport = createRejectingTransport("exec")
+		await expect(
+			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
+		).rejects.toThrow(/connection reset/i)
 	})
 })

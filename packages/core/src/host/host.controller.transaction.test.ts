@@ -22,7 +22,7 @@ import {
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
-import { createHostRepository, PROVISIONING_LEASE_MS } from "./host.repository"
+import { createHostRepository, type HostRepository, PROVISIONING_LEASE_MS } from "./host.repository"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -33,6 +33,11 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0))
 
 const HOST_KEY_BLOB = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("tx-test-key-material"))
 const EXPECTED_FINGERPRINT = fingerprintFromKey(HOST_KEY_BLOB)
+const ROTATED_HOST_KEY_BLOB = encodeAlgorithmBlob(
+	"ssh-ed25519",
+	Buffer.from("tx-rotated-key-material"),
+)
+const ROTATED_FINGERPRINT = fingerprintFromKey(ROTATED_HOST_KEY_BLOB)
 
 const backdateProvisioningClaim = async (hostId: string, ageMs: number): Promise<void> => {
 	await testDb()
@@ -743,5 +748,200 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 
 		const auditEvents = await createAuditRepository(db).list({ organizationId })
 		expect(auditEvents.find((event) => event.action === "host.provision.reclaim")).toBeUndefined()
+	})
+})
+
+describe("host controller serialises re-trust against provisioning (real Postgres)", () => {
+	afterAll(async () => {
+		await teardownTestDb()
+	})
+
+	const seedProvisionableHost = async (slugPrefix: string) => {
+		const organizationId = await seedOrganization(slugPrefix)
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const sshKeyRow = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-key`,
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+		const created = await hosts.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-host`,
+				hostname: "10.0.0.94",
+				port: 22,
+				username: "mcc",
+				sshKeyId: sshKeyRow.id,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: EXPECTED_FINGERPRINT,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyTrustedAt: new Date(),
+				status: "pending",
+			},
+		)
+		trackHostId(created.id)
+		return { organizationId, memberId, db, hosts, sshKeys, hostId: created.id }
+	}
+
+	const actorFor = (organizationId: string, memberId: string): ActorContext => ({
+		organizationId,
+		memberId,
+		actorLabel: "actor@example.com",
+		role: "owner",
+	})
+
+	it("blocks a concurrent re-trust until the provisioning claim's lock is released", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-retrust-serialise")
+
+		let releaseLockHold: () => void = () => {}
+		const lockHoldGate = new Promise<void>((resolve) => {
+			releaseLockHold = resolve
+		})
+		let signalLockAcquired: () => void = () => {}
+		const lockAcquired = new Promise<void>((resolve) => {
+			signalLockAcquired = resolve
+		})
+
+		const gatedWithTransaction: WithTransaction = (fn) =>
+			db.transaction(async (tx) => {
+				const realHosts = createHostRepository(tx)
+				const gatedHosts: HostRepository = {
+					...realHosts,
+					lockHost: async (id: string) => {
+						await realHosts.lockHost(id)
+						signalLockAcquired()
+						await lockHoldGate
+					},
+				}
+				return fn({ hosts: gatedHosts, audit: createAuditRepository(tx) })
+			})
+
+		const provisionController = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() =>
+				createFakeTransport({
+					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+				}),
+			),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: gatedWithTransaction,
+		})
+		const retrustController = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = provisionController.provision(ctx, hostId)
+		await lockAcquired
+
+		let retrustSettled = false
+		const retrustPromise = retrustController
+			.retrustHostKey(ctx, hostId, {
+				hostKeyFingerprint: ROTATED_FINGERPRINT,
+				hostKeyAlgorithm: "ssh-ed25519",
+			})
+			.then((result) => {
+				retrustSettled = true
+				return result
+			})
+
+		await new Promise((resolve) => setTimeout(resolve, 150))
+		expect(retrustSettled).toBe(false)
+
+		releaseLockHold()
+		await provisionPromise
+		const retrusted = await retrustPromise
+
+		expect(retrustSettled).toBe(true)
+		expect(retrusted?.hostKeyFingerprint).toBe(ROTATED_FINGERPRINT)
+	})
+
+	it("uses the host key fingerprint as of the provisioning lock, not a value cached before it", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-retrust-fresh-read")
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+
+		const gatedSshKeys = {
+			findById: async (scope: { organizationId: string }, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		let observedFingerprint: string | undefined
+		const recordingTransport = (): HostTransport => {
+			const inner = createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			})
+			return {
+				state: inner.state,
+				connect: async (options) => {
+					observedFingerprint = options.expectedFingerprint
+					await inner.connect(options)
+				},
+				exec: inner.exec,
+				close: inner.close,
+			}
+		}
+		const provisionController = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(recordingTransport),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+		const retrustController = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = provisionController.provision(ctx, hostId)
+		await sshKeyLookupStarted
+
+		await retrustController.retrustHostKey(ctx, hostId, {
+			hostKeyFingerprint: ROTATED_FINGERPRINT,
+			hostKeyAlgorithm: "ssh-ed25519",
+		})
+
+		releaseSshKeyLookup()
+		await provisionPromise
+
+		expect(observedFingerprint).toBe(ROTATED_FINGERPRINT)
 	})
 })

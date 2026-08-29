@@ -7,6 +7,7 @@ import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	createHostRepository,
+	type HostKeyTrustUpdate,
 	type HostRepository,
 	isProvisioningClaimStale,
 } from "./host.repository"
@@ -22,6 +23,11 @@ export type ActorContext = {
 export type HostTransactionRepos = {
 	hosts: HostRepository
 	audit: Pick<AuditRepository, "record">
+}
+
+export type RetrustHostKeyInput = {
+	hostKeyFingerprint: string
+	hostKeyAlgorithm: string
 }
 
 export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T>) => Promise<T>
@@ -111,7 +117,6 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!found.hostKeyFingerprint) {
 			throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
-		const expectedFingerprint = found.hostKeyFingerprint
 		const expectedStatus = found.status
 
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
@@ -141,6 +146,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (attemptId === null) {
 			throw new Error(`Host ${hostId} was claimed for provisioning without an attempt id`)
 		}
+		if (!claimed.hostKeyFingerprint) {
+			throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
+		}
+		const expectedFingerprint = claimed.hostKeyFingerprint
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
 			try {
@@ -209,6 +218,36 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				subjectType: "host",
 				subjectId: hostId,
 				detail: { dockerVersion: result.dockerVersion },
+			})
+
+			return updated
+		})
+	},
+
+	retrustHostKey: async (ctx: ActorContext, hostId: string, trust: RetrustHostKeyInput) => {
+		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
+		const scope = { organizationId: ctx.organizationId }
+
+		return deps.withTransaction(async (repos) => {
+			await repos.hosts.lockHost(hostId)
+
+			const trustUpdate: HostKeyTrustUpdate = {
+				hostKeyTrustedBy: ctx.memberId,
+				hostKeyTrustedByLabel: ctx.actorLabel,
+				hostKeyFingerprint: trust.hostKeyFingerprint,
+				hostKeyAlgorithm: trust.hostKeyAlgorithm,
+				hostKeyTrustedAt: new Date(),
+			}
+			const updated = await repos.hosts.updateHostKeyTrust(scope, hostId, trustUpdate)
+			if (!updated) throw new HostNotFoundError(`Host not found: ${hostId}`)
+
+			await repos.audit.record(scope, {
+				actorId: ctx.memberId,
+				actorLabel: ctx.actorLabel,
+				action: "host.retrust",
+				subjectType: "host",
+				subjectId: hostId,
+				detail: { fingerprint: trust.hostKeyFingerprint },
 			})
 
 			return updated

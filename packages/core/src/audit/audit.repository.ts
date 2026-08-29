@@ -4,10 +4,23 @@ import type { OrgScope } from "../host/host.repository"
 
 export type AuditEntry = {
 	actorId: string | null
+	actorLabel: string
 	action: string
 	subjectType: string
 	subjectId: string
 	detail: Record<string, string>
+}
+
+const SYSTEM_ACTOR_LABEL = "system"
+
+const resolveActorLabel = (entry: Pick<AuditEntry, "actorId" | "actorLabel">): string => {
+	if (entry.actorId === null) {
+		return entry.actorLabel.length > 0 ? entry.actorLabel : SYSTEM_ACTOR_LABEL
+	}
+	if (entry.actorLabel.length === 0) {
+		throw new Error("actorLabel is required when actorId is set")
+	}
+	return entry.actorLabel
 }
 
 export const createAuditRepository = (db: Executor) => ({
@@ -17,7 +30,7 @@ export const createAuditRepository = (db: Executor) => ({
 			.values({
 				...entry,
 				organizationId: scope.organizationId,
-				actorLabel: entry.actorId ?? "system",
+				actorLabel: resolveActorLabel(entry),
 			})
 			.returning()
 		const row = rows[0]

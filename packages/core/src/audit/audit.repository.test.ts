@@ -21,6 +21,7 @@ describe("audit repository organization scoping", () => {
 			{ organizationId: orgA },
 			{
 				actorId: null,
+				actorLabel: "",
 				action: "host.create",
 				subjectType: "host",
 				subjectId: "n/a",
@@ -37,6 +38,7 @@ describe("audit repository organization scoping", () => {
 			{ organizationId: orgA },
 			{
 				actorId: null,
+				actorLabel: "",
 				action: "host.delete",
 				subjectType: "host",
 				subjectId: "n/a",
@@ -49,12 +51,13 @@ describe("audit repository organization scoping", () => {
 })
 
 describe("audit repository actor attribution label", () => {
-	it("records the acting member's id as an immutable label at insert", async () => {
+	it("records the caller-supplied label, not the member id, as immutable attribution", async () => {
 		const memberId = await seedMember(orgA)
 		const created = await repo.record(
 			{ organizationId: orgA },
 			{
 				actorId: memberId,
+				actorLabel: "actor@example.com",
 				action: "host.enroll",
 				subjectType: "host",
 				subjectId: "n/a",
@@ -62,7 +65,8 @@ describe("audit repository actor attribution label", () => {
 			},
 		)
 		trackAuditEventId(created.id)
-		expect(created.actorLabel).toBe(memberId)
+		expect(created.actorLabel).toBe("actor@example.com")
+		expect(created.actorLabel).not.toBe(memberId)
 	})
 
 	it("falls back to a placeholder label when the event has no actor", async () => {
@@ -70,6 +74,7 @@ describe("audit repository actor attribution label", () => {
 			{ organizationId: orgA },
 			{
 				actorId: null,
+				actorLabel: "",
 				action: "host.enroll",
 				subjectType: "host",
 				subjectId: "n/a",
@@ -78,5 +83,22 @@ describe("audit repository actor attribution label", () => {
 		)
 		trackAuditEventId(created.id)
 		expect(created.actorLabel).toBe("system")
+	})
+
+	it("rejects a real actor with an empty label rather than writing a silent placeholder", async () => {
+		const memberId = await seedMember(orgA)
+		await expect(
+			repo.record(
+				{ organizationId: orgA },
+				{
+					actorId: memberId,
+					actorLabel: "",
+					action: "host.enroll",
+					subjectType: "host",
+					subjectId: "n/a",
+					detail: {},
+				},
+			),
+		).rejects.toThrow(/actorLabel is required/i)
 	})
 })

@@ -92,7 +92,7 @@ describe("host repository organization scoping", () => {
 })
 
 describe("host repository trust attribution label", () => {
-	it("records the trusting member's id as an immutable label at insert", async () => {
+	it("records the caller-supplied label, not the member id, as immutable attribution", async () => {
 		const memberId = await seedMember(orgA)
 		const created = await repo.insert(
 			{ organizationId: orgA },
@@ -103,10 +103,12 @@ describe("host repository trust attribution label", () => {
 				username: "mcc",
 				sshKeyId: null,
 				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
 			},
 		)
 		trackHostId(created.id)
-		expect(created.hostKeyTrustedByLabel).toBe(memberId)
+		expect(created.hostKeyTrustedByLabel).toBe("actor@example.com")
+		expect(created.hostKeyTrustedByLabel).not.toBe(memberId)
 	})
 
 	it("falls back to a placeholder label when no member trusted the host key yet", async () => {
@@ -116,5 +118,23 @@ describe("host repository trust attribution label", () => {
 		)
 		trackHostId(created.id)
 		expect(created.hostKeyTrustedByLabel).toBe("unknown")
+	})
+
+	it("rejects a real truster with an empty label rather than writing a silent placeholder", async () => {
+		const memberId = await seedMember(orgA)
+		await expect(
+			repo.insert(
+				{ organizationId: orgA },
+				{
+					name: "vps-9",
+					hostname: "10.0.0.9",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+					hostKeyTrustedBy: memberId,
+					hostKeyTrustedByLabel: "",
+				},
+			),
+		).rejects.toThrow(/hostKeyTrustedByLabel is required/i)
 	})
 })

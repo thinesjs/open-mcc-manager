@@ -11,6 +11,7 @@ import { type ProvisionResult, provisionHost } from "./provision"
 export type ActorContext = {
 	organizationId: string
 	memberId: string
+	actorLabel: string
 	role: Role
 }
 
@@ -71,12 +72,14 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				hostKeyAlgorithm: algorithm,
 				hostKeyFingerprint: verification.fingerprint,
 				hostKeyTrustedBy: ctx.memberId,
+				hostKeyTrustedByLabel: ctx.actorLabel,
 				hostKeyTrustedAt: new Date(),
 				status: "pending",
 			})
 
 			await repos.audit.record(scope, {
 				actorId: ctx.memberId,
+				actorLabel: ctx.actorLabel,
 				action: "host.enroll",
 				subjectType: "host",
 				subjectId: created.id,
@@ -168,6 +171,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 
 			await repos.audit.record(scope, {
 				actorId: ctx.memberId,
+				actorLabel: ctx.actorLabel,
 				action: "host.provision",
 				subjectType: "host",
 				subjectId: hostId,
@@ -191,6 +195,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			if (removed) {
 				await repos.audit.record(scope, {
 					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
 					action: "host.delete",
 					subjectType: "host",
 					subjectId: hostId,

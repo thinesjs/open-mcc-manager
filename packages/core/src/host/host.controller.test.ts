@@ -18,7 +18,12 @@ import type {
 } from "./host.repository"
 import { provisionHost } from "./provision"
 
-const ctx = { organizationId: "org-1", memberId: "mem-1", role: "owner" as const }
+const ctx = {
+	organizationId: "org-1",
+	memberId: "mem-1",
+	actorLabel: "actor@example.com",
+	role: "owner" as const,
+}
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -68,7 +73,7 @@ const makeAuditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRo
 	id: "audit-1",
 	organizationId: "org-1",
 	actorId: "mem-1",
-	actorLabel: "mem-1",
+	actorLabel: "actor@example.com",
 	action: "host.enroll",
 	subjectType: "host",
 	subjectId: "host-1",
@@ -233,6 +238,7 @@ describe("host controller enrollment", () => {
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: expected,
 				hostKeyTrustedBy: "mem-1",
+				hostKeyTrustedByLabel: "actor@example.com",
 				hostKeyTrustedAt: expect.any(Date),
 			}),
 		)
@@ -242,6 +248,7 @@ describe("host controller enrollment", () => {
 			expect.objectContaining({
 				action: "host.enroll",
 				actorId: "mem-1",
+				actorLabel: "actor@example.com",
 				detail: expect.objectContaining({ fingerprint: expected }),
 			}),
 		)
@@ -356,7 +363,11 @@ describe("host controller provisioning", () => {
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
 		expect(d.audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
-			expect.objectContaining({ action: "host.provision", actorId: "mem-1" }),
+			expect.objectContaining({
+				action: "host.provision",
+				actorId: "mem-1",
+				actorLabel: "actor@example.com",
+			}),
 		)
 	})
 

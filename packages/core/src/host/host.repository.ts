@@ -3,10 +3,7 @@ import { and, eq } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
-export type HostCreateValues = Omit<
-	HostInsert,
-	"id" | "organizationId" | "createdAt" | "hostKeyTrustedByLabel"
->
+export type HostCreateValues = Omit<HostInsert, "id" | "organizationId" | "createdAt">
 
 const MUTABLE_HOST_COLUMNS = [
 	"name",
@@ -28,6 +25,19 @@ const MUTABLE_HOST_COLUMNS = [
 ] as const
 
 export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
+
+const UNKNOWN_TRUSTED_BY_LABEL = "unknown"
+
+const resolveHostKeyTrustedByLabel = (values: HostCreateValues): string => {
+	const label = values.hostKeyTrustedByLabel ?? ""
+	if (values.hostKeyTrustedBy === null || values.hostKeyTrustedBy === undefined) {
+		return label.length > 0 ? label : UNKNOWN_TRUSTED_BY_LABEL
+	}
+	if (label.length === 0) {
+		throw new Error("hostKeyTrustedByLabel is required when hostKeyTrustedBy is set")
+	}
+	return label
+}
 
 const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.name !== undefined && { name: patch.name }),
@@ -55,7 +65,7 @@ export const createHostRepository = (db: Executor) => ({
 			.values({
 				...values,
 				organizationId: scope.organizationId,
-				hostKeyTrustedByLabel: values.hostKeyTrustedBy ?? "unknown",
+				hostKeyTrustedByLabel: resolveHostKeyTrustedByLabel(values),
 			})
 			.returning()
 		const row = rows[0]

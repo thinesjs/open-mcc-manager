@@ -9,7 +9,11 @@ import {
 	trackHostId,
 	trackSshKeyId,
 } from "../test/db"
-import { createHostController, type HostControllerDeps } from "./host.controller"
+import {
+	createHostController,
+	createHostControllerTransaction,
+	type HostControllerDeps,
+} from "./host.controller"
 import { createHostRepository } from "./host.repository"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
@@ -64,7 +68,7 @@ describe("host controller transactional mutations", () => {
 
 		await expect(
 			controller.enroll(
-				{ organizationId, memberId, role: "owner" },
+				{ organizationId, memberId, actorLabel: "actor@example.com", role: "owner" },
 				{
 					name: "vps-tx",
 					hostname: "10.0.0.50",
@@ -98,10 +102,53 @@ describe("host controller transactional mutations", () => {
 		})
 
 		await expect(
-			controller.remove({ organizationId, memberId: "mem-x", role: "owner" }, created.id),
+			controller.remove(
+				{ organizationId, memberId: "mem-x", actorLabel: "actor@example.com", role: "owner" },
+				created.id,
+			),
 		).rejects.toThrow(/audit insert failed/)
 
 		const stillThere = await hosts.findById({ organizationId }, created.id)
 		expect(stillThere?.id).toBe(created.id)
+	})
+
+	it("rejects enrollment when the actor has a memberId but an empty label, leaving no residue", async () => {
+		const organizationId = await seedOrganization("org-tx-empty-label")
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeyRow = await createSshKeyRepository(db).insert(
+			{ organizationId },
+			{
+				name: "tx-key-2",
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+
+		const controller = createHostController({
+			...baseDeps(),
+			hosts,
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		await expect(
+			controller.enroll(
+				{ organizationId, memberId, actorLabel: "", role: "owner" },
+				{
+					name: "vps-tx-2",
+					hostname: "10.0.0.52",
+					port: 22,
+					username: "mcc",
+					sshKeyId: sshKeyRow.id,
+					expectedFingerprint: EXPECTED_FINGERPRINT,
+				},
+			),
+		).rejects.toThrow(/label is required/i)
+
+		const remaining = await hosts.list({ organizationId })
+		expect(remaining).toEqual([])
 	})
 })

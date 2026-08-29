@@ -342,7 +342,7 @@ describe("host controller provisioning", () => {
 
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
 		expect(transport.commands).toContain("docker --version")
-		expect(transport.commands).toContain("install -d -m 0770 /var/lib/open-mcc-manager/instances")
+		expect(transport.commands).toContain("install -d -m 0770 '/var/lib/open-mcc-manager/instances'")
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.dockerVersion).toBe("Docker version 27.3.1")
 		expect(d.hosts.update).toHaveBeenNthCalledWith(1, { organizationId: "org-1" }, "host-1", {
@@ -448,7 +448,7 @@ describe("provisionHost", () => {
 		await transport.connect(provisionConnectOptions)
 		const result = await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
 		expect(result.dockerVersion).toBe("Docker version 27.3.1")
-		expect(transport.commands).toContain("install -d -m 0770 /var/lib/open-mcc-manager/instances")
+		expect(transport.commands).toContain("install -d -m 0770 '/var/lib/open-mcc-manager/instances'")
 	})
 
 	it("fails when docker is absent", async () => {
@@ -466,5 +466,27 @@ describe("provisionHost", () => {
 		await expect(
 			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
 		).rejects.toThrow(/connection reset/i)
+	})
+
+	it("rejects an instancesRoot containing a shell metacharacter without running any command", async () => {
+		const transport = createFakeTransport({
+			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+		})
+		await transport.connect(provisionConnectOptions)
+		await expect(
+			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager; rm -rf /" }),
+		).rejects.toThrow(/absolute path/i)
+		expect(transport.commands).toEqual([])
+	})
+
+	it("rejects an instancesRoot that is not an absolute path", async () => {
+		const transport = createFakeTransport({
+			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+		})
+		await transport.connect(provisionConnectOptions)
+		await expect(
+			provisionHost(transport, { instancesRoot: "var/lib/open-mcc-manager" }),
+		).rejects.toThrow(/absolute path/i)
+		expect(transport.commands).toEqual([])
 	})
 })

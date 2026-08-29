@@ -82,4 +82,47 @@ describe("findViolations", () => {
 		})
 		expect(findViolations(root)).toEqual([])
 	})
+
+	it("detects violations hidden by url-like patterns in block comments", () => {
+		const root = seed({
+			"packages/core/src/f.ts": "/* see http://example.com */ const leak: unknown = 1\n",
+			"packages/core/src/g.ts": "/* docs http://x.io/spec */ const leak2: never = 1 as never\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/f.ts", line: 1, token: "unknown" },
+			{ file: "packages/core/src/g.ts", line: 1, token: "never" },
+		])
+	})
+
+	it("ignores tokens inside multi-line block comments", () => {
+		const root = seed({
+			"packages/core/src/h.ts": "/*\n * never returns unknown\n */\nexport const ok = 1\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("detects violations when regex literals are present", () => {
+		const root = seed({
+			"packages/core/src/i.ts": "const re = /https:\\/\\//\nconst x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/i.ts", line: 2, token: "unknown" },
+		])
+	})
+
+	it("scans tsx files correctly", () => {
+		const root = seed({ "packages/core/src/j.tsx": "const x: unknown = 1\n" })
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/j.tsx", line: 1, token: "unknown" },
+		])
+	})
+
+	it("detects violations when string literals contain slashes", () => {
+		const root = seed({
+			"packages/core/src/k.ts": 'const s = "a//b"\nconst x: unknown = 1\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/k.ts", line: 2, token: "unknown" },
+		])
+	})
 })

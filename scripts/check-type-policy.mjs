@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative, sep } from "node:path"
+import ts from "typescript"
 
 const UNKNOWN_ALLOWED = join("packages", "contracts", "src", "boundary")
 const NEVER_ALLOWED = join("packages", "core", "src", "lib", "exhaustive.ts")
@@ -15,28 +16,43 @@ const walk = (dir, acc = []) => {
 	return acc
 }
 
-const stripNoise = (line) =>
-	line
-		.replace(/"(?:[^"\\]|\\.)*"/g, '""')
-		.replace(/'(?:[^'\\]|\\.)*'/g, "''")
-		.replace(/`(?:[^`\\]|\\.)*`/g, "``")
-		.replace(/\/\/.*$/g, "")
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-
 export const findViolations = (root) => {
 	const violations = []
+	const seen = new Set()
 	for (const file of walk(root)) {
 		const rel = relative(root, file)
 		const inUnknownDir = rel === UNKNOWN_ALLOWED || rel.startsWith(UNKNOWN_ALLOWED + sep)
 		const isNeverFile = rel === NEVER_ALLOWED
-		const lines = readFileSync(file, "utf8").split("\n")
-		lines.forEach((raw, index) => {
-			const line = stripNoise(raw)
-			if (!inUnknownDir && /\bunknown\b/.test(line))
-				violations.push({ file: rel, line: index + 1, token: "unknown" })
-			if (!isNeverFile && /\bnever\b/.test(line))
-				violations.push({ file: rel, line: index + 1, token: "never" })
-		})
+		const text = readFileSync(file, "utf8")
+		const sf = ts.createSourceFile(
+			rel,
+			text,
+			ts.ScriptTarget.Latest,
+			true,
+			rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+		)
+
+		const visit = (node) => {
+			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) {
+				const line = ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
+				const key = `${rel}:${line}:unknown`
+				if (!seen.has(key)) {
+					seen.add(key)
+					violations.push({ file: rel, line, token: "unknown" })
+				}
+			}
+			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) {
+				const line = ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
+				const key = `${rel}:${line}:never`
+				if (!seen.has(key)) {
+					seen.add(key)
+					violations.push({ file: rel, line, token: "never" })
+				}
+			}
+			ts.forEachChild(node, visit)
+		}
+
+		visit(sf)
 	}
 	return violations
 }

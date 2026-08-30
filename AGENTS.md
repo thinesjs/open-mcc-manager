@@ -64,7 +64,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Four rules stated further down this document are enforced too, and are listed
+Seven rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -74,6 +74,7 @@ have:
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
+| The host status union matching between `packages/db` and `packages/contracts` | TypeScript — `apps/web`'s `HostStatusBadge` call sites reject a database union wider than the contract's, and `host-status.ts`'s `Record<HostStatus, ...>` rejects a contract union wider than the database's |
 | Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 
@@ -157,6 +158,19 @@ that half of the rule stays with review.
   refine what codegen produced, they do not declare a table's shape from
   scratch. A free-standing hand-written table type is a sign the migration or
   the codegen step was skipped.
+- `packages/db/src/schema/host.ts` hand-writes the `HostStatus` union rather
+  than deriving it from `hostStatusSchema` in `packages/contracts`, and that is
+  deliberate rather than an oversight: `packages/db` depends on no other
+  workspace package, and importing the contracts would invert that dependency
+  for a five-member union. `kysely-codegen` types the column as `text`, so the
+  refinement has to name the members somewhere. Both directions of drift are
+  caught by `pnpm typecheck` in `apps/web`, the one place the two types meet: a
+  database union wider than the contract's fails where `host.status` is passed
+  to `HostStatusBadge`, and a contract union wider than the database's fails on
+  `host-status.ts`'s `Record<HostStatus, HostStatusPresentation>`. Do not
+  "fix" the duplication by giving `packages/db` a `@open-mcc/contracts`
+  dependency; if `apps/web` ever stops routing the status through both, add a
+  test comparing the two unions instead.
 - Migrations are plain SQL files under `packages/db/migrations/`, applied in
   numeric order by a custom Kysely migrator
   (`packages/db/src/migrator.ts`) that tracks what it has applied in its own
@@ -242,6 +256,15 @@ Dependency direction is one-way: router → controller → repository.
   the request context rejects any session with no matching member row. A
   formal saga engine with idempotency keys and per-phase checkpoints is
   scoped for later and does not exist yet.
+- `member.router.ts`'s `invite` is the one write whose audit row can be lost
+  without the write being lost with it. The write is
+  `auth.api.createInvitation`, better-auth's own call, which cannot sit inside
+  a transaction by the rule above, and there is no second statement to pair the
+  audit with — so an audit insert that fails leaves an invitation with no
+  `member.invite` row. Every other audited mutation commits its audit row in
+  the same transaction as its write. Closing this needs the injected-dependency
+  controller the `member.router.ts` row above describes, not a transaction
+  around the audit alone.
 
 ## Tenancy
 

@@ -37,6 +37,21 @@ pnpm build
 Skipping the migrate step fails the suite with `relation "organization" does
 not exist`.
 
+`SEALBOX_KEYS` encrypts the SSH private keys the control plane stores, so it
+has no safe default and `.env.example` deliberately refuses to boot. Generate
+a real one:
+
+```bash
+pnpm --filter @open-mcc/server keys:generate k1
+```
+
+The compose stack ships a working key under the id
+`dev-insecure-publicly-known` so `docker compose up` starts a usable server.
+That key is in this repository and is therefore public. Its id is deliberately
+unmistakable and is stored with every row it encrypts, so
+`select count(*) from "sshKey" where "privateKeyKeyId" = 'dev-insecure-publicly-known'`
+tells you whether a database was ever written with it.
+
 ## Security
 
 The control plane holds credentials that grant root-equivalent access to every

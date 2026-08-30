@@ -4,6 +4,7 @@ RUN corepack enable
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps ./apps
 COPY packages ./packages
+COPY docker/server/prune-deploy.mjs ./prune-deploy.mjs
 RUN pnpm install --frozen-lockfile
 RUN pnpm dlx esbuild@0.25.12 apps/server/src/index.ts \
 	--bundle --platform=node --format=esm --target=node22 \
@@ -16,6 +17,7 @@ RUN pnpm dlx esbuild@0.25.12 apps/server/src/index.ts \
 RUN pnpm deploy --filter @open-mcc/server --prod --legacy --config.node-linker=hoisted /out
 RUN cp server.mjs /out/server.mjs
 RUN test -d /out/node_modules/argon2/prebuilds
+RUN node prune-deploy.mjs /out
 
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime
 WORKDIR /app

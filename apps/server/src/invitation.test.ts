@@ -209,7 +209,7 @@ describe("member invitations", () => {
 		expect(invitations).toHaveLength(0)
 	})
 
-	it("lets an owner invite a member who accepts and lands in the org with the intended role, not owner", async () => {
+	it("lets an owner invite an operator who accepts and lands in the org as an operator", async () => {
 		const owner = await signUpAndActivate("Owner")
 		const inviteeEmail = seededEmail()
 
@@ -246,7 +246,6 @@ describe("member invitations", () => {
 
 		expect(accepted.organizationId).toBe(owner.orgId)
 		expect(accepted.role).toBe("operator")
-		expect(accepted.role).not.toBe("owner")
 
 		const memberRow = await db
 			.selectFrom("member")
@@ -283,5 +282,68 @@ describe("member invitations", () => {
 		expect(acceptAudit?.actorLabel).toBe(inviteeEmail)
 		expect(acceptAudit?.actorId).toBe(memberRow?.id)
 		expect(acceptAudit?.detail).toMatchObject({ invitationId: invitation.id, role: "operator" })
+	})
+
+	it("gives an invited owner the owner role, the only succession path a deployment has", async () => {
+		const owner = await signUpAndActivate("Owner")
+		const successorEmail = seededEmail()
+		const successorPassword = "correct horse battery staple 5"
+
+		const inviteRes = await app.request("/trpc/member.invite", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: owner.cookie },
+			body: JSON.stringify({ email: successorEmail, role: "owner" }),
+		})
+		const inviteBody = await inviteRes.text()
+		expect(inviteRes.status, inviteBody).toBe(200)
+		const invitation = inviteResponseSchema.parse(JSON.parse(inviteBody)).result.data
+
+		const acceptRes = await app.request("/trpc/member.acceptInvitation", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN },
+			body: JSON.stringify({
+				invitationId: invitation.id,
+				password: successorPassword,
+				name: "Invited Owner",
+			}),
+		})
+		const acceptBody = await acceptRes.text()
+		expect(acceptRes.status, acceptBody).toBe(200)
+		const accepted = acceptResponseSchema.parse(JSON.parse(acceptBody)).result.data
+		expect(accepted.role).toBe("owner")
+
+		const memberRow = await db
+			.selectFrom("member")
+			.select("role")
+			.where("organizationId", "=", owner.orgId)
+			.where("userId", "=", accepted.userId)
+			.executeTakeFirst()
+		expect(memberRow?.role).toBe("owner")
+
+		const signInRes = await app.request("/api/auth/sign-in/email", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN },
+			body: JSON.stringify({ email: successorEmail, password: successorPassword }),
+		})
+		expect(signInRes.status).toBe(200)
+		const successorCookie = extractCookie(signInRes)
+		const setActiveRes = await app.request("/api/auth/organization/set-active", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: successorCookie },
+			body: JSON.stringify({ organizationId: owner.orgId }),
+		})
+		expect(setActiveRes.status).toBe(200)
+
+		const successorInviteRes = await app.request("/trpc/member.invite", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				Origin: ORIGIN,
+				Cookie: extractCookie(setActiveRes) || successorCookie,
+			},
+			body: JSON.stringify({ email: seededEmail(), role: "viewer" }),
+		})
+		const successorInviteBody = await successorInviteRes.text()
+		expect(successorInviteRes.status, successorInviteBody).toBe(200)
 	})
 })

@@ -52,8 +52,18 @@ not a goal of the current architecture.
   member holding `member.manage` (owner only, per the capability matrix
   below); the invited person's account is created only as part of accepting
   that specific, pending invitation — never through the public endpoint —
-  and lands in the inviting organization with the role the invitation named,
-  never as owner. This closes what would otherwise be a foundational gap:
+  and lands in the inviting organization with exactly the role the invitation
+  named. That role may be `owner`, and deliberately so: `member.manage` is
+  owner-only, so only an owner can issue any invitation at all, and accepting
+  an invitation is the only code path in this system that ever writes a
+  member's role — there is no procedure that changes one afterwards. An owner
+  inviting an owner is therefore succession, not escalation: the inviter
+  already holds every capability the invitee receives, and a deployment whose
+  only owner is the bootstrap account would otherwise have no way to add a
+  second one, because `bootstrapOwner` refuses to run once any user exists. A
+  member below owner cannot reach this path from either end, because they
+  cannot issue an invitation in the first place. This closes what would
+  otherwise be a foundational gap:
   without it, anyone who could reach the server could sign up, create an
   organization, and become its owner, gaining `host.enroll` and
   `sshKey.manage` — root-equivalent access to every host that organization

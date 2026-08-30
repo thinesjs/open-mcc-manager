@@ -1,67 +1,40 @@
-import { sql } from "drizzle-orm"
-import { check, foreignKey, integer, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { nanoid } from "nanoid"
-import { member, organization } from "./auth"
-import { sshKey } from "./ssh-key"
+import type { Insertable, Selectable } from "kysely"
+import type { DB, Generated } from "../generated/database"
 
-export const hostStatus = ["pending", "provisioning", "ready", "unreachable", "error"] as const
+export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | "error"
 
-export const host = pgTable(
-	"host",
-	{
-		id: text("id")
-			.primaryKey()
-			.$defaultFn(() => nanoid()),
-		organizationId: text("organizationId")
-			.notNull()
-			.references(() => organization.id, { onDelete: "cascade" }),
-		name: text("name").notNull(),
-		hostname: text("hostname").notNull(),
-		port: integer("port").notNull().default(22),
-		username: text("username").notNull().default("root"),
-		sshKeyId: text("sshKeyId"),
-		hostKeyAlgorithm: text("hostKeyAlgorithm"),
-		hostKeyFingerprint: text("hostKeyFingerprint"),
-		hostKeyTrustedBy: text("hostKeyTrustedBy"),
-		hostKeyTrustedByLabel: text("hostKeyTrustedByLabel").notNull().default("unknown"),
-		hostKeyTrustedAt: timestamp("hostKeyTrustedAt"),
-		status: text("status", { enum: hostStatus }).notNull().default("pending"),
-		provisioningAttemptId: text("provisioningAttemptId"),
-		provisioningClaimedAt: timestamp("provisioningClaimedAt"),
-		dockerVersion: text("dockerVersion"),
-		osRelease: text("osRelease"),
-		cpuCount: integer("cpuCount"),
-		memoryMb: integer("memoryMb"),
-		capacityLimit: integer("capacityLimit"),
-		lastSeenAt: timestamp("lastSeenAt"),
-		createdAt: timestamp("createdAt").notNull().defaultNow(),
-	},
-	(t) => [
-		unique("host_org_name_unique").on(t.organizationId, t.name),
-		foreignKey({
-			columns: [t.organizationId, t.sshKeyId],
-			foreignColumns: [sshKey.organizationId, sshKey.id],
-			name: "host_sshKey_org_fk",
-		}).onDelete("restrict"),
-		foreignKey({
-			columns: [t.organizationId, t.hostKeyTrustedBy],
-			foreignColumns: [member.organizationId, member.id],
-			name: "host_hostKeyTrustedBy_org_fk",
-		}).onDelete("set null"),
-		check(
-			"host_trust_evidence_all_or_none",
-			sql`num_nonnulls(${t.hostKeyFingerprint}, ${t.hostKeyAlgorithm}, ${t.hostKeyTrustedAt}) in (0, 3)`,
-		),
-		check(
-			"host_trust_attribution_requires_evidence",
-			sql`${t.hostKeyTrustedBy} is null or ${t.hostKeyFingerprint} is not null`,
-		),
-		check(
-			"host_provisioning_requires_lease",
-			sql`${t.status} <> 'provisioning' or (${t.provisioningAttemptId} is not null and ${t.provisioningClaimedAt} is not null)`,
-		),
-	],
-)
+export type HostTable = Omit<
+	DB["host"],
+	| "status"
+	| "sshKeyId"
+	| "hostKeyAlgorithm"
+	| "hostKeyFingerprint"
+	| "hostKeyTrustedBy"
+	| "hostKeyTrustedAt"
+	| "dockerVersion"
+	| "osRelease"
+	| "cpuCount"
+	| "memoryMb"
+	| "capacityLimit"
+	| "lastSeenAt"
+	| "provisioningAttemptId"
+	| "provisioningClaimedAt"
+> & {
+	status: Generated<HostStatus>
+	sshKeyId: Generated<DB["host"]["sshKeyId"]>
+	hostKeyAlgorithm: Generated<DB["host"]["hostKeyAlgorithm"]>
+	hostKeyFingerprint: Generated<DB["host"]["hostKeyFingerprint"]>
+	hostKeyTrustedBy: Generated<DB["host"]["hostKeyTrustedBy"]>
+	hostKeyTrustedAt: Generated<DB["host"]["hostKeyTrustedAt"]>
+	dockerVersion: Generated<DB["host"]["dockerVersion"]>
+	osRelease: Generated<DB["host"]["osRelease"]>
+	cpuCount: Generated<DB["host"]["cpuCount"]>
+	memoryMb: Generated<DB["host"]["memoryMb"]>
+	capacityLimit: Generated<DB["host"]["capacityLimit"]>
+	lastSeenAt: Generated<DB["host"]["lastSeenAt"]>
+	provisioningAttemptId: Generated<DB["host"]["provisioningAttemptId"]>
+	provisioningClaimedAt: Generated<DB["host"]["provisioningClaimedAt"]>
+}
 
-export type HostRow = typeof host.$inferSelect
-export type HostInsert = typeof host.$inferInsert
+export type HostRow = Selectable<HostTable>
+export type HostInsert = Insertable<HostTable>

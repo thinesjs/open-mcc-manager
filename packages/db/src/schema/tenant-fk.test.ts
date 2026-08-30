@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { eq, inArray } from "drizzle-orm"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 import { createDb } from "../client"
-import { auditEvent, host, member, organization, sshKey, user } from "./index"
 
 const requireTestDatabaseUrl = (): string => {
 	const url = process.env.TEST_DATABASE_URL
@@ -34,17 +32,23 @@ let seeded = emptySeededIds()
 
 const seedOrganization = async () => {
 	const id = randomUUID()
-	await db.insert(organization).values({ id, name: "org", slug: `org-${id.slice(0, 8)}` })
+	await db
+		.insertInto("organization")
+		.values({ id, name: "org", slug: `org-${id.slice(0, 8)}` })
+		.execute()
 	seeded.organizationIds.push(id)
 	return id
 }
 
 const seedMember = async (organizationId: string) => {
 	const userId = randomUUID()
-	await db.insert(user).values({ id: userId, name: "actor", email: `${userId}@example.com` })
+	await db
+		.insertInto("user")
+		.values({ id: userId, name: "actor", email: `${userId}@example.com` })
+		.execute()
 	seeded.userIds.push(userId)
 	const memberId = randomUUID()
-	await db.insert(member).values({ id: memberId, organizationId, userId })
+	await db.insertInto("member").values({ id: memberId, organizationId, userId }).execute()
 	seeded.memberIds.push(memberId)
 	return memberId
 }
@@ -56,32 +60,32 @@ describe("tenant foreign key integrity", () => {
 		const steps: Array<() => Promise<void>> = [
 			async () => {
 				if (created.auditEventIds.length > 0) {
-					await db.delete(auditEvent).where(inArray(auditEvent.id, created.auditEventIds))
+					await db.deleteFrom("auditEvent").where("id", "in", created.auditEventIds).execute()
 				}
 			},
 			async () => {
 				if (created.hostIds.length > 0) {
-					await db.delete(host).where(inArray(host.id, created.hostIds))
+					await db.deleteFrom("host").where("id", "in", created.hostIds).execute()
 				}
 			},
 			async () => {
 				if (created.sshKeyIds.length > 0) {
-					await db.delete(sshKey).where(inArray(sshKey.id, created.sshKeyIds))
+					await db.deleteFrom("sshKey").where("id", "in", created.sshKeyIds).execute()
 				}
 			},
 			async () => {
 				if (created.memberIds.length > 0) {
-					await db.delete(member).where(inArray(member.id, created.memberIds))
+					await db.deleteFrom("member").where("id", "in", created.memberIds).execute()
 				}
 			},
 			async () => {
 				if (created.userIds.length > 0) {
-					await db.delete(user).where(inArray(user.id, created.userIds))
+					await db.deleteFrom("user").where("id", "in", created.userIds).execute()
 				}
 			},
 			async () => {
 				if (created.organizationIds.length > 0) {
-					await db.delete(organization).where(inArray(organization.id, created.organizationIds))
+					await db.deleteFrom("organization").where("id", "in", created.organizationIds).execute()
 				}
 			},
 		]
@@ -96,29 +100,36 @@ describe("tenant foreign key integrity", () => {
 	})
 
 	afterAll(async () => {
-		await db.$client.end()
+		await db.destroy()
 	})
 
 	it("keeps the host row and nulls only hostKeyTrustedBy when the trusting member is deleted, preserving hostKeyTrustedByLabel", async () => {
 		const organizationId = await seedOrganization()
 		const memberId = await seedMember(organizationId)
 		const hostId = randomUUID()
-		await db.insert(host).values({
-			id: hostId,
-			organizationId,
-			name: "vps",
-			hostname: "10.0.0.9",
-			hostKeyTrustedBy: memberId,
-			hostKeyTrustedByLabel: memberId,
-			hostKeyFingerprint: "SHA256:tenant-fk-test",
-			hostKeyAlgorithm: "ssh-ed25519",
-			hostKeyTrustedAt: new Date(),
-		})
+		await db
+			.insertInto("host")
+			.values({
+				id: hostId,
+				organizationId,
+				name: "vps",
+				hostname: "10.0.0.9",
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: memberId,
+				hostKeyFingerprint: "SHA256:tenant-fk-test",
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyTrustedAt: new Date(),
+			})
+			.execute()
 		seeded.hostIds.push(hostId)
 
-		await db.delete(member).where(eq(member.id, memberId))
+		await db.deleteFrom("member").where("id", "=", memberId).execute()
 
-		const [found] = await db.select().from(host).where(eq(host.id, hostId))
+		const found = await db
+			.selectFrom("host")
+			.selectAll()
+			.where("id", "=", hostId)
+			.executeTakeFirst()
 		if (!found) throw new Error("expected the host row to survive the member delete")
 		expect(found.organizationId).toBe(organizationId)
 		expect(found.hostKeyTrustedBy).toBeNull()
@@ -129,20 +140,27 @@ describe("tenant foreign key integrity", () => {
 		const organizationId = await seedOrganization()
 		const memberId = await seedMember(organizationId)
 		const eventId = randomUUID()
-		await db.insert(auditEvent).values({
-			id: eventId,
-			organizationId,
-			actorId: memberId,
-			actorLabel: memberId,
-			action: "host.create",
-			subjectType: "host",
-			subjectId: "n/a",
-		})
+		await db
+			.insertInto("auditEvent")
+			.values({
+				id: eventId,
+				organizationId,
+				actorId: memberId,
+				actorLabel: memberId,
+				action: "host.create",
+				subjectType: "host",
+				subjectId: "n/a",
+			})
+			.execute()
 		seeded.auditEventIds.push(eventId)
 
-		await db.delete(member).where(eq(member.id, memberId))
+		await db.deleteFrom("member").where("id", "=", memberId).execute()
 
-		const [found] = await db.select().from(auditEvent).where(eq(auditEvent.id, eventId))
+		const found = await db
+			.selectFrom("auditEvent")
+			.selectAll()
+			.where("id", "=", eventId)
+			.executeTakeFirst()
 		if (!found) throw new Error("expected the auditEvent row to survive the member delete")
 		expect(found.organizationId).toBe(organizationId)
 		expect(found.actorId).toBeNull()
@@ -153,24 +171,30 @@ describe("tenant foreign key integrity", () => {
 		const organizationA = await seedOrganization()
 		const organizationB = await seedOrganization()
 		const keyId = randomUUID()
-		await db.insert(sshKey).values({
-			id: keyId,
-			organizationId: organizationA,
-			name: "key",
-			publicKey: "pub",
-			privateKeyEncrypted: "enc",
-			privateKeyKeyId: "kid",
-		})
+		await db
+			.insertInto("sshKey")
+			.values({
+				id: keyId,
+				organizationId: organizationA,
+				name: "key",
+				publicKey: "pub",
+				privateKeyEncrypted: "enc",
+				privateKeyKeyId: "kid",
+			})
+			.execute()
 		seeded.sshKeyIds.push(keyId)
 
 		await expect(
-			db.insert(host).values({
-				id: randomUUID(),
-				organizationId: organizationB,
-				name: "vps-cross",
-				hostname: "10.0.0.10",
-				sshKeyId: keyId,
-			}),
+			db
+				.insertInto("host")
+				.values({
+					id: randomUUID(),
+					organizationId: organizationB,
+					name: "vps-cross",
+					hostname: "10.0.0.10",
+					sshKeyId: keyId,
+				})
+				.execute(),
 		).rejects.toThrow()
 	})
 })

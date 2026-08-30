@@ -1,12 +1,14 @@
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
-import * as schema from "./schema/index"
+import { Kysely, PostgresDialect, type Transaction } from "kysely"
+import { Pool } from "pg"
+import type { Database } from "./database"
 
-export const createDb = (url: string) => {
-	const sql = postgres(url, { max: 10 })
-	return drizzle(sql, { schema })
-}
+export const createDb = (url: string): Kysely<Database> =>
+	new Kysely<Database>({
+		dialect: new PostgresDialect({
+			pool: new Pool({ connectionString: url, max: 10 }),
+		}),
+	})
 
-export type Db = ReturnType<typeof createDb>
-export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
+export type Db = Kysely<Database>
+export type Tx = Transaction<Database>
 export type Executor = Db | Tx

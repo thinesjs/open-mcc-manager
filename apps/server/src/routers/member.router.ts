@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { acceptInvitationInput, inviteMemberInput } from "@open-mcc/contracts"
+import { createAuditRepository } from "@open-mcc/core"
 import { InvitationNotFoundError } from "../errors"
 import { protectedProcedure, publicProcedure, requireCapability, router } from "../trpc"
 
 export const memberRouter = router({
-	invite: protectedProcedure.input(inviteMemberInput).mutation(({ ctx, input }) => {
+	invite: protectedProcedure.input(inviteMemberInput).mutation(async ({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "member.manage")
-		return ctx.auth.api.createInvitation({
+		const invitation = await ctx.auth.api.createInvitation({
 			headers: ctx.headers,
 			body: {
 				email: input.email,
@@ -14,6 +15,20 @@ export const memberRouter = router({
 				organizationId: ctx.actor.organizationId,
 			},
 		})
+
+		await createAuditRepository(ctx.db).record(
+			{ organizationId: ctx.actor.organizationId },
+			{
+				actorId: ctx.actor.memberId,
+				actorLabel: ctx.actor.actorLabel,
+				action: "member.invite",
+				subjectType: "invitation",
+				subjectId: invitation.id,
+				detail: { email: input.email, role: input.role },
+			},
+		)
+
+		return invitation
 	}),
 
 	acceptInvitation: publicProcedure
@@ -34,32 +49,53 @@ export const memberRouter = router({
 			) {
 				throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
 			}
+			const role = invitation.role
 
 			const signUpResult = await ctx.signupAuth.api.signUpEmail({
 				body: { email: invitation.email, password: input.password, name: input.name },
 			})
 
-			await ctx.db
-				.insertInto("member")
-				.values({
-					id: randomUUID(),
-					organizationId: invitation.organizationId,
-					userId: signUpResult.user.id,
-					role: invitation.role,
-				})
-				.execute()
+			const memberId = randomUUID()
 
-			await ctx.db
-				.updateTable("invitation")
-				.set({ status: "accepted" })
-				.where("id", "=", invitation.id)
-				.where("status", "=", "pending")
-				.execute()
+			await ctx.db.transaction().execute(async (tx) => {
+				await tx
+					.insertInto("member")
+					.values({
+						id: memberId,
+						organizationId: invitation.organizationId,
+						userId: signUpResult.user.id,
+						role,
+					})
+					.execute()
+
+				const consumed = await tx
+					.updateTable("invitation")
+					.set({ status: "accepted" })
+					.where("id", "=", invitation.id)
+					.where("status", "=", "pending")
+					.returningAll()
+					.executeTakeFirst()
+				if (!consumed) {
+					throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
+				}
+
+				await createAuditRepository(tx).record(
+					{ organizationId: invitation.organizationId },
+					{
+						actorId: memberId,
+						actorLabel: invitation.email,
+						action: "member.accept",
+						subjectType: "member",
+						subjectId: memberId,
+						detail: { invitationId: invitation.id, role },
+					},
+				)
+			})
 
 			return {
 				userId: signUpResult.user.id,
 				organizationId: invitation.organizationId,
-				role: invitation.role,
+				role,
 			}
 		}),
 })

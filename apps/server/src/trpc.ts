@@ -6,22 +6,30 @@ import { mapKnownError } from "./errors"
 
 const GENERIC_INTERNAL_MESSAGE = "Internal server error"
 
+const GENERIC_UNMAPPED: Record<string, { message: string; errorCode: string }> = {
+	UNAUTHORIZED: { message: "Authentication required", errorCode: "UNAUTHORIZED" },
+	FORBIDDEN: {
+		message: "You do not have permission to perform this action",
+		errorCode: "FORBIDDEN",
+	},
+}
+
 const t = initTRPC.context<RequestContext>().create({
 	errorFormatter: ({ shape, error }) => {
 		const cause = error.cause
 		const known = cause instanceof Error ? mapKnownError(cause) : null
+		const generic = GENERIC_UNMAPPED[shape.data.code]
 		const data = {
 			code: known?.code ?? shape.data.code,
 			httpStatus: known?.httpStatus ?? shape.data.httpStatus,
 			...(known && { errorCode: known.errorCode }),
+			...(!known && generic && { errorCode: generic.errorCode }),
 			...(shape.data.path !== undefined && { path: shape.data.path }),
 		}
 		if (known) return { ...shape, message: known.message, data }
 		if (cause instanceof ZodError) return { ...shape, data }
-		if (shape.data.code === "INTERNAL_SERVER_ERROR") {
-			return { ...shape, message: GENERIC_INTERNAL_MESSAGE, data }
-		}
-		return { ...shape, data }
+		if (generic) return { ...shape, message: generic.message, data }
+		return { ...shape, message: GENERIC_INTERNAL_MESSAGE, data }
 	},
 })
 

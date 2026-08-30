@@ -32,6 +32,7 @@ beforeAll(async () => {
 	const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
 		disableSignUp: false,
 		disableRateLimit: true,
+		allowOrganizationCreation: true,
 	})
 	const secrets = await createSecretStore(await generateKeyPair("k1"))
 

@@ -14,6 +14,7 @@ const run = async (): Promise<void> => {
 	const db = createDb(env.DATABASE_URL)
 	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
 		disableSignUp: false,
+		allowOrganizationCreation: true,
 	})
 
 	try {

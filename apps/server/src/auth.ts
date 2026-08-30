@@ -10,6 +10,7 @@ const viewerRole = defaultAc.newRole({})
 export type CreateAuthOptions = {
 	disableSignUp?: boolean
 	disableRateLimit?: boolean
+	allowOrganizationCreation?: boolean
 }
 
 export const createAuth = (
@@ -44,6 +45,7 @@ export const createAuth = (
 		plugins: [
 			organization({
 				creatorRole: "owner",
+				allowUserToCreateOrganization: options.allowOrganizationCreation ?? false,
 				roles: {
 					owner: ownerAc,
 					operator: operatorRole,

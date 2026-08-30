@@ -26,6 +26,7 @@ describe("bootstrapOwner", () => {
 			{
 				disableSignUp: false,
 				disableRateLimit: true,
+				allowOrganizationCreation: true,
 			},
 		)
 		const email = `${randomUUID()}@example.com`
@@ -73,6 +74,7 @@ describe("bootstrapOwner", () => {
 			{
 				disableSignUp: false,
 				disableRateLimit: true,
+				allowOrganizationCreation: true,
 			},
 		)
 
@@ -108,6 +110,7 @@ describe("bootstrapOwner", () => {
 			{
 				disableSignUp: false,
 				disableRateLimit: true,
+				allowOrganizationCreation: true,
 			},
 		)
 

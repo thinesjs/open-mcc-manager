@@ -1,5 +1,5 @@
 import { isRole } from "@open-mcc/contracts"
-import type { HostController, SecretStore, SshKeyRepository } from "@open-mcc/core"
+import type { HostController, SshKeyController } from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import type { Auth } from "./auth"
 import type { Actor, RequestContext } from "./context"
@@ -9,8 +9,7 @@ export type AppDeps = {
 	signupAuth: Auth
 	db: Db
 	hostController: HostController
-	sshKeys: SshKeyRepository
-	secrets: SecretStore
+	sshKeyController: SshKeyController
 }
 
 const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | null> => {
@@ -49,8 +48,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			signupAuth: deps.signupAuth,
 			headers: opts.req.headers,
 			hostController: deps.hostController,
-			sshKeys: deps.sshKeys,
-			secrets: deps.secrets,
+			sshKeyController: deps.sshKeyController,
 			db: deps.db,
 		}
 	}

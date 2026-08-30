@@ -2,9 +2,11 @@ import { trpcServer } from "@hono/trpc-server"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
 	createHostController,
+	createSshKeyController,
 	type HostControllerDeps,
 	type HostRepository,
 	type SshKeyRepository,
+	type WithSshKeyTransaction,
 	type WithTransaction,
 } from "@open-mcc/core"
 import { createDb } from "@open-mcc/db"
@@ -64,7 +66,18 @@ const hostControllerDeps: HostControllerDeps = {
 	withTransaction,
 }
 
+const withSshKeyTransaction: WithSshKeyTransaction = (fn) =>
+	fn({ sshKeys, audit: { record: vi.fn(notCalled("audit.record")) } })
+
 const hostController = createHostController(hostControllerDeps)
+const sshKeyController = createSshKeyController({
+	sshKeys,
+	secrets: hostControllerDeps.secrets,
+	generateKeyPair: vi.fn(() => {
+		throw new Error("generateKeyPair should not be called in this test")
+	}),
+	withTransaction: withSshKeyTransaction,
+})
 const db = createDb(process.env.TEST_DATABASE_URL ?? "")
 const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000")
 
@@ -79,8 +92,7 @@ const ctx: RequestContext = {
 	signupAuth: auth,
 	headers: new Headers(),
 	hostController,
-	sshKeys,
-	secrets: hostControllerDeps.secrets,
+	sshKeyController,
 	db,
 }
 

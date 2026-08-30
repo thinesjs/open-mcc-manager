@@ -5,7 +5,10 @@ import {
 	createHostControllerTransaction,
 	createHostRepository,
 	createSecretStore,
+	createSshKeyController,
+	createSshKeyControllerTransaction,
 	createSshKeyRepository,
+	generateSshKeyPair,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
@@ -53,6 +56,12 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		instancesRoot: env.INSTANCES_ROOT,
 		withTransaction: createHostControllerTransaction(db),
 	})
+	const sshKeyController = createSshKeyController({
+		sshKeys,
+		secrets,
+		generateKeyPair: generateSshKeyPair,
+		withTransaction: createSshKeyControllerTransaction(db),
+	})
 
 	const allowed = env.ALLOWED_ORIGINS.split(",")
 		.map((origin) => origin.trim())
@@ -74,8 +83,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				signupAuth,
 				db,
 				hostController,
-				sshKeys,
-				secrets,
+				sshKeyController,
 			}),
 		}),
 	)

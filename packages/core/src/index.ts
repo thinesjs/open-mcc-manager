@@ -35,5 +35,15 @@ export {
 } from "./host/host.repository"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"
 export { generateSshKeyPair } from "./ssh-key/generate"
+export type {
+	SshKeyController,
+	SshKeyControllerDeps,
+	SshKeyTransactionRepos,
+	WithSshKeyTransaction,
+} from "./ssh-key/ssh-key.controller"
+export {
+	createSshKeyController,
+	createSshKeyControllerTransaction,
+} from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"

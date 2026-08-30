@@ -5,8 +5,11 @@ import {
 	createHostControllerTransaction,
 	createHostRepository,
 	createSecretStore,
+	createSshKeyController,
+	createSshKeyControllerTransaction,
 	createSshKeyRepository,
 	generateKeyPair,
+	generateSshKeyPair,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
@@ -47,6 +50,12 @@ beforeAll(async () => {
 		instancesRoot: "/srv/open-mcc",
 		withTransaction: createHostControllerTransaction(db),
 	})
+	const sshKeyController = createSshKeyController({
+		sshKeys,
+		secrets,
+		generateKeyPair: generateSshKeyPair,
+		withTransaction: createSshKeyControllerTransaction(db),
+	})
 
 	app = new Hono()
 	app.use("*", securityHeaders())
@@ -62,8 +71,7 @@ beforeAll(async () => {
 				signupAuth,
 				db,
 				hostController,
-				sshKeys,
-				secrets,
+				sshKeyController,
 			}),
 		}),
 	)

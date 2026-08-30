@@ -2,8 +2,11 @@
 
 Build rules for open-mcc-manager. This file is the source of truth. Security
 posture and the trust boundary live in `SECURITY.md`; read that too before
-touching auth, secrets, or host access. Design spec:
-`docs/superpowers/specs/2026-08-29-open-mcc-manager-design.md`.
+touching auth, secrets, or host access. Those two files are the whole
+specification. `docs/superpowers/` is gitignored AI planning material that no
+clone receives, so nothing here cites it and nothing may start to: a design
+decision that matters belongs in this file or in `SECURITY.md`, where a
+reader can actually find it.
 
 ## Stack
 
@@ -61,9 +64,20 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only |
 
-Everything else in this document — the layering direction, the tenancy rules,
-the required organization scope on every repository method, the host-key
-trust rules in the dashboard — rests on review and on the tests written
+Four rules stated further down this document are enforced too, and are listed
+here for the same reason — so that nothing claims enforcement it does not
+have:
+
+| Rule | Enforced by |
+| --- | --- |
+| Organization scope on every repository method | TypeScript — the scope is a required parameter, so a call without one does not compile |
+| Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
+| Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
+| The documented `.env` setup path | `scripts/load-env.test.ts` |
+
+Everything else in this document — the layering direction, the rest of the
+tenancy rules, the host-key trust rules in the dashboard, the mirroring of
+design token *values* from the reference — rests on review and on the tests written
 alongside each change. No hook, no commitlint, no CI step covers them.
 
 ### `scripts/check-type-policy.mjs`
@@ -183,6 +197,22 @@ Dependency direction is one-way: router → controller → repository.
 | `*.controller.ts` | business logic, orchestration | import tRPC or HTTP types |
 | `*.router.ts` | tRPC procedures, zod validation, capability check | touch the database directly |
 
+- `apps/server/src/routers/member.router.ts` is the one exception to that last
+  cell, and it is a standing exception rather than an unconverted file. It
+  reads `invitation` and writes `member` directly, in four places, with no
+  `member.controller.ts` behind it, because both operations are inseparable
+  from better-auth: the tables belong to better-auth's schema, `invite` calls
+  `auth.api.createInvitation`, and `acceptInvitation` calls
+  `signupAuth.api.signUpEmail` and must insert the member row in the same
+  transaction that consumes the invitation. A controller for it would live in
+  `packages/core`, which is framework-agnostic by the rule below and so cannot
+  import better-auth; it would have to take both calls as injected function
+  dependencies, the way `host.controller.ts` takes `createTransport`. That is
+  possible and has not been done — this row is honest about the state of the
+  code, not an argument that the state is ideal. Do not read it as licence for
+  a new router to query the database: `ssh-key.router.ts` and `host.router.ts`
+  both go through controllers, and anything not bound to better-auth's own API
+  must too.
 - `packages/contracts` owns every zod schema. `packages/core` contains none.
 - `packages/core` and `packages/transport` stay framework-agnostic — no
   Hono, no tRPC, no HTTP types.
@@ -197,8 +227,7 @@ Dependency direction is one-way: router → controller → repository.
   signup leaves an orphaned user with no membership, which is inert because
   the request context rejects any session with no matching member row. A
   formal saga engine with idempotency keys and per-phase checkpoints is
-  scoped for later and does not exist yet — do not assume it when reading
-  the design spec.
+  scoped for later and does not exist yet.
 
 ## Tenancy
 
@@ -209,7 +238,12 @@ Actor columns reference `member`, never the global `user`, except an audit
 row's `actorLabel`, which is a label captured at the time of the action, not
 a live reference, and survives the member being deleted. Repositories take
 an organization scope (`{ organizationId }`) as a required first argument on
-every method — there is no method that queries or writes without one.
+every method — there is no method that queries or writes without one, and
+that includes `host.repository.ts`'s `lockHost`, which takes no organization
+predicate but folds the organization id into the advisory lock key so one
+tenant cannot stall another's host that happens to share an id. The compiler
+is what enforces this: a method without the scope parameter cannot be called
+without one.
 
 ## Auth
 
@@ -225,6 +259,21 @@ invitation. Password hashing is Argon2id, configured explicitly
 (`apps/server/src/security/password.ts`) rather than left to better-auth's
 default, because that default has changed between library versions and an
 audit needs a fixed answer.
+
+`createAuth` passes `ALLOWED_ORIGINS` through to better-auth's
+`trustedOrigins` and sets `advanced.disableOriginCheck: false` explicitly.
+Both halves are load-bearing. Without the first, better-auth trusts only
+`BETTER_AUTH_URL` and answers the dashboard's own dev origin with
+`403 INVALID_ORIGIN`, so `docker compose up` produced a server the dashboard
+could not authenticate against. Without the second, better-auth's
+`isTest()` branch defaults `skipOriginCheck` to `true`, which means the whole
+server suite ran with origin checking switched off and could not have caught
+the first problem — the suites that drive the HTTP stack all post from
+`http://localhost:5173` against a `http://localhost:3000` base URL, and
+turning the check on failed 21 tests until each of their `createAuth` calls
+was given the same `trustedOrigins` production gets. A test suite configured
+more permissively than the deployment proves nothing about the deployment;
+`apps/server/src/auth-origin.test.ts` pins both halves.
 
 ## Adding a domain end to end
 
@@ -274,15 +323,35 @@ a host), following the actual stack above.
   out-of-band verification into two-request trust-on-first-use — exactly
   what the server side spent a security round closing.
 - Error copy for these trust failures comes from a static table keyed on the
-  response's `errorCode` (see `apps/web/src/lib/errors.ts`). Never render
-  `error.message`, `cause`, or anything else derived from the server's
-  response on these paths — the server deliberately withholds the presented
-  and expected fingerprint values, and a generic renderer would hand them
-  straight back.
+  response's `errorCode` (see `apps/web/src/lib/errors.ts`). The defence is
+  two layers and both are real. Server side, `host.controller.ts` strips the
+  presented and expected fingerprints from `FingerprintMismatchError` and
+  `trpc.ts` replaces the message of anything `mapKnownError` does not
+  recognise, so a domain error's own text never reaches the client. Client
+  side, `packages/contracts/src/errors.ts` owns the wire error codes and
+  `ERROR_MESSAGES` is typed `Record<ErrorCode, string>`, so adding a code the
+  server can send without adding operator-facing copy for it fails
+  `pnpm typecheck` — a new trust error cannot quietly fall through to the
+  server's own words.
+- `getErrorMessage` does still fall back to `error.message` when the response
+  carries no recognised `errorCode`, and that tail is deliberate rather than a
+  gap in the above: what reaches it is a zod validation message, which is
+  derived from the schema and not from server state, or a fixed constant like
+  `Internal server error`. Never widen it. Anything that could carry server
+  state must arrive with an `errorCode`, which is what forces copy for it.
 - Design tokens are mirrored from the reference and pinned by
-  `apps/web/src/index.css.test.ts` — drift fails that test rather than
-  merely violating a convention. Reuse existing token families; never invent
-  one locally.
+  `apps/web/src/index.css.test.ts`, which parses `index.css` and compares
+  every custom property it declares — all 132 of them, as
+  `scope name: value` — against one expected list. Deleting a declaration,
+  changing a value, or moving one between the light and dark blocks all fail
+  that test. It was previously a set of `toContain` checks on bare token
+  names, which a `var()` reference elsewhere in the file satisfied and which
+  prefix collision let `--error-foreground` satisfy on behalf of `--error`;
+  both `--error:` declarations could be deleted outright with the suite still
+  green. Do not go back to substring matching. The mirroring itself — that
+  these values match the reference's — rests on review, because the reference is not in
+  this repository and a test cannot read it. Reuse existing token families;
+  never invent one locally.
 - `apps/web/src/routeTree.gen.ts` is generated by TanStack Router and is
   exempt from the type-policy checker by its exact path, not by filename —
   see What enforces what above. A same-named file placed elsewhere is not
@@ -308,6 +377,22 @@ Note the variable: `db:migrate` reads `DATABASE_URL`, not
 `TEST_DATABASE_URL`, so migrating the test database means overriding it for
 that command alone. Skip this and the suite fails with `relation
 "organization" does not exist`, which names nothing that would lead you here.
+
+`TEST_DATABASE_URL` does not have to be exported. `packages/config/load-env.mjs`
+loads the repository's `.env` through `process.loadEnvFile`, and
+`packages/db`, `packages/core` and `apps/server` each run it as a vitest
+`setupFiles` entry; `packages/db/src/migrate.ts` imports it too. An exported
+variable always wins over the file, because that is `loadEnvFile`'s own
+precedence, so CI — which sets `TEST_DATABASE_URL` in the workflow and has no
+`.env` — behaves exactly as it did before, and a one-off override on the
+command line still works. `.env` is listed in `turbo.json`'s
+`globalDependencies` so editing it invalidates the test cache; without that
+line turbo would replay a cached pass against a database you had just
+repointed. A new workspace whose tests need a database must add the same
+`setupFiles` entry — nothing loads it globally. `scripts/load-env.test.ts`
+copies the loader into a throwaway repository layout and proves all three
+behaviours (loads, does not override, inert with no `.env`) without touching
+your real one.
 
 Do not try to save that step by mounting `packages/db/migrations` into the
 container's `/docker-entrypoint-initdb.d`. It was tried and measured: the

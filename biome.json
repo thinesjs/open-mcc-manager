@@ -18,7 +18,8 @@
 			"recommended": true,
 			"suspicious": {
 				"noExplicitAny": "error",
-				"noConsole": { "level": "error", "options": { "allow": ["error", "warn"] } }
+				"noConsole": { "level": "error", "options": { "allow": ["error", "warn"] } },
+				"noTsIgnore": "error"
 			},
 			"style": {
 				"noNonNullAssertion": "error",

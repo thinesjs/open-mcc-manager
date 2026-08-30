@@ -21,6 +21,33 @@ const isAsConst = (typeNode) =>
 	ts.isIdentifier(typeNode.typeName) &&
 	typeNode.typeName.text === "const"
 
+const PRAGMAS = ["@ts-expect-error", "@ts-ignore"]
+
+const pragmaIn = (commentText) => {
+	const body = commentText.replace(/^\/\//, "").replace(/^\/\*/, "").replace(/\*\/$/, "").trim()
+	return PRAGMAS.find((pragma) => body.startsWith(pragma))
+}
+
+const collectCommentRanges = (text) => {
+	const ranges = []
+	const seenStarts = new Set()
+	for (let pos = 0; pos < text.length; ) {
+		const found = ts.getLeadingCommentRanges(text, pos)
+		if (!found || found.length === 0) {
+			pos += 1
+			continue
+		}
+		for (const range of found) {
+			if (!seenStarts.has(range.pos)) {
+				seenStarts.add(range.pos)
+				ranges.push(range)
+			}
+		}
+		pos = found[found.length - 1].end
+	}
+	return ranges
+}
+
 export const findViolations = (root) => {
 	const violations = []
 	const seen = new Set()
@@ -48,14 +75,15 @@ export const findViolations = (root) => {
 
 		const getLine = (node) => ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
 
-		const report = (node, token) => {
-			const line = getLine(node)
+		const reportAt = (line, token) => {
 			const key = `${rel}:${line}:${token}`
 			if (!seen.has(key)) {
 				seen.add(key)
 				violations.push({ file: rel, line, token })
 			}
 		}
+
+		const report = (node, token) => reportAt(getLine(node), token)
 
 		const keywordViolationLines = new Set()
 
@@ -78,11 +106,26 @@ export const findViolations = (root) => {
 			if (node.kind === ts.SyntaxKind.TypeAssertionExpression) {
 				if (!keywordViolationLines.has(getLine(node))) report(node, "assertion")
 			}
+			if (
+				(node.kind === ts.SyntaxKind.VariableDeclaration ||
+					node.kind === ts.SyntaxKind.PropertyDeclaration) &&
+				node.exclamationToken
+			) {
+				report(node.exclamationToken, "definite-assignment")
+			}
 			ts.forEachChild(node, visitAssertions)
 		}
 
 		visitKeywords(sf)
 		visitAssertions(sf)
+
+		for (const range of collectCommentRanges(text)) {
+			const pragma = pragmaIn(text.slice(range.pos, range.end))
+			if (pragma) {
+				const line = ts.getLineAndCharacterOfPosition(sf, range.pos).line + 1
+				reportAt(line, pragma)
+			}
+		}
 	}
 	return violations
 }

@@ -215,4 +215,58 @@ describe("findViolations", () => {
 		})
 		expect(findViolations(root)).toEqual([])
 	})
+
+	it("rejects a definite assignment assertion on a variable declaration", () => {
+		const root = seed({ "packages/core/src/u.ts": 'let x!: string\nx = "ok"\n' })
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/u.ts", line: 1, token: "definite-assignment" },
+		])
+	})
+
+	it("rejects a definite assignment assertion on a class property declaration", () => {
+		const root = seed({
+			"packages/core/src/v.ts":
+				'class Foo {\n\tfield!: string\n}\nconst f = new Foo()\nf.field = "ok"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/v.ts", line: 2, token: "definite-assignment" },
+		])
+	})
+
+	it("allows an ordinary initialized variable declaration", () => {
+		const root = seed({ "packages/core/src/w.ts": 'let x: string = "a"\n' })
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("rejects a ts-expect-error pragma comment", () => {
+		const root = seed({
+			"packages/core/src/x1.ts": '// @ts-expect-error\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/x1.ts", line: 1, token: "@ts-expect-error" },
+		])
+	})
+
+	it("rejects a ts-ignore pragma comment", () => {
+		const root = seed({
+			"packages/core/src/x2.ts": '// @ts-ignore\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/x2.ts", line: 1, token: "@ts-ignore" },
+		])
+	})
+
+	it("does not treat the pragma text inside a string literal as a directive", () => {
+		const root = seed({
+			"packages/core/src/x3.ts": 'const s = "@ts-expect-error"\n',
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("does not treat the pragma words in ordinary prose within a non-pragma comment as a directive", () => {
+		const root = seed({
+			"packages/core/src/x4.ts": "// see @ts-expect-error for reference\nconst n = 1\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
 })

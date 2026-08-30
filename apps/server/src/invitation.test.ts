@@ -191,6 +191,15 @@ describe("member invitations", () => {
 		expect(inviteRes.status, inviteBody).toBe(200)
 		const invitation = inviteResponseSchema.parse(JSON.parse(inviteBody)).result.data
 
+		const inviteAudit = await db
+			.selectFrom("auditEvent")
+			.select(["actorLabel", "detail"])
+			.where("subjectId", "=", invitation.id)
+			.where("action", "=", "member.invite")
+			.executeTakeFirst()
+		expect(inviteAudit?.actorLabel).toBe(owner.email)
+		expect(inviteAudit?.detail).toMatchObject({ email: inviteeEmail, role: "operator" })
+
 		const acceptRes = await app.request("/trpc/member.acceptInvitation", {
 			method: "POST",
 			headers: { "content-type": "application/json", Origin: ORIGIN },
@@ -210,11 +219,28 @@ describe("member invitations", () => {
 
 		const memberRow = await db
 			.selectFrom("member")
-			.select("role")
+			.select(["id", "role"])
 			.where("organizationId", "=", owner.orgId)
 			.where("userId", "=", accepted.userId)
 			.executeTakeFirst()
 		expect(memberRow?.role).toBe("operator")
+
+		const inviteeMembers = await db
+			.selectFrom("member")
+			.select("id")
+			.where("userId", "=", accepted.userId)
+			.execute()
+		expect(inviteeMembers).toHaveLength(1)
+
+		const acceptAudit = await db
+			.selectFrom("auditEvent")
+			.select(["actorLabel", "actorId", "detail"])
+			.where("subjectId", "=", memberRow?.id ?? "")
+			.where("action", "=", "member.accept")
+			.executeTakeFirst()
+		expect(acceptAudit?.actorLabel).toBe(inviteeEmail)
+		expect(acceptAudit?.actorId).toBe(memberRow?.id)
+		expect(acceptAudit?.detail).toMatchObject({ invitationId: invitation.id, role: "operator" })
 
 		await cleanupOrg(owner.orgId, [owner.email, inviteeEmail])
 	})

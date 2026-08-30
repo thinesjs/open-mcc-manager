@@ -8,6 +8,8 @@ import {
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
 
+export class InvitationNotFoundError extends Error {}
+
 export type MappedErrorCode = "FORBIDDEN" | "NOT_FOUND" | "BAD_REQUEST" | "CONFLICT"
 
 export type MappedErrorTag =
@@ -18,6 +20,7 @@ export type MappedErrorTag =
 	| "HOST_MISCONFIGURED"
 	| "HOST_CONCURRENTLY_MODIFIED"
 	| "HOST_PROVISIONING_IN_PROGRESS"
+	| "INVITATION_NOT_FOUND"
 
 export type MappedError = {
 	code: MappedErrorCode
@@ -76,6 +79,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"HOST_PROVISIONING_IN_PROGRESS",
 			"Host provisioning is already in progress",
+		)
+	}
+	if (cause instanceof InvitationNotFoundError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INVITATION_NOT_FOUND",
+			"Invitation not found, expired, or already used",
 		)
 	}
 	return null

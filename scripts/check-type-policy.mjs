@@ -16,6 +16,14 @@ const walk = (dir, acc = []) => {
 	return acc
 }
 
+const isAsConst = (typeNode) =>
+	typeNode.kind === ts.SyntaxKind.TypeReference &&
+	ts.isIdentifier(typeNode.typeName) &&
+	typeNode.typeName.text === "const"
+
+const targetsForbiddenKeyword = (typeNode) =>
+	typeNode.kind === ts.SyntaxKind.NeverKeyword || typeNode.kind === ts.SyntaxKind.UnknownKeyword
+
 export const findViolations = (root) => {
 	const violations = []
 	const seen = new Set()
@@ -43,22 +51,30 @@ export const findViolations = (root) => {
 
 		const getLine = (node) => ts.getLineAndCharacterOfPosition(sf, node.getStart(sf)).line + 1
 
-		const visit = (node) => {
-			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) {
-				const line = getLine(node)
-				const key = `${rel}:${line}:unknown`
-				if (!seen.has(key)) {
-					seen.add(key)
-					violations.push({ file: rel, line, token: "unknown" })
-				}
+		const report = (node, token) => {
+			const line = getLine(node)
+			const key = `${rel}:${line}:${token}`
+			if (!seen.has(key)) {
+				seen.add(key)
+				violations.push({ file: rel, line, token })
 			}
-			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) {
-				const line = getLine(node)
-				const key = `${rel}:${line}:never`
-				if (!seen.has(key)) {
-					seen.add(key)
-					violations.push({ file: rel, line, token: "never" })
-				}
+		}
+
+		const visit = (node) => {
+			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) report(node, "unknown")
+			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) report(node, "never")
+			if (
+				node.kind === ts.SyntaxKind.AsExpression &&
+				!isAsConst(node.type) &&
+				!targetsForbiddenKeyword(node.type)
+			) {
+				report(node, "assertion")
+			}
+			if (
+				node.kind === ts.SyntaxKind.TypeAssertionExpression &&
+				!targetsForbiddenKeyword(node.type)
+			) {
+				report(node, "assertion")
 			}
 			ts.forEachChild(node, visit)
 		}

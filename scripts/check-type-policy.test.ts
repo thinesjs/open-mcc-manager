@@ -152,4 +152,32 @@ describe("findViolations", () => {
 			{ file: "packages/core/src/n.ts", line: 2, token: "parse-error" },
 		])
 	})
+
+	it("allows an as const assertion", () => {
+		const root = seed({ "packages/core/src/o.ts": "const x = 1 as const\n" })
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("rejects an as assertion to a named type", () => {
+		const root = seed({
+			"packages/core/src/p.ts": "type Foo = { a: number }\nconst x = {} as Foo\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/p.ts", line: 2, token: "assertion" },
+		])
+	})
+
+	it("rejects an angle-bracket type assertion", () => {
+		const root = seed({
+			"packages/core/src/q.ts": "type Foo = { a: number }\nconst x = <Foo>{}\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/q.ts", line: 2, token: "assertion" },
+		])
+	})
+
+	it("is clean for a file with no assertions", () => {
+		const root = seed({ "packages/core/src/r.ts": "const x = 1\nconst y = x + 1\n" })
+		expect(findViolations(root)).toEqual([])
+	})
 })

@@ -432,8 +432,9 @@ a host), following the actual stack above.
   is not theoretical. `index.css`'s `@layer base` carries
   `* { @apply border-border outline-ring/50; }`, mirrored from the reference, and
   it was missing from this repository until the shadcn components were
-  lifted from the reference rather than approximated. Nothing caught it: the rule declares no
-  custom property, so the pin test cannot see it, and no component had yet
+  lifted from the reference rather than approximated. Nothing caught it: the rule
+  declares no custom property, so the pin test cannot see it, and no
+  component had yet
   written a bare `border`. Tailwind v4's preflight is `border: 0 solid`, so
   the moment `card.tsx` and `button.tsx` did, every bordered element drew
   its border in `currentColor` — the text colour. "Design tokens are
@@ -463,8 +464,8 @@ a host), following the actual stack above.
   inversion renders identically on the machine that writes it and ships the
   bug everywhere else. Do not invert these rules and do not drop the
   exemption. If you change them, read the emitted CSS under
-  `apps/web/dist/assets/` rather than the source — this was found by
-  reading the build output, not by reasoning about the stylesheet.
+  `apps/web/dist/assets/` rather than the source — this was found by reading
+  the build output, not by reasoning about the stylesheet.
 - When lifting a component from the reference, a property can move between the
   stylesheet and the component between versions, so re-lifting one without
   the other silently duplicates or drops it. `dropdown-glass` carried its
@@ -483,9 +484,9 @@ a host), following the actual stack above.
   (`index.css:1411-1413` at `fdd1572b6`) and diverge only under
   `html[data-theme-id]:not([data-theme-id=""])` (`:1552`), a selector this
   dashboard never matches because it sets no `data-theme-id`. The
-  `--contrast-*` family wraps those and others again in `color-mix(in oklab,
-  color-mix(in oklab, X 100%, background), black 0%)`, which reduces to `X`
-  at the shipped `--appearance-contrast-base: 100%` and
+  `--contrast-*` family wraps those and others again in
+  `color-mix(in oklab, color-mix(in oklab, X 100%, background), black 0%)`,
+  which reduces to `X` at the shipped `--appearance-contrast-base: 100%` and
   `--appearance-contrast-boost: 0%` (`:81-83`) — confirmed by computing both
   forms in a browser rather than reading it off the spec. So
   `text-muted-foreground` stands in for all of them exactly. A re-mirror

@@ -90,7 +90,7 @@ const makeAuditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRo
 })
 
 type RejectingTransportMode = "connect" | "exec"
-type RejectingTransportOptions = { closeThrows?: boolean }
+type RejectingTransportOptions = { closeThrows?: boolean; closeError?: Error }
 
 const createRejectingTransport = (
 	mode: RejectingTransportMode,
@@ -114,6 +114,7 @@ const createRejectingTransport = (
 		},
 		close: async () => {
 			closeAttempted = true
+			if (options.closeError) throw options.closeError
 			if (options.closeThrows) throw new Error("close failed")
 			state = "disconnected"
 		},
@@ -589,6 +590,28 @@ describe("host controller provisioning", () => {
 			{ status: "error" },
 		)
 		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	it("redacts private key material out of a close() failure before it reaches the log", async () => {
+		const privateKey =
+			"-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEotSECRET\n-----END OPENSSH PRIVATE KEY-----"
+		const transport = createRejectingTransport("exec", {
+			closeError: new Error(`Cannot parse privateKey: ${privateKey}`),
+		})
+		const d = deps({ createTransport: vi.fn(() => transport) })
+		const controller = createHostController(d)
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+
+		try {
+			await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+			const closeLog = logged.mock.calls.find((call) => String(call[0]).includes("close transport"))
+			expect(closeLog).toBeDefined()
+			const loggedText = closeLog?.slice(1).join(" ") ?? ""
+			expect(loggedText).not.toContain("otSECRET")
+			expect(loggedText).toContain("[redacted private key]")
+		} finally {
+			logged.mockRestore()
+		}
 	})
 
 	it("does not let a close() failure mask the original provisioning error", async () => {

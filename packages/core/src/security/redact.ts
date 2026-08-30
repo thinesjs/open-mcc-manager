@@ -10,3 +10,6 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 
 export const redact = (value: string): string =>
 	PATTERNS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), value)
+
+export const redactError = (error: Error | string): string =>
+	redact(typeof error === "string" ? error : (error.stack ?? `${error.name}: ${error.message}`))

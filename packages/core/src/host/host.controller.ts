@@ -4,6 +4,7 @@ import type { Db } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
+import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	createHostRepository,
@@ -155,7 +156,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			try {
 				await transport.close()
 			} catch (error) {
-				console.error("provision: failed to close transport", error)
+				console.error(
+					"provision: failed to close transport",
+					redactError(error instanceof Error ? error : String(error)),
+				)
 			}
 		}
 
@@ -190,7 +194,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 						await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })
 					})
 				} catch (updateError) {
-					console.error("provision: failed to record error status", updateError)
+					console.error(
+						"provision: failed to record error status",
+						redactError(updateError instanceof Error ? updateError : String(updateError)),
+					)
 				}
 				throw error
 			}

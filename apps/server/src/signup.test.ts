@@ -20,19 +20,24 @@ afterAll(async () => {
 
 describe("public registration", () => {
 	it("rejects the public sign-up endpoint by default", async () => {
+		const email = `${randomUUID()}@example.com`
 		const res = await app.request("/api/auth/sign-up/email", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				email: `${randomUUID()}@example.com`,
+				email,
 				password: "correct horse battery staple 3",
 				name: "Uninvited",
 			}),
 		})
 		expect(res.status).not.toBe(200)
 
-		const rows = await db.selectFrom("user").select("id").limit(1).executeTakeFirst()
-		expect(rows).toBeUndefined()
+		const created = await db
+			.selectFrom("user")
+			.select("id")
+			.where("email", "=", email)
+			.executeTakeFirst()
+		expect(created).toBeUndefined()
 	})
 })
 

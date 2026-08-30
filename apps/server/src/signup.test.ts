@@ -35,3 +35,31 @@ describe("public registration", () => {
 		expect(rows).toBeUndefined()
 	})
 })
+
+describe("argon2id wiring", () => {
+	it("stores a hash matching the register's parameters when a user signs up through the real auth stack", async () => {
+		const signupAuth = createAuth(
+			db,
+			"a-very-long-test-secret-value-000000",
+			"http://localhost:3000",
+			{ disableSignUp: false, disableRateLimit: true },
+		)
+		const email = `${randomUUID()}@example.com`
+		const signUpResult = await signupAuth.api.signUpEmail({
+			body: { email, password: "correct horse battery staple 4", name: "Argon Check" },
+		})
+
+		const account = await db
+			.selectFrom("account")
+			.select("password")
+			.where("userId", "=", signUpResult.user.id)
+			.executeTakeFirst()
+		const hash = account?.password ?? ""
+		expect(hash.startsWith("$argon2id$")).toBe(true)
+		expect(hash).toContain("m=19456,t=2,p=1")
+
+		await db.deleteFrom("session").where("userId", "=", signUpResult.user.id).execute()
+		await db.deleteFrom("account").where("userId", "=", signUpResult.user.id).execute()
+		await db.deleteFrom("user").where("id", "=", signUpResult.user.id).execute()
+	})
+})

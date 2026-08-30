@@ -18,9 +18,10 @@ export default defineConfig({
 		alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) },
 	},
 	server: {
+		port: Number(process.env.WEB_PORT ?? 5173),
 		proxy: {
-			"/trpc": "http://localhost:3000",
-			"/api": "http://localhost:3000",
+			"/trpc": process.env.SERVER_ORIGIN ?? "http://localhost:3000",
+			"/api": process.env.SERVER_ORIGIN ?? "http://localhost:3000",
 		},
 	},
 })

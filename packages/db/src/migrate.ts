@@ -1,3 +1,4 @@
+import "@open-mcc/config/load-env.mjs"
 import { createDb } from "./client"
 import { migrateToLatest } from "./migrator"
 

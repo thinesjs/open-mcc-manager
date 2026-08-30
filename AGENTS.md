@@ -78,6 +78,7 @@ have:
 | Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails |
 | The provisioning claim conditioned on the status read before the lock | `packages/core/src/host/host.controller.transaction.test.ts` — substituting the row read under the lock makes the claim always succeed, and fails the test named for it |
 | Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |
+| The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 
 Everything else in this document — the layering direction, the rest of the
@@ -463,9 +464,12 @@ a host), following the actual stack above.
   Every browser a developer is likely to test in supports both, so the
   inversion renders identically on the machine that writes it and ships the
   bug everywhere else. Do not invert these rules and do not drop the
-  exemption. If you change them, read the emitted CSS under
-  `apps/web/dist/assets/` rather than the source — this was found by reading
-  the build output, not by reasoning about the stylesheet.
+  exemption. `index.css.glass.test.ts` fails if you do — it pins the shape,
+  not the rendering, because a source test cannot see what Lightning CSS
+  emits. So if you change these rules for any other reason, still read the
+  built CSS under `apps/web/dist/assets/` rather than the source; the bug
+  above was found by reading the build output, not by reasoning about the
+  stylesheet.
 - When lifting a component from the reference, a property can move between the
   stylesheet and the component between versions, so re-lifting one without
   the other silently duplicates or drops it. `dropdown-glass` carried its

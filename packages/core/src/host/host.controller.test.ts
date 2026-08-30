@@ -21,7 +21,7 @@ import type {
 	OrgScope,
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
-import { PROVISION_STEP_TIMEOUT_MS, provisionHost } from "./provision"
+import { provisionHost } from "./provision"
 
 const ctx = {
 	organizationId: "org-1",
@@ -55,7 +55,6 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	status: "pending",
 	provisioningAttemptId: null,
 	provisioningClaimedAt: null,
-	dockerVersion: null,
 	osRelease: null,
 	cpuCount: null,
 	memoryMb: null,
@@ -133,7 +132,7 @@ const deps = (
 			makeHostRow({
 				id,
 				status: patch.status ?? "pending",
-				dockerVersion: patch.dockerVersion ?? null,
+				osRelease: patch.osRelease ?? null,
 			}),
 		),
 		delete: vi.fn(async () => true),
@@ -152,12 +151,12 @@ const deps = (
 				_scope: OrgScope,
 				id: string,
 				_attemptId: string,
-				patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+				patch: Pick<HostUpdateValues, "status" | "osRelease">,
 			) =>
 				makeHostRow({
 					id,
 					status: patch.status ?? "pending",
-					dockerVersion: patch.dockerVersion ?? null,
+					osRelease: patch.osRelease ?? null,
 				}),
 		),
 		updateHostKeyTrust: vi.fn(async (_scope: OrgScope, id: string, trust: HostKeyTrustUpdate) =>
@@ -183,7 +182,7 @@ const deps = (
 		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
 		createTransport: vi.fn(() =>
 			createFakeTransport({
-				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
 		instancesRoot: "/var/lib/open-mcc-manager",
@@ -384,12 +383,12 @@ describe("host controller provisioning", () => {
 					_scope: OrgScope,
 					id: string,
 					_attemptId: string,
-					patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+					patch: Pick<HostUpdateValues, "status" | "osRelease">,
 				) =>
 					makeHostRow({
 						id,
 						status: patch.status ?? "pending",
-						dockerVersion: patch.dockerVersion ?? null,
+						osRelease: patch.osRelease ?? null,
 					}),
 			),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -490,7 +489,7 @@ describe("host controller provisioning", () => {
 
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
@@ -498,10 +497,12 @@ describe("host controller provisioning", () => {
 		const updated = await controller.provision(ctx, "host-1")
 
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
-		expect(transport.commands).toContain("docker --version")
-		expect(transport.commands).toContain("install -d -m 0770 '/var/lib/open-mcc-manager/instances'")
+		expect(transport.commands).toContain("systemctl --version | head -n 1")
+		expect(transport.commands).toContain(
+			"install -d -m 2770 -g 'open-mcc' '/var/lib/open-mcc-manager/instances'",
+		)
 		expect(transport.state()).toBe("disconnected")
-		expect(updated?.dockerVersion).toBe("Docker version 27.3.1")
+		expect(updated?.osRelease).toBe("systemd 252")
 		expect(d.hosts.lockHost).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1")
 		expect(d.hosts.claimForProvisioning).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
@@ -515,7 +516,7 @@ describe("host controller provisioning", () => {
 			"attempt-1",
 			{
 				status: "ready",
-				dockerVersion: "Docker version 27.3.1",
+				osRelease: "systemd 252",
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
@@ -529,9 +530,9 @@ describe("host controller provisioning", () => {
 		)
 	})
 
-	it("transitions status to error and rethrows the original error when docker is missing, without auditing or leaking the private key", async () => {
+	it("transitions status to error and rethrows the original error when systemd is missing, without auditing or leaking the private key", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "", stderr: "not found", exitCode: 127 },
+			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
@@ -542,7 +543,7 @@ describe("host controller provisioning", () => {
 		} catch (error) {
 			expect(error).toBeInstanceOf(Error)
 			const message = error instanceof Error ? error.message : ""
-			expect(message).toMatch(/docker/i)
+			expect(message).toMatch(/systemd/i)
 			expect(message).not.toContain("PRIVATE KEY")
 		}
 
@@ -674,24 +675,30 @@ const provisionConnectOptions = {
 }
 
 describe("provisionHost", () => {
-	it("installs docker and creates the instances directory", async () => {
+	it("records the systemd version and creates a setgid instances directory", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			"systemctl --version | head -n 1": {
+				stdout: "systemd 252 (252.22-1~deb12u1)",
+				stderr: "",
+				exitCode: 0,
+			},
 		})
 		await transport.connect(provisionConnectOptions)
 		const result = await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
-		expect(result.dockerVersion).toBe("Docker version 27.3.1")
-		expect(transport.commands).toContain("install -d -m 0770 '/var/lib/open-mcc-manager/instances'")
+		expect(result.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
+		expect(transport.commands).toContain(
+			"install -d -m 2770 -g 'open-mcc' '/var/lib/open-mcc-manager/instances'",
+		)
 	})
 
-	it("fails when docker is absent", async () => {
+	it("fails when systemd is absent", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "", stderr: "not found", exitCode: 127 },
+			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		await transport.connect(provisionConnectOptions)
 		await expect(
 			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
-		).rejects.toThrow(/docker/i)
+		).rejects.toThrow(/systemd/i)
 	})
 
 	it("propagates when exec() rejects mid-command rather than resolving as if disconnected", async () => {
@@ -703,7 +710,7 @@ describe("provisionHost", () => {
 
 	it("rejects an instancesRoot containing a shell metacharacter without running any command", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
 		await expect(
@@ -714,7 +721,7 @@ describe("provisionHost", () => {
 
 	it("rejects an instancesRoot that is not an absolute path", async () => {
 		const transport = createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
 		await expect(
@@ -724,13 +731,13 @@ describe("provisionHost", () => {
 	})
 
 	it("finishes its worst-case remote work inside the provisioning lease, counting every step it actually runs", async () => {
-		const transport = createFakeTransport({
-			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport()
 		await transport.connect(provisionConnectOptions)
 		await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
 
-		const worstCaseMs = CONNECT_TIMEOUT_MS + transport.commands.length * PROVISION_STEP_TIMEOUT_MS
+		const remoteBudgetMs = transport.timeouts.reduce((total, each) => total + each, 0)
+		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs
+		expect(transport.timeouts).toHaveLength(transport.commands.length)
 		expect(worstCaseMs).toBeLessThan(PROVISIONING_LEASE_MS)
 	})
 })

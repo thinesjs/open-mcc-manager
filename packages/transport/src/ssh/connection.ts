@@ -12,6 +12,7 @@ export const execWithBoundedAcquisition = (
 	requestChannel: RequestChannel,
 	command: string,
 	timeoutMs: number,
+	stdin?: string,
 ): Promise<ExecResult> =>
 	new Promise<ExecResult>((resolve, reject) => {
 		let settled = false
@@ -34,7 +35,7 @@ export const execWithBoundedAcquisition = (
 				return
 			}
 			const remainingMs = Math.max(0, timeoutMs - (Date.now() - startedAt))
-			execViaChannel(channel, command, remainingMs).then(
+			execViaChannel(channel, command, remainingMs, stdin).then(
 				(result) => {
 					settled = true
 					resolve(result)
@@ -89,7 +90,7 @@ export const createSshTransport = (): HostTransport => {
 					})
 			}),
 
-		exec: (command: string, timeoutMs: number) => {
+		exec: (command: string, timeoutMs: number, stdin?: string) => {
 			const conn = client
 			if (!conn) return Promise.reject(new Error("Transport is not connected"))
 			return execWithBoundedAcquisition(
@@ -122,6 +123,7 @@ export const createSshTransport = (): HostTransport => {
 					}),
 				command,
 				timeoutMs,
+				stdin,
 			)
 		},
 

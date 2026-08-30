@@ -225,7 +225,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 
 			const updated = await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, {
 				status: "ready",
-				dockerVersion: result.dockerVersion,
+				osRelease: result.osRelease,
 			})
 			if (!updated) {
 				throw new HostConcurrentlyModifiedError(
@@ -239,7 +239,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				action: "host.provision",
 				subjectType: "host",
 				subjectId: hostId,
-				detail: { dockerVersion: result.dockerVersion },
+				detail: { osRelease: result.osRelease },
 			})
 
 			return updated

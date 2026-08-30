@@ -30,7 +30,6 @@ export type HostTable = Omit<
 	hostKeyFingerprint: Generated<DB["host"]["hostKeyFingerprint"]>
 	hostKeyTrustedBy: Generated<DB["host"]["hostKeyTrustedBy"]>
 	hostKeyTrustedAt: Generated<DB["host"]["hostKeyTrustedAt"]>
-	dockerVersion: Generated<DB["host"]["dockerVersion"]>
 	osRelease: Generated<DB["host"]["osRelease"]>
 	cpuCount: Generated<DB["host"]["cpuCount"]>
 	memoryMb: Generated<DB["host"]["memoryMb"]>

@@ -13,14 +13,17 @@ export const createFakeTransport = (
 ): HostTransport & {
 	commands: string[]
 	stdins: string[]
+	timeouts: number[]
 } => {
 	let state: ConnectionState = "disconnected"
 	const commands: string[] = []
 	const stdins: string[] = []
+	const timeouts: number[] = []
 
 	return {
 		commands,
 		stdins,
+		timeouts,
 		state: () => state,
 		connect: async () => {
 			const failure = failures.connect
@@ -30,9 +33,10 @@ export const createFakeTransport = (
 			}
 			state = "ready"
 		},
-		exec: async (command: string, _timeoutMs?: number, stdin?: string) => {
+		exec: async (command: string, timeoutMs?: number, stdin?: string) => {
 			if (state !== "ready") throw new Error("Transport is not connected")
 			commands.push(command)
+			if (timeoutMs !== undefined) timeouts.push(timeoutMs)
 			if (stdin !== undefined) stdins.push(stdin)
 			const failure = failures.exec?.[command]
 			if (failure) throw failure

@@ -102,10 +102,6 @@ function HostDetailPage() {
 				</CardHeader>
 				<CardContent className="grid grid-cols-2 gap-4 text-sm">
 					<div>
-						<p className="text-muted-foreground">Docker version</p>
-						<p className="text-foreground">{host.dockerVersion ?? "Unknown"}</p>
-					</div>
-					<div>
 						<p className="text-muted-foreground">OS release</p>
 						<p className="text-foreground">{host.osRelease ?? "Unknown"}</p>
 					</div>

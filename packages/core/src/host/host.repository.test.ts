@@ -483,12 +483,12 @@ describe("host repository provisioning finalisation (real Postgres)", () => {
 			attemptId,
 			{
 				status: "ready",
-				dockerVersion: "Docker version 27.3.1",
+				osRelease: "systemd 252 (252.22-1~deb12u1)",
 			},
 		)
 
 		expect(finalised?.status).toBe("ready")
-		expect(finalised?.dockerVersion).toBe("Docker version 27.3.1")
+		expect(finalised?.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
 		expect(finalised?.provisioningAttemptId).toBeNull()
 		expect(finalised?.provisioningClaimedAt).toBeNull()
 	})
@@ -521,7 +521,7 @@ describe("host repository provisioning finalisation (real Postgres)", () => {
 			{ organizationId: orgA },
 			created.id,
 			staleAttemptId,
-			{ status: "ready", dockerVersion: "Docker version 27.3.1" },
+			{ status: "ready", osRelease: "systemd 252 (252.22-1~deb12u1)" },
 		)
 		expect(staleFinalise).toBeUndefined()
 
@@ -533,7 +533,7 @@ describe("host repository provisioning finalisation (real Postgres)", () => {
 			{ organizationId: orgA },
 			created.id,
 			freshAttemptId,
-			{ status: "ready", dockerVersion: "Docker version 27.3.1" },
+			{ status: "ready", osRelease: "systemd 252 (252.22-1~deb12u1)" },
 		)
 		expect(freshFinalise?.status).toBe("ready")
 	})

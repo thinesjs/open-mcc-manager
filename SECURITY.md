@@ -2,8 +2,9 @@
 
 ## Trust boundary
 
-The control plane holds credentials — SSH private keys and, through them, Docker
-daemon access — that grant root-equivalent control over every host it manages.
+The control plane holds credentials — SSH private keys and, through them, the
+ability to install and start systemd units — that grant root-equivalent control
+over every host it manages.
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet: either
 one lets an attacker act as root on any managed VPS. A compromise limited to
@@ -34,7 +35,7 @@ deployment.
 
 If your use case requires isolating mutually distrustful customers on shared
 infrastructure, that requires either a per-host agent brokering a narrow,
-authenticated API in place of raw SSH/Docker access, or a wholly separate
+authenticated API in place of raw SSH access, or a wholly separate
 control-plane deployment per customer. Multi-tenant, hostile-tenant isolation is
 not a goal of the current architecture.
 
@@ -141,7 +142,7 @@ not a goal of the current architecture.
   deciding read happened before the lock was taken. `remove` takes the same
   lock first and only then reads and mutates the row, so a delete cannot race
   a provisioning claim. A claim older than the provisioning lease
-  (`PROVISIONING_LEASE_MS`, currently 5 minutes) is treated as abandoned and
+  (`PROVISIONING_LEASE_MS`, currently 10 minutes) is treated as abandoned and
   may be reclaimed or the host deleted; reclaiming one is itself audited. The
   lease comfortably outlasts a single attempt's bounded worst-case runtime —
   a 10-second connect plus two 120-second remote execs, each now bounded
@@ -180,6 +181,20 @@ not a goal of the current architecture.
 
 ## Known limitations
 
+- **A managed host holds the Minecraft refresh token for the account running on
+  it.** The client persists its own session cache to disk beside its binary, and
+  the control plane deliberately does not custody it: moving it into the database
+  would leave it plaintext in the running process anyway, while permanently
+  diverging from upstream's cache handling. A compromised host therefore yields
+  that account's Microsoft refresh token, and hosts should not be shared across
+  trust boundaries an operator cares about keeping separate.
+- **Instances sharing a host are isolated by systemd, not by containers.** Each
+  runs as its own unprivileged user under `ProtectSystem=strict`,
+  `NoNewPrivileges=yes`, and a `ReadWritePaths=` scoped to its own directory.
+  That is weaker than kernel-namespace isolation, and it is a deliberate trade:
+  the exit-code policy the supervisor needs — never restart on a rejected login —
+  cannot be expressed by a container restart policy. An escape from one
+  instance's sandbox reaches the other instances on that host.
 - **Per-host SSH identities are an operator recommendation, not an enforced
   property.** `host.sshKeyId` is a plain nullable foreign key; the only
   uniqueness constraint on `host` is `(organizationId, name)`. Nothing today

@@ -14,7 +14,6 @@ const MUTABLE_HOST_COLUMNS = [
 	"username",
 	"sshKeyId",
 	"status",
-	"dockerVersion",
 	"osRelease",
 	"cpuCount",
 	"memoryMb",
@@ -74,7 +73,7 @@ const requireConsistentTrustTuple = (values: HostCreateValues): void => {
 	}
 }
 
-export const PROVISIONING_LEASE_MS = 5 * 60 * 1000
+export const PROVISIONING_LEASE_MS = 10 * 60 * 1000
 
 export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
 	claimedAt === null || now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
@@ -86,7 +85,6 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.username !== undefined && { username: patch.username }),
 	...(patch.sshKeyId !== undefined && { sshKeyId: patch.sshKeyId }),
 	...(patch.status !== undefined && { status: patch.status }),
-	...(patch.dockerVersion !== undefined && { dockerVersion: patch.dockerVersion }),
 	...(patch.osRelease !== undefined && { osRelease: patch.osRelease }),
 	...(patch.cpuCount !== undefined && { cpuCount: patch.cpuCount }),
 	...(patch.memoryMb !== undefined && { memoryMb: patch.memoryMb }),
@@ -189,7 +187,7 @@ export const createHostRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		attemptId: string,
-		patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+		patch: Pick<HostUpdateValues, "status" | "osRelease">,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")

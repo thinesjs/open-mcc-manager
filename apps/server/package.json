@@ -7,7 +7,8 @@
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "vitest run",
+		"bootstrap:owner": "tsx src/bootstrap-owner-cli.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^2.1.1",
@@ -23,6 +24,7 @@
 		"zod": "^3.24.0"
 	},
 	"devDependencies": {
-		"@open-mcc/config": "workspace:*"
+		"@open-mcc/config": "workspace:*",
+		"tsx": "^4.23.13"
 	}
 }

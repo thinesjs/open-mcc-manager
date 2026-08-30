@@ -63,6 +63,9 @@ importers:
       '@open-mcc/config':
         specifier: workspace:*
         version: link:../../packages/config
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
 
   packages/config: {}
 

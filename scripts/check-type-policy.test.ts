@@ -76,11 +76,13 @@ describe("findViolations", () => {
 		expect(findViolations(root)).toEqual([])
 	})
 
-	it("ignores tokens inside comments", () => {
+	it("reports a comment as a comment, not as the forbidden words written inside it", () => {
 		const root = seed({
 			"packages/core/src/e.ts": "// this function should never return unknown\n",
 		})
-		expect(findViolations(root)).toEqual([])
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/e.ts", line: 1, token: "comment" },
+		])
 	})
 
 	it("detects violations hidden by url-like patterns in block comments", () => {
@@ -90,15 +92,19 @@ describe("findViolations", () => {
 		})
 		expect(findViolations(root)).toEqual([
 			{ file: "packages/core/src/f.ts", line: 1, token: "unknown" },
+			{ file: "packages/core/src/f.ts", line: 1, token: "comment" },
 			{ file: "packages/core/src/g.ts", line: 1, token: "never" },
+			{ file: "packages/core/src/g.ts", line: 1, token: "comment" },
 		])
 	})
 
-	it("ignores tokens inside multi-line block comments", () => {
+	it("reports a multi-line block comment once, not once per forbidden word inside it", () => {
 		const root = seed({
 			"packages/core/src/h.ts": "/*\n * never returns unknown\n */\nexport const ok = 1\n",
 		})
-		expect(findViolations(root)).toEqual([])
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/h.ts", line: 1, token: "comment" },
+		])
 	})
 
 	it("detects violations when regex literals are present", () => {
@@ -267,7 +273,9 @@ describe("findViolations", () => {
 		const root = seed({
 			"packages/core/src/x4.ts": "// see @ts-expect-error for reference\nconst n = 1\n",
 		})
-		expect(findViolations(root)).toEqual([])
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/x4.ts", line: 1, token: "comment" },
+		])
 	})
 
 	it("exempts the generated route tree at its real path", () => {
@@ -351,6 +359,22 @@ describe("findViolations", () => {
 		])
 	})
 
+	it("rejects a ts-nocheck pragma", () => {
+		const root = seed({
+			"packages/core/src/y7.ts": '// @ts-nocheck\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y7.ts", line: 1, token: "@ts-nocheck" },
+		])
+	})
+
+	it("does not treat pragma text inside a string literal as a comment", () => {
+		const root = seed({
+			"packages/core/src/y8.ts": 'export const s = "// @ts-expect-error"\n',
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
 	it("scans mts files", () => {
 		const root = seed({
 			"packages/core/src/z1.mts": "type Foo = { a: number }\nexport const x = {} as Foo\n",
@@ -392,6 +416,47 @@ describe("findViolations", () => {
 		expect(findViolations(root)).toEqual([
 			{ file: "packages/core/build-scripts/z6.ts", line: 1, token: "unknown" },
 			{ file: "packages/core/coverage-report/z7.ts", line: 1, token: "unknown" },
+		])
+	})
+
+	it("rejects a code comment on its own line", () => {
+		const root = seed({
+			"packages/core/src/z8.ts": "// widen the lease before claiming\nexport const n = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/z8.ts", line: 1, token: "comment" },
+		])
+	})
+
+	it("rejects a code comment trailing real code", () => {
+		const root = seed({ "packages/core/src/z9.ts": "export const n = 1 // five minutes\n" })
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/z9.ts", line: 1, token: "comment" },
+		])
+	})
+
+	it("allows comments in the generated database types at their real path", () => {
+		const root = seed({
+			"packages/db/src/generated/database.ts": "/** generated */\nexport const n = 1\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("does not allow comments in a same-named file outside the generated database types path", () => {
+		const root = seed({
+			"packages/core/src/generated/database.ts": "/** generated */\nexport const n = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/generated/database.ts", line: 1, token: "comment" },
+		])
+	})
+
+	it("still enforces the type policy inside the file where comments are allowed", () => {
+		const root = seed({
+			"packages/db/src/generated/database.ts": "/** generated */\nexport const n: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/db/src/generated/database.ts", line: 2, token: "unknown" },
 		])
 	})
 })

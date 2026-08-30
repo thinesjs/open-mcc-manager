@@ -253,9 +253,11 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		const rejected = results.filter((result) => result.status === "rejected")
 		expect(fulfilled).toHaveLength(1)
 		expect(rejected).toHaveLength(1)
-		expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
-			HostConcurrentlyModifiedError,
-		)
+		const firstRejected = rejected[0]
+		if (firstRejected?.status !== "rejected") {
+			throw new Error("expected exactly one rejected provision call")
+		}
+		expect(firstRejected.reason).toBeInstanceOf(HostConcurrentlyModifiedError)
 
 		const final = await hosts.findById({ organizationId }, hostId)
 		expect(final?.status).toBe("ready")

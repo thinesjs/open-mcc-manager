@@ -231,6 +231,16 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		return deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(hostId)
 
+			const found = await repos.hosts.findById(scope, hostId)
+			if (
+				found?.status === "provisioning" &&
+				!isProvisioningClaimStale(found.provisioningClaimedAt)
+			) {
+				throw new HostProvisioningInProgressError(
+					`Host ${hostId} cannot be re-trusted while a provisioning attempt is in progress`,
+				)
+			}
+
 			const trustUpdate: HostKeyTrustUpdate = {
 				hostKeyTrustedBy: ctx.memberId,
 				hostKeyTrustedByLabel: ctx.actorLabel,

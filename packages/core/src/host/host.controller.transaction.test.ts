@@ -418,11 +418,14 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 
 		const ctx = actorFor(organizationId, memberId)
 		const provisionPromise = controller.provision(ctx, hostId)
-		await connectStarted
+		try {
+			await connectStarted
+			await expect(controller.remove(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
+		} finally {
+			releaseGate()
+			await provisionPromise.catch(() => {})
+		}
 
-		await expect(controller.remove(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
-
-		releaseGate()
 		const provisionResult = await provisionPromise
 		expect(provisionResult?.status).toBe("ready")
 		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({ status: "ready" })
@@ -864,10 +867,15 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				return result
 			})
 
-		await new Promise((resolve) => setTimeout(resolve, 150))
-		expect(retrustSettled).toBe(false)
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 150))
+			expect(retrustSettled).toBe(false)
+		} finally {
+			releaseLockHold()
+			await provisionPromise.catch(() => {})
+			await retrustPromise.catch(() => {})
+		}
 
-		releaseLockHold()
 		await provisionPromise
 		const retrusted = await retrustPromise
 
@@ -932,14 +940,17 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 
 		const ctx = actorFor(organizationId, memberId)
 		const provisionPromise = provisionController.provision(ctx, hostId)
-		await sshKeyLookupStarted
+		try {
+			await sshKeyLookupStarted
+			await retrustController.retrustHostKey(ctx, hostId, {
+				hostKeyFingerprint: ROTATED_FINGERPRINT,
+				hostKeyAlgorithm: "ssh-ed25519",
+			})
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
 
-		await retrustController.retrustHostKey(ctx, hostId, {
-			hostKeyFingerprint: ROTATED_FINGERPRINT,
-			hostKeyAlgorithm: "ssh-ed25519",
-		})
-
-		releaseSshKeyLookup()
 		await provisionPromise
 
 		expect(observedFingerprint).toBe(ROTATED_FINGERPRINT)

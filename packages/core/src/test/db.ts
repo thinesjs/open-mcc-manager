@@ -121,13 +121,15 @@ const deleteTrackedRows = async (): Promise<void> => {
 	seeded.auditEventIds = []
 }
 
+const CONNECTION_CLOSE_TIMEOUT_SECONDS = 5
+
 export const teardownTestDb = async (): Promise<void> => {
 	await deleteTrackedRows()
 	const client = db
 	db = undefined
 	if (client) {
 		try {
-			await client.$client.end()
+			await client.$client.end({ timeout: CONNECTION_CLOSE_TIMEOUT_SECONDS })
 		} catch (error) {
 			console.error("teardownTestDb: failed to close connection", error)
 		}

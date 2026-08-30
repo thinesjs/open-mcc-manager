@@ -180,4 +180,39 @@ describe("findViolations", () => {
 		const root = seed({ "packages/core/src/r.ts": "const x = 1\nconst y = x + 1\n" })
 		expect(findViolations(root)).toEqual([])
 	})
+
+	it("rejects an as-never assertion inside the exhaustive helper, where the never keyword itself is exempt", () => {
+		const root = seed({
+			"packages/core/src/lib/exhaustive.ts": "const leak = 1 as never\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/lib/exhaustive.ts", line: 1, token: "assertion" },
+		])
+	})
+
+	it("rejects an as-unknown assertion inside the boundary directory, where the unknown keyword itself is exempt", () => {
+		const root = seed({
+			"packages/contracts/src/boundary/ssh.ts": "const leak = 1 as unknown\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/contracts/src/boundary/ssh.ts", line: 1, token: "assertion" },
+		])
+	})
+
+	it("reports exactly one violation, not two, when an as-never assertion coincides with a reported never keyword", () => {
+		const root = seed({
+			"packages/core/src/s.ts": "const y: never = 1 as never\n",
+		})
+		const violations = findViolations(root)
+		expect(violations).toHaveLength(1)
+		expect(violations).toEqual([{ file: "packages/core/src/s.ts", line: 1, token: "never" }])
+	})
+
+	it("allows an as const assertion inside both exempt paths", () => {
+		const root = seed({
+			"packages/core/src/lib/exhaustive.ts": "const ok = 1 as const\n",
+			"packages/contracts/src/boundary/t.ts": "const ok2 = 1 as const\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
 })

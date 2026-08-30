@@ -21,9 +21,6 @@ const isAsConst = (typeNode) =>
 	ts.isIdentifier(typeNode.typeName) &&
 	typeNode.typeName.text === "const"
 
-const targetsForbiddenKeyword = (typeNode) =>
-	typeNode.kind === ts.SyntaxKind.NeverKeyword || typeNode.kind === ts.SyntaxKind.UnknownKeyword
-
 export const findViolations = (root) => {
 	const violations = []
 	const seen = new Set()
@@ -60,26 +57,32 @@ export const findViolations = (root) => {
 			}
 		}
 
-		const visit = (node) => {
-			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) report(node, "unknown")
-			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) report(node, "never")
-			if (
-				node.kind === ts.SyntaxKind.AsExpression &&
-				!isAsConst(node.type) &&
-				!targetsForbiddenKeyword(node.type)
-			) {
-				report(node, "assertion")
+		const keywordViolationLines = new Set()
+
+		const visitKeywords = (node) => {
+			if (node.kind === ts.SyntaxKind.UnknownKeyword && !inUnknownDir) {
+				keywordViolationLines.add(getLine(node))
+				report(node, "unknown")
 			}
-			if (
-				node.kind === ts.SyntaxKind.TypeAssertionExpression &&
-				!targetsForbiddenKeyword(node.type)
-			) {
-				report(node, "assertion")
+			if (node.kind === ts.SyntaxKind.NeverKeyword && !isNeverFile) {
+				keywordViolationLines.add(getLine(node))
+				report(node, "never")
 			}
-			ts.forEachChild(node, visit)
+			ts.forEachChild(node, visitKeywords)
 		}
 
-		visit(sf)
+		const visitAssertions = (node) => {
+			if (node.kind === ts.SyntaxKind.AsExpression && !isAsConst(node.type)) {
+				if (!keywordViolationLines.has(getLine(node))) report(node, "assertion")
+			}
+			if (node.kind === ts.SyntaxKind.TypeAssertionExpression) {
+				if (!keywordViolationLines.has(getLine(node))) report(node, "assertion")
+			}
+			ts.forEachChild(node, visitAssertions)
+		}
+
+		visitKeywords(sf)
+		visitAssertions(sf)
 	}
 	return violations
 }

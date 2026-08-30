@@ -159,6 +159,19 @@ that half of the rule stays with review.
   the migration's tail narrows the two affected constraints to exactly that.
   Regenerating this migration from scratch will not reproduce the narrowing
   and reintroduces that bug — edit the migration file by hand again instead.
+- Integrity constraint violations (SQLSTATE class 23) are a mapped class, not
+  a per-call-site concern. `packages/db/src/constraint-violation.ts` classifies
+  them off `pg`'s own `DatabaseError`, and `apps/server/src/errors.ts` turns any
+  classified violation into a 409: `host_org_name_unique` and
+  `sshKey_org_name_unique` carry their own error codes, everything else gets
+  `CONSTRAINT_VIOLATION`. Do not wrap repository calls in `try`/`catch` to
+  produce a conflict — add the constraint name to that table instead. A
+  not-null violation is deliberately left unclassified, because it reports a
+  server defect rather than a conflict and must keep returning 500. Deleting an
+  ssh key an enrolled host still uses is the one case a controller translates
+  itself, into `SshKeyInUseError`: `host_sshKey_org_fk` also fires on insert,
+  where it means the referenced key does not exist, and one message cannot
+  honestly cover both directions.
 
 ## Layering
 

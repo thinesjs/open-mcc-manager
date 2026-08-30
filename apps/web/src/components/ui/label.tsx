@@ -1,14 +1,21 @@
-import type * as React from "react"
+import { mergeProps } from "@base-ui/react/merge-props"
+import { useRender } from "@base-ui/react/use-render"
 import { cn } from "~/lib/utils"
 
-export type LabelProps = React.LabelHTMLAttributes<HTMLLabelElement>
+function Label({ className, render, ...props }: useRender.ComponentProps<"label">) {
+	const defaultProps = {
+		className: cn(
+			"inline-flex items-center gap-2 text-base/4.5 sm:text-sm/4 font-medium text-foreground",
+			className,
+		),
+		"data-slot": "label",
+	}
 
-export const Label = ({ className, htmlFor, children, ...props }: LabelProps) => (
-	<label
-		htmlFor={htmlFor}
-		className={cn("text-sm font-medium text-foreground", className)}
-		{...props}
-	>
-		{children}
-	</label>
-)
+	return useRender({
+		defaultTagName: "label",
+		props: mergeProps<"label">(defaultProps, props),
+		render,
+	})
+}
+
+export { Label }

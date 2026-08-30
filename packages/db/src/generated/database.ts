@@ -26,12 +26,17 @@ export type Timestamp = ColumnType<Date, Date | string, Date | string>
 
 export interface Account {
 	accessToken: string | null
+	accessTokenExpiresAt: Timestamp | null
 	accountId: string
 	createdAt: Generated<Timestamp>
 	id: string
+	idToken: string | null
+	issuer: string
 	password: string | null
 	providerId: string
 	refreshToken: string | null
+	refreshTokenExpiresAt: Timestamp | null
+	scope: string | null
 	updatedAt: Generated<Timestamp>
 	userId: string
 }
@@ -73,6 +78,17 @@ export interface Host {
 	username: Generated<string>
 }
 
+export interface Invitation {
+	createdAt: Generated<Timestamp>
+	email: string
+	expiresAt: Timestamp
+	id: string
+	inviterId: string
+	organizationId: string
+	role: string | null
+	status: string
+}
+
 export interface Member {
 	createdAt: Generated<Timestamp>
 	id: string
@@ -84,6 +100,8 @@ export interface Member {
 export interface Organization {
 	createdAt: Generated<Timestamp>
 	id: string
+	logo: string | null
+	metadata: string | null
 	name: string
 	slug: string
 }
@@ -95,6 +113,7 @@ export interface Session {
 	id: string
 	ipAddress: string | null
 	token: string
+	updatedAt: Generated<Timestamp>
 	userAgent: string | null
 	userId: string
 }
@@ -124,6 +143,7 @@ export interface Verification {
 	expiresAt: Timestamp
 	id: string
 	identifier: string
+	updatedAt: Generated<Timestamp>
 	value: string
 }
 
@@ -131,6 +151,7 @@ export interface DB {
 	account: Account
 	auditEvent: AuditEvent
 	host: Host
+	invitation: Invitation
 	member: Member
 	organization: Organization
 	session: Session

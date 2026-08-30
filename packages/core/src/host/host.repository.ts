@@ -146,8 +146,9 @@ export const createHostRepository = (db: Executor) => ({
 		return rows.length > 0
 	},
 
-	lockHost: async (id: string): Promise<void> => {
-		await sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`.execute(db)
+	lockHost: async (scope: OrgScope, id: string): Promise<void> => {
+		const key = `${scope.organizationId}:${id}`
+		await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(db)
 	},
 
 	claimForProvisioning: async (

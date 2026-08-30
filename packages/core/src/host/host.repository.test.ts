@@ -614,3 +614,53 @@ describe("host repository legacy provisioning backfill (real Postgres)", () => {
 		expect(reclaim).toBeDefined()
 	})
 })
+
+describe("host repository advisory lock scoping (real Postgres)", () => {
+	it("keys the per-host lock on the organization too, so one tenant cannot stall another", async () => {
+		const hostId = "advisory-lock-scoping"
+		let markHeld = (): void => undefined
+		const held = new Promise<void>((resolve) => {
+			markHeld = resolve
+		})
+		let releaseHeld = (): void => undefined
+		const release = new Promise<void>((resolve) => {
+			releaseHeld = resolve
+		})
+
+		const holder = testDb()
+			.transaction()
+			.execute(async (tx) => {
+				await createHostRepository(tx).lockHost({ organizationId: orgA }, hostId)
+				markHeld()
+				await release
+			})
+
+		try {
+			await held
+
+			const otherTenant = testDb()
+				.transaction()
+				.execute(async (tx) => {
+					await createHostRepository(tx).lockHost({ organizationId: orgB }, hostId)
+				})
+			await expect(otherTenant).resolves.toBeUndefined()
+
+			const sameTenant = testDb()
+				.transaction()
+				.execute(async (tx) => {
+					await createHostRepository(tx).lockHost({ organizationId: orgA }, hostId)
+				})
+			const outcome = await Promise.race([
+				sameTenant.then(() => "acquired"),
+				new Promise((resolve) => setTimeout(() => resolve("blocked"), 500)),
+			])
+			expect(outcome).toBe("blocked")
+
+			releaseHeld()
+			await sameTenant
+		} finally {
+			releaseHeld()
+			await holder
+		}
+	})
+})

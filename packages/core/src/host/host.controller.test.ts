@@ -495,7 +495,7 @@ describe("host controller provisioning", () => {
 		expect(transport.commands).toContain("install -d -m 0770 '/var/lib/open-mcc-manager/instances'")
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.dockerVersion).toBe("Docker version 27.3.1")
-		expect(d.hosts.lockHost).toHaveBeenCalledWith("host-1")
+		expect(d.hosts.lockHost).toHaveBeenCalledWith({ organizationId: "org-1" }, "host-1")
 		expect(d.hosts.claimForProvisioning).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
 			"host-1",

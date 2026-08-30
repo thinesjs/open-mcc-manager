@@ -123,7 +123,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
 
 		const claimed = await deps.withTransaction(async (repos) => {
-			await repos.hosts.lockHost(hostId)
+			await repos.hosts.lockHost(scope, hostId)
 			const row = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
 			if (row && wasAbandonedProvisioning) {
 				await repos.audit.record(scope, {
@@ -186,7 +186,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			} catch (error) {
 				try {
 					await deps.withTransaction(async (repos) => {
-						await repos.hosts.lockHost(hostId)
+						await repos.hosts.lockHost(scope, hostId)
 						await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })
 					})
 				} catch (updateError) {
@@ -199,7 +199,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const result = await runProvisionTracked()
 
 		return deps.withTransaction(async (repos) => {
-			await repos.hosts.lockHost(hostId)
+			await repos.hosts.lockHost(scope, hostId)
 
 			const updated = await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, {
 				status: "ready",
@@ -229,7 +229,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const scope = { organizationId: ctx.organizationId }
 
 		return deps.withTransaction(async (repos) => {
-			await repos.hosts.lockHost(hostId)
+			await repos.hosts.lockHost(scope, hostId)
 
 			const found = await repos.hosts.findById(scope, hostId)
 			if (
@@ -273,7 +273,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.delete")
 		const scope = { organizationId: ctx.organizationId }
 		return deps.withTransaction(async (repos) => {
-			await repos.hosts.lockHost(hostId)
+			await repos.hosts.lockHost(scope, hostId)
 			const found = await repos.hosts.findById(scope, hostId)
 			if (
 				found?.status === "provisioning" &&

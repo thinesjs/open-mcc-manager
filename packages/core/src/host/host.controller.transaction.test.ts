@@ -21,7 +21,12 @@ import {
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
-import { createHostRepository, type HostRepository, PROVISIONING_LEASE_MS } from "./host.repository"
+import {
+	createHostRepository,
+	type HostRepository,
+	type OrgScope,
+	PROVISIONING_LEASE_MS,
+} from "./host.repository"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -826,8 +831,8 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				const realHosts = createHostRepository(tx)
 				const gatedHosts: HostRepository = {
 					...realHosts,
-					lockHost: async (id: string) => {
-						await realHosts.lockHost(id)
+					lockHost: async (scope: OrgScope, id: string) => {
+						await realHosts.lockHost(scope, id)
 						signalLockAcquired()
 						await lockHoldGate
 					},

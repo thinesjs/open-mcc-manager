@@ -56,6 +56,10 @@ export const host = pgTable(
 			"host_trust_attribution_requires_evidence",
 			sql`${t.hostKeyTrustedBy} is null or ${t.hostKeyFingerprint} is not null`,
 		),
+		check(
+			"host_provisioning_requires_lease",
+			sql`${t.status} <> 'provisioning' or (${t.provisioningAttemptId} is not null and ${t.provisioningClaimedAt} is not null)`,
+		),
 	],
 )
 

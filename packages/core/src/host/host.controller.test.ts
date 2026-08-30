@@ -323,7 +323,12 @@ describe("host controller provisioning", () => {
 			hosts: {
 				insert: vi.fn(async () => makeHostRow()),
 				findById: vi.fn(async () =>
-					makeHostRow({ hostKeyFingerprint: "SHA256:trusted", status: "provisioning" }),
+					makeHostRow({
+						hostKeyFingerprint: "SHA256:trusted",
+						status: "provisioning",
+						provisioningAttemptId: "attempt-live",
+						provisioningClaimedAt: new Date(),
+					}),
 				),
 				list: vi.fn(async () => []),
 				update: vi.fn(async () => makeHostRow()),
@@ -342,6 +347,62 @@ describe("host controller provisioning", () => {
 		expect(d.hosts.claimForProvisioning).not.toHaveBeenCalled()
 		expect(d.secrets.open).not.toHaveBeenCalled()
 		expect(d.createTransport).not.toHaveBeenCalled()
+	})
+
+	it("treats a provisioning host with null lease metadata as reclaimable rather than permanently stuck", async () => {
+		const hosts: HostRepository = {
+			insert: vi.fn(async () => makeHostRow()),
+			findById: vi.fn(async () =>
+				makeHostRow({
+					hostKeyFingerprint: "SHA256:trusted",
+					status: "provisioning",
+					provisioningAttemptId: null,
+					provisioningClaimedAt: null,
+				}),
+			),
+			list: vi.fn(async () => []),
+			update: vi.fn(async () => makeHostRow()),
+			delete: vi.fn(async () => true),
+			lockHost: vi.fn(async () => undefined),
+			claimForProvisioning: vi.fn(async () =>
+				makeHostRow({
+					status: "provisioning",
+					hostKeyFingerprint: "SHA256:trusted",
+					provisioningAttemptId: "attempt-1",
+					provisioningClaimedAt: new Date(),
+				}),
+			),
+			finalizeProvisioning: vi.fn(
+				async (
+					_scope: OrgScope,
+					id: string,
+					_attemptId: string,
+					patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
+				) =>
+					makeHostRow({
+						id,
+						status: patch.status ?? "pending",
+						dockerVersion: patch.dockerVersion ?? null,
+					}),
+			),
+			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
+		}
+		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
+			makeAuditEventRow({ ...entry }),
+		)
+		const withTransaction: WithTransaction = async (fn) =>
+			fn({ hosts, audit: { record: auditRecord } })
+		const d = deps({ hosts, withTransaction })
+		const controller = createHostController(d)
+
+		const result = await controller.provision(ctx, "host-1")
+
+		expect(result?.status).toBe("ready")
+		expect(hosts.claimForProvisioning).toHaveBeenCalled()
+		expect(auditRecord).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ action: "host.provision.reclaim" }),
+		)
 	})
 
 	it("aborts before decrypting the key or contacting the host when the claim races and loses", async () => {
@@ -539,6 +600,38 @@ describe("host controller provisioning", () => {
 			{ status: "error" },
 		)
 		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+})
+
+describe("host controller removal", () => {
+	it("removes a provisioning host with null lease metadata instead of treating it as permanently stuck", async () => {
+		const hosts: HostRepository = {
+			insert: vi.fn(async () => makeHostRow()),
+			findById: vi.fn(async () =>
+				makeHostRow({
+					status: "provisioning",
+					provisioningAttemptId: null,
+					provisioningClaimedAt: null,
+				}),
+			),
+			list: vi.fn(async () => []),
+			update: vi.fn(async () => makeHostRow()),
+			delete: vi.fn(async () => true),
+			lockHost: vi.fn(async () => undefined),
+			claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
+			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
+		}
+		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
+			makeAuditEventRow({ ...entry }),
+		)
+		const withTransaction: WithTransaction = async (fn) =>
+			fn({ hosts, audit: { record: auditRecord } })
+		const d = deps({ hosts, withTransaction })
+		const controller = createHostController(d)
+
+		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)
+		expect(hosts.delete).toHaveBeenCalled()
 	})
 })
 

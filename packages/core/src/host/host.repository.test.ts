@@ -6,6 +6,7 @@ import {
 	createHostRepository,
 	type HostKeyTrustUpdate,
 	type HostUpdateValues,
+	isProvisioningClaimStale,
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 
@@ -27,6 +28,22 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	await teardownTestDb()
+})
+
+describe("isProvisioningClaimStale", () => {
+	it("treats a null claim timestamp as stale, so a row reaching that state by any route stays reclaimable", () => {
+		expect(isProvisioningClaimStale(null)).toBe(true)
+	})
+
+	it("treats a claim younger than the lease as not stale", () => {
+		expect(isProvisioningClaimStale(new Date())).toBe(false)
+	})
+
+	it("treats a claim older than the lease as stale", () => {
+		expect(isProvisioningClaimStale(new Date(Date.now() - PROVISIONING_LEASE_MS - 1_000))).toBe(
+			true,
+		)
+	})
 })
 
 describe("host repository organization scoping", () => {
@@ -520,5 +537,40 @@ describe("host repository provisioning finalisation (real Postgres)", () => {
 			{ status: "ready", dockerVersion: "Docker version 27.3.1" },
 		)
 		expect(freshFinalise?.status).toBe("ready")
+	})
+})
+
+describe("host provisioning lease invariant (real Postgres)", () => {
+	it("rejects a direct update that sets status to provisioning without lease metadata", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-20", hostname: "10.0.0.24", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await expect(
+			testDb().update(host).set({ status: "provisioning" }).where(eq(host.id, created.id)),
+		).rejects.toThrow(/host_provisioning_requires_lease/)
+
+		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
+		expect(unchanged?.status).toBe("pending")
+	})
+
+	it("rejects a direct update that sets status to provisioning with only one lease field", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-21", hostname: "10.0.0.25", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await expect(
+			testDb()
+				.update(host)
+				.set({ status: "provisioning", provisioningAttemptId: "attempt-only" })
+				.where(eq(host.id, created.id)),
+		).rejects.toThrow(/host_provisioning_requires_lease/)
+
+		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
+		expect(unchanged?.status).toBe("pending")
 	})
 })

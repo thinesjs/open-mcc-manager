@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { type Executor, type HostInsert, type HostRow, host } from "@open-mcc/db"
-import { and, eq, lt, or, sql } from "drizzle-orm"
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm"
 
 export type OrgScope = { organizationId: string }
 
@@ -76,7 +76,7 @@ const requireConsistentTrustTuple = (values: HostCreateValues): void => {
 export const PROVISIONING_LEASE_MS = 5 * 60 * 1000
 
 export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
-	claimedAt !== null && now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
+	claimedAt === null || now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
 
 const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.name !== undefined && { name: patch.name }),
@@ -155,7 +155,7 @@ export const createHostRepository = (db: Executor) => ({
 		const staleBefore = new Date(now.getTime() - PROVISIONING_LEASE_MS)
 		const staleClaimCondition = and(
 			eq(host.status, "provisioning"),
-			lt(host.provisioningClaimedAt, staleBefore),
+			or(isNull(host.provisioningClaimedAt), lt(host.provisioningClaimedAt, staleBefore)),
 		)
 		const statusCondition =
 			expectedStatus === "provisioning"

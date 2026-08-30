@@ -1,7 +1,11 @@
-import type { Insertable, Selectable } from "kysely"
+import type { Insertable, Selectable, SelectType } from "kysely"
 import type { DB, Generated } from "../generated/database"
 
+type RefinementOf<Narrowed extends Base, Base> = Narrowed
+
 export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | "error"
+
+type _HostStatusRefinesGeneratedColumn = RefinementOf<HostStatus, SelectType<DB["host"]["status"]>>
 
 export type HostTable = Omit<
 	DB["host"],

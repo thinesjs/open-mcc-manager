@@ -109,6 +109,16 @@ not a goal of the current architecture.
   code to enforce it, because there is no HTTP boundary yet for a client to
   submit it across. This is deliberate deferral, not an oversight, but it must
   not still be true once the API ships — see the gate below.
+- **`sshKeyId` is not re-read under the provisioning lock, unlike the host key
+  fingerprint.** `provision` re-reads `hostKeyFingerprint` after acquiring the
+  per-host advisory lock, so a concurrent re-trust cannot cause a connection
+  to proceed on a key that has just been revoked. It does not do the same for
+  `sshKeyId`, which remains a generically mutable column. No current code
+  path mutates a host's `sshKeyId` after creation, so this is latent rather
+  than exploitable today. Any future feature that allows changing a host's
+  SSH key must apply the same lock-then-reread treatment to `sshKeyId`, or a
+  concurrent key change could swap the credential used for a connection whose
+  fingerprint check has already passed.
 - **Audit records are not tamper-evident.** Audit events live in the same
   Postgres database the application itself can write to. An attacker with
   application-level or database-level control can alter or delete audit

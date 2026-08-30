@@ -23,26 +23,110 @@ orchestrated by turbo.
 - No commit descriptions. Subject lines only, imperative mood, Conventional
   Commits (`type(scope): subject`).
 - No `any`, no non-null `!`, no definite-assignment `!` on a declaration, no
-  `@ts-ignore`, no `@ts-expect-error`, no type assertions except `as const`.
+  `@ts-ignore`, no `@ts-expect-error`, no `@ts-nocheck`, no type assertions
+  except `as const`.
 
 ## Type policy
 
 - `never` appears only in `packages/core/src/lib/exhaustive.ts`
   (`assertExhaustive`).
 - `unknown` appears only under `packages/contracts/src/boundary/`.
-- Both, plus every prohibition above, are enforced by
-  `node scripts/check-type-policy.mjs`, which runs as part of `pnpm lint`
-  alongside Biome. The checker parses each file's AST — it is not a grep — so
-  it also catches assertions and pragmas hidden inside comments or strings
-  that a naive text search would miss or misfire on. An exemption in that
-  script or in `biome.json` must name a specific real path, never a bare
-  filename or a wildcard broad enough to match a file placed somewhere else
-  later; that shape of hole has bitten this project more than once.
 - Types are always derived, never hand-written: `z.infer` for contracts,
   `Selectable<T>` / `Insertable<T>` (Kysely) over the generated database
   types for rows.
 - Model state as discriminated unions and switch exhaustively with
   `assertExhaustive`.
+
+## What enforces what
+
+Each rule above is either checked by a named tool or rests on review alone.
+This table says which. Do not describe a rule as enforced without adding it
+here and adding the test that proves it.
+
+| Rule | Enforced by |
+| --- | --- |
+| No Next.js | `check-type-policy.mjs` — `next` and `next/*` module specifiers, `next` and `@next/*` manifest dependencies |
+| No code comments | `check-type-policy.mjs` — any comment trivia in a scanned file |
+| No commit descriptions, Conventional Commits subject | `check-commit-subjects.mjs`, in CI, on pull requests only |
+| Imperative mood in subjects | nothing — review only |
+| No `any` | Biome `suspicious/noExplicitAny` |
+| No non-null `!` | Biome `style/noNonNullAssertion` |
+| No definite-assignment `!` | `check-type-policy.mjs` |
+| No `@ts-ignore` | `check-type-policy.mjs`; Biome `suspicious/noTsIgnore` catches only the own-line `//` form |
+| No `@ts-expect-error` | `check-type-policy.mjs` alone — Biome never flags it in any form, because switching to it is `noTsIgnore`'s own suggested fix |
+| No `@ts-nocheck` | `check-type-policy.mjs` |
+| No type assertions except `as const` | `check-type-policy.mjs` |
+| `never` outside `exhaustive.ts` | `check-type-policy.mjs` |
+| `unknown` outside `boundary/` | `check-type-policy.mjs` |
+| Derived types, never hand-written | nothing — review only |
+| Discriminated unions with `assertExhaustive` | nothing — review only |
+
+Everything else in this document — the layering direction, the tenancy rules,
+the required organization scope on every repository method, the host-key
+trust rules in the dashboard — rests on review and on the tests written
+alongside each change. No hook, no commitlint, no CI step covers them.
+
+### `scripts/check-type-policy.mjs`
+
+Runs as part of `pnpm lint` alongside Biome, and its own suite runs under
+`pnpm test`: `scripts/` is the `@open-mcc/scripts` workspace package, so the
+checker is formatted, typechecked and tested like any other package. It was
+none of those things once, and four bypasses survived several review rounds
+because the suite that proved the checker worked had never executed. A guard
+whose own guard does not run is not a guard.
+
+It scans every `.ts`, `.tsx`, `.mts` and `.cts` file and every `package.json`
+under the repository root, skipping `node_modules`, `dist`, `build`,
+`coverage`, `.git` and `.turbo` — the list `biome.json` excludes, plus
+`.git`. Change one list and change the other.
+
+It works on the parse tree, not on a text search, and that cuts one way only:
+a forbidden word inside a string, a template literal or an identifier is not
+a violation, and a directive is recognised only in real comment trivia, so
+`"@ts-expect-error"` written inside a string suppresses nothing and is not
+reported. It does not find assertions "hidden inside" comments, because a
+comment contains no assertion. A file that fails to parse is reported as
+`parse-error` rather than passing silently, since an unparseable file could
+hide anything.
+
+Directive detection mirrors TypeScript's own `commentDirectiveRegEx`
+(`^(?:\/|\*)*\s*@(ts-expect-error|ts-ignore|ts-nocheck)`, the compiler's
+own pattern widened by `ts-nocheck`), applied to every line of every comment,
+so it catches every form the compiler honours: trailing after code on the
+same line, `///`, `/** */`, no space after the delimiter, and the closing
+line of a block comment, which is the line TypeScript reads. It deliberately
+over-catches a few forms the compiler ignores, such as `//// @ts-ignore`. Do not narrow it to the position a directive "normally"
+occupies — a directive trailing real code on the same line was the bypass
+that lasted longest, because every fixture in the suite had put directives at
+column zero on a line of their own.
+
+Two exemptions, both by exact path, never by filename:
+`apps/web/src/routeTree.gen.ts` is skipped entirely, and
+`packages/db/src/generated/database.ts` is exempt from the comment rule only
+— every other rule still applies to it. A same-named file placed elsewhere is
+not exempt and must not be made so. An exemption here or in `biome.json` must
+name a specific real path, never a bare filename or a wildcard broad enough
+to match a file placed somewhere else later; that shape of hole has bitten
+this project more than once.
+
+Because the no-comments rule admits no exception, a Biome `biome-ignore`
+suppression cannot be written anywhere in the tree. That is intentional: fix
+the finding, or add an exact-path exemption and say why in the commit
+subject.
+
+### `scripts/check-commit-subjects.mjs`
+
+Reads `git log` over a revision range and rejects any non-merge commit whose
+subject is not `type(scope): subject` with a known Conventional Commits type,
+or that carries a description at all. Merge commits are skipped — their
+message is generated, not authored here. CI runs it on pull requests over
+`github.event.pull_request.base.sha..HEAD`, which is why the checkout uses
+`fetch-depth: 0`; pushes to `main` are not re-checked, because the same
+commits were checked on the pull request that introduced them. Run it locally
+with `pnpm check:commits origin/main..HEAD`.
+
+Imperative mood is not checked. It needs judgement rather than a regex, so
+that half of the rule stays with review.
 
 ## Database
 
@@ -188,8 +272,8 @@ a host), following the actual stack above.
   one locally.
 - `apps/web/src/routeTree.gen.ts` is generated by TanStack Router and is
   exempt from the type-policy checker by its exact path, not by filename —
-  see the Type policy section above. A same-named file placed elsewhere is
-  not exempt and must not be made so.
+  see What enforces what above. A same-named file placed elsewhere is not
+  exempt and must not be made so.
 
 ## Tests
 

@@ -285,4 +285,69 @@ describe("findViolations", () => {
 			{ file: "packages/core/src/routeTree.gen.ts", line: 1, token: "unknown" },
 		])
 	})
+
+	it("rejects a ts-expect-error pragma trailing real code on the same line", () => {
+		const root = seed({
+			"packages/core/src/lease.ts":
+				"const LEASE_MS = 300_000 // @ts-expect-error\nexport const isStale = (claimedAt: Date): boolean => claimedAt.nope.deep < LEASE_MS\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/lease.ts", line: 1, token: "@ts-expect-error" },
+		])
+	})
+
+	it("rejects a ts-ignore pragma trailing real code on the same line", () => {
+		const root = seed({
+			"packages/core/src/y1.ts": "const n = 1 // @ts-ignore\nexport const m = n\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y1.ts", line: 1, token: "@ts-ignore" },
+		])
+	})
+
+	it("rejects a pragma sitting in trivia between two punctuation tokens", () => {
+		const root = seed({
+			"packages/core/src/y2.ts":
+				"declare const wrap: () => number\nexport const x = wrap(/* @ts-ignore */)\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y2.ts", line: 2, token: "@ts-ignore" },
+		])
+	})
+
+	it("rejects a jsdoc-delimited pragma", () => {
+		const root = seed({
+			"packages/core/src/y3.ts": '/** @ts-expect-error */\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y3.ts", line: 1, token: "@ts-expect-error" },
+		])
+	})
+
+	it("rejects a triple-slash pragma", () => {
+		const root = seed({
+			"packages/core/src/y4.ts": '/// @ts-expect-error\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y4.ts", line: 1, token: "@ts-expect-error" },
+		])
+	})
+
+	it("rejects a pragma written with no space after the comment delimiter", () => {
+		const root = seed({
+			"packages/core/src/y5.ts": '//@ts-ignore\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y5.ts", line: 1, token: "@ts-ignore" },
+		])
+	})
+
+	it("rejects a pragma on the closing line of a block comment, the line typescript honours", () => {
+		const root = seed({
+			"packages/core/src/y6.ts": '/* preamble\n * @ts-expect-error */\nconst n: number = "bad"\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/y6.ts", line: 2, token: "@ts-expect-error" },
+		])
+	})
 })

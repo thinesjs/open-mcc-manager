@@ -24,31 +24,36 @@ const isAsConst = (typeNode) =>
 	ts.isIdentifier(typeNode.typeName) &&
 	typeNode.typeName.text === "const"
 
-const PRAGMAS = ["@ts-expect-error", "@ts-ignore"]
+const DIRECTIVE_LINE = /^(?:\/|\*)*\s*@(ts-expect-error|ts-ignore)/
 
-const pragmaIn = (commentText) => {
-	const body = commentText.replace(/^\/\//, "").replace(/^\/\*/, "").replace(/\*\/$/, "").trim()
-	return PRAGMAS.find((pragma) => body.startsWith(pragma))
+const directiveIn = (commentText) => {
+	const lines = commentText.split(/\r\n|\n|\r/)
+	for (let offset = 0; offset < lines.length; offset += 1) {
+		const match = DIRECTIVE_LINE.exec(lines[offset].trimStart())
+		if (match) return { token: `@${match[1]}`, offset }
+	}
+	return undefined
 }
 
-const collectCommentRanges = (text) => {
+const collectCommentRanges = (sf, text) => {
 	const ranges = []
-	const seenStarts = new Set()
-	for (let pos = 0; pos < text.length; ) {
-		const found = ts.getLeadingCommentRanges(text, pos)
-		if (!found || found.length === 0) {
-			pos += 1
-			continue
-		}
+	const seen = new Set()
+	const add = (found) => {
+		if (!found) return
 		for (const range of found) {
-			if (!seenStarts.has(range.pos)) {
-				seenStarts.add(range.pos)
-				ranges.push(range)
-			}
+			if (seen.has(range.pos)) continue
+			seen.add(range.pos)
+			ranges.push(range)
 		}
-		pos = found[found.length - 1].end
 	}
-	return ranges
+	const visit = (node) => {
+		const start = node.getFullStart()
+		add(ts.getLeadingCommentRanges(text, start))
+		add(ts.getTrailingCommentRanges(text, start))
+		for (const child of node.getChildren(sf)) visit(child)
+	}
+	visit(sf)
+	return ranges.sort((a, b) => a.pos - b.pos)
 }
 
 export const findViolations = (root) => {
@@ -122,11 +127,11 @@ export const findViolations = (root) => {
 		visitKeywords(sf)
 		visitAssertions(sf)
 
-		for (const range of collectCommentRanges(text)) {
-			const pragma = pragmaIn(text.slice(range.pos, range.end))
-			if (pragma) {
+		for (const range of collectCommentRanges(sf, text)) {
+			const directive = directiveIn(text.slice(range.pos, range.end))
+			if (directive) {
 				const line = ts.getLineAndCharacterOfPosition(sf, range.pos).line + 1
-				reportAt(line, pragma)
+				reportAt(line + directive.offset, directive.token)
 			}
 		}
 	}

@@ -74,6 +74,7 @@ have:
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
+| The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard, the mirroring of
@@ -216,6 +217,18 @@ Dependency direction is one-way: router → controller → repository.
 - `packages/contracts` owns every zod schema. `packages/core` contains none.
 - `packages/core` and `packages/transport` stay framework-agnostic — no
   Hono, no tRPC, no HTTP types.
+- `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
+  attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
+  one `PROVISION_STEP_TIMEOUT_MS` (`provision.ts`) for every command
+  `provisionHost` runs — 10s + 2 x 120s against a 300s lease today. The three
+  constants live in three files and nothing but that arithmetic ties them
+  together, so a third provisioning step would silently push the worst case
+  past the lease: attempt A's claim expires mid-flight, a second actor
+  legitimately reclaims the host, and A's `finalizeProvisioning` matches no row
+  and throws after A has already changed the remote machine. The budget test in
+  `host.controller.test.ts` counts the commands a real `provisionHost` call
+  issues rather than a written-down step count, so adding a step fails it.
+  Raise the lease, or shorten the steps, before adding one.
 - Remote effects (an SSH connection, a call into better-auth's own write
   path) never sit inside a database transaction. `host.controller.ts`'s
   `provision` claims the host with a leased status update, does the SSH work

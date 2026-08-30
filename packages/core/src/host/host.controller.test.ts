@@ -6,6 +6,7 @@ import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
+	CONNECT_TIMEOUT_MS,
 	createHostController,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
@@ -19,7 +20,8 @@ import type {
 	HostUpdateValues,
 	OrgScope,
 } from "./host.repository"
-import { provisionHost } from "./provision"
+import { PROVISIONING_LEASE_MS } from "./host.repository"
+import { PROVISION_STEP_TIMEOUT_MS, provisionHost } from "./provision"
 
 const ctx = {
 	organizationId: "org-1",
@@ -696,5 +698,16 @@ describe("provisionHost", () => {
 			provisionHost(transport, { instancesRoot: "var/lib/open-mcc-manager" }),
 		).rejects.toThrow(/absolute path/i)
 		expect(transport.commands).toEqual([])
+	})
+
+	it("finishes its worst-case remote work inside the provisioning lease, counting every step it actually runs", async () => {
+		const transport = createFakeTransport({
+			"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+		})
+		await transport.connect(provisionConnectOptions)
+		await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
+
+		const worstCaseMs = CONNECT_TIMEOUT_MS + transport.commands.length * PROVISION_STEP_TIMEOUT_MS
+		expect(worstCaseMs).toBeLessThan(PROVISIONING_LEASE_MS)
 	})
 })

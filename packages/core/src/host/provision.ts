@@ -8,7 +8,7 @@ export type ProvisionResult = {
 	dockerVersion: string
 }
 
-const TIMEOUT_MS = 120_000
+export const PROVISION_STEP_TIMEOUT_MS = 120_000
 
 const INSTANCES_ROOT_PATTERN = /^\/[A-Za-z0-9._\-/]*$/
 
@@ -29,14 +29,14 @@ export const provisionHost = async (
 ): Promise<ProvisionResult> => {
 	const instancesRoot = validateInstancesRoot(options.instancesRoot)
 
-	const version = await transport.exec("docker --version", TIMEOUT_MS)
+	const version = await transport.exec("docker --version", PROVISION_STEP_TIMEOUT_MS)
 	if (version.exitCode !== 0) {
 		throw new Error(`Docker is not available on this host: ${version.stderr.trim()}`)
 	}
 
 	const mkdir = await transport.exec(
 		`install -d -m 0770 ${shellQuote(`${instancesRoot}/instances`)}`,
-		TIMEOUT_MS,
+		PROVISION_STEP_TIMEOUT_MS,
 	)
 	if (mkdir.exitCode !== 0) {
 		throw new Error(`Failed to create instances directory: ${mkdir.stderr.trim()}`)

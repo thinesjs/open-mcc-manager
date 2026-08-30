@@ -51,7 +51,7 @@ export type HostControllerDeps = {
 }
 
 const PROBE_TIMEOUT_MS = 10_000
-const CONNECT_TIMEOUT_MS = 10_000
+export const CONNECT_TIMEOUT_MS = 10_000
 
 export class ForbiddenError extends Error {}
 export class FingerprintMismatchError extends Error {}

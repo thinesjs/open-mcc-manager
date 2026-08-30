@@ -1,25 +1,28 @@
 {
-	"name": "@open-mcc/core",
+	"name": "@open-mcc/server",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
 	"main": "./src/index.ts",
 	"scripts": {
+		"build": "tsc -p tsconfig.json",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@hono/node-server": "^2.1.1",
+		"@hono/trpc-server": "^0.4.2",
 		"@open-mcc/contracts": "workspace:*",
+		"@open-mcc/core": "workspace:*",
 		"@open-mcc/db": "workspace:*",
 		"@open-mcc/transport": "workspace:*",
-		"kysely": "^0.29.5",
-		"libsodium-wrappers-sumo": "0.7.15",
-		"nanoid": "^5.0.9",
-		"sshpk": "^1.18.0"
+		"@trpc/server": "^11.0.0",
+		"better-auth": "^1.7.2",
+		"hono": "^4.6.14",
+		"postgres": "^3.4.5",
+		"zod": "^3.24.0"
 	},
 	"devDependencies": {
-		"@open-mcc/config": "workspace:*",
-		"@types/libsodium-wrappers-sumo": "^0.7.8",
-		"@types/sshpk": "^1.17.5"
+		"@open-mcc/config": "workspace:*"
 	}
 }

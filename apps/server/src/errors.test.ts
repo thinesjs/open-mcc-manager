@@ -10,7 +10,7 @@ import {
 } from "@open-mcc/core"
 import { DatabaseError } from "pg"
 import { describe, expect, it } from "vitest"
-import { mapKnownError } from "./errors"
+import { InvitationNotFoundError, mapKnownError } from "./errors"
 
 const databaseError = (code: string, constraint: string, detail: string): DatabaseError => {
 	const error = new DatabaseError(`database said: ${detail}`, detail.length, "error")
@@ -73,6 +73,14 @@ describe("mapKnownError", () => {
 		const mapped = mapKnownError(new SshKeyInUseError("SSH key key-1 is still referenced"))
 		expect(mapped?.code).toBe("CONFLICT")
 		expect(mapped?.errorCode).toBe("SSH_KEY_IN_USE")
+	})
+
+	it("maps InvitationNotFoundError to BAD_REQUEST without distinguishing why the invitation is unusable", () => {
+		const mapped = mapKnownError(new InvitationNotFoundError("Invitation not found: inv-secret"))
+		expect(mapped?.code).toBe("BAD_REQUEST")
+		expect(mapped?.httpStatus).toBe(400)
+		expect(mapped?.errorCode).toBe("INVITATION_NOT_FOUND")
+		expect(mapped?.message).not.toContain("inv-secret")
 	})
 
 	it("returns null for an unrecognized error, never leaking its message", () => {

@@ -52,11 +52,13 @@ const sshKeys: SshKeyRepository = {
 const withTransaction: WithTransaction = (fn) =>
 	fn({ hosts, audit: { record: vi.fn(notCalled("audit.record")) } })
 
+const probeHostKeyMock = vi.fn(async (): Promise<Buffer> => PRESENTED_HOST_KEY)
+
 const hostControllerDeps: HostControllerDeps = {
 	hosts,
 	sshKeys: { findById: vi.fn(async () => undefined) },
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
-	probeHostKey: vi.fn(async () => PRESENTED_HOST_KEY),
+	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
 	instancesRoot: "/srv/open-mcc",
 	withTransaction,
@@ -96,27 +98,69 @@ afterAll(async () => {
 	await db.destroy()
 })
 
+const enrollBody = (expectedFingerprint: string = CLIENT_EXPECTED_FINGERPRINT): string =>
+	JSON.stringify({
+		name: "vps-1",
+		hostname: "host.example.internal",
+		port: 22,
+		username: "root",
+		sshKeyId: "key-1",
+		expectedFingerprint,
+	})
+
+const postEnroll = (body: string) =>
+	app.request("/trpc/host.enroll", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body,
+	})
+
 describe("HTTP error serialization of a fingerprint mismatch", () => {
 	it("returns a client error without echoing the presented or expected fingerprint", async () => {
-		const res = await app.request("/trpc/host.enroll", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				name: "vps-1",
-				hostname: "host.example.internal",
-				port: 22,
-				username: "root",
-				sshKeyId: "key-1",
-				expectedFingerprint: CLIENT_EXPECTED_FINGERPRINT,
-			}),
-		})
-
+		const res = await postEnroll(enrollBody())
 		const body = await res.text()
 
 		expect(res.status).toBe(400)
 		expect(body).not.toContain(PRESENTED_FINGERPRINT)
 		expect(body).not.toContain(CLIENT_EXPECTED_FINGERPRINT)
 		expect(body).not.toContain("SHA256:")
+		expect(body.toLowerCase()).not.toContain("stack")
+	})
+})
+
+describe("HTTP error serialization regression coverage", () => {
+	it("gives a generic message for a thrown non-Error value", async () => {
+		probeHostKeyMock.mockRejectedValueOnce({ reason: "unexpected shape", code: "WEIRD" })
+
+		const res = await postEnroll(enrollBody())
+		const body = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(body).toContain("Internal server error")
+		expect(body).not.toContain("unexpected shape")
+		expect(body).not.toContain("WEIRD")
+		expect(body.toLowerCase()).not.toContain("stack")
+	})
+
+	it("rejects a Zod input validation failure with a 400 and no stack, without genericizing the message", async () => {
+		const res = await postEnroll(enrollBody("not-a-fingerprint"))
+		const body = await res.text()
+
+		expect(res.status).toBe(400)
+		expect(body).toContain("OpenSSH SHA256 fingerprint")
+		expect(body.toLowerCase()).not.toContain("stack")
+	})
+
+	it("never leaks a fake secret carried on an unexpected exception message", async () => {
+		const fakeSecret = "sealbox-private-key-DO-NOT-LEAK-9f8e7d6c"
+		probeHostKeyMock.mockRejectedValueOnce(new Error(`connection failed: key=${fakeSecret}`))
+
+		const res = await postEnroll(enrollBody())
+		const body = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(body).toContain("Internal server error")
+		expect(body).not.toContain(fakeSecret)
 		expect(body.toLowerCase()).not.toContain("stack")
 	})
 })

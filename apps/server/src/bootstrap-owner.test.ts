@@ -1,36 +1,67 @@
 import { randomUUID } from "node:crypto"
-import { createDb, type Db } from "@open-mcc/db"
-import { describe, expect, it } from "vitest"
-import { createAuth } from "./auth"
+import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
+import { Client } from "pg"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { type Auth, createAuth } from "./auth"
 import { bootstrapOwner, UsersAlreadyExistError } from "./bootstrap-owner"
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? ""
+const adminUrl = process.env.TEST_DATABASE_URL ?? ""
+const databaseName = `bootstrap_owner_test_${randomUUID().replaceAll("-", "")}`
 
+let databaseUrl: string
 let db: Db
+let auth: Auth
 
-const getDb = (): Db => {
-	if (!db) db = createDb(testDatabaseUrl)
-	return db
+const onConnection = async (connectionString: string, statement: string): Promise<void> => {
+	const client = new Client({ connectionString })
+	await client.connect()
+	try {
+		await client.query(statement)
+	} finally {
+		await client.end()
+	}
 }
+
+const resetOwnedDatabase = async (): Promise<void> => {
+	const tables = await db.introspection.getTables()
+	const names = tables
+		.filter((table) => !table.isView)
+		.map((table) => `"${table.name}"`)
+		.join(", ")
+	await onConnection(databaseUrl, `truncate table ${names} restart identity cascade`)
+}
+
+beforeAll(async () => {
+	await onConnection(adminUrl, `create database "${databaseName}"`)
+	const url = new URL(adminUrl)
+	url.pathname = `/${databaseName}`
+	databaseUrl = url.toString()
+	db = createDb(databaseUrl)
+	const { error } = await migrateToLatest(db)
+	if (error) throw error
+	auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
+		disableSignUp: false,
+		disableRateLimit: true,
+		allowOrganizationCreation: true,
+	})
+})
+
+afterEach(async () => {
+	await resetOwnedDatabase()
+})
+
+afterAll(async () => {
+	await db.destroy()
+	await onConnection(adminUrl, `drop database "${databaseName}" with (force)`)
+})
 
 describe("bootstrapOwner", () => {
 	it("creates the first owner and organization when no user exists", async () => {
-		const database = getDb()
-		const before = await database.selectFrom("user").select("id").limit(1).executeTakeFirst()
+		const before = await db.selectFrom("user").select("id").limit(1).executeTakeFirst()
 		expect(before).toBeUndefined()
 
-		const auth = createAuth(
-			database,
-			"a-very-long-test-secret-value-000000",
-			"http://localhost:3000",
-			{
-				disableSignUp: false,
-				disableRateLimit: true,
-				allowOrganizationCreation: true,
-			},
-		)
 		const email = `${randomUUID()}@example.com`
-		const result = await bootstrapOwner(testDatabaseUrl, database, auth, {
+		const result = await bootstrapOwner(databaseUrl, db, auth, {
 			email,
 			password: "correct horse battery staple 1",
 			name: "First Owner",
@@ -41,45 +72,23 @@ describe("bootstrapOwner", () => {
 		expect(result.userId.length).toBeGreaterThan(0)
 		expect(result.organizationId.length).toBeGreaterThan(0)
 
-		const member = await database
+		const member = await db
 			.selectFrom("member")
 			.select("role")
 			.where("organizationId", "=", result.organizationId)
 			.where("userId", "=", result.userId)
 			.executeTakeFirst()
 		expect(member?.role).toBe("owner")
-
-		await database
-			.deleteFrom("member")
-			.where("organizationId", "=", result.organizationId)
-			.execute()
-		await database.deleteFrom("organization").where("id", "=", result.organizationId).execute()
-		await database.deleteFrom("session").where("userId", "=", result.userId).execute()
-		await database.deleteFrom("account").where("userId", "=", result.userId).execute()
-		await database.deleteFrom("user").where("id", "=", result.userId).execute()
 	})
 
 	it("refuses when a user already exists, without creating an organization", async () => {
-		const database = getDb()
-		const existingUserId = randomUUID()
-		await database
+		await db
 			.insertInto("user")
-			.values({ id: existingUserId, name: "Existing", email: `${randomUUID()}@example.com` })
+			.values({ id: randomUUID(), name: "Existing", email: `${randomUUID()}@example.com` })
 			.execute()
 
-		const auth = createAuth(
-			database,
-			"a-very-long-test-secret-value-000000",
-			"http://localhost:3000",
-			{
-				disableSignUp: false,
-				disableRateLimit: true,
-				allowOrganizationCreation: true,
-			},
-		)
-
 		await expect(
-			bootstrapOwner(testDatabaseUrl, database, auth, {
+			bootstrapOwner(databaseUrl, db, auth, {
 				email: `${randomUUID()}@example.com`,
 				password: "correct horse battery staple 2",
 				name: "Second Owner",
@@ -88,40 +97,26 @@ describe("bootstrapOwner", () => {
 			}),
 		).rejects.toThrow(UsersAlreadyExistError)
 
-		const org = await database
+		const org = await db
 			.selectFrom("organization")
 			.select("id")
 			.where("name", "=", "Should Not Exist")
 			.executeTakeFirst()
 		expect(org).toBeUndefined()
-
-		await database.deleteFrom("user").where("id", "=", existingUserId).execute()
 	})
 
 	it("serializes two concurrent bootstraps against an empty database so exactly one wins", async () => {
-		const database = getDb()
-		const before = await database.selectFrom("user").select("id").limit(1).executeTakeFirst()
+		const before = await db.selectFrom("user").select("id").limit(1).executeTakeFirst()
 		expect(before).toBeUndefined()
 
-		const auth = createAuth(
-			database,
-			"a-very-long-test-secret-value-000000",
-			"http://localhost:3000",
-			{
-				disableSignUp: false,
-				disableRateLimit: true,
-				allowOrganizationCreation: true,
-			},
-		)
-
-		const first = bootstrapOwner(testDatabaseUrl, database, auth, {
+		const first = bootstrapOwner(databaseUrl, db, auth, {
 			email: `${randomUUID()}@example.com`,
 			password: "correct horse battery staple 3",
 			name: "Racer One",
 			organizationName: "Race Org One",
 			organizationSlug: `org-${randomUUID()}`,
 		})
-		const second = bootstrapOwner(testDatabaseUrl, database, auth, {
+		const second = bootstrapOwner(databaseUrl, db, auth, {
 			email: `${randomUUID()}@example.com`,
 			password: "correct horse battery staple 4",
 			name: "Racer Two",
@@ -138,21 +133,9 @@ describe("bootstrapOwner", () => {
 			expect(rejected[0].reason).toBeInstanceOf(UsersAlreadyExistError)
 		}
 
-		const users = await database.selectFrom("user").select("id").execute()
+		const users = await db.selectFrom("user").select("id").execute()
 		expect(users).toHaveLength(1)
-		const organizations = await database.selectFrom("organization").select("id").execute()
+		const organizations = await db.selectFrom("organization").select("id").execute()
 		expect(organizations).toHaveLength(1)
-
-		if (fulfilled[0]?.status === "fulfilled") {
-			const winner = fulfilled[0].value
-			await database
-				.deleteFrom("member")
-				.where("organizationId", "=", winner.organizationId)
-				.execute()
-			await database.deleteFrom("organization").where("id", "=", winner.organizationId).execute()
-			await database.deleteFrom("session").where("userId", "=", winner.userId).execute()
-			await database.deleteFrom("account").where("userId", "=", winner.userId).execute()
-			await database.deleteFrom("user").where("id", "=", winner.userId).execute()
-		}
 	})
 })

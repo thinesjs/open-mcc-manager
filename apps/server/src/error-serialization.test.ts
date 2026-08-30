@@ -11,6 +11,7 @@ import { createDb } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
 
@@ -63,6 +64,7 @@ const hostControllerDeps: HostControllerDeps = {
 
 const hostController = createHostController(hostControllerDeps)
 const db = createDb(process.env.TEST_DATABASE_URL ?? "")
+const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000")
 
 const ctx: RequestContext = {
 	actor: {
@@ -71,6 +73,9 @@ const ctx: RequestContext = {
 		actorLabel: "actor@example.com",
 		role: "owner",
 	},
+	auth,
+	signupAuth: auth,
+	headers: new Headers(),
 	hostController,
 	sshKeys,
 	secrets: hostControllerDeps.secrets,

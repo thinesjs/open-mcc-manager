@@ -38,7 +38,9 @@ let sshKeyRepository: ReturnType<typeof createSshKeyRepository>
 beforeAll(async () => {
 	const testDatabaseUrl = process.env.TEST_DATABASE_URL ?? ""
 	db = createDb(testDatabaseUrl)
-	const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000")
+	const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
+		disableSignUp: false,
+	})
 	const secrets = await createSecretStore(await generateKeyPair("k1"))
 	secretsStore = secrets
 
@@ -65,7 +67,14 @@ beforeAll(async () => {
 		"/trpc/*",
 		trpcServer({
 			router: appRouter,
-			createContext: createRequestContext({ auth, db, hostController, sshKeys, secrets }),
+			createContext: createRequestContext({
+				auth,
+				signupAuth: auth,
+				db,
+				hostController,
+				sshKeys,
+				secrets,
+			}),
 		}),
 	)
 })

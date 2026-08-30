@@ -25,6 +25,19 @@ services:
       interval: 5s
       retries: 10
 
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile
+      target: build
+    command: ["pnpm", "--filter", "@open-mcc/db", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/open_mcc_manager
+    restart: "no"
+
   server:
     build:
       context: ..
@@ -32,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/open_mcc_manager
       PORT: "3000"

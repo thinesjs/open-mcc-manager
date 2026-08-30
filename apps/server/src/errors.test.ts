@@ -1,3 +1,5 @@
+import { isErrorCode } from "@open-mcc/contracts"
+import * as core from "@open-mcc/core"
 import {
 	FingerprintMismatchError,
 	ForbiddenError,
@@ -10,7 +12,18 @@ import {
 } from "@open-mcc/core"
 import { DatabaseError } from "pg"
 import { describe, expect, it } from "vitest"
+import * as serverErrors from "./errors"
 import { InvitationNotFoundError, mapKnownError } from "./errors"
+
+type ErrorConstructor = new (message: string) => Error
+
+const exportedErrorConstructors = <T extends object>(
+	moduleExports: T,
+): Array<[string, ErrorConstructor]> =>
+	Object.entries(moduleExports).filter(
+		(entry): entry is [string, ErrorConstructor] =>
+			typeof entry[1] === "function" && entry[1].prototype instanceof Error,
+	)
 
 const databaseError = (code: string, constraint: string, detail: string): DatabaseError => {
 	const error = new DatabaseError(`database said: ${detail}`, detail.length, "error")
@@ -132,5 +145,26 @@ describe("mapKnownError on integrity constraint violations", () => {
 
 	it("leaves a not-null violation unmapped, so a server defect stays an internal error", () => {
 		expect(mapKnownError(databaseError("23502", "", 'null value in column "hostname"'))).toBeNull()
+	})
+})
+
+describe("mapKnownError coverage of the error classes it is given", () => {
+	const wireErrorConstructors = [
+		...exportedErrorConstructors(core),
+		...exportedErrorConstructors(serverErrors),
+	]
+
+	it("finds error classes to check, so the coverage assertion below cannot pass vacuously", () => {
+		expect(wireErrorConstructors.length).toBeGreaterThan(0)
+	})
+
+	it("maps every error class the domain packages export, so a new one cannot become a silent 500", () => {
+		for (const [name, ErrorClass] of wireErrorConstructors) {
+			const mapped = mapKnownError(new ErrorClass(`${name} raised for the coverage check`))
+			expect(mapped, `${name} has no case in mapKnownError`).not.toBeNull()
+			expect(isErrorCode(mapped?.errorCode), `${name} maps to an unknown wire error code`).toBe(
+				true,
+			)
+		}
 	})
 })

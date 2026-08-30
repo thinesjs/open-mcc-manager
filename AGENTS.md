@@ -74,6 +74,7 @@ have:
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
+| Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 
 Everything else in this document — the layering direction, the rest of the
@@ -345,7 +346,11 @@ a host), following the actual stack above.
   `ERROR_MESSAGES` is typed `Record<ErrorCode, string>`, so adding a code the
   server can send without adding operator-facing copy for it fails
   `pnpm typecheck` — a new trust error cannot quietly fall through to the
-  server's own words.
+  server's own words. The server half is covered too: `errors.test.ts` reads
+  the error classes off what `@open-mcc/core` and `apps/server/src/errors.ts`
+  export rather than listing them, so a new domain error class with no case in
+  `mapKnownError` fails the suite instead of reaching the dashboard as an
+  unmapped 500.
 - `getErrorMessage` does still fall back to `error.message` when the response
   carries no recognised `errorCode`, and that tail is deliberate rather than a
   gap in the above: what reaches it is a zod validation message, which is

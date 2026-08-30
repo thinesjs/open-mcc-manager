@@ -64,7 +64,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Seven rules stated further down this document are enforced too, and are listed
+Nine rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -76,12 +76,17 @@ have:
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
 | The host status union matching between `packages/db` and `packages/contracts` | TypeScript — `apps/web`'s `HostStatusBadge` call sites reject a database union wider than the contract's, and `host-status.ts`'s `Record<HostStatus, ...>` rejects a contract union wider than the database's |
 | Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails |
+| The provisioning claim conditioned on the status read before the lock | `packages/core/src/host/host.controller.transaction.test.ts` — substituting the row read under the lock makes the claim always succeed, and fails the test named for it |
+| Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard, the mirroring of
 design token *values* from the reference — rests on review and on the tests written
-alongside each change. No hook, no commitlint, no CI step covers them.
+alongside each change. No hook, no commitlint, no CI step covers them. The
+token mirroring is the one with a tool: `scripts/compare-the reference-tokens.mjs`
+answers it on demand, and review means running it rather than reading the
+stylesheet, but nothing runs it for you.
 
 ### `scripts/check-type-policy.mjs`
 
@@ -244,6 +249,27 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
+- `provision` verifies what it needs under the advisory lock and *before* the
+  claim, so a rejected attempt leaves no claim behind and the operator's host
+  is exactly as they left it. The ssh key lookup is the deliberate exception:
+  it stays above the transaction because a host pointing at a deleted key has
+  to fail with nothing claimed, and moving it below would strand that host
+  `provisioning` behind a live lease until it went stale — a worse outcome, on
+  a reachable path, than the one it would close. So the key is read early and
+  the row is re-read under the lock, where `hostKeyFingerprint` and `sshKeyId`
+  are checked; either failing aborts before `claimForProvisioning` runs.
+- The status handed to `claimForProvisioning` is deliberately the *pre-lock*
+  read, never the row just re-read under the lock. That comparison is the
+  optimistic concurrency check: the claim must fail when the status moved
+  between the operator's read and the claim. Substituting the freshly-read
+  value looks like deleting a redundant variable and quietly makes the claim
+  always succeed.
+- One check stays after the claim because it cannot move: a claimed row
+  carrying no `provisioningAttemptId` tests what the claim itself wrote.
+  `claimForProvisioning` always writes one, so that is an impossible state and
+  a server defect — it throws a bare `Error`, returns 500, and leaves the host
+  `provisioning` until the lease goes stale. That is a signal rather than a
+  false report, which is why it does not write `error` on the way out.
 - Remote effects (an SSH connection, a call into better-auth's own write
   path) never sit inside a database transaction. `host.controller.ts`'s
   `provision` claims the host with a leased status update, does the SSH work
@@ -389,10 +415,19 @@ a host), following the actual stack above.
   names, which a `var()` reference elsewhere in the file satisfied and which
   prefix collision let `--error-foreground` satisfy on behalf of `--error`;
   both `--error:` declarations could be deleted outright with the suite still
-  green. Do not go back to substring matching. The mirroring itself — that
-  these values match the reference's — rests on review, because the reference is not in
-  this repository and a test cannot read it. Reuse existing token families;
+  green. Do not go back to substring matching. Reuse existing token families;
   never invent one locally.
+- The reference is `pingdotgg/the reference` at `fdd1572b6` (authored 2026-08-22),
+  and the pin is the commit rather than the repository: a claim of 1:1 against
+  a moving target cannot be falsified, which is the same defect as a test that
+  cannot fail. `scripts/compare-the reference-tokens.mjs` answers what actually
+  matches, and takes the checkout path as a required argument with no default
+  so it can never silently compare against whichever clone happens to be on
+  disk. Its output names the reference commit and date, so a pasted result
+  carries its own provenance. No count is written down here on purpose — run
+  the script. It cannot run in CI, because the reference is not a dependency and CI
+  has no checkout; its fixture tests do run there. That split is deliberate:
+  the tool is a local action, the guard on the tool is not.
 - That pin covers custom property declarations and nothing else, and the gap
   is not theoretical. `index.css`'s `@layer base` carries
   `* { @apply border-border outline-ring/50; }`, mirrored from the reference, and
@@ -404,9 +439,13 @@ a host), following the actual stack above.
   its border in `currentColor` — the text colour. "Design tokens are
   mirrored and pinned" was true the whole time; "the stylesheet matches
   the reference" was not, and the difference between those two sentences is exactly
-  where the divergence lived. Any other base-layer or component-layer rule
-  the reference has and this file lacks is still unguarded, and `@layer base` is
-  where the reference keeps several.
+  where the divergence lived. Both guards over this file are
+  custom-property-only — `index.css.test.ts` and
+  `scripts/compare-the reference-tokens.mjs` each ignore any declaration whose name
+  does not start with `--` — so no base-layer rule, component class or
+  `@utility` block is covered by either. Do not build a third guard for it.
+  This is a named limitation to check by eye when lifting, and `@layer base`
+  is where the reference keeps several rules this file may still be missing.
 - `dropdown-glass` and `surface-glass` in `index.css` each end with an
   `@supports not (...)` block whose `background` carries `!important`, and
   `biome.json` turns `complexity/noImportantStyles` off for that exact path,
@@ -426,6 +465,44 @@ a host), following the actual stack above.
   exemption. If you change them, read the emitted CSS under
   `apps/web/dist/assets/` rather than the source — this was found by
   reading the build output, not by reasoning about the stylesheet.
+- When lifting a component from the reference, a property can move between the
+  stylesheet and the component between versions, so re-lifting one without
+  the other silently duplicates or drops it. `dropdown-glass` carried its
+  `box-shadow` in `index.css` at `1a003e383`; by `fdd1572b6` the shadow had
+  moved onto the popup element in `select.tsx` as `shadow-[...]` classes,
+  and re-lifting the component alone would have applied both. Nothing
+  catches this, because the value crosses the boundary the token guards
+  watch — it is neither a changed declaration nor a changed class, but the
+  same property arriving from a different file. Diff the stylesheet against
+  the reference whenever a component moves, and the reverse.
+- the reference resolves several utility colours through indirection layers this
+  repository deliberately does not lift, and flattening them is faithful
+  rather than divergent — but only because they are identity transforms at
+  the settings shipped here. `--placeholder`, `--secondary-label` and
+  `--icon-muted` are each `var(--muted-foreground)` in the reference's `:root`
+  (`index.css:1411-1413` at `fdd1572b6`) and diverge only under
+  `html[data-theme-id]:not([data-theme-id=""])` (`:1552`), a selector this
+  dashboard never matches because it sets no `data-theme-id`. The
+  `--contrast-*` family wraps those and others again in `color-mix(in oklab,
+  color-mix(in oklab, X 100%, background), black 0%)`, which reduces to `X`
+  at the shipped `--appearance-contrast-base: 100%` and
+  `--appearance-contrast-boost: 0%` (`:81-83`) — confirmed by computing both
+  forms in a browser rather than reading it off the spec. So
+  `text-muted-foreground` stands in for all of them exactly. A re-mirror
+  needs that before deciding whether to lift the family at all: it is a
+  large addition that changes nothing until an appearance control exists to
+  move it.
+- `CardTitle` renders a `div` rather than a heading because the reference's does,
+  and that is a considered exception rather than an oversight. It is a real
+  accessibility loss for screen reader users navigating by heading; every
+  dashboard page carries its own `<h1>`, so no page is heading-less, but the
+  card titles under it are not in the outline. Forcing an `h2` needs
+  `render={<h2 />}`, which biome's `a11y/useHeadingContent` rejects because
+  that element has no children of its own — they are merged in at runtime —
+  so the only route is an exact-path lint exemption that would deviate from
+  the reference and suppress a true finding at the same time. Do not add
+  one. Giving card titles heading semantics is a product decision about this
+  dashboard rather than a fidelity fix, and nobody has made it.
 - `apps/web/src/routeTree.gen.ts` is generated by TanStack Router and is
   exempt from the type-policy checker by its exact path, not by filename —
   see What enforces what above. A same-named file placed elsewhere is not

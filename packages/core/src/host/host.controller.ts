@@ -150,6 +150,11 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!claimed.hostKeyFingerprint) {
 			throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
+		if (claimed.sshKeyId !== found.sshKeyId) {
+			throw new HostConcurrentlyModifiedError(
+				`Host ${hostId} changed its ssh key before provisioning could start`,
+			)
+		}
 		const expectedFingerprint = claimed.hostKeyFingerprint
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {

@@ -1050,6 +1050,72 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		expect(observedTarget).toEqual(relocated)
 	})
 
+	it("stops rather than authenticating with an ssh key superseded between the status read and the claim", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-key-superseded")
+
+		const rotatedKey = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: "org-key-superseded-rotated",
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed-rotated",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(rotatedKey.id)
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+
+		const gatedSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		const open = vi.fn((encrypted: string) => `private-key-of:${encrypted}`)
+		const createTransport = vi.fn(() =>
+			createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			}),
+		)
+		const controller = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport,
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = controller.provision(ctx, hostId)
+		try {
+			await sshKeyLookupStarted
+			await hosts.update({ organizationId }, hostId, { sshKeyId: rotatedKey.id })
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
+
+		await expect(provisionPromise).rejects.toThrow(HostConcurrentlyModifiedError)
+		expect(open).not.toHaveBeenCalled()
+		expect(createTransport).not.toHaveBeenCalled()
+
+		const finalHost = await hosts.findById({ organizationId }, hostId)
+		expect(finalHost?.sshKeyId).toBe(rotatedKey.id)
+	})
+
 	it("rejects a re-trust attempted after the claim has committed but before the connection begins, then completes provisioning on the original fingerprint", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-retrust-mid-flight")

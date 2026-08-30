@@ -9,6 +9,7 @@ import {
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
 	generateSshKeyPair,
+	validateInstancesRoot,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
@@ -31,6 +32,7 @@ export type ServerHandle = {
 export type Serve = typeof serve
 
 export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandle> => {
+	const instancesRoot = validateInstancesRoot(env.INSTANCES_ROOT)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 
 	const db = createDb(env.DATABASE_URL)
@@ -59,7 +61,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		secrets,
 		probeHostKey,
 		createTransport: createSshTransport,
-		instancesRoot: env.INSTANCES_ROOT,
+		instancesRoot,
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

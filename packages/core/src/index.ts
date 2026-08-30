@@ -33,6 +33,8 @@ export {
 	isProvisioningClaimStale,
 	PROVISIONING_LEASE_MS,
 } from "./host/host.repository"
+export type { ProvisionOptions, ProvisionResult } from "./host/provision"
+export { PROVISION_STEP_TIMEOUT_MS, provisionHost, validateInstancesRoot } from "./host/provision"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"
 export { generateSshKeyPair } from "./ssh-key/generate"
 export type {

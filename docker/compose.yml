@@ -37,7 +37,7 @@ services:
       PORT: "3000"
       ALLOWED_ORIGINS: http://localhost:5173
       BETTER_AUTH_SECRET: dev-only-secret-change-me-before-any-real-deploy
-      SEALBOX_KEYS: "k1:Am5fPqmntZmYRD3qh57huQfRy+oSfBgo1tzp8PNcNS8=:MDiplVb87qftrMZUimPXPEqL/CLTjlFUguzjwGwUgP0="
+      SEALBOX_KEYS: "dev-insecure-publicly-known:Am5fPqmntZmYRD3qh57huQfRy+oSfBgo1tzp8PNcNS8=:MDiplVb87qftrMZUimPXPEqL/CLTjlFUguzjwGwUgP0="
     ports:
       - "127.0.0.1:3000:3000"
     read_only: true

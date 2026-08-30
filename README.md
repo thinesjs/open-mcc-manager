@@ -11,6 +11,14 @@ A centralised control plane for managing Minecraft Console Client instances acro
 
 ## Development
 
+Copy `.env.example` to `.env` and fill in the values — it documents every
+variable the server and the test suite need, including `TEST_DATABASE_URL`
+(the test suite needs Postgres for most of its tests). Start both databases
+with `docker compose -f docker/compose.yml up -d`: `postgres` is the
+persistent development database on port 5432, `postgres-test` is an
+ephemeral database on port 55432 that the test suite connects to and that
+is not expected to survive a restart.
+
 ```bash
 pnpm install
 pnpm lint

@@ -194,7 +194,13 @@ a host), following the actual stack above.
 ## Tests
 
 Colocated `*.test.ts`. Tests that touch real Postgres need
-`TEST_DATABASE_URL` and must track the ids they create and delete only
+`TEST_DATABASE_URL` pointed at a running server — `docker compose -f
+docker/compose.yml up -d postgres-test` starts one on `localhost:55432`
+with the default `postgres` database (see `.env.example`), which is what
+`TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres`
+in that file resolves to. That database has no volume and is not expected
+to survive a restart — the suite creates and tears down every row it needs.
+Tests must track the ids they create and delete only
 those — no blanket deletes — so row counts are unchanged across a full run.
 `apps/server` runs its test files sequentially
 (`apps/server/vitest.config.ts`, `fileParallelism: false`) because its

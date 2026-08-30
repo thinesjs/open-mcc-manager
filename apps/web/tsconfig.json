@@ -1,0 +1,12 @@
+{
+	"extends": "@open-mcc/config/tsconfig.base.json",
+	"compilerOptions": {
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"jsx": "react-jsx",
+		"noEmit": true,
+		"types": ["vite/client"],
+		"baseUrl": ".",
+		"paths": { "~/*": ["./src/*"] }
+	},
+	"include": ["src"]
+}

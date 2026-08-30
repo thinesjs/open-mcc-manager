@@ -409,15 +409,15 @@ a host), following the actual stack above.
   state must arrive with an `errorCode`, which is what forces copy for it.
 - Design tokens are mirrored from the reference and pinned by
   `apps/web/src/index.css.test.ts`, which parses `index.css` and compares
-  every custom property it declares — all 134 of them, as
-  `scope name: value` — against one expected list. Deleting a declaration,
-  changing a value, or moving one between the light and dark blocks all fail
-  that test. It was previously a set of `toContain` checks on bare token
-  names, which a `var()` reference elsewhere in the file satisfied and which
-  prefix collision let `--error-foreground` satisfy on behalf of `--error`;
-  both `--error:` declarations could be deleted outright with the suite still
-  green. Do not go back to substring matching. Reuse existing token families;
-  never invent one locally.
+  every custom property it declares, as `scope name: value`, against one
+  expected list. Deleting a declaration, changing a value, or moving one
+  between the light and dark blocks all fail that test. It was previously a
+  set of `toContain` checks on bare token names, which a `var()` reference
+  elsewhere in the file satisfied and which prefix collision let
+  `--error-foreground` satisfy on behalf of `--error`; both `--error:`
+  declarations could be deleted outright with the suite still green. Do not
+  go back to substring matching. Reuse existing token families; never invent
+  one locally.
 - The reference is `pingdotgg/the reference` at `fdd1572b6` (authored 2026-08-22),
   and the pin is the commit rather than the repository: a claim of 1:1 against
   a moving target cannot be falsified, which is the same defect as a test that

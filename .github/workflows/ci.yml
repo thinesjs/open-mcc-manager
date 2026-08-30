@@ -27,6 +27,8 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:55432/postgres
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10.22.0
@@ -34,6 +36,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Check commit subjects
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-commit-subjects.mjs ${{ github.event.pull_request.base.sha }}..HEAD
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

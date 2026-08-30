@@ -11,6 +11,7 @@
 		"typecheck": "turbo run typecheck",
 		"check": "biome check --write .",
 		"check:types-policy": "node scripts/check-type-policy.mjs",
+		"check:commits": "node scripts/check-commit-subjects.mjs",
 		"lint": "biome check . && node scripts/check-type-policy.mjs"
 	},
 	"devDependencies": {

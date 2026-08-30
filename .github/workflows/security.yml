@@ -60,8 +60,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f docker/server/Dockerfile -t open-mcc-server:scan .
-      - uses: aquasecurity/trivy-action@0.28.0
+      - name: Scan image (libssl3 findings pending a distroless rebuild are tracked, expiring ignores — see .trivyignore)
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: open-mcc-server:scan
           severity: HIGH,CRITICAL
           exit-code: "1"
+          trivyignores: .trivyignore

@@ -6,9 +6,11 @@ const UNKNOWN_ALLOWED = join("packages", "contracts", "src", "boundary")
 const NEVER_ALLOWED = join("packages", "core", "src", "lib", "exhaustive.ts")
 const SKIP = new Set(["node_modules", "dist", ".git", ".turbo"])
 
+const GENERATED_FILE_NAMES = new Set(["routeTree.gen.ts"])
+
 const walk = (dir, acc = []) => {
 	for (const entry of readdirSync(dir)) {
-		if (SKIP.has(entry)) continue
+		if (SKIP.has(entry) || GENERATED_FILE_NAMES.has(entry)) continue
 		const full = join(dir, entry)
 		if (statSync(full).isDirectory()) walk(full, acc)
 		else if (/\.tsx?$/.test(entry)) acc.push(full)

@@ -12,6 +12,7 @@
 		]
 	},
 	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },
+	"css": { "parser": { "tailwindDirectives": true } },
 	"linter": {
 		"enabled": true,
 		"rules": {
@@ -28,5 +29,18 @@
 			"complexity": { "noBannedTypes": "error" }
 		}
 	},
-	"javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } }
+	"javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },
+	"overrides": [
+		{
+			"includes": ["**/*.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noDuplicateProperties": "off",
+						"noDuplicateCustomProperties": "off"
+					}
+				}
+			}
+		}
+	]
 }

@@ -227,6 +227,16 @@ importers:
         specifier: ^1.15.1
         version: 1.15.5
 
+  scripts:
+    dependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+    devDependencies:
+      '@open-mcc/config':
+        specifier: workspace:*
+        version: link:../packages/config
+
 packages:
 
   '@babel/code-frame@7.29.7':

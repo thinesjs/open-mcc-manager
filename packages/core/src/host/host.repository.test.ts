@@ -652,7 +652,7 @@ describe("host repository advisory lock scoping (real Postgres)", () => {
 				})
 			const outcome = await Promise.race([
 				sameTenant.then(() => "acquired"),
-				new Promise((resolve) => setTimeout(() => resolve("blocked"), 500)),
+				new Promise((resolve) => setTimeout(() => resolve("blocked"), 200)),
 			])
 			expect(outcome).toBe("blocked")
 

@@ -1,3 +1,4 @@
+import type { ErrorCode } from "@open-mcc/contracts"
 import {
 	FingerprintMismatchError,
 	ForbiddenError,
@@ -14,23 +15,9 @@ export class InvitationNotFoundError extends Error {}
 
 export type MappedErrorCode = "FORBIDDEN" | "NOT_FOUND" | "BAD_REQUEST" | "CONFLICT"
 
-export type MappedErrorTag =
-	| "FORBIDDEN"
-	| "HOST_NOT_FOUND"
-	| "SSH_KEY_NOT_FOUND"
-	| "FINGERPRINT_MISMATCH"
-	| "HOST_MISCONFIGURED"
-	| "HOST_CONCURRENTLY_MODIFIED"
-	| "HOST_PROVISIONING_IN_PROGRESS"
-	| "INVITATION_NOT_FOUND"
-	| "SSH_KEY_IN_USE"
-	| "HOST_NAME_TAKEN"
-	| "SSH_KEY_NAME_TAKEN"
-	| "CONSTRAINT_VIOLATION"
-
 export type MappedError = {
 	code: MappedErrorCode
-	errorCode: MappedErrorTag
+	errorCode: ErrorCode
 	httpStatus: number
 	message: string
 }
@@ -42,11 +29,7 @@ const HTTP_STATUS_BY_CODE: Record<MappedErrorCode, number> = {
 	CONFLICT: 409,
 }
 
-const mapped = (
-	code: MappedErrorCode,
-	errorCode: MappedErrorTag,
-	message: string,
-): MappedError => ({
+const mapped = (code: MappedErrorCode, errorCode: ErrorCode, message: string): MappedError => ({
 	code,
 	errorCode,
 	httpStatus: HTTP_STATUS_BY_CODE[code],

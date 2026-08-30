@@ -1,4 +1,4 @@
-import { type Capability, can, type Role } from "@open-mcc/contracts"
+import { type Capability, can, type ErrorCode, type Role } from "@open-mcc/contracts"
 import { initTRPC, TRPCError } from "@trpc/server"
 import { ZodError } from "zod"
 import type { RequestContext } from "./context"
@@ -6,7 +6,7 @@ import { mapKnownError } from "./errors"
 
 const GENERIC_INTERNAL_MESSAGE = "Internal server error"
 
-const GENERIC_UNMAPPED: Record<string, { message: string; errorCode: string }> = {
+const GENERIC_UNMAPPED: Record<string, { message: string; errorCode: ErrorCode }> = {
 	UNAUTHORIZED: { message: "Authentication required", errorCode: "UNAUTHORIZED" },
 	FORBIDDEN: {
 		message: "You do not have permission to perform this action",

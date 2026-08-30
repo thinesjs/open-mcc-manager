@@ -1,9 +1,11 @@
+import { type ErrorCode, isErrorCode } from "@open-mcc/contracts"
+
 export type TRPCErrorLike = {
 	message: string
 	data?: { errorCode?: string } | null | undefined
 }
 
-const ERROR_MESSAGES: Record<string, string> = {
+const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	UNAUTHORIZED: "Your session has expired. Please sign in again.",
 	FORBIDDEN: "You do not have permission to perform this action.",
 	HOST_NOT_FOUND: "That host no longer exists.",
@@ -26,7 +28,7 @@ const FALLBACK_MESSAGE = "Something went wrong. Please try again."
 
 export const getErrorMessage = (error: TRPCErrorLike): string => {
 	const errorCode = error.data?.errorCode
-	const mapped = errorCode ? ERROR_MESSAGES[errorCode] : undefined
+	const mapped = isErrorCode(errorCode) ? ERROR_MESSAGES[errorCode] : undefined
 	if (mapped) return mapped
 	return error.message.length > 0 ? error.message : FALLBACK_MESSAGE
 }

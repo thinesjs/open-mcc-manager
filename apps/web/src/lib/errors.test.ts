@@ -1,3 +1,4 @@
+import { ERROR_CODES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { getErrorMessage } from "./errors"
 
@@ -63,5 +64,14 @@ describe("getErrorMessage", () => {
 		})
 		expect(message).toContain("conflicts with data already stored")
 		expect(message).not.toContain("Something went wrong")
+	})
+
+	it("renders static copy, never the server's own text, for every code the server can send", () => {
+		const serverText = "presented SHA256:aaaa expected SHA256:bbbb"
+		for (const errorCode of ERROR_CODES) {
+			const message = getErrorMessage({ message: serverText, data: { errorCode } })
+			expect(message, errorCode).not.toBe(serverText)
+			expect(message, errorCode).not.toBe("Something went wrong. Please try again.")
+		}
 	})
 })

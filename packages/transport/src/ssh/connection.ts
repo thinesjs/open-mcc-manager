@@ -3,6 +3,50 @@ import type { ConnectionState, ConnectOptions, ExecResult, HostTransport } from 
 import { type ExecChannel, execViaChannel } from "./exec"
 import { verifyHostKey } from "./verify"
 
+export type RequestChannel = (
+	command: string,
+	callback: (error: Error | undefined, channel: ExecChannel | undefined) => void,
+) => void
+
+export const execWithBoundedAcquisition = (
+	requestChannel: RequestChannel,
+	command: string,
+	timeoutMs: number,
+): Promise<ExecResult> =>
+	new Promise<ExecResult>((resolve, reject) => {
+		let settled = false
+		const startedAt = Date.now()
+		const timer = setTimeout(() => {
+			if (settled) return
+			settled = true
+			reject(new Error(`Command timed out waiting for a channel: ${command}`))
+		}, timeoutMs)
+
+		requestChannel(command, (error, channel) => {
+			if (settled) {
+				channel?.destroy()
+				return
+			}
+			clearTimeout(timer)
+			if (error || !channel) {
+				settled = true
+				reject(error ?? new Error(`Failed to open a channel for: ${command}`))
+				return
+			}
+			const remainingMs = Math.max(0, timeoutMs - (Date.now() - startedAt))
+			execViaChannel(channel, command, remainingMs).then(
+				(result) => {
+					settled = true
+					resolve(result)
+				},
+				(channelError) => {
+					settled = true
+					reject(channelError)
+				},
+			)
+		})
+	})
+
 export const createSshTransport = (): HostTransport => {
 	let client: Client | undefined
 	let state: ConnectionState = "disconnected"
@@ -45,35 +89,35 @@ export const createSshTransport = (): HostTransport => {
 					})
 			}),
 
-		exec: (command: string, timeoutMs: number) =>
-			new Promise<ExecResult>((resolve, reject) => {
-				const conn = client
-				if (!conn) {
-					reject(new Error("Transport is not connected"))
-					return
-				}
-				conn.exec(command, (error, stream) => {
-					if (error) {
-						reject(error)
-						return
-					}
-					const channel: ExecChannel = {
-						onStdout: (listener) => {
-							stream.on("data", listener)
-						},
-						onStderr: (listener) => {
-							stream.stderr.on("data", listener)
-						},
-						onClose: (listener) => {
-							stream.on("close", listener)
-						},
-						destroy: () => {
-							stream.destroy()
-						},
-					}
-					execViaChannel(channel, command, timeoutMs).then(resolve, reject)
-				})
-			}),
+		exec: (command: string, timeoutMs: number) => {
+			const conn = client
+			if (!conn) return Promise.reject(new Error("Transport is not connected"))
+			return execWithBoundedAcquisition(
+				(cmd, callback) =>
+					conn.exec(cmd, (error, stream) => {
+						if (error) {
+							callback(error, undefined)
+							return
+						}
+						callback(undefined, {
+							onStdout: (listener) => {
+								stream.on("data", listener)
+							},
+							onStderr: (listener) => {
+								stream.stderr.on("data", listener)
+							},
+							onClose: (listener) => {
+								stream.on("close", listener)
+							},
+							destroy: () => {
+								stream.destroy()
+							},
+						})
+					}),
+				command,
+				timeoutMs,
+			)
+		},
 
 		close: async () => {
 			client?.end()

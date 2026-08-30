@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CAPABILITIES, can } from "./authz"
+import { CAPABILITIES, can, isRole, roleSchema } from "./authz"
 
 describe("can", () => {
 	it("lets every role read", () => {
@@ -25,5 +25,28 @@ describe("can", () => {
 		for (const capability of CAPABILITIES) {
 			expect(can("owner", capability)).toBe(true)
 		}
+	})
+})
+
+describe("isRole", () => {
+	it("accepts every known role", () => {
+		expect(isRole("owner")).toBe(true)
+		expect(isRole("operator")).toBe(true)
+		expect(isRole("viewer")).toBe(true)
+	})
+
+	it("rejects an arbitrary string", () => {
+		expect(isRole("admin")).toBe(false)
+		expect(isRole("")).toBe(false)
+	})
+})
+
+describe("roleSchema", () => {
+	it("parses a known role", () => {
+		expect(roleSchema.parse("owner")).toBe("owner")
+	})
+
+	it("throws for an unknown role", () => {
+		expect(() => roleSchema.parse("admin")).toThrow()
 	})
 })

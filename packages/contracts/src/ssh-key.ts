@@ -15,3 +15,6 @@ export const sshKeyPublic = z.object({
 })
 
 export type SshKeyPublic = z.infer<typeof sshKeyPublic>
+
+export const sshKeyIdInput = z.object({ sshKeyId: z.string().min(1) })
+export type SshKeyIdInput = z.infer<typeof sshKeyIdInput>

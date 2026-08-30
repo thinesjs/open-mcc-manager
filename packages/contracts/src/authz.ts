@@ -1,5 +1,13 @@
+import { z } from "zod"
+
 export const ROLES = ["owner", "operator", "viewer"] as const
 export type Role = (typeof ROLES)[number]
+
+export const roleSchema = z.enum(ROLES)
+
+const ROLE_SET: ReadonlySet<string> = new Set(ROLES)
+
+export const isRole = (value: string): value is Role => ROLE_SET.has(value)
 
 export const CAPABILITIES = [
 	"instance.read",

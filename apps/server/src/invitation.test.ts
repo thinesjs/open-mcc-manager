@@ -29,6 +29,7 @@ beforeAll(async () => {
 	db = createDb(testDatabaseUrl)
 	const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
 		disableSignUp: false,
+		disableRateLimit: true,
 	})
 	const secrets = await createSecretStore(await generateKeyPair("k1"))
 
@@ -231,6 +232,17 @@ describe("member invitations", () => {
 			.where("userId", "=", accepted.userId)
 			.execute()
 		expect(inviteeMembers).toHaveLength(1)
+
+		const signInRes = await app.request("/api/auth/sign-in/email", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN },
+			body: JSON.stringify({
+				email: inviteeEmail,
+				password: "correct horse battery staple 3",
+			}),
+		})
+		const signInBody = await signInRes.text()
+		expect(signInRes.status, signInBody).toBe(200)
 
 		const acceptAudit = await db
 			.selectFrom("auditEvent")

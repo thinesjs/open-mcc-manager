@@ -25,6 +25,7 @@ describe("bootstrapOwner", () => {
 			"http://localhost:3000",
 			{
 				disableSignUp: false,
+				disableRateLimit: true,
 			},
 		)
 		const email = `${randomUUID()}@example.com`
@@ -71,6 +72,7 @@ describe("bootstrapOwner", () => {
 			"http://localhost:3000",
 			{
 				disableSignUp: false,
+				disableRateLimit: true,
 			},
 		)
 
@@ -105,6 +107,7 @@ describe("bootstrapOwner", () => {
 			"http://localhost:3000",
 			{
 				disableSignUp: false,
+				disableRateLimit: true,
 			},
 		)
 

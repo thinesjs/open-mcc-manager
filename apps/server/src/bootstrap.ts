@@ -32,6 +32,9 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 
 	const db = createDb(env.DATABASE_URL)
 	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL)
+	const signupAuth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
+		disableSignUp: false,
+	})
 
 	const lock = await acquireSingletonLock(env.DATABASE_URL)
 	if (!lock.acquired) {
@@ -66,7 +69,14 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		"/trpc/*",
 		trpcServer({
 			router: appRouter,
-			createContext: createRequestContext({ auth, db, hostController, sshKeys, secrets }),
+			createContext: createRequestContext({
+				auth,
+				signupAuth,
+				db,
+				hostController,
+				sshKeys,
+				secrets,
+			}),
 		}),
 	)
 

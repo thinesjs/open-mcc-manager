@@ -6,6 +6,7 @@ import type { Actor, RequestContext } from "./context"
 
 export type AppDeps = {
 	auth: Auth
+	signupAuth: Auth
 	db: Db
 	hostController: HostController
 	sshKeys: SshKeyRepository
@@ -44,6 +45,9 @@ export const createRequestContext = (deps: AppDeps) => {
 		const actor = await resolveActor(deps, opts.req.headers)
 		return {
 			actor,
+			auth: deps.auth,
+			signupAuth: deps.signupAuth,
+			headers: opts.req.headers,
 			hostController: deps.hostController,
 			sshKeys: deps.sshKeys,
 			secrets: deps.secrets,

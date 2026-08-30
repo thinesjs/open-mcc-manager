@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { acceptInvitationInput, inviteMemberInput } from "@open-mcc/contracts"
+import { acceptInvitationInput, inviteMemberInput, isRole } from "@open-mcc/contracts"
 import { createAuditRepository } from "@open-mcc/core"
 import { InvitationNotFoundError } from "../errors"
 import { protectedProcedure, publicProcedure, requireCapability, router } from "../trpc"
@@ -45,7 +45,8 @@ export const memberRouter = router({
 			if (
 				invitation.status !== "pending" ||
 				invitation.expiresAt.getTime() < Date.now() ||
-				!invitation.role
+				!invitation.role ||
+				!isRole(invitation.role)
 			) {
 				throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
 			}

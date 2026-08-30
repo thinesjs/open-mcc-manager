@@ -255,6 +255,27 @@ describe("member.acceptInvitation failure modes", () => {
 		expect(invitee).toBeUndefined()
 	})
 
+	it("rejects an invitation whose role is outside the enum rather than seeding an actor the context cannot resolve", async () => {
+		const owner = await signUpAndActivate()
+		const inviteeEmail = seededEmail()
+		const invitationId = await inviteOperator(owner.cookie, inviteeEmail)
+		await db
+			.updateTable("invitation")
+			.set({ role: "superuser" })
+			.where("id", "=", invitationId)
+			.execute()
+
+		await expectInvitationNotFound(await accept(invitationId, INVITEE_PASSWORD))
+
+		expect(await memberIdsFor(owner.orgId)).toHaveLength(1)
+		const invitee = await db
+			.selectFrom("user")
+			.select("id")
+			.where("email", "=", inviteeEmail)
+			.executeTakeFirst()
+		expect(invitee).toBeUndefined()
+	})
+
 	it("rejects an unknown invitation id without disclosing whether it ever existed", async () => {
 		await expectInvitationNotFound(await accept(randomUUID(), INVITEE_PASSWORD))
 	})

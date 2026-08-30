@@ -4,11 +4,57 @@ import { describe, expect, it } from "vitest"
 
 const css = readFileSync(join(__dirname, "index.css"), "utf8")
 
+const stripComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "")
+
+const declaredNames = (source: string): Set<string> => {
+	const names = new Set<string>()
+	for (const match of stripComments(source).matchAll(/(?:^|[;{}\s])(--[A-Za-z0-9_-]+)\s*:/gm)) {
+		const name = match[1]
+		if (name !== undefined) names.add(name)
+	}
+	return names
+}
+
+const referencedNames = (source: string): Set<string> => {
+	const names = new Set<string>()
+	for (const match of stripComments(source).matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g)) {
+		const name = match[1]
+		if (name !== undefined) names.add(name)
+	}
+	return names
+}
+
+const TAILWIND_PROVIDED: readonly string[] = [
+	"--color-amber-400",
+	"--color-amber-500",
+	"--color-amber-700",
+	"--color-blue-400",
+	"--color-blue-500",
+	"--color-blue-700",
+	"--color-emerald-400",
+	"--color-emerald-500",
+	"--color-emerald-700",
+	"--color-neutral-100",
+	"--color-neutral-500",
+	"--color-neutral-950",
+	"--color-red-400",
+	"--color-red-500",
+	"--color-red-700",
+	"--color-white",
+	"--color-zinc-100",
+	"--color-zinc-200",
+	"--color-zinc-300",
+	"--color-zinc-50",
+	"--color-zinc-500",
+	"--color-zinc-800",
+	"--color-zinc-900",
+]
+
 const parseCustomProperties = (source: string): string[] => {
 	const declarations: string[] = []
 	const scopes: string[] = []
 	let buffer = ""
-	for (const character of source.replace(/\/\*[\s\S]*?\*\//g, "")) {
+	for (const character of stripComments(source)) {
 		if (character === "{") {
 			scopes.push(buffer.trim().replace(/\s+/g, " "))
 			buffer = ""
@@ -191,5 +237,23 @@ describe("design tokens mirrored from the reference", () => {
 		const documented = "/* the tokens the dashboard reads */\n:root {\n\t--alpha: 1px;\n}"
 
 		expect(parseCustomProperties(documented)).toEqual([":root --alpha: 1px"])
+	})
+
+	it("pins one declaration per name and scope, so a token declared in both themes is one name and two declarations", () => {
+		expect(parseCustomProperties(css)).toHaveLength(PINNED_DECLARATIONS.length)
+		expect(declaredNames(css).size).toBeLessThan(PINNED_DECLARATIONS.length)
+	})
+
+	it("resolves every var() to a property this stylesheet declares or Tailwind provides, so a typo cannot render as nothing", () => {
+		const declared = declaredNames(css)
+		const provided = new Set(TAILWIND_PROVIDED)
+		const unresolved = [...referencedNames(css)]
+			.filter((name) => !declared.has(name) && !provided.has(name))
+			.sort()
+
+		expect(
+			unresolved,
+			`${unresolved.join(", ")} is referenced by var() but is neither declared in index.css nor listed in TAILWIND_PROVIDED as a colour Tailwind supplies`,
+		).toEqual([])
 	})
 })

@@ -983,6 +983,73 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		expect(observedFingerprint).toBe(ROTATED_FINGERPRINT)
 	})
 
+	it("connects to the address as of the provisioning lock, not to one cached before it", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-address-fresh-read")
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+
+		const gatedSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		let observedTarget: { hostname: string; port: number; username: string } | undefined
+		const recordingTransport = (): HostTransport => {
+			const inner = createFakeTransport({
+				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+			})
+			return {
+				state: inner.state,
+				connect: async (options) => {
+					observedTarget = {
+						hostname: options.hostname,
+						port: options.port,
+						username: options.username,
+					}
+					await inner.connect(options)
+				},
+				exec: inner.exec,
+				close: inner.close,
+			}
+		}
+
+		const controller = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(recordingTransport),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const relocated = { hostname: "10.0.0.91", port: 2222, username: "relocated" }
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = controller.provision(ctx, hostId)
+		try {
+			await sshKeyLookupStarted
+			await hosts.update({ organizationId }, hostId, relocated)
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
+
+		await provisionPromise
+
+		expect(observedTarget).toEqual(relocated)
+	})
+
 	it("rejects a re-trust attempted after the claim has committed but before the connection begins, then completes provisioning on the original fingerprint", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-retrust-mid-flight")

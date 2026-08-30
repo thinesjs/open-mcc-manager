@@ -167,9 +167,9 @@ export const createHostController = (deps: HostControllerDeps) => ({
 					sshKeyRow.privateKeyKeyId,
 				)
 				await transport.connect({
-					hostname: found.hostname,
-					port: found.port,
-					username: found.username,
+					hostname: claimed.hostname,
+					port: claimed.port,
+					username: claimed.username,
 					privateKey,
 					expectedFingerprint,
 					timeoutMs: CONNECT_TIMEOUT_MS,

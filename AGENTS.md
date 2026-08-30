@@ -62,7 +62,7 @@ here and adding the test that proves it.
 | `never` outside `exhaustive.ts` | `check-type-policy.mjs` |
 | `unknown` outside `boundary/` | `check-type-policy.mjs` |
 | Derived types, never hand-written | nothing — review only |
-| Discriminated unions with `assertExhaustive` | nothing — review only |
+| Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
 Four rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not

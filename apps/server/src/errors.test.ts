@@ -14,6 +14,7 @@ describe("mapKnownError", () => {
 	it("maps ForbiddenError to FORBIDDEN with a generic message", () => {
 		expect(mapKnownError(new ForbiddenError("Forbidden: host.enroll"))).toEqual({
 			code: "FORBIDDEN",
+			errorCode: "FORBIDDEN",
 			httpStatus: 403,
 			message: "You do not have permission to perform this action",
 		})
@@ -49,8 +50,13 @@ describe("mapKnownError", () => {
 		expect(mapKnownError(new HostConcurrentlyModifiedError("Host changed"))?.code).toBe("CONFLICT")
 	})
 
-	it("maps HostProvisioningInProgressError to CONFLICT", () => {
-		expect(mapKnownError(new HostProvisioningInProgressError("In progress"))?.code).toBe("CONFLICT")
+	it("maps HostProvisioningInProgressError to CONFLICT with a distinct errorCode", () => {
+		const mapped = mapKnownError(new HostProvisioningInProgressError("In progress"))
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.errorCode).toBe("HOST_PROVISIONING_IN_PROGRESS")
+		expect(mapped?.errorCode).not.toBe(
+			mapKnownError(new HostConcurrentlyModifiedError("Host changed"))?.errorCode,
+		)
 	})
 
 	it("returns null for an unrecognized error, never leaking its message", () => {

@@ -19,3 +19,13 @@ export type CreateHostInput = z.infer<typeof createHostInput>
 
 export const hostIdInput = z.object({ hostId: z.string().min(1) })
 export type HostIdInput = z.infer<typeof hostIdInput>
+
+export const retrustHostKeyInput = z.object({
+	hostId: z.string().min(1),
+	hostKeyFingerprint: z
+		.string()
+		.regex(/^SHA256:[A-Za-z0-9+/]{43}$/, "Expected an OpenSSH SHA256 fingerprint"),
+	hostKeyAlgorithm: z.string().min(1),
+})
+
+export type RetrustHostKeyInput = z.infer<typeof retrustHostKeyInput>

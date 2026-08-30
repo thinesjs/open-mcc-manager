@@ -1,4 +1,4 @@
-import { createHostInput, hostIdInput } from "@open-mcc/contracts"
+import { createHostInput, hostIdInput, retrustHostKeyInput } from "@open-mcc/contracts"
 import { protectedProcedure, requireCapability, router } from "../trpc"
 
 export const hostRouter = router({
@@ -20,5 +20,13 @@ export const hostRouter = router({
 	remove: protectedProcedure.input(hostIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "host.enroll")
 		return ctx.hostController.remove(ctx.actor, input.hostId)
+	}),
+
+	retrustHostKey: protectedProcedure.input(retrustHostKeyInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "host.enroll")
+		return ctx.hostController.retrustHostKey(ctx.actor, input.hostId, {
+			hostKeyFingerprint: input.hostKeyFingerprint,
+			hostKeyAlgorithm: input.hostKeyAlgorithm,
+		})
 	}),
 })

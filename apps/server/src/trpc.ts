@@ -13,6 +13,7 @@ const t = initTRPC.context<RequestContext>().create({
 		const data = {
 			code: known?.code ?? shape.data.code,
 			httpStatus: known?.httpStatus ?? shape.data.httpStatus,
+			...(known && { errorCode: known.errorCode }),
 			...(shape.data.path !== undefined && { path: shape.data.path }),
 		}
 		if (known) return { ...shape, message: known.message, data }

@@ -44,6 +44,7 @@ export type {
 export {
 	createSshKeyController,
 	createSshKeyControllerTransaction,
+	SshKeyInUseError,
 } from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"

@@ -1,5 +1,5 @@
 import { type CreateSshKeyInput, can, type SshKeyPublic } from "@open-mcc/contracts"
-import type { Db, SshKeyRow } from "@open-mcc/db"
+import { constraintViolationOf, type Db, type SshKeyRow } from "@open-mcc/db"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { type ActorContext, ForbiddenError } from "../host/host.controller"
@@ -30,6 +30,23 @@ export type SshKeyControllerDeps = {
 	secrets: Pick<SecretStore, "seal">
 	generateKeyPair: () => GeneratedSshKeyPair
 	withTransaction: WithSshKeyTransaction
+}
+
+export class SshKeyInUseError extends Error {}
+
+const deleteUnlessInUse = async (
+	repos: SshKeyTransactionRepos,
+	scope: { organizationId: string },
+	sshKeyId: string,
+): Promise<boolean> => {
+	try {
+		return await repos.sshKeys.delete(scope, sshKeyId)
+	} catch (error) {
+		if (error instanceof Error && constraintViolationOf(error)?.kind === "foreignKey") {
+			throw new SshKeyInUseError(`SSH key ${sshKeyId} is still referenced by an enrolled host`)
+		}
+		throw error
+	}
 }
 
 const toPublic = (row: SshKeyRow): SshKeyPublic => ({
@@ -81,7 +98,7 @@ export const createSshKeyController = (deps: SshKeyControllerDeps) => ({
 		const scope = { organizationId: ctx.organizationId }
 
 		return deps.withTransaction(async (repos) => {
-			const removed = await repos.sshKeys.delete(scope, sshKeyId)
+			const removed = await deleteUnlessInUse(repos, scope, sshKeyId)
 			if (removed) {
 				await repos.audit.record(scope, {
 					actorId: ctx.memberId,

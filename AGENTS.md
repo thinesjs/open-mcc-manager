@@ -83,11 +83,11 @@ have:
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard, the mirroring of
-design token *values* from the reference — rests on review and on the tests written
-alongside each change. No hook, no commitlint, no CI step covers them. The
-token mirroring is the one with a tool: `scripts/compare-the reference-tokens.mjs`
-answers it on demand, and review means running it rather than reading the
-stylesheet, but nothing runs it for you.
+design token *values* from the reference checkout — rests on review and on the
+tests written alongside each change. No hook, no commitlint, no CI step covers
+them. The token mirroring is the one with a tool:
+`scripts/compare-design-tokens.mjs` answers it on demand, and review means
+running it rather than reading the stylesheet, but nothing runs it for you.
 
 ### `scripts/check-type-policy.mjs`
 
@@ -407,7 +407,7 @@ a host), following the actual stack above.
   derived from the schema and not from server state, or a fixed constant like
   `Internal server error`. Never widen it. Anything that could carry server
   state must arrive with an `errorCode`, which is what forces copy for it.
-- Design tokens are mirrored from the reference and pinned by
+- Design tokens are mirrored from the reference checkout and pinned by
   `apps/web/src/index.css.test.ts`, which parses `index.css` and compares
   every custom property it declares, as `scope name: value`, against one
   expected list. Deleting a declaration, changing a value, or moving one
@@ -418,32 +418,32 @@ a host), following the actual stack above.
   declarations could be deleted outright with the suite still green. Do not
   go back to substring matching. Reuse existing token families; never invent
   one locally.
-- The reference is `pingdotgg/the reference` at `fdd1572b6` (authored 2026-08-22),
-  and the pin is the commit rather than the repository: a claim of 1:1 against
-  a moving target cannot be falsified, which is the same defect as a test that
-  cannot fail. `scripts/compare-the reference-tokens.mjs` answers what actually
-  matches, and takes the checkout path as a required argument with no default
-  so it can never silently compare against whichever clone happens to be on
-  disk. Its output names the reference commit and date, so a pasted result
-  carries its own provenance. No count is written down here on purpose — run
-  the script. It cannot run in CI, because the reference is not a dependency and CI
-  has no checkout; its fixture tests do run there. That split is deliberate:
-  the tool is a local action, the guard on the tool is not.
+- The reference is the design system checkout this stylesheet mirrors, pinned
+  at `fdd1572b6` (authored 2026-08-22), and the pin is that commit rather than
+  the checkout as a whole: a claim of 1:1 against a moving target cannot be
+  falsified, which is the same defect as a test that cannot fail.
+  `scripts/compare-design-tokens.mjs` answers what actually matches, and takes
+  the checkout path as a required argument with no default so it can never
+  silently compare against whichever clone happens to be on disk. Its output
+  names the reference commit and date, so a pasted result carries its own
+  provenance. No count is written down here on purpose — run the script. It
+  cannot run in CI, because the reference is not a dependency and CI has no
+  checkout; its fixture tests do run there. That split is deliberate: the tool
+  is a local action, the guard on the tool is not.
 - That pin covers custom property declarations and nothing else, and the gap
   is not theoretical. `index.css`'s `@layer base` carries
-  `* { @apply border-border outline-ring/50; }`, mirrored from the reference, and
-  it was missing from this repository until the shadcn components were
-  lifted from the reference rather than approximated. Nothing caught it: the rule
-  declares no custom property, so the pin test cannot see it, and no
-  component had yet
-  written a bare `border`. Tailwind v4's preflight is `border: 0 solid`, so
-  the moment `card.tsx` and `button.tsx` did, every bordered element drew
-  its border in `currentColor` — the text colour. "Design tokens are
-  mirrored and pinned" was true the whole time; "the stylesheet matches
-  the reference" was not, and the difference between those two sentences is exactly
-  where the divergence lived. Both guards over this file are
-  custom-property-only — `index.css.test.ts` and
-  `scripts/compare-the reference-tokens.mjs` each ignore any declaration whose name
+  `* { @apply border-border outline-ring/50; }`, mirrored from the reference,
+  and it was missing from this repository until the shadcn components were
+  lifted from the reference rather than approximated. Nothing caught it: the
+  rule declares no custom property, so the pin test cannot see it, and no
+  component had yet written a bare `border`. Tailwind v4's preflight is
+  `border: 0 solid`, so the moment `card.tsx` and `button.tsx` did, every
+  bordered element drew its border in `currentColor` — the text colour.
+  "Design tokens are mirrored and pinned" was true the whole time; "the
+  stylesheet matches the reference" was not, and the difference between those
+  two sentences is exactly where the divergence lived. Both guards over this
+  file are custom-property-only — `index.css.test.ts` and
+  `scripts/compare-design-tokens.mjs` each ignore any declaration whose name
   does not start with `--` — so no base-layer rule, component class or
   `@utility` block is covered by either. Do not build a third guard for it.
   This is a named limitation to check by eye when lifting, and `@layer base`
@@ -470,8 +470,8 @@ a host), following the actual stack above.
   built CSS under `apps/web/dist/assets/` rather than the source; the bug
   above was found by reading the build output, not by reasoning about the
   stylesheet.
-- When lifting a component from the reference, a property can move between the
-  stylesheet and the component between versions, so re-lifting one without
+- When lifting a component from the reference, a property can move between
+  the stylesheet and the component between versions, so re-lifting one without
   the other silently duplicates or drops it. `dropdown-glass` carried its
   `box-shadow` in `index.css` at `1a003e383`; by `fdd1572b6` the shadow had
   moved onto the popup element in `select.tsx` as `shadow-[...]` classes,
@@ -480,8 +480,8 @@ a host), following the actual stack above.
   watch — it is neither a changed declaration nor a changed class, but the
   same property arriving from a different file. Diff the stylesheet against
   the reference whenever a component moves, and the reverse.
-- the reference resolves several utility colours through indirection layers this
-  repository deliberately does not lift, and flattening them is faithful
+- The reference resolves several utility colours through indirection layers
+  this repository deliberately does not lift, and flattening them is faithful
   rather than divergent — but only because they are identity transforms at
   the settings shipped here. `--placeholder`, `--secondary-label` and
   `--icon-muted` are each `var(--muted-foreground)` in the reference's `:root`
@@ -496,12 +496,15 @@ a host), following the actual stack above.
   `text-muted-foreground` stands in for all of them exactly. A re-mirror
   needs that before deciding whether to lift the family at all: it is a
   large addition that changes nothing until an appearance control exists to
-  move it.
-- `CardTitle` renders a `div` rather than a heading because the reference's does,
-  and that is a considered exception rather than an oversight. It is a real
-  accessibility loss for screen reader users navigating by heading; every
-  dashboard page carries its own `<h1>`, so no page is heading-less, but the
-  card titles under it are not in the outline. Forcing an `h2` needs
+  move it. `@theme inline`'s `--color-*` mappings point at the flattened
+  properties rather than at `--contrast-*`, so the comparison script reports
+  each of them as differing; that report is the expected steady state rather
+  than drift to close.
+- `CardTitle` renders a `div` rather than a heading because the reference's
+  does, and that is a considered exception rather than an oversight. It is a
+  real accessibility loss for screen reader users navigating by heading;
+  every dashboard page carries its own `<h1>`, so no page is heading-less,
+  but the card titles under it are not in the outline. Forcing an `h2` needs
   `render={<h2 />}`, which biome's `a11y/useHeadingContent` rejects because
   that element has no children of its own — they are merged in at runtime —
   so the only route is an exact-path lint exemption that would deviate from

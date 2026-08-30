@@ -67,7 +67,7 @@ export const readReference = (checkoutPath) => {
 
 export const formatReport = (reference, comparison) => {
 	const lines = [
-		`the reference token mirror, ${STYLESHEET} against ${reference.commit} (${reference.date})`,
+		`design token mirror, ${STYLESHEET} against ${reference.commit} (${reference.date})`,
 		`reference checkout: ${reference.checkoutPath}`,
 		`${comparison.compared} declarations compared: ${comparison.identical.length} identical, ${comparison.differing.length} differing, ${comparison.unmatched.length} absent from the reference`,
 	]
@@ -97,7 +97,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	const checkoutPath = process.argv[2]
 	if (!checkoutPath) {
 		console.error(
-			"usage: node scripts/compare-the reference-tokens.mjs <path-to-the reference-checkout>\nThe reference checkout is required; this script never guesses which clone to compare against.",
+			"usage: node scripts/compare-design-tokens.mjs <path-to-reference-checkout>\nThe reference checkout is required; this script never guesses which clone to compare against.",
 		)
 		process.exit(2)
 	}

@@ -197,7 +197,7 @@ const PINNED_DECLARATIONS: readonly string[] = [
 	"@theme inline --radius-xl: calc(var(--radius) + 4px)",
 ]
 
-describe("design tokens mirrored from the reference", () => {
+describe("design tokens mirrored from the reference stylesheet", () => {
 	it("pins the scope, name and value of every custom property the stylesheet declares", () => {
 		expect(parseCustomProperties(css)).toEqual(PINNED_DECLARATIONS)
 	})

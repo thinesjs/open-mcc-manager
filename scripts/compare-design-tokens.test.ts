@@ -4,7 +4,7 @@ import {
 	formatReport,
 	parseDeclarations,
 	stripComments,
-} from "./compare-the reference-tokens.mjs"
+} from "./compare-design-tokens.mjs"
 
 describe("parseDeclarations", () => {
 	it("parses a declaration that has a comment above it, so documenting a token cannot hide it from the comparison", () => {
@@ -103,12 +103,12 @@ describe("compareTokens", () => {
 describe("formatReport", () => {
 	it("names the reference commit and date, so a pasted result carries its own provenance", () => {
 		const report = formatReport(
-			{ checkoutPath: "/checkouts/the reference", commit: "fdd1572b6", date: "2026-08-22" },
+			{ checkoutPath: "/checkouts/reference", commit: "fdd1572b6", date: "2026-08-22" },
 			{ compared: 1, identical: [], differing: [], unmatched: [] },
 		)
 
 		expect(report).toContain("fdd1572b6")
 		expect(report).toContain("2026-08-22")
-		expect(report).toContain("/checkouts/the reference")
+		expect(report).toContain("/checkouts/reference")
 	})
 })

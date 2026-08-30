@@ -56,21 +56,43 @@ not a goal of the current architecture.
 - **Capability-gated privileged operations.** Host enrollment, provisioning,
   and removal all check the caller's role against an explicit capability
   matrix before touching data or contacting a host.
-- **Serialized provisioning with a bounded-lease claim.** `provision` claims a
-  host by recording an attempt id and a claim timestamp, conditional on the
-  host's prior status still matching what was last observed; `remove` and a
-  competing `provision` both take the same per-host advisory lock before
-  reading or mutating the row, so a delete cannot race a provisioning claim
-  and two claims cannot both win. A claim older than the provisioning lease
-  (`PROVISIONING_LEASE_MS`, currently 5 minutes — comfortably longer than the
-  120-second remote-exec timeout) is treated as abandoned and may be reclaimed
-  or the host deleted; reclaiming one is itself audited.
-- **Re-trust serialized against provisioning.** Updating a host's trusted key
-  fingerprint takes the same per-host advisory lock `provision` uses, and
-  commits the new trust tuple together with its audit event in one
-  transaction, so a concurrent provisioning attempt cannot connect using a
-  fingerprint that has just been revoked, nor can a re-trust land while a
-  claim is being taken or finalized.
+- **Serialized provisioning with a bounded-lease claim.** `provision` reads
+  the host once, unlocked, to decide whether an attempt is worth starting at
+  all (already-provisioning, missing ssh key, missing trusted fingerprint);
+  the claim itself then takes the per-host advisory lock and updates the row
+  in a single statement conditioned on the status that unlocked read last
+  observed, so two concurrent claims cannot both win even though the
+  deciding read happened before the lock was taken. `remove` takes the same
+  lock first and only then reads and mutates the row, so a delete cannot race
+  a provisioning claim. A claim older than the provisioning lease
+  (`PROVISIONING_LEASE_MS`, currently 5 minutes) is treated as abandoned and
+  may be reclaimed or the host deleted; reclaiming one is itself audited. The
+  lease comfortably outlasts a single attempt's bounded worst-case runtime —
+  a 10-second connect plus two 120-second remote execs, each now bounded
+  end-to-end including channel acquisition (see
+  `packages/transport/src/ssh/connection.ts`), for about 250 seconds against
+  a 300-second lease. A row can no longer sit in `provisioning` status with
+  no attempt id or claim timestamp: a database check constraint
+  (`host_provisioning_requires_lease`) requires both whenever status is
+  `provisioning`, and the recovery path treats a missing claim timestamp as
+  stale defensively, in case a row somehow reaches that state by any other
+  route.
+- **Re-trust rejected while a provisioning claim is live.** Updating a host's
+  trusted key fingerprint takes the same per-host advisory lock `provision`
+  uses and, once it holds that lock, re-reads the host; if the host is still
+  `provisioning` and that claim has not gone stale, the re-trust is rejected
+  with `HostProvisioningInProgressError` rather than allowed to land. This
+  closes the window between a provisioning claim committing and the
+  connection it authorizes actually starting: an in-flight attempt keeps
+  using the fingerprint it read at claim time, and an operator revoking that
+  fingerprint during the attempt is told the attempt is in progress instead
+  of having the revocation silently overtaken by a connection already in
+  motion. The rejection holds for as long as the claim stays non-stale
+  (`PROVISIONING_LEASE_MS`, 5 minutes) — comfortably longer than an attempt's
+  ~250-second bounded worst case, so a genuinely live attempt cannot outlive
+  this protection under normal operation. A re-trust attempted before the
+  claim is taken, or after the attempt has finalized (success or error) or
+  its claim has gone stale, is allowed to proceed.
 - **Audited enrollment with attribution surviving member deletion.** Enrollment,
   provisioning, and removal are recorded as audit events carrying both the
   actor's id and a non-blank actor label captured at the time of the action.

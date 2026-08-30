@@ -230,13 +230,27 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		role: "owner",
 	})
 
-	it("lets exactly one of two concurrent provision calls on the same host succeed", async () => {
+	it("lets exactly one of two concurrent provision calls that both passed the status read succeed", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-lock-race")
 
+		let readsStarted = 0
+		let releaseReads: () => void = () => {}
+		const bothStatusReadsDone = new Promise<void>((resolve) => {
+			releaseReads = resolve
+		})
+		const barrieredSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				readsStarted += 1
+				if (readsStarted === 2) releaseReads()
+				await bothStatusReadsDone
+				return sshKeys.findById(scope, id)
+			},
+		}
+
 		const controller = createHostController({
 			hosts,
-			sshKeys,
+			sshKeys: barrieredSshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
@@ -290,7 +304,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		})
 
 		const ctx = actorFor(organizationId, memberId)
-		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostConcurrentlyModifiedError)
+		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
 
 		expect(open).not.toHaveBeenCalled()
 		expect(createTransport).not.toHaveBeenCalled()
@@ -758,7 +772,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 		})
 
 		const ctx = actorFor(organizationId, memberId)
-		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostConcurrentlyModifiedError)
+		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
 
 		const auditEvents = await createAuditRepository(db).list({ organizationId })
 		expect(auditEvents.find((event) => event.action === "host.provision.reclaim")).toBeUndefined()

@@ -109,7 +109,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		if (!found) throw new HostNotFoundError(`Host not found: ${hostId}`)
 		const wasAbandonedProvisioning = found.status === "provisioning"
 		if (wasAbandonedProvisioning && !isProvisioningClaimStale(found.provisioningClaimedAt)) {
-			throw new HostConcurrentlyModifiedError(`Host ${hostId} is already provisioning`)
+			throw new HostProvisioningInProgressError(`Host ${hostId} is already provisioning`)
 		}
 		if (!found.sshKeyId) {
 			throw new HostMisconfiguredError(`Host ${hostId} has no ssh key configured`)

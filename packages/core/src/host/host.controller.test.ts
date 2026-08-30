@@ -7,7 +7,9 @@ import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	createHostController,
+	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
 import type {
@@ -341,7 +343,9 @@ describe("host controller provisioning", () => {
 		})
 		const controller = createHostController(d)
 
-		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/already provisioning/i)
+		const attempt = controller.provision(ctx, "host-1")
+		await expect(attempt).rejects.toThrow(HostProvisioningInProgressError)
+		await expect(attempt).rejects.not.toThrow(HostConcurrentlyModifiedError)
 
 		expect(d.hosts.lockHost).not.toHaveBeenCalled()
 		expect(d.hosts.claimForProvisioning).not.toHaveBeenCalled()

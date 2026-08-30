@@ -40,6 +40,25 @@ not a goal of the current architecture.
 
 ## Current controls
 
+- **Closed registration; accounts are provisioned, not self-served.** Public
+  sign-up is disabled (`emailAndPassword.disableSignUp`) — the `/sign-up/email`
+  endpoint refuses every request, regardless of caller, so nobody can create
+  an account by simply reaching the server. The first owner is created by a
+  deployment-time bootstrap (`pnpm --filter @open-mcc/server bootstrap:owner`,
+  reading credentials from environment variables) that refuses to run if any
+  user already exists in the database — a bootstrap that succeeds twice would
+  be a backdoor, so this is enforced as a hard precondition, not a warning.
+  Every subsequent member is added by invitation, issued by an existing
+  member holding `member.manage` (owner only, per the capability matrix
+  below); the invited person's account is created only as part of accepting
+  that specific, pending invitation — never through the public endpoint —
+  and lands in the inviting organization with the role the invitation named,
+  never as owner. This closes what would otherwise be a foundational gap:
+  without it, anyone who could reach the server could sign up, create an
+  organization, and become its owner, gaining `host.enroll` and
+  `sshKey.manage` — root-equivalent access to every host that organization
+  ever enrolls — regardless of how correct the capability matrix and
+  organization-scoping below are, because both assume members are vetted.
 - **Out-of-band host key verification.** Enrollment requires the operator to
   supply the host's expected SSH host key fingerprint in advance; the control
   plane refuses to trust a host whose presented key does not match, closing
@@ -123,14 +142,12 @@ not a goal of the current architecture.
   this layer confirms the label actually corresponds to the authenticated
   `actorId` it is paired with — a caller that constructs `ActorContext`
   directly (as every test in this codebase does) can put any string in that
-  field. Enforcing that the label is genuinely the acting user's own identity
-  is the HTTP API's responsibility; see the gate below.
-- **Until the HTTP API exists, nothing enforces server-side derivation of
-  the actor label.** The requirement that `actorLabel` be derived from the
-  authenticated session rather than accepted from a client currently has no
-  code to enforce it, because there is no HTTP boundary yet for a client to
-  submit it across. This is deliberate deferral, not an oversight, but it must
-  not still be true once the API ships — see the gate below.
+  field. The HTTP API is what enforces this in practice: its request context
+  derives `actorLabel` from the authenticated session's email, never from a
+  client-supplied field, and this is proven by a test that submits a
+  client-supplied `actorLabel` in both the request body and a header and
+  asserts the persisted label is the session's email regardless. The gap
+  above is scoped to the domain layer's own defenses, not the shipped API.
 - **`sshKeyId` is not re-read under the provisioning lock, unlike the host key
   fingerprint.** `provision` re-reads `hostKeyFingerprint` after acquiring the
   per-host advisory lock, so a concurrent re-trust cannot cause a connection
@@ -141,6 +158,12 @@ not a goal of the current architecture.
   SSH key must apply the same lock-then-reread treatment to `sshKeyId`, or a
   concurrent key change could swap the credential used for a connection whose
   fingerprint check has already passed.
+- **Invitations are not emailed.** `member.invite` creates the invitation
+  record and returns it to the inviting owner, but no mailer is configured —
+  the owner must communicate the invitation id to the invitee out of band.
+  Wiring an email delivery step is future work, not a current control gap:
+  the invitation's authorization (who may create one, what it can accept)
+  does not depend on how it is delivered.
 - **Audit records are not tamper-evident.** Audit events live in the same
   Postgres database the application itself can write to. An attacker with
   application-level or database-level control can alter or delete audit

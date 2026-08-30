@@ -5,7 +5,7 @@
 			"**",
 			"!**/dist",
 			"!**/node_modules",
-			"!**/routeTree.gen.ts",
+			"!apps/web/src/routeTree.gen.ts",
 			"!**/.turbo",
 			"!**/coverage",
 			"!**/build"
@@ -32,7 +32,7 @@
 	"javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },
 	"overrides": [
 		{
-			"includes": ["**/*.css"],
+			"includes": ["apps/web/src/index.css"],
 			"linter": {
 				"rules": {
 					"suspicious": {

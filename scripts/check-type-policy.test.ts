@@ -269,4 +269,20 @@ describe("findViolations", () => {
 		})
 		expect(findViolations(root)).toEqual([])
 	})
+
+	it("exempts the generated route tree at its real path", () => {
+		const root = seed({
+			"apps/web/src/routeTree.gen.ts": "const x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("does not exempt a same-named file outside the generated route tree's path", () => {
+		const root = seed({
+			"packages/core/src/routeTree.gen.ts": "const x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/routeTree.gen.ts", line: 1, token: "unknown" },
+		])
+	})
 })

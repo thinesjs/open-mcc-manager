@@ -25,3 +25,15 @@ describe("ssh key deletion copy and error surface", () => {
 		expect(source).not.toContain("error.cause")
 	})
 })
+
+describe("ssh key screen variant restraint", () => {
+	it("keeps the delete control on the outline destructive treatment", () => {
+		expect(source).toContain('variant="destructive-outline"')
+		expect(source).not.toContain('variant="destructive"')
+	})
+
+	it("keeps the private-key notice on the restrained info alert", () => {
+		expect(source).toContain('<Alert variant="info"')
+		expect(source).not.toContain('variant="warning"')
+	})
+})

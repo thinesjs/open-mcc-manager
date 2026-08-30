@@ -8,7 +8,7 @@ const parseCustomProperties = (source: string): string[] => {
 	const declarations: string[] = []
 	const scopes: string[] = []
 	let buffer = ""
-	for (const character of source) {
+	for (const character of source.replace(/\/\*[\s\S]*?\*\//g, "")) {
 		if (character === "{") {
 			scopes.push(buffer.trim().replace(/\s+/g, " "))
 			buffer = ""
@@ -173,5 +173,23 @@ describe("design tokens mirrored from the reference", () => {
 
 	it("uses the tailwind v4 dark variant rather than a media query only", () => {
 		expect(css).toContain("@custom-variant dark")
+	})
+
+	it("parses a declaration that has a comment above it, so documenting a token cannot unpin it", () => {
+		const documented = [
+			":root {",
+			"\t--alpha: 1px;",
+			"\t/* Keep this in the same family as the sidebar. */",
+			"\t--beta: 2px;",
+			"}",
+		].join("\n")
+
+		expect(parseCustomProperties(documented)).toEqual([":root --alpha: 1px", ":root --beta: 2px"])
+	})
+
+	it("keeps a comment that precedes a block out of the scope the block opens", () => {
+		const documented = "/* the tokens the dashboard reads */\n:root {\n\t--alpha: 1px;\n}"
+
+		expect(parseCustomProperties(documented)).toEqual([":root --alpha: 1px"])
 	})
 })

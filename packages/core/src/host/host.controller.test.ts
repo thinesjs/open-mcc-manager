@@ -356,7 +356,7 @@ describe("host controller provisioning", () => {
 		expect(d.createTransport).not.toHaveBeenCalled()
 	})
 
-	it("treats a provisioning host with null lease metadata as reclaimable rather than permanently stuck", async () => {
+	it("treats a provisioning host with null lease metadata as reclaimable, defending a state host_provisioning_requires_lease forbids today", async () => {
 		const hosts: HostRepository = {
 			insert: vi.fn(async () => makeHostRow()),
 			findById: vi.fn(async () =>
@@ -633,7 +633,7 @@ describe("host controller provisioning", () => {
 })
 
 describe("host controller removal", () => {
-	it("removes a provisioning host with null lease metadata instead of treating it as permanently stuck", async () => {
+	it("removes a provisioning host with null lease metadata, defending a state host_provisioning_requires_lease forbids today", async () => {
 		const hosts: HostRepository = {
 			insert: vi.fn(async () => makeHostRow()),
 			findById: vi.fn(async () =>

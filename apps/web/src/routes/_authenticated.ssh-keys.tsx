@@ -41,7 +41,13 @@ function SshKeysPage() {
 	}
 
 	const handleDelete = (sshKeyId: string) => {
-		if (!window.confirm("Delete this SSH key? Hosts enrolled with it will keep working.")) return
+		if (
+			!window.confirm(
+				"Delete this SSH key? A key an enrolled host still uses cannot be deleted — remove those hosts first.",
+			)
+		) {
+			return
+		}
 		deleteMutation.mutate({ sshKeyId }, { onSuccess: invalidateList })
 	}
 
@@ -89,6 +95,10 @@ function SshKeysPage() {
 
 			{sshKeysQuery.isError ? (
 				<Alert variant="error">{getErrorMessage(sshKeysQuery.error)}</Alert>
+			) : null}
+
+			{deleteMutation.isError ? (
+				<Alert variant="error">{getErrorMessage(deleteMutation.error)}</Alert>
 			) : null}
 
 			{sshKeysQuery.data && sshKeysQuery.data.length === 0 ? (

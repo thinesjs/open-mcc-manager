@@ -37,4 +37,31 @@ describe("getErrorMessage", () => {
 		const message = getErrorMessage({ message: "" })
 		expect(message).toBe("Something went wrong. Please try again.")
 	})
+
+	it("explains that an in-use ssh key must have its hosts removed first", () => {
+		const message = getErrorMessage({
+			message: "SSH key is still in use by an enrolled host",
+			data: { errorCode: "SSH_KEY_IN_USE" },
+		})
+		expect(message).toContain("still in use")
+		expect(message).toContain("Remove the hosts using it")
+	})
+
+	it("maps each name conflict to copy naming the field the operator must change", () => {
+		expect(
+			getErrorMessage({ message: "conflict", data: { errorCode: "HOST_NAME_TAKEN" } }),
+		).toContain("host with that name already exists")
+		expect(
+			getErrorMessage({ message: "conflict", data: { errorCode: "SSH_KEY_NAME_TAKEN" } }),
+		).toContain("SSH key with that name already exists")
+	})
+
+	it("maps an unnamed constraint violation to copy that does not read as a server fault", () => {
+		const message = getErrorMessage({
+			message: "conflict",
+			data: { errorCode: "CONSTRAINT_VIOLATION" },
+		})
+		expect(message).toContain("conflicts with data already stored")
+		expect(message).not.toContain("Something went wrong")
+	})
 })

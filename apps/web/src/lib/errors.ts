@@ -15,6 +15,11 @@ const ERROR_MESSAGES: Record<string, string> = {
 	HOST_PROVISIONING_IN_PROGRESS:
 		"A provisioning attempt for this host is already in progress. Retry shortly.",
 	INVITATION_NOT_FOUND: "This invitation is invalid, expired, or has already been used.",
+	SSH_KEY_IN_USE:
+		"This SSH key is still in use by an enrolled host. Remove the hosts using it, then delete the key.",
+	HOST_NAME_TAKEN: "A host with that name already exists. Choose a different name.",
+	SSH_KEY_NAME_TAKEN: "An SSH key with that name already exists. Choose a different name.",
+	CONSTRAINT_VIOLATION: "That change conflicts with data already stored. Refresh and try again.",
 }
 
 const FALLBACK_MESSAGE = "Something went wrong. Please try again."

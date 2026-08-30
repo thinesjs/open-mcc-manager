@@ -459,4 +459,79 @@ describe("findViolations", () => {
 			{ file: "packages/db/src/generated/database.ts", line: 2, token: "unknown" },
 		])
 	})
+
+	it("rejects a default import from next", () => {
+		const root = seed({
+			"apps/web/src/z10.ts": 'import Link from "next/link"\nexport const L = Link\n',
+		})
+		expect(findViolations(root)).toEqual([{ file: "apps/web/src/z10.ts", line: 1, token: "next" }])
+	})
+
+	it("rejects a bare side-effect import of next", () => {
+		const root = seed({ "apps/web/src/z11.ts": 'import "next"\n' })
+		expect(findViolations(root)).toEqual([{ file: "apps/web/src/z11.ts", line: 1, token: "next" }])
+	})
+
+	it("rejects a dynamic import of next", () => {
+		const root = seed({
+			"apps/web/src/z12.ts": 'export const load = () => import("next/router")\n',
+		})
+		expect(findViolations(root)).toEqual([{ file: "apps/web/src/z12.ts", line: 1, token: "next" }])
+	})
+
+	it("rejects a re-export from next", () => {
+		const root = seed({ "apps/web/src/z13.ts": 'export { default } from "next/head"\n' })
+		expect(findViolations(root)).toEqual([{ file: "apps/web/src/z13.ts", line: 1, token: "next" }])
+	})
+
+	it("allows an import from a package whose name merely begins with next", () => {
+		const root = seed({ "apps/web/src/z14.ts": 'import x from "nextra"\nexport const y = x\n' })
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("rejects a next dependency declared in a package manifest", () => {
+		const root = seed({
+			"apps/web/package.json":
+				'{\n\t"name": "@open-mcc/web",\n\t"dependencies": {\n\t\t"next": "^15.0.0"\n\t}\n}\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "apps/web/package.json", line: 4, token: "next" },
+		])
+	})
+
+	it("rejects a scoped next package declared in a manifest's devDependencies", () => {
+		const root = seed({
+			"apps/web/package.json":
+				'{\n\t"name": "@open-mcc/web",\n\t"devDependencies": {\n\t\t"@next/env": "^15.0.0"\n\t}\n}\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "apps/web/package.json", line: 4, token: "next" },
+		])
+	})
+
+	it("allows a manifest whose dependency names merely begin with next", () => {
+		const root = seed({
+			"apps/web/package.json":
+				'{\n\t"name": "@open-mcc/web",\n\t"dependencies": {\n\t\t"next-tick": "^1.1.0",\n\t\t"nextra": "^2.13.4"\n\t}\n}\n',
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("reports a malformed manifest as a parse error", () => {
+		const root = seed({ "apps/web/package.json": '{\n\t"name": "@open-mcc/web",\n' })
+		expect(findViolations(root)).toEqual([
+			{ file: "apps/web/package.json", line: 1, token: "parse-error" },
+		])
+	})
+
+	it("reports source violations before manifest violations", () => {
+		const root = seed({
+			"apps/web/package.json": '{\n\t"dependencies": {\n\t\t"next": "^15.0.0"\n\t}\n}\n',
+			"apps/web/src/z15.ts": 'import Link from "next/link"\nexport const L = Link\n',
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "apps/web/src/z15.ts", line: 1, token: "next" },
+			{ file: "apps/web/package.json", line: 3, token: "next" },
+		])
+	})
 })

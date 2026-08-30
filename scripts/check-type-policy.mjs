@@ -10,14 +10,19 @@ const GENERATED_FILES = new Set([join("apps", "web", "src", "routeTree.gen.ts")]
 const COMMENT_ALLOWED_FILES = new Set([join("packages", "db", "src", "generated", "database.ts")])
 
 const SOURCE_FILE = /\.(?:[cm]?ts|tsx)$/
+const MANIFEST_FILE = "package.json"
 
-const walk = (dir, root, acc = []) => {
+const walk = (dir, root, acc = { sources: [], manifests: [] }) => {
 	for (const entry of readdirSync(dir).sort()) {
 		if (SKIP.has(entry)) continue
 		const full = join(dir, entry)
+		if (statSync(full).isDirectory()) {
+			walk(full, root, acc)
+			continue
+		}
 		if (GENERATED_FILES.has(relative(root, full))) continue
-		if (statSync(full).isDirectory()) walk(full, root, acc)
-		else if (SOURCE_FILE.test(entry)) acc.push(full)
+		if (entry === MANIFEST_FILE) acc.manifests.push(full)
+		else if (SOURCE_FILE.test(entry)) acc.sources.push(full)
 	}
 	return acc
 }
@@ -57,6 +62,50 @@ const collectCommentRanges = (sf, text) => {
 	}
 	visit(sf)
 	return ranges.sort((a, b) => a.pos - b.pos)
+}
+
+const NEXT_SPECIFIER = /^next(?:\/|$)/
+const NEXT_PACKAGE = /^(?:next|@next\/.+)$/
+const DEPENDENCY_FIELDS = [
+	"dependencies",
+	"devDependencies",
+	"peerDependencies",
+	"optionalDependencies",
+]
+
+const moduleSpecifierOf = (node) => {
+	if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return node.moduleSpecifier
+	if (ts.isImportTypeNode(node))
+		return ts.isLiteralTypeNode(node.argument) ? node.argument.literal : undefined
+	if (ts.isExternalModuleReference(node)) return node.expression
+	if (ts.isCallExpression(node)) {
+		const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword
+		const isRequire = ts.isIdentifier(node.expression) && node.expression.text === "require"
+		if (isDynamicImport || isRequire) return node.arguments[0]
+	}
+	return undefined
+}
+
+const lineOfIndex = (text, index) => text.slice(0, index).split("\n").length
+
+const manifestViolations = (rel, text) => {
+	let manifest
+	try {
+		manifest = JSON.parse(text)
+	} catch {
+		return [{ file: rel, line: 1, token: "parse-error" }]
+	}
+	if (manifest === null || typeof manifest !== "object") return []
+	const names = new Set()
+	for (const field of DEPENDENCY_FIELDS) {
+		const block = manifest[field]
+		if (block === null || typeof block !== "object") continue
+		for (const name of Object.keys(block)) if (NEXT_PACKAGE.test(name)) names.add(name)
+	}
+	return [...names].sort().map((name) => {
+		const index = text.indexOf(`"${name}"`)
+		return { file: rel, line: index === -1 ? 1 : lineOfIndex(text, index), token: "next" }
+	})
 }
 
 const sourceViolations = (rel, text) => {
@@ -122,8 +171,17 @@ const sourceViolations = (rel, text) => {
 		ts.forEachChild(node, visitAssertions)
 	}
 
+	const visitSpecifiers = (node) => {
+		const specifier = moduleSpecifierOf(node)
+		if (specifier && ts.isStringLiteral(specifier) && NEXT_SPECIFIER.test(specifier.text)) {
+			report(specifier, "next")
+		}
+		ts.forEachChild(node, visitSpecifiers)
+	}
+
 	visitKeywords(sf)
 	visitAssertions(sf)
+	visitSpecifiers(sf)
 
 	for (const range of collectCommentRanges(sf, text)) {
 		const startLine = ts.getLineAndCharacterOfPosition(sf, range.pos).line + 1
@@ -137,8 +195,12 @@ const sourceViolations = (rel, text) => {
 
 export const findViolations = (root) => {
 	const violations = []
-	for (const file of walk(root, root)) {
+	const { sources, manifests } = walk(root, root)
+	for (const file of sources) {
 		violations.push(...sourceViolations(relative(root, file), readFileSync(file, "utf8")))
+	}
+	for (const file of manifests) {
+		violations.push(...manifestViolations(relative(root, file), readFileSync(file, "utf8")))
 	}
 	return violations
 }
@@ -146,6 +208,7 @@ export const findViolations = (root) => {
 const describe = (violation) => {
 	if (violation.token === "parse-error") return "parse error"
 	if (violation.token === "comment") return "code comment"
+	if (violation.token === "next") return "forbidden dependency on next"
 	return `forbidden token '${violation.token}'`
 }
 

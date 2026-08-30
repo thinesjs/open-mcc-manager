@@ -212,6 +212,14 @@ Note the variable: `db:migrate` reads `DATABASE_URL`, not
 that command alone. Skip this and the suite fails with `relation
 "organization" does not exist`, which names nothing that would lead you here.
 
+Do not try to save that step by mounting `packages/db/migrations` into the
+container's `/docker-entrypoint-initdb.d`. It was tried and measured: the
+schema applies, but Postgres pipes the files straight through psql and no
+`kysely_migration` table is written, so the migrator sees a database with no
+history, replays from `0000`, and fails with duplicate_table (42P07) on the
+first `CREATE TABLE`. The mount and `db:migrate` are mutually exclusive, and
+`db:migrate` is the one the suite depends on.
+
 The suite creates and tears down every row it needs.
 Tests must track the ids they create and delete only
 those — no blanket deletes — so row counts are unchanged across a full run.

@@ -317,14 +317,60 @@ history, replays from `0000`, and fails with duplicate_table (42P07) on the
 first `CREATE TABLE`. The mount and `db:migrate` are mutually exclusive, and
 `db:migrate` is the one the suite depends on.
 
-The suite creates and tears down every row it needs.
-Tests must track the ids they create and delete only
-those — no blanket deletes — so row counts are unchanged across a full run.
-`apps/server` runs its test files sequentially
-(`apps/server/vitest.config.ts`, `fileParallelism: false`) because its
-suite shares one Postgres instance and a few tests assert a table is
-globally empty at the start; those tests would be meaningless under
-parallel file execution. Failure-mode suites (wrong role, expired or
+The suite creates and tears down every row it needs. Tests track the ids they
+create and delete only those — no blanket deletes — so row counts are
+unchanged across a full run.
+
+Cleanup runs on the failure path, never as the last statement of an `it` body.
+A failing `expect` above such a call skips it, and the rows it would have
+deleted stay in the database, so the next run fails on state the change in
+front of you did not create. Four suites were written that way; one
+deliberately broken projection leaked a tenant and cost a diagnosis cycle
+chasing failures in two files that had nothing to do with it.
+
+`apps/server/src/retrust.test.ts` is the shape to copy: the sign-up helper
+pushes each organization id and each email onto a module-level array as it
+creates them, and one `afterEach` deletes what is on those arrays. Prefer that
+to a `try`/`finally` around the test body, because a `finally` covers only
+what its `try` encloses, and the setup that creates the rows usually sits on
+the line above it — `apps/server/src/ssh-key.test.ts` and
+`apps/server/src/organization-creation.test.ts` both call `signUpOwner()`
+outside the `try`, so a helper that creates the user and then fails its own
+`expect` on the next request leaks that user. Those two are the narrower form
+of the same defect and are not converted yet.
+
+No test may require a table in the shared database to be globally empty.
+Nothing orders the workspace test tasks against each other — `turbo run test
+--dry` shows `@open-mcc/core#test`, `@open-mcc/db#test` and
+`@open-mcc/server#test` each depending on `^build` alone, and turbo's default
+concurrency is 10 — so all three run at once against the same
+`TEST_DATABASE_URL`, and both `packages/core/src/test/db.ts` and
+`packages/db/src/schema/tenant-fk.test.ts` insert `user` rows. A
+globally-empty assertion is a coin flip against those, decided by timing and
+blamed on whatever change is in flight when it loses.
+
+`bootstrapOwner` refuses to run when any user exists, so the suite covering it
+genuinely needs an empty `user` table and cannot scope its way out.
+`apps/server/src/bootstrap-owner.test.ts` creates its own database in
+`beforeAll` — `create database`, then `migrateToLatest` from `@open-mcc/db` —
+and drops it in `afterAll`, the pattern `packages/db/src/migrator.test.ts`
+already uses. The advisory lock `bootstrapOwner` takes is scoped to one
+database, so that is isolated with it. Resetting every table between tests is
+allowed inside a database a suite owns outright, and only there: it is the one
+exception to no blanket deletes, and it is safer than tracking ids, because it
+cannot miss what a half-finished test left behind. A killed test process
+leaves such a database behind undropped; it is inert, but drop it by hand
+rather than wondering what it is.
+
+`apps/server` still runs its test files one at a time
+(`apps/server/vitest.config.ts`, `fileParallelism: false`), because every file
+there drives the real auth stack and opens its own connection pool against one
+Postgres instance. It is not what makes any assertion correct, and nothing may
+be written that leans on it: it orders files within `@open-mcc/server` and has
+no effect whatever on the other workspaces hitting the same database at the
+same moment.
+
+Failure-mode suites (wrong role, expired or
 already-used invitation, a terminated connection, a concurrent claim) are
 mandatory, not optional — a control with no test proving its failure path
 is not a verified control.

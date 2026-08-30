@@ -138,16 +138,19 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			}
 			const expectedFingerprint = locked.hostKeyFingerprint
 
+			const reclaimed = locked.status === "provisioning"
+			const previousAttemptId = locked.provisioningAttemptId ?? ""
+
 			const row = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
 			if (!row) return undefined
-			if (wasAbandonedProvisioning) {
+			if (reclaimed) {
 				await repos.audit.record(scope, {
 					actorId: ctx.memberId,
 					actorLabel: ctx.actorLabel,
 					action: "host.provision.reclaim",
 					subjectType: "host",
 					subjectId: hostId,
-					detail: { previousAttemptId: found.provisioningAttemptId ?? "" },
+					detail: { previousAttemptId },
 				})
 			}
 			return { row, expectedFingerprint }

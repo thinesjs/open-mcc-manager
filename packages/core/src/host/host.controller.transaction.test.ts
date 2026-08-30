@@ -1181,6 +1181,65 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		expect(finalHost?.provisioningClaimedAt).toBeNull()
 	})
 
+	it("audits the reclaim it decided under the lock, not the one it read before it", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-reclaim-under-lock")
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+		const gatedSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		const controller = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() =>
+				createFakeTransport({
+					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
+				}),
+			),
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		let abandonedAttemptId: string | undefined
+		const provisionPromise = controller.provision(ctx, hostId)
+		try {
+			await sshKeyLookupStarted
+			const abandoned = await hosts.claimForProvisioning({ organizationId }, hostId, "pending")
+			abandonedAttemptId = abandoned?.provisioningAttemptId ?? undefined
+			await backdateProvisioningClaim(hostId, PROVISIONING_LEASE_MS * 2)
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
+
+		await provisionPromise
+
+		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		const reclaim = auditEvents.find((event) => event.action === "host.provision.reclaim")
+		expect(reclaim?.subjectId).toBe(hostId)
+		expect(abandonedAttemptId).toBeDefined()
+		expect(reclaim?.detail).toMatchObject({ previousAttemptId: abandonedAttemptId })
+
+		const finalHost = await hosts.findById({ organizationId }, hostId)
+		expect(finalHost?.status).toBe("ready")
+	})
+
 	it("uses the status read before the lock to claim, so a status that moved since is still detected", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-status-moved")

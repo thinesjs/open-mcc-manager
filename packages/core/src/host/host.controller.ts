@@ -123,10 +123,24 @@ export const createHostController = (deps: HostControllerDeps) => ({
 		const sshKeyRow = await deps.sshKeys.findById(scope, found.sshKeyId)
 		if (!sshKeyRow) throw new SshKeyNotFoundError(`SSH key not found: ${found.sshKeyId}`)
 
-		const claimed = await deps.withTransaction(async (repos) => {
+		const claim = await deps.withTransaction(async (repos) => {
 			await repos.hosts.lockHost(scope, hostId)
+
+			const locked = await repos.hosts.findById(scope, hostId)
+			if (!locked) throw new HostNotFoundError(`Host not found: ${hostId}`)
+			if (!locked.hostKeyFingerprint) {
+				throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
+			}
+			if (locked.sshKeyId !== found.sshKeyId) {
+				throw new HostConcurrentlyModifiedError(
+					`Host ${hostId} changed its ssh key before provisioning could start`,
+				)
+			}
+			const expectedFingerprint = locked.hostKeyFingerprint
+
 			const row = await repos.hosts.claimForProvisioning(scope, hostId, expectedStatus)
-			if (row && wasAbandonedProvisioning) {
+			if (!row) return undefined
+			if (wasAbandonedProvisioning) {
 				await repos.audit.record(scope, {
 					actorId: ctx.memberId,
 					actorLabel: ctx.actorLabel,
@@ -136,26 +150,19 @@ export const createHostController = (deps: HostControllerDeps) => ({
 					detail: { previousAttemptId: found.provisioningAttemptId ?? "" },
 				})
 			}
-			return row
+			return { row, expectedFingerprint }
 		})
-		if (!claimed) {
+		if (!claim) {
 			throw new HostConcurrentlyModifiedError(
 				`Host ${hostId} changed before provisioning could start`,
 			)
 		}
+		const claimed = claim.row
 		const attemptId = claimed.provisioningAttemptId
 		if (attemptId === null) {
 			throw new Error(`Host ${hostId} was claimed for provisioning without an attempt id`)
 		}
-		if (!claimed.hostKeyFingerprint) {
-			throw new HostMisconfiguredError(`Host ${hostId} has no trusted host key fingerprint`)
-		}
-		if (claimed.sshKeyId !== found.sshKeyId) {
-			throw new HostConcurrentlyModifiedError(
-				`Host ${hostId} changed its ssh key before provisioning could start`,
-			)
-		}
-		const expectedFingerprint = claimed.hostKeyFingerprint
+		const expectedFingerprint = claim.expectedFingerprint
 
 		const closeQuietly = async (transport: HostTransport): Promise<void> => {
 			try {

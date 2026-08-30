@@ -18,6 +18,7 @@ import {
 	createHostControllerTransaction,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	HostMisconfiguredError,
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
@@ -1050,7 +1051,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		expect(observedTarget).toEqual(relocated)
 	})
 
-	it("stops rather than authenticating with an ssh key superseded between the status read and the claim", async () => {
+	it("leaves the status and lease untouched when the ssh key changed before the claim", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-key-superseded")
 
@@ -1114,6 +1115,122 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 
 		const finalHost = await hosts.findById({ organizationId }, hostId)
 		expect(finalHost?.sshKeyId).toBe(rotatedKey.id)
+		expect(finalHost?.status).toBe("pending")
+		expect(finalHost?.provisioningAttemptId).toBeNull()
+		expect(finalHost?.provisioningClaimedAt).toBeNull()
+	})
+
+	it("leaves the status and lease untouched when the host key fingerprint went missing before the claim", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-fingerprint-cleared")
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+		const gatedSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		const open = vi.fn(() => "PRIVATE KEY")
+		const createTransport = vi.fn()
+		const controller = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport,
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = controller.provision(ctx, hostId)
+		try {
+			await sshKeyLookupStarted
+			await testDb()
+				.updateTable("host")
+				.set({
+					hostKeyFingerprint: null,
+					hostKeyAlgorithm: null,
+					hostKeyTrustedAt: null,
+					hostKeyTrustedBy: null,
+				})
+				.where("id", "=", hostId)
+				.execute()
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
+
+		await expect(provisionPromise).rejects.toThrow(HostMisconfiguredError)
+		expect(open).not.toHaveBeenCalled()
+		expect(createTransport).not.toHaveBeenCalled()
+
+		const finalHost = await hosts.findById({ organizationId }, hostId)
+		expect(finalHost?.status).toBe("pending")
+		expect(finalHost?.provisioningAttemptId).toBeNull()
+		expect(finalHost?.provisioningClaimedAt).toBeNull()
+	})
+
+	it("uses the status read before the lock to claim, so a status that moved since is still detected", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-status-moved")
+
+		let releaseSshKeyLookup: () => void = () => {}
+		const sshKeyLookupGate = new Promise<void>((resolve) => {
+			releaseSshKeyLookup = resolve
+		})
+		let signalSshKeyLookupStarted: () => void = () => {}
+		const sshKeyLookupStarted = new Promise<void>((resolve) => {
+			signalSshKeyLookupStarted = resolve
+		})
+		const gatedSshKeys = {
+			findById: async (scope: OrgScope, id: string) => {
+				signalSshKeyLookupStarted()
+				await sshKeyLookupGate
+				return sshKeys.findById(scope, id)
+			},
+		}
+
+		const open = vi.fn(() => "PRIVATE KEY")
+		const createTransport = vi.fn()
+		const controller = createHostController({
+			hosts,
+			sshKeys: gatedSshKeys,
+			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport,
+			instancesRoot: "/var/lib/open-mcc-manager",
+			withTransaction: createHostControllerTransaction(db),
+		})
+
+		const ctx = actorFor(organizationId, memberId)
+		const provisionPromise = controller.provision(ctx, hostId)
+		try {
+			await sshKeyLookupStarted
+			await hosts.update({ organizationId }, hostId, { status: "error" })
+		} finally {
+			releaseSshKeyLookup()
+			await provisionPromise.catch(() => {})
+		}
+
+		await expect(provisionPromise).rejects.toThrow(HostConcurrentlyModifiedError)
+		expect(open).not.toHaveBeenCalled()
+		expect(createTransport).not.toHaveBeenCalled()
+
+		const finalHost = await hosts.findById({ organizationId }, hostId)
+		expect(finalHost?.status).toBe("error")
+		expect(finalHost?.provisioningAttemptId).toBeNull()
+		expect(finalHost?.provisioningClaimedAt).toBeNull()
 	})
 
 	it("rejects a re-trust attempted after the claim has committed but before the connection begins, then completes provisioning on the original fingerprint", async () => {

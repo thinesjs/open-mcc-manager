@@ -456,7 +456,7 @@ describe("host controller provisioning", () => {
 			fn({
 				hosts: {
 					insert: vi.fn(async () => makeHostRow()),
-					findById: vi.fn(async () => undefined),
+					findById: vi.fn(async () => makeHostRow({ hostKeyFingerprint: "SHA256:trusted" })),
 					list: vi.fn(async () => []),
 					update: vi.fn(async () => makeHostRow()),
 					delete: vi.fn(async () => false),

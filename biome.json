@@ -38,7 +38,8 @@
 					"suspicious": {
 						"noDuplicateProperties": "off",
 						"noDuplicateCustomProperties": "off"
-					}
+					},
+					"complexity": { "noImportantStyles": "off" }
 				}
 			}
 		}

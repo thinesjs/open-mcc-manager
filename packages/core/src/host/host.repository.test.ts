@@ -574,3 +574,38 @@ describe("host provisioning lease invariant (real Postgres)", () => {
 		expect(unchanged?.status).toBe("pending")
 	})
 })
+
+describe("host repository legacy provisioning backfill (real Postgres)", () => {
+	it("gives a legacy provisioning row, as migration 0004 backfills it, a full lease before it is reclaimable", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "vps-22", hostname: "10.0.0.26", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await testDb()
+			.update(host)
+			.set({
+				status: "provisioning",
+				provisioningAttemptId: `backfill-${created.id}`,
+				provisioningClaimedAt: new Date(),
+			})
+			.where(eq(host.id, created.id))
+
+		const immediateReclaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"provisioning",
+		)
+		expect(immediateReclaim).toBeUndefined()
+
+		await backdateProvisioningClaim(created.id, PROVISIONING_LEASE_MS + 1_000)
+
+		const reclaim = await repo.claimForProvisioning(
+			{ organizationId: orgA },
+			created.id,
+			"provisioning",
+		)
+		expect(reclaim).toBeDefined()
+	})
+})

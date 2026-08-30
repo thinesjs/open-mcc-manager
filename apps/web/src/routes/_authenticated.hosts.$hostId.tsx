@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { CircleAlert } from "lucide-react"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -57,11 +58,19 @@ function HostDetailPage() {
 	}
 
 	if (hostsQuery.isError) {
-		return <Alert variant="error">{getErrorMessage(hostsQuery.error)}</Alert>
+		return (
+			<Alert variant="error" icon={<CircleAlert />}>
+				{getErrorMessage(hostsQuery.error)}
+			</Alert>
+		)
 	}
 
 	if (!host) {
-		return <Alert variant="error">Host not found.</Alert>
+		return (
+			<Alert variant="error" icon={<CircleAlert />}>
+				Host not found.
+			</Alert>
+		)
 	}
 
 	return (
@@ -77,10 +86,14 @@ function HostDetailPage() {
 			</div>
 
 			{provisionMutation.isError ? (
-				<Alert variant="error">{getErrorMessage(provisionMutation.error)}</Alert>
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(provisionMutation.error)}
+				</Alert>
 			) : null}
 			{removeMutation.isError ? (
-				<Alert variant="error">{getErrorMessage(removeMutation.error)}</Alert>
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(removeMutation.error)}
+				</Alert>
 			) : null}
 
 			<Card>
@@ -127,7 +140,7 @@ function HostDetailPage() {
 					{provisionMutation.isPending ? "Provisioning…" : "Provision"}
 				</Button>
 				<Button
-					variant="destructive"
+					variant="destructive-outline"
 					onClick={handleRemove}
 					disabled={removeMutation.isPending || host.status === "provisioning"}
 				>

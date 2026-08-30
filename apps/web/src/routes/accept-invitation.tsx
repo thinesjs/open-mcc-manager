@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
+import { CircleAlert, CircleCheck } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { z } from "zod"
 import { Alert } from "~/components/ui/alert"
@@ -55,7 +56,7 @@ function AcceptInvitationPage() {
 		return (
 			<div className="flex min-h-dvh items-center justify-center bg-background p-6">
 				<div className="w-full max-w-sm space-y-4 text-center">
-					<Alert variant="success">
+					<Alert variant="success" icon={<CircleCheck />}>
 						Your account has been created. Sign in with your email and the password you just set.
 					</Alert>
 					<Link to="/sign-in" className="text-sm text-primary underline-offset-4 hover:underline">
@@ -76,7 +77,11 @@ function AcceptInvitationPage() {
 					</p>
 				</div>
 				<form onSubmit={handleSubmit} className="space-y-4">
-					{error ? <Alert variant="error">{error}</Alert> : null}
+					{error ? (
+						<Alert variant="error" icon={<CircleAlert />}>
+							{error}
+						</Alert>
+					) : null}
 					<div className="space-y-2">
 						<Label htmlFor="invitationId">Invitation ID</Label>
 						<Input

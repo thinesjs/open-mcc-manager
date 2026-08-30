@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -50,7 +51,11 @@ function SignInPage() {
 					<p className="text-sm text-muted-foreground">open-mcc-manager control plane</p>
 				</div>
 				<form onSubmit={handleSubmit} className="space-y-4">
-					{error ? <Alert variant="error">{error}</Alert> : null}
+					{error ? (
+						<Alert variant="error" icon={<CircleAlert />}>
+							{error}
+						</Alert>
+					) : null}
 					<div className="space-y-2">
 						<Label htmlFor="email">Email</Label>
 						<Input

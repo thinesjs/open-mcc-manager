@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { Copy, Trash2 } from "lucide-react"
+import { CircleAlert, Copy, Info, Trash2 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -55,7 +55,7 @@ function SshKeysPage() {
 		<div className="max-w-2xl space-y-6">
 			<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
 
-			<Alert variant="info">
+			<Alert variant="info" controlAlignment="first-line" icon={<Info />}>
 				open-mcc-manager generates the key pair on the server. The private key is encrypted at rest
 				and never leaves the server — copy the public key below and add it to the target VPS's
 				authorized_keys before enrolling a host with this key.
@@ -66,25 +66,27 @@ function SshKeysPage() {
 					<CardTitle>New key</CardTitle>
 				</CardHeader>
 				<CardContent>
-					<form onSubmit={handleCreate} className="flex items-end gap-3">
+					<form onSubmit={handleCreate} className="space-y-4">
 						{createMutation.isError ? (
-							<Alert variant="error" className="w-full">
+							<Alert variant="error" icon={<CircleAlert />}>
 								{getErrorMessage(createMutation.error)}
 							</Alert>
 						) : null}
-						<div className="flex-1 space-y-2">
-							<Label htmlFor="sshKeyName">Name</Label>
-							<Input
-								id="sshKeyName"
-								required
-								maxLength={64}
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-							/>
+						<div className="flex items-end gap-3">
+							<div className="flex-1 space-y-2">
+								<Label htmlFor="sshKeyName">Name</Label>
+								<Input
+									id="sshKeyName"
+									required
+									maxLength={64}
+									value={name}
+									onChange={(event) => setName(event.target.value)}
+								/>
+							</div>
+							<Button type="submit" disabled={createMutation.isPending}>
+								{createMutation.isPending ? "Generating…" : "Generate key"}
+							</Button>
 						</div>
-						<Button type="submit" disabled={createMutation.isPending}>
-							{createMutation.isPending ? "Generating…" : "Generate key"}
-						</Button>
 					</form>
 				</CardContent>
 			</Card>
@@ -94,11 +96,15 @@ function SshKeysPage() {
 			) : null}
 
 			{sshKeysQuery.isError ? (
-				<Alert variant="error">{getErrorMessage(sshKeysQuery.error)}</Alert>
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(sshKeysQuery.error)}
+				</Alert>
 			) : null}
 
 			{deleteMutation.isError ? (
-				<Alert variant="error">{getErrorMessage(deleteMutation.error)}</Alert>
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(deleteMutation.error)}
+				</Alert>
 			) : null}
 
 			{sshKeysQuery.data && sshKeysQuery.data.length === 0 ? (
@@ -107,7 +113,7 @@ function SshKeysPage() {
 
 			{sshKeysQuery.data?.map((sshKey) => (
 				<Card key={sshKey.id}>
-					<CardContent className="flex items-start justify-between gap-4 pt-6">
+					<CardContent className="flex items-start justify-between gap-4">
 						<div className="min-w-0 space-y-1">
 							<p className="font-medium text-foreground">{sshKey.name}</p>
 							<p className="truncate break-all font-mono text-xs text-muted-foreground">
@@ -122,17 +128,17 @@ function SshKeysPage() {
 								aria-label="Copy public key"
 								onClick={() => navigator.clipboard.writeText(sshKey.publicKey)}
 							>
-								<Copy className="size-4" />
+								<Copy />
 							</Button>
 							<Button
 								type="button"
-								variant="destructive"
+								variant="destructive-outline"
 								size="icon"
 								aria-label="Delete key"
 								disabled={deleteMutation.isPending}
 								onClick={() => handleDelete(sshKey.id)}
 							>
-								<Trash2 className="size-4" />
+								<Trash2 />
 							</Button>
 						</div>
 					</CardContent>

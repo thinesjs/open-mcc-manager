@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { CircleAlert, Info } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -58,7 +59,7 @@ function EnrollHostPage() {
 			<h1 className="text-lg font-semibold text-foreground">Enroll a host</h1>
 
 			{sshKeysQuery.data && !hasSshKeys ? (
-				<Alert variant="info">
+				<Alert variant="info" icon={<Info />}>
 					You need an SSH key before you can enroll a host.{" "}
 					<Link to="/ssh-keys" className="underline-offset-4 hover:underline">
 						Create one
@@ -69,7 +70,9 @@ function EnrollHostPage() {
 
 			<form onSubmit={handleSubmit} className="space-y-4">
 				{enrollMutation.isError ? (
-					<Alert variant="error">{getErrorMessage(enrollMutation.error)}</Alert>
+					<Alert variant="error" icon={<CircleAlert />}>
+						{getErrorMessage(enrollMutation.error)}
+					</Alert>
 				) : null}
 
 				<div className="space-y-2">

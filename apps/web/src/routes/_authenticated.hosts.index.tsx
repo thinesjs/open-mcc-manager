@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { ChevronRight, Plus } from "lucide-react"
+import { ChevronRight, CircleAlert, Plus } from "lucide-react"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { buttonVariants } from "~/components/ui/button"
@@ -30,7 +30,9 @@ function HostListPage() {
 			) : null}
 
 			{hostsQuery.isError ? (
-				<Alert variant="error">{getErrorMessage(hostsQuery.error)}</Alert>
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(hostsQuery.error)}
+				</Alert>
 			) : null}
 
 			{hostsQuery.data && hostsQuery.data.length === 0 ? (

@@ -42,6 +42,7 @@ let app: Hono
 beforeAll(async () => {
 	db = createDb(process.env.TEST_DATABASE_URL ?? "")
 	const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
+		trustedOrigins: [ORIGIN],
 		disableSignUp: false,
 		disableRateLimit: true,
 		allowOrganizationCreation: true,

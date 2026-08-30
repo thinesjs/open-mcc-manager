@@ -11,6 +11,7 @@ export type CreateAuthOptions = {
 	disableSignUp?: boolean
 	disableRateLimit?: boolean
 	allowOrganizationCreation?: boolean
+	trustedOrigins?: readonly string[]
 }
 
 export const createAuth = (
@@ -31,7 +32,9 @@ export const createAuth = (
 				verify: ({ hash, password }) => verifyPassword(hash, password),
 			},
 		},
+		trustedOrigins: [...(options.trustedOrigins ?? [])],
 		advanced: {
+			disableOriginCheck: false,
 			useSecureCookies: true,
 			cookiePrefix: "__Host-",
 			defaultCookieAttributes: {

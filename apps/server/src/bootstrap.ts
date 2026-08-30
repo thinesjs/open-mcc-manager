@@ -34,9 +34,15 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 
 	const db = createDb(env.DATABASE_URL)
-	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL)
+	const allowed = env.ALLOWED_ORIGINS.split(",")
+		.map((origin) => origin.trim())
+		.filter((origin) => origin.length > 0)
+	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
+		trustedOrigins: allowed,
+	})
 	const signupAuth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
 		disableSignUp: false,
+		trustedOrigins: allowed,
 	})
 
 	const lock = await acquireSingletonLock(env.DATABASE_URL)
@@ -62,10 +68,6 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		generateKeyPair: generateSshKeyPair,
 		withTransaction: createSshKeyControllerTransaction(db),
 	})
-
-	const allowed = env.ALLOWED_ORIGINS.split(",")
-		.map((origin) => origin.trim())
-		.filter((origin) => origin.length > 0)
 
 	const app = new Hono()
 	app.use("*", securityHeaders())

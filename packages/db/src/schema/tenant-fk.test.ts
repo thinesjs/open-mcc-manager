@@ -167,6 +167,61 @@ describe("tenant foreign key integrity", () => {
 		expect(found.actorLabel).toBe(memberId)
 	})
 
+	it("rejects a second member row for the same user in the same organization", async () => {
+		const organizationId = await seedOrganization()
+		const memberId = await seedMember(organizationId)
+		const existing = await db
+			.selectFrom("member")
+			.select("userId")
+			.where("id", "=", memberId)
+			.executeTakeFirstOrThrow()
+
+		await expect(
+			db
+				.insertInto("member")
+				.values({ id: randomUUID(), organizationId, userId: existing.userId })
+				.execute(),
+		).rejects.toThrow(/member_org_user_unique/)
+
+		const rows = await db
+			.selectFrom("member")
+			.select("id")
+			.where("organizationId", "=", organizationId)
+			.execute()
+		expect(rows).toHaveLength(1)
+	})
+
+	it("still lets one user hold a membership in a second organization", async () => {
+		const firstOrganizationId = await seedOrganization()
+		const memberId = await seedMember(firstOrganizationId)
+		const existing = await db
+			.selectFrom("member")
+			.select("userId")
+			.where("id", "=", memberId)
+			.executeTakeFirstOrThrow()
+
+		const secondOrganizationId = await seedOrganization()
+		const secondMemberId = randomUUID()
+		await db
+			.insertInto("member")
+			.values({
+				id: secondMemberId,
+				organizationId: secondOrganizationId,
+				userId: existing.userId,
+			})
+			.execute()
+		seeded.memberIds.push(secondMemberId)
+
+		const rows = await db
+			.selectFrom("member")
+			.select("organizationId")
+			.where("userId", "=", existing.userId)
+			.execute()
+		expect(rows.map((row) => row.organizationId).sort()).toEqual(
+			[firstOrganizationId, secondOrganizationId].sort(),
+		)
+	})
+
 	it("rejects a host in one organization referencing an sshKey from another", async () => {
 		const organizationA = await seedOrganization()
 		const organizationB = await seedOrganization()

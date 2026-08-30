@@ -89,6 +89,8 @@ const PINNED_DECLARATIONS: readonly string[] = [
 	":root > @variant dark --error-surface: color-mix(in srgb, var(--error) 16%, transparent)",
 	":root > @variant dark --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white))",
 	":root > @variant dark --foreground: var(--color-neutral-100)",
+	":root > @variant dark --glass-blur: 16px",
+	":root > @variant dark --glass-saturation: 1.08",
 	":root > @variant dark --info-foreground: var(--color-blue-400)",
 	":root > @variant dark --info: var(--color-blue-500)",
 	":root > @variant dark --input: --alpha(var(--color-white) / 8%)",

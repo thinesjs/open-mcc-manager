@@ -58,6 +58,11 @@
 	--glass-blur: 12px;
 	--glass-opacity: 80%;
 	--glass-saturation: 1.14;
+
+	@variant dark {
+		--glass-blur: 16px;
+		--glass-saturation: 1.08;
+	}
 }
 
 :root {

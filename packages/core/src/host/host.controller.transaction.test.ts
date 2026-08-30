@@ -1,7 +1,6 @@
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
-import { host } from "@open-mcc/db"
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
-import { eq, sql } from "drizzle-orm"
+import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuditRepository } from "../audit/audit.repository"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -41,9 +40,10 @@ const ROTATED_FINGERPRINT = fingerprintFromKey(ROTATED_HOST_KEY_BLOB)
 
 const backdateProvisioningClaim = async (hostId: string, ageMs: number): Promise<void> => {
 	await testDb()
-		.update(host)
+		.updateTable("host")
 		.set({ provisioningClaimedAt: new Date(Date.now() - ageMs) })
-		.where(eq(host.id, hostId))
+		.where("id", "=", hostId)
+		.execute()
 }
 
 const throwingAudit = {
@@ -83,7 +83,9 @@ describe("host controller transactional mutations", () => {
 			...baseDeps(),
 			hosts,
 			withTransaction: (fn) =>
-				db.transaction((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
+				db
+					.transaction()
+					.execute((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
 		})
 
 		await expect(
@@ -118,7 +120,9 @@ describe("host controller transactional mutations", () => {
 			...baseDeps(),
 			hosts,
 			withTransaction: (fn) =>
-				db.transaction((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
+				db
+					.transaction()
+					.execute((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
 		})
 
 		await expect(
@@ -611,8 +615,8 @@ describe("host controller keeps no transaction open across remote provisioning w
 			await seedProvisionableHost("org-no-idle-txn")
 
 		const withShortIdleTimeout: WithTransaction = (fn) =>
-			db.transaction(async (tx) => {
-				await tx.execute(sql`set local idle_in_transaction_session_timeout = '200ms'`)
+			db.transaction().execute(async (tx) => {
+				await sql`set local idle_in_transaction_session_timeout = '200ms'`.execute(tx)
 				return fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) })
 			})
 
@@ -816,7 +820,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		})
 
 		const gatedWithTransaction: WithTransaction = (fn) =>
-			db.transaction(async (tx) => {
+			db.transaction().execute(async (tx) => {
 				const realHosts = createHostRepository(tx)
 				const gatedHosts: HostRepository = {
 					...realHosts,

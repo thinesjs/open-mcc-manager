@@ -1,5 +1,3 @@
-import { host } from "@open-mcc/db"
-import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
 import {
@@ -16,9 +14,10 @@ let orgB = ""
 
 const backdateProvisioningClaim = async (hostId: string, ageMs: number): Promise<void> => {
 	await testDb()
-		.update(host)
+		.updateTable("host")
 		.set({ provisioningClaimedAt: new Date(Date.now() - ageMs) })
-		.where(eq(host.id, hostId))
+		.where("id", "=", hostId)
+		.execute()
 }
 
 beforeAll(async () => {
@@ -549,7 +548,11 @@ describe("host provisioning lease invariant (real Postgres)", () => {
 		trackHostId(created.id)
 
 		await expect(
-			testDb().update(host).set({ status: "provisioning" }).where(eq(host.id, created.id)),
+			testDb()
+				.updateTable("host")
+				.set({ status: "provisioning" })
+				.where("id", "=", created.id)
+				.execute(),
 		).rejects.toThrow(/host_provisioning_requires_lease/)
 
 		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
@@ -565,9 +568,10 @@ describe("host provisioning lease invariant (real Postgres)", () => {
 
 		await expect(
 			testDb()
-				.update(host)
+				.updateTable("host")
 				.set({ status: "provisioning", provisioningAttemptId: "attempt-only" })
-				.where(eq(host.id, created.id)),
+				.where("id", "=", created.id)
+				.execute(),
 		).rejects.toThrow(/host_provisioning_requires_lease/)
 
 		const unchanged = await repo.findById({ organizationId: orgA }, created.id)
@@ -584,13 +588,14 @@ describe("host repository legacy provisioning backfill (real Postgres)", () => {
 		trackHostId(created.id)
 
 		await testDb()
-			.update(host)
+			.updateTable("host")
 			.set({
 				status: "provisioning",
 				provisioningAttemptId: `backfill-${created.id}`,
 				provisioningClaimedAt: new Date(),
 			})
-			.where(eq(host.id, created.id))
+			.where("id", "=", created.id)
+			.execute()
 
 		const immediateReclaim = await repo.claimForProvisioning(
 			{ organizationId: orgA },

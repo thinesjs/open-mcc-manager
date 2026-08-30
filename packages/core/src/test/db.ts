@@ -1,15 +1,5 @@
 import { randomUUID } from "node:crypto"
-import {
-	auditEvent,
-	createDb,
-	type Db,
-	host,
-	member,
-	organization,
-	sshKey,
-	user,
-} from "@open-mcc/db"
-import { inArray } from "drizzle-orm"
+import { createDb, type Db } from "@open-mcc/db"
 
 let db: Db | undefined
 
@@ -41,8 +31,9 @@ const seeded: SeededIds = {
 export const seedOrganization = async (slugPrefix: string): Promise<string> => {
 	const id = randomUUID()
 	await testDb()
-		.insert(organization)
+		.insertInto("organization")
 		.values({ id, name: slugPrefix, slug: `${slugPrefix}-${id.slice(0, 8)}` })
+		.execute()
 	seeded.organizationIds.push(id)
 	return id
 }
@@ -50,11 +41,12 @@ export const seedOrganization = async (slugPrefix: string): Promise<string> => {
 export const seedMember = async (organizationId: string): Promise<string> => {
 	const userId = randomUUID()
 	await testDb()
-		.insert(user)
+		.insertInto("user")
 		.values({ id: userId, name: "actor", email: `${userId}@example.com` })
+		.execute()
 	seeded.userIds.push(userId)
 	const memberId = randomUUID()
-	await testDb().insert(member).values({ id: memberId, organizationId, userId })
+	await testDb().insertInto("member").values({ id: memberId, organizationId, userId }).execute()
 	seeded.memberIds.push(memberId)
 	return memberId
 }
@@ -75,32 +67,35 @@ const deleteTrackedRows = async (): Promise<void> => {
 	const steps: Array<() => Promise<void>> = [
 		async () => {
 			if (seeded.auditEventIds.length > 0) {
-				await testDb().delete(auditEvent).where(inArray(auditEvent.id, seeded.auditEventIds))
+				await testDb().deleteFrom("auditEvent").where("id", "in", seeded.auditEventIds).execute()
 			}
 		},
 		async () => {
 			if (seeded.hostIds.length > 0) {
-				await testDb().delete(host).where(inArray(host.id, seeded.hostIds))
+				await testDb().deleteFrom("host").where("id", "in", seeded.hostIds).execute()
 			}
 		},
 		async () => {
 			if (seeded.sshKeyIds.length > 0) {
-				await testDb().delete(sshKey).where(inArray(sshKey.id, seeded.sshKeyIds))
+				await testDb().deleteFrom("sshKey").where("id", "in", seeded.sshKeyIds).execute()
 			}
 		},
 		async () => {
 			if (seeded.memberIds.length > 0) {
-				await testDb().delete(member).where(inArray(member.id, seeded.memberIds))
+				await testDb().deleteFrom("member").where("id", "in", seeded.memberIds).execute()
 			}
 		},
 		async () => {
 			if (seeded.userIds.length > 0) {
-				await testDb().delete(user).where(inArray(user.id, seeded.userIds))
+				await testDb().deleteFrom("user").where("id", "in", seeded.userIds).execute()
 			}
 		},
 		async () => {
 			if (seeded.organizationIds.length > 0) {
-				await testDb().delete(organization).where(inArray(organization.id, seeded.organizationIds))
+				await testDb()
+					.deleteFrom("organization")
+					.where("id", "in", seeded.organizationIds)
+					.execute()
 			}
 		},
 	]
@@ -121,15 +116,13 @@ const deleteTrackedRows = async (): Promise<void> => {
 	seeded.auditEventIds = []
 }
 
-const CONNECTION_CLOSE_TIMEOUT_SECONDS = 5
-
 export const teardownTestDb = async (): Promise<void> => {
 	await deleteTrackedRows()
 	const client = db
 	db = undefined
 	if (client) {
 		try {
-			await client.$client.end({ timeout: CONNECTION_CLOSE_TIMEOUT_SECONDS })
+			await client.destroy()
 		} catch (error) {
 			console.error("teardownTestDb: failed to close connection", error)
 		}

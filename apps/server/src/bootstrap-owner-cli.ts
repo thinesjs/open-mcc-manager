@@ -17,7 +17,7 @@ const run = async (): Promise<void> => {
 	})
 
 	try {
-		const result = await bootstrapOwner(db, auth, {
+		const result = await bootstrapOwner(env.DATABASE_URL, db, auth, {
 			email: readRequiredEnv("BOOTSTRAP_OWNER_EMAIL"),
 			password: readRequiredEnv("BOOTSTRAP_OWNER_PASSWORD"),
 			name: readRequiredEnv("BOOTSTRAP_OWNER_NAME"),

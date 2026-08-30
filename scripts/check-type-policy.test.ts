@@ -350,4 +350,48 @@ describe("findViolations", () => {
 			{ file: "packages/core/src/y6.ts", line: 2, token: "@ts-expect-error" },
 		])
 	})
+
+	it("scans mts files", () => {
+		const root = seed({
+			"packages/core/src/z1.mts": "type Foo = { a: number }\nexport const x = {} as Foo\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/z1.mts", line: 2, token: "assertion" },
+		])
+	})
+
+	it("scans cts files", () => {
+		const root = seed({ "packages/core/src/z2.cts": "export const x: unknown = 1\n" })
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/z2.cts", line: 1, token: "unknown" },
+		])
+	})
+
+	it("scans declaration files", () => {
+		const root = seed({ "packages/core/src/z3.d.ts": "declare const x: unknown\n" })
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/src/z3.d.ts", line: 1, token: "unknown" },
+		])
+	})
+
+	it("skips a coverage directory, matching the biome exclusion list", () => {
+		const root = seed({ "packages/core/coverage/z4.ts": "const x: unknown = 1\n" })
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("skips a build directory, matching the biome exclusion list", () => {
+		const root = seed({ "packages/core/build/z5.ts": "const x: unknown = 1\n" })
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("scans a directory whose name merely begins with an excluded name", () => {
+		const root = seed({
+			"packages/core/build-scripts/z6.ts": "const x: unknown = 1\n",
+			"packages/core/coverage-report/z7.ts": "const y: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([
+			{ file: "packages/core/build-scripts/z6.ts", line: 1, token: "unknown" },
+			{ file: "packages/core/coverage-report/z7.ts", line: 1, token: "unknown" },
+		])
+	})
 })

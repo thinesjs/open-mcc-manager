@@ -4,17 +4,19 @@ import ts from "typescript"
 
 const UNKNOWN_ALLOWED = join("packages", "contracts", "src", "boundary")
 const NEVER_ALLOWED = join("packages", "core", "src", "lib", "exhaustive.ts")
-const SKIP = new Set(["node_modules", "dist", ".git", ".turbo"])
+const SKIP = new Set(["node_modules", "dist", "build", "coverage", ".git", ".turbo"])
 
 const GENERATED_FILES = new Set([join("apps", "web", "src", "routeTree.gen.ts")])
 
+const SOURCE_FILE = /\.(?:[cm]?ts|tsx)$/
+
 const walk = (dir, root, acc = []) => {
-	for (const entry of readdirSync(dir)) {
+	for (const entry of readdirSync(dir).sort()) {
 		if (SKIP.has(entry)) continue
 		const full = join(dir, entry)
 		if (GENERATED_FILES.has(relative(root, full))) continue
 		if (statSync(full).isDirectory()) walk(full, root, acc)
-		else if (/\.tsx?$/.test(entry)) acc.push(full)
+		else if (SOURCE_FILE.test(entry)) acc.push(full)
 	}
 	return acc
 }

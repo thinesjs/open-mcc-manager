@@ -199,7 +199,20 @@ docker/compose.yml up -d postgres-test` starts one on `localhost:55432`
 with the default `postgres` database (see `.env.example`), which is what
 `TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres`
 in that file resolves to. That database has no volume and is not expected
-to survive a restart — the suite creates and tears down every row it needs.
+to survive a restart, so it comes up empty and needs the schema applied
+before the suite will run:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
+  pnpm --filter @open-mcc/db db:migrate
+```
+
+Note the variable: `db:migrate` reads `DATABASE_URL`, not
+`TEST_DATABASE_URL`, so migrating the test database means overriding it for
+that command alone. Skip this and the suite fails with `relation
+"organization" does not exist`, which names nothing that would lead you here.
+
+The suite creates and tears down every row it needs.
 Tests must track the ids they create and delete only
 those — no blanket deletes — so row counts are unchanged across a full run.
 `apps/server` runs its test files sequentially

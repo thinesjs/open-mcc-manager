@@ -19,13 +19,23 @@ persistent development database on port 5432, `postgres-test` is an
 ephemeral database on port 55432 that the test suite connects to and that
 is not expected to survive a restart.
 
+Because `postgres-test` has no volume, it starts empty every time it is
+recreated, so apply the schema to it before running the suite. The migration
+entry point reads `DATABASE_URL` rather than `TEST_DATABASE_URL`, so point it
+at the test database explicitly for that one command:
+
 ```bash
 pnpm install
+DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
+  pnpm --filter @open-mcc/db db:migrate
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+Skipping the migrate step fails the suite with `relation "organization" does
+not exist`.
 
 ## Security
 

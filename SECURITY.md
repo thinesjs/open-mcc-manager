@@ -59,6 +59,33 @@ not a goal of the current architecture.
   `sshKey.manage` — root-equivalent access to every host that organization
   ever enrolls — regardless of how correct the capability matrix and
   organization-scoping below are, because both assume members are vetted.
+  Closing sign-up is necessary but not sufficient: the organization-creation
+  half of that same chain is a separate control, closed separately in the next
+  bullet, and it was reachable by any authenticated session — an invited
+  viewer included — until it was.
+- **Organization creation is closed on every mounted instance.** better-auth's
+  organization plugin exposes `POST /organization/create`, which gates on a
+  valid session alone and then writes the caller a member row carrying
+  `creatorRole` — `owner` here — and makes that organization active on their
+  existing session. No organization permission can gate it, because the caller
+  is not yet in an organization when it runs: the empty `operatorRole` and
+  `viewerRole` definitions that correctly refuse `update-member-role`,
+  `remove-member`, `update`, and `delete` have nothing to bind to on this one.
+  Left at better-auth's default it is a one-request path from any authenticated
+  session to the owner role and the full capability set, which would make the
+  role model advisory rather than a ceiling and hand the escalated user
+  `member.manage` in an organization of their own — an unbounded account
+  factory defeating closed registration from the other side.
+  `allowUserToCreateOrganization` is therefore set from
+  `CreateAuthOptions.allowOrganizationCreation`, which defaults to denied, so
+  both the mounted `auth` and the `signupAuth` used for invitation acceptance
+  refuse it. Only the non-mounted instance built by the bootstrap CLI opts in,
+  exactly as only that instance lifts `disableSignUp` — the first organization
+  is created by a process the operator runs, never over HTTP.
+  `apps/server/src/organization-creation.test.ts` proves it against the
+  production shape: it signs a user in, asserts the create is refused, and
+  asserts the user still cannot reach a capability-gated procedure afterwards,
+  because the refusal only matters if the escalation it prevents is gone too.
 - **Out-of-band host key verification.** Enrollment requires the operator to
   supply the host's expected SSH host key fingerprint in advance; the control
   plane refuses to trust a host whose presented key does not match, closing
@@ -158,6 +185,22 @@ not a goal of the current architecture.
   SSH key must apply the same lock-then-reread treatment to `sshKeyId`, or a
   concurrent key change could swap the credential used for a connection whose
   fingerprint check has already passed.
+- **Mounting a third-party auth handler makes that library's entire route
+  table part of this system's authorization surface.** `bootstrap.ts` mounts
+  better-auth at `/api/auth/*` — a wildcard, so every route better-auth and its
+  enabled plugins define is reachable, including routes no code in this
+  repository names, calls, or reviews. Those routes carry better-auth's
+  authorization decisions, not this system's: the capability matrix in
+  `authz.ts` and the `requireCapability` checks in the tRPC routers govern
+  `/trpc/*` alone and never see this traffic. The organization plugin's
+  `/organization/create` is the worked example — reachable and owner-granting
+  until it was explicitly denied, and no control at the tRPC layer could have
+  caught it. Upgrading better-auth, or enabling another of its plugins,
+  therefore changes this system's authorization surface. Re-read the route
+  tables an upgrade adds or changes, decide for each route whether it should be
+  reachable at all, and close the ones that should not at the plugin's own
+  options; a route introduced by a minor version is live the moment the
+  dependency lands.
 - **Invitations are not emailed.** `member.invite` creates the invitation
   record and returns it to the inviting owner, but no mailer is configured —
   the owner must communicate the invitation id to the invitee out of band.

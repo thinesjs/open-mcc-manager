@@ -174,6 +174,15 @@ not a goal of the current architecture.
   secrets at rest in the database and in backups, but offers no additional
   barrier once the application process itself is compromised — an attacker
   with code execution in that process can open anything the process can.
+- **The control-plane image's `libssl3` carries six known CVEs the base
+  image has not yet patched.** `gcr.io/distroless/nodejs22-debian12` ships
+  `libssl3 3.0.18-1~deb12u2`; Debian has released fixed packages
+  (`3.0.19-1~deb12u2`, `3.0.20-1~deb12u2`) but the published distroless image
+  has not been rebuilt against them, and distroless ships no package manager
+  to patch it ourselves. These are tracked with expiring entries in
+  `.trivyignore` (`CVE-2026-31789`, `CVE-2026-28387` through `-28390`,
+  `CVE-2026-45447`), not a blanket `ignore-unfixed`, so the scan gate fails
+  loudly again once the ignores expire rather than staying silently green.
 
 ## Gate: required before the HTTP API ships
 

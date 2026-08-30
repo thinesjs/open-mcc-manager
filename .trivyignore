@@ -1,0 +1,12 @@
+# libssl3 in gcr.io/distroless/nodejs22-debian12 — Debian has published a
+# fixed package (3.0.19-1~deb12u2 / 3.0.20-1~deb12u2) but the distroless base
+# image has not yet been rebuilt against it, and distroless ships no package
+# manager to patch it ourselves. Tracked in SECURITY.md; expires so this list
+# cannot go stale silently — re-run the scan after expiry and either drop the
+# entries (image caught up) or roll the date forward with a fresh check.
+CVE-2026-31789 exp:2026-09-29
+CVE-2026-28387 exp:2026-09-29
+CVE-2026-28388 exp:2026-09-29
+CVE-2026-28389 exp:2026-09-29
+CVE-2026-28390 exp:2026-09-29
+CVE-2026-45447 exp:2026-09-29

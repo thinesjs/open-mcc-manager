@@ -50,6 +50,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	const lock = await acquireSingletonLock(env.DATABASE_URL)
 	if (!lock.acquired) {
 		await lock.release()
+		await db.destroy()
 		throw new Error("Another control-plane replica holds the singleton lock")
 	}
 

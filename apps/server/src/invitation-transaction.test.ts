@@ -3,7 +3,7 @@ import { trpcServer } from "@hono/trpc-server"
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 const failNextAuditRecord = { current: false }
@@ -110,10 +110,19 @@ const extractCookie = (res: Response): string => {
 	return cookies.map((cookie) => cookie.split(";")[0]).join("; ")
 }
 
+let seededOrganizationIds: string[] = []
+let seededEmails: string[] = []
+
+const seededEmail = (): string => {
+	const email = `${randomUUID()}@example.com`
+	seededEmails.push(email)
+	return email
+}
+
 const signUpAndActivate = async (
 	name: string,
 ): Promise<{ email: string; cookie: string; orgId: string }> => {
-	const email = `${randomUUID()}@example.com`
+	const email = seededEmail()
 	const signUpRes = await app.request("/api/auth/sign-up/email", {
 		method: "POST",
 		headers: { "content-type": "application/json", Origin: ORIGIN },
@@ -129,6 +138,7 @@ const signUpAndActivate = async (
 	})
 	expect(createOrgRes.status).toBe(200)
 	const org = orgResponseSchema.parse(await createOrgRes.json())
+	seededOrganizationIds.push(org.id)
 
 	const setActiveRes = await app.request("/api/auth/organization/set-active", {
 		method: "POST",
@@ -140,10 +150,14 @@ const signUpAndActivate = async (
 	return { email, cookie, orgId: org.id }
 }
 
-const cleanupOrg = async (orgId: string, emails: string[]): Promise<void> => {
-	await db.deleteFrom("invitation").where("organizationId", "=", orgId).execute()
-	await db.deleteFrom("member").where("organizationId", "=", orgId).execute()
-	await db.deleteFrom("organization").where("id", "=", orgId).execute()
+const deleteSeededRows = async (organizationIds: string[], emails: string[]): Promise<void> => {
+	if (organizationIds.length > 0) {
+		await db.deleteFrom("auditEvent").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("invitation").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("member").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("organization").where("id", "in", organizationIds).execute()
+	}
+	if (emails.length === 0) return
 	await db
 		.deleteFrom("session")
 		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
@@ -155,13 +169,22 @@ const cleanupOrg = async (orgId: string, emails: string[]): Promise<void> => {
 	await db.deleteFrom("user").where("email", "in", emails).execute()
 }
 
+afterEach(async () => {
+	failNextAuditRecord.current = false
+	const organizationIds = seededOrganizationIds
+	const emails = seededEmails
+	seededOrganizationIds = []
+	seededEmails = []
+	await deleteSeededRows(organizationIds, emails)
+})
+
 describe("member.acceptInvitation transaction", () => {
 	it(
 		"rolls back the member insert and the invitation update when a later step in the " +
 			"transaction fails, leaving the invitation pending and no member row",
 		async () => {
 			const owner = await signUpAndActivate("Owner")
-			const inviteeEmail = `${randomUUID()}@example.com`
+			const inviteeEmail = seededEmail()
 
 			const inviteRes = await app.request("/trpc/member.invite", {
 				method: "POST",
@@ -235,8 +258,6 @@ describe("member.acceptInvitation transaction", () => {
 				headers: { Origin: ORIGIN, Cookie: orphanCookie },
 			})
 			expect(hostListRes.status).toBe(401)
-
-			await cleanupOrg(owner.orgId, [owner.email, inviteeEmail])
 		},
 	)
 
@@ -260,8 +281,5 @@ describe("member.acceptInvitation transaction", () => {
 			headers: { Origin: ORIGIN, Cookie: bystander.cookie },
 		})
 		expect(hostListRes.status).toBe(401)
-
-		await cleanupOrg(owner.orgId, [owner.email])
-		await cleanupOrg(bystander.orgId, [bystander.email])
 	})
 })

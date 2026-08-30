@@ -15,7 +15,7 @@ import {
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
@@ -101,9 +101,46 @@ const extractCookie = (res: Response): string => {
 	return cookies.map((cookie) => cookie.split(";")[0]).join("; ")
 }
 
+let seededOrganizationIds: string[] = []
+let seededEmails: string[] = []
+
+const seededEmail = (): string => {
+	const email = `${randomUUID()}@example.com`
+	seededEmails.push(email)
+	return email
+}
+
+const deleteSeededRows = async (organizationIds: string[], emails: string[]): Promise<void> => {
+	if (organizationIds.length > 0) {
+		await db.deleteFrom("auditEvent").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("host").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("sshKey").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("member").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("organization").where("id", "in", organizationIds).execute()
+	}
+	if (emails.length === 0) return
+	await db
+		.deleteFrom("session")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db
+		.deleteFrom("account")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db.deleteFrom("user").where("email", "in", emails).execute()
+}
+
+afterEach(async () => {
+	const organizationIds = seededOrganizationIds
+	const emails = seededEmails
+	seededOrganizationIds = []
+	seededEmails = []
+	await deleteSeededRows(organizationIds, emails)
+})
+
 describe("actor label derivation gate", () => {
 	it("uses the session-derived email, not a client-supplied actorLabel field or header, and exposes provision", async () => {
-		const email = `${randomUUID()}@example.com`
+		const email = seededEmail()
 		const password = "correct horse battery staple 1"
 
 		const signUpRes = await app.request("/api/auth/sign-up/email", {
@@ -123,6 +160,7 @@ describe("actor label derivation gate", () => {
 		})
 		expect(createOrgRes.status).toBe(200)
 		const org = orgResponseSchema.parse(await createOrgRes.json())
+		seededOrganizationIds.push(org.id)
 
 		const setActiveRes = await app.request("/api/auth/organization/set-active", {
 			method: "POST",
@@ -198,20 +236,5 @@ describe("actor label derivation gate", () => {
 			.where("id", "=", created.id)
 			.executeTakeFirst()
 		expect(provisionedRow?.status).toBe("ready")
-
-		await db.deleteFrom("auditEvent").where("subjectId", "=", created.id).execute()
-		await db.deleteFrom("host").where("id", "=", created.id).execute()
-		await db.deleteFrom("sshKey").where("id", "=", sshKeyRow.id).execute()
-		await db.deleteFrom("member").where("organizationId", "=", org.id).execute()
-		await db.deleteFrom("organization").where("id", "=", org.id).execute()
-		await db
-			.deleteFrom("session")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db
-			.deleteFrom("account")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db.deleteFrom("user").where("email", "=", email).execute()
 	})
 })

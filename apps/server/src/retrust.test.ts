@@ -14,7 +14,7 @@ import {
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
@@ -93,8 +93,44 @@ const extractCookie = (res: Response): string => {
 	return cookies.map((cookie) => cookie.split(";")[0]).join("; ")
 }
 
-const signUpAndActivate = async (): Promise<{ email: string; cookie: string; orgId: string }> => {
+let seededOrganizationIds: string[] = []
+let seededEmails: string[] = []
+
+const seededEmail = (): string => {
 	const email = `${randomUUID()}@example.com`
+	seededEmails.push(email)
+	return email
+}
+
+const deleteSeededRows = async (organizationIds: string[], emails: string[]): Promise<void> => {
+	if (organizationIds.length > 0) {
+		await db.deleteFrom("auditEvent").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("host").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("member").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("organization").where("id", "in", organizationIds).execute()
+	}
+	if (emails.length === 0) return
+	await db
+		.deleteFrom("session")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db
+		.deleteFrom("account")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db.deleteFrom("user").where("email", "in", emails).execute()
+}
+
+afterEach(async () => {
+	const organizationIds = seededOrganizationIds
+	const emails = seededEmails
+	seededOrganizationIds = []
+	seededEmails = []
+	await deleteSeededRows(organizationIds, emails)
+})
+
+const signUpAndActivate = async (): Promise<{ email: string; cookie: string; orgId: string }> => {
+	const email = seededEmail()
 	const signUpRes = await app.request("/api/auth/sign-up/email", {
 		method: "POST",
 		headers: { "content-type": "application/json", Origin: ORIGIN },
@@ -114,6 +150,7 @@ const signUpAndActivate = async (): Promise<{ email: string; cookie: string; org
 	})
 	expect(createOrgRes.status).toBe(200)
 	const org = orgResponseSchema.parse(await createOrgRes.json())
+	seededOrganizationIds.push(org.id)
 
 	const setActiveRes = await app.request("/api/auth/organization/set-active", {
 		method: "POST",
@@ -188,20 +225,6 @@ describe("host.retrustHostKey", () => {
 			.where("action", "=", "host.retrust")
 			.executeTakeFirst()
 		expect(audit?.actorLabel).toBe(email)
-
-		await db.deleteFrom("auditEvent").where("subjectId", "=", hostId).execute()
-		await db.deleteFrom("host").where("id", "=", hostId).execute()
-		await db.deleteFrom("member").where("organizationId", "=", orgId).execute()
-		await db.deleteFrom("organization").where("id", "=", orgId).execute()
-		await db
-			.deleteFrom("session")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db
-			.deleteFrom("account")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db.deleteFrom("user").where("email", "=", email).execute()
 	})
 
 	it("rejects a retrust while provisioning is in progress with a distinct code, and leaves the fingerprint unchanged, without leaking any fingerprint", async () => {
@@ -243,19 +266,6 @@ describe("host.retrustHostKey", () => {
 			.where("id", "=", hostId)
 			.executeTakeFirst()
 		expect(row?.hostKeyFingerprint).toBe(ORIGINAL_FINGERPRINT)
-
-		await db.deleteFrom("host").where("id", "=", hostId).execute()
-		await db.deleteFrom("member").where("organizationId", "=", orgId).execute()
-		await db.deleteFrom("organization").where("id", "=", orgId).execute()
-		await db
-			.deleteFrom("session")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db
-			.deleteFrom("account")
-			.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "=", email))
-			.execute()
-		await db.deleteFrom("user").where("email", "=", email).execute()
 	})
 
 	it("rejects a viewer's retrust attempt without touching the stored fingerprint, and leaks nothing", async () => {
@@ -263,7 +273,7 @@ describe("host.retrustHostKey", () => {
 		const ownerId = await ownerMemberId(owner.orgId, owner.email)
 		const hostId = await seedTrustedHost(owner.orgId, ownerId)
 
-		const viewerEmail = `${randomUUID()}@example.com`
+		const viewerEmail = seededEmail()
 		const viewerSignUpRes = await app.request("/api/auth/sign-up/email", {
 			method: "POST",
 			headers: { "content-type": "application/json", Origin: ORIGIN },
@@ -312,22 +322,5 @@ describe("host.retrustHostKey", () => {
 			.where("id", "=", hostId)
 			.executeTakeFirst()
 		expect(row?.hostKeyFingerprint).toBe(ORIGINAL_FINGERPRINT)
-
-		await db.deleteFrom("host").where("id", "=", hostId).execute()
-		await db.deleteFrom("member").where("organizationId", "=", owner.orgId).execute()
-		await db.deleteFrom("organization").where("id", "=", owner.orgId).execute()
-		await db
-			.deleteFrom("session")
-			.where("userId", "in", (qb) =>
-				qb.selectFrom("user").select("id").where("email", "in", [owner.email, viewerEmail]),
-			)
-			.execute()
-		await db
-			.deleteFrom("account")
-			.where("userId", "in", (qb) =>
-				qb.selectFrom("user").select("id").where("email", "in", [owner.email, viewerEmail]),
-			)
-			.execute()
-		await db.deleteFrom("user").where("email", "in", [owner.email, viewerEmail]).execute()
 	})
 })

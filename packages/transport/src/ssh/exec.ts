@@ -31,6 +31,8 @@ export class CommandAbortedError extends Error {
 }
 
 export type ExecChannel = {
+	write: (chunk: string) => void
+	end: () => void
 	onStdout: (listener: (chunk: Buffer) => void) => void
 	onStderr: (listener: (chunk: Buffer) => void) => void
 	onClose: (
@@ -45,6 +47,7 @@ export const execViaChannel = (
 	channel: ExecChannel,
 	command: string,
 	timeoutMs: number,
+	stdin?: string,
 ): Promise<ExecResult> =>
 	new Promise<ExecResult>((resolve, reject) => {
 		let settled = false
@@ -94,4 +97,7 @@ export const execViaChannel = (
 			}
 			resolve({ stdout: stdout.toString(), stderr: stderr.toString(), exitCode })
 		})
+
+		if (stdin !== undefined) channel.write(stdin)
+		channel.end()
 	})

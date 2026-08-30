@@ -15,6 +15,8 @@ type FakeChannel = {
 	emitStderr: (chunk: Buffer) => void
 	emitClose: (exitCode: number | null | undefined, signal?: string) => void
 	wasDestroyed: () => boolean
+	written: () => string
+	wasEnded: () => boolean
 }
 
 const createFakeChannel = (): FakeChannel => {
@@ -24,9 +26,17 @@ const createFakeChannel = (): FakeChannel => {
 		| ((exitCode: number | null | undefined, signal: string | undefined) => void)
 		| undefined
 	let destroyed = false
+	let ended = false
+	const chunks: string[] = []
 
 	return {
 		channel: {
+			write: (chunk: string) => {
+				chunks.push(chunk)
+			},
+			end: () => {
+				ended = true
+			},
 			onStdout: (listener) => {
 				onStdout = listener
 			},
@@ -40,6 +50,8 @@ const createFakeChannel = (): FakeChannel => {
 				destroyed = true
 			},
 		},
+		written: () => chunks.join(""),
+		wasEnded: () => ended,
 		emitStdout: (chunk) => onStdout?.(chunk),
 		emitStderr: (chunk) => onStderr?.(chunk),
 		emitClose: (exitCode, signal) => onClose?.(exitCode, signal),
@@ -147,5 +159,25 @@ describe("execViaChannel", () => {
 		const resultPromise = execViaChannel(fake.channel, "sleep 999", 10)
 		await expect(resultPromise).rejects.toThrow(/timed out/i)
 		expect(fake.wasDestroyed()).toBe(true)
+	})
+})
+
+describe("stdin delivery", () => {
+	it("writes stdin to the channel and closes it, so the remote command sees eof", async () => {
+		const fake = createFakeChannel()
+		const pending = execViaChannel(fake.channel, "cat", 5_000, "hello\n")
+		fake.emitClose(0)
+		await pending
+		expect(fake.written()).toBe("hello\n")
+		expect(fake.wasEnded()).toBe(true)
+	})
+
+	it("closes stdin even when none was supplied, so a command reading stdin does not hang", async () => {
+		const fake = createFakeChannel()
+		const pending = execViaChannel(fake.channel, "true", 5_000)
+		fake.emitClose(0)
+		await pending
+		expect(fake.written()).toBe("")
+		expect(fake.wasEnded()).toBe(true)
 	})
 })

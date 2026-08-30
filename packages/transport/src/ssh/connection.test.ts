@@ -18,6 +18,8 @@ const createFakeExecChannel = (): FakeExecChannel => {
 
 	return {
 		channel: {
+			write: () => {},
+			end: () => {},
 			onStdout: (listener) => {
 				onStdout = listener
 			},

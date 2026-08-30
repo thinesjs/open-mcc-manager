@@ -100,6 +100,12 @@ export const createSshTransport = (): HostTransport => {
 							return
 						}
 						callback(undefined, {
+							write: (chunk) => {
+								stream.write(chunk)
+							},
+							end: () => {
+								stream.end()
+							},
 							onStdout: (listener) => {
 								stream.on("data", listener)
 							},

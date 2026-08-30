@@ -1,3 +1,4 @@
+import "@open-mcc/config/load-env.mjs"
 import { createDb } from "@open-mcc/db"
 import { createAuth } from "./auth"
 import { bootstrapOwner } from "./bootstrap-owner"

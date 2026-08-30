@@ -1,3 +1,4 @@
+import "@open-mcc/config/load-env.mjs"
 import { serve } from "@hono/node-server"
 import { startServer } from "./bootstrap"
 import { loadEnv } from "./env"

@@ -5,10 +5,20 @@ import {
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningInProgressError,
+	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
+import { DatabaseError } from "pg"
 import { describe, expect, it } from "vitest"
 import { mapKnownError } from "./errors"
+
+const databaseError = (code: string, constraint: string, detail: string): DatabaseError => {
+	const error = new DatabaseError(`database said: ${detail}`, detail.length, "error")
+	error.code = code
+	error.constraint = constraint
+	error.detail = detail
+	return error
+}
 
 describe("mapKnownError", () => {
 	it("maps ForbiddenError to FORBIDDEN with a generic message", () => {
@@ -59,7 +69,60 @@ describe("mapKnownError", () => {
 		)
 	})
 
+	it("maps SshKeyInUseError to CONFLICT with a distinct errorCode", () => {
+		const mapped = mapKnownError(new SshKeyInUseError("SSH key key-1 is still referenced"))
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.errorCode).toBe("SSH_KEY_IN_USE")
+	})
+
 	it("returns null for an unrecognized error, never leaking its message", () => {
 		expect(mapKnownError(new Error("some internal database detail"))).toBeNull()
+	})
+})
+
+describe("mapKnownError on integrity constraint violations", () => {
+	it("maps a duplicate host name to CONFLICT without echoing the tenant or the value", () => {
+		const mapped = mapKnownError(
+			databaseError(
+				"23505",
+				"host_org_name_unique",
+				'Key ("organizationId", name)=(org-secret, vps-1) already exists.',
+			),
+		)
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.httpStatus).toBe(409)
+		expect(mapped?.errorCode).toBe("HOST_NAME_TAKEN")
+		expect(mapped?.message).not.toContain("org-secret")
+		expect(mapped?.message).not.toContain("host_org_name_unique")
+	})
+
+	it("maps a duplicate ssh key name to CONFLICT with its own errorCode", () => {
+		const mapped = mapKnownError(
+			databaseError(
+				"23505",
+				"sshKey_org_name_unique",
+				'Key ("organizationId", name)=(org-secret, deploy) already exists.',
+			),
+		)
+		expect(mapped?.errorCode).toBe("SSH_KEY_NAME_TAKEN")
+		expect(mapped?.message).not.toContain("org-secret")
+	})
+
+	it("maps an unnamed constraint violation to a generic conflict rather than an internal error", () => {
+		const mapped = mapKnownError(
+			databaseError(
+				"23503",
+				"some_future_constraint",
+				"Key (id)=(org-secret) is still referenced.",
+			),
+		)
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.errorCode).toBe("CONSTRAINT_VIOLATION")
+		expect(mapped?.message).not.toContain("org-secret")
+		expect(mapped?.message).not.toContain("some_future_constraint")
+	})
+
+	it("leaves a not-null violation unmapped, so a server defect stays an internal error", () => {
+		expect(mapKnownError(databaseError("23502", "", 'null value in column "hostname"'))).toBeNull()
 	})
 })

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
+import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
 	createHostController,
 	createHostControllerTransaction,
@@ -33,6 +34,7 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 }
 
 const PRESENTED_HOST_KEY = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("ssh-key-test-host-key"))
+const PRESENTED_FINGERPRINT = fingerprintFromKey(PRESENTED_HOST_KEY)
 
 let db: Db
 let app: Hono
@@ -99,6 +101,7 @@ const sshKeyPublicSchema = z.object({
 })
 const createResponseSchema = z.object({ result: z.object({ data: sshKeyPublicSchema }) })
 const listResponseSchema = z.object({ result: z.object({ data: z.array(sshKeyPublicSchema) }) })
+const enrollResponseSchema = z.object({ result: z.object({ data: z.object({ id: z.string() }) }) })
 const removeResponseSchema = z.object({
 	result: z.object({ data: z.object({ deleted: z.boolean() }) }),
 })
@@ -180,6 +183,20 @@ const createSshKey = async (tenant: Tenant, name: string): Promise<string> => {
 	return createResponseSchema.parse(JSON.parse(body)).result.data.id
 }
 
+const enrollHost = async (tenant: Tenant, name: string, sshKeyId: string): Promise<string> => {
+	const res = await post("/trpc/host.enroll", tenant.cookie, {
+		name,
+		hostname: "10.0.0.42",
+		port: 22,
+		username: "root",
+		sshKeyId,
+		expectedFingerprint: PRESENTED_FINGERPRINT,
+	})
+	const body = await res.text()
+	expect(res.status, body).toBe(200)
+	return enrollResponseSchema.parse(JSON.parse(body)).result.data.id
+}
+
 const sealedRow = (sshKeyId: string) =>
 	db
 		.selectFrom("sshKey")
@@ -241,6 +258,31 @@ describe("sshKey.create", () => {
 				.where("action", "=", "sshKey.create")
 				.executeTakeFirst()
 			expect(audit?.actorLabel).toBe(owner.email)
+		} finally {
+			await cleanUp([owner])
+		}
+	})
+
+	it("rejects a duplicate key name with a conflict rather than an internal error", async () => {
+		const owner = await signUpOwner()
+		try {
+			await createSshKey(owner, "duplicate")
+
+			const res = await post("/trpc/sshKey.create", owner.cookie, { name: "duplicate" })
+			const body = await res.text()
+			expect(res.status, body).toBe(409)
+			expect(body).not.toContain("Internal server error")
+			expect(body).not.toContain(owner.orgId)
+			expect(errorResponseSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+				"SSH_KEY_NAME_TAKEN",
+			)
+
+			const rows = await db
+				.selectFrom("sshKey")
+				.select("id")
+				.where("organizationId", "=", owner.orgId)
+				.execute()
+			expect(rows).toHaveLength(1)
 		} finally {
 			await cleanUp([owner])
 		}
@@ -352,6 +394,41 @@ describe("sshKey.remove", () => {
 		}
 	})
 
+	it("refuses to delete a key an enrolled host still uses, keeping the key and writing no audit row", async () => {
+		const owner = await signUpOwner()
+		try {
+			const sshKeyId = await createSshKey(owner, "in-use")
+			await enrollHost(owner, "vps-in-use", sshKeyId)
+
+			const res = await post("/trpc/sshKey.remove", owner.cookie, { sshKeyId })
+			const body = await res.text()
+			expect(res.status, body).toBe(409)
+			expect(body).not.toContain("Internal server error")
+			expect(body).not.toContain(owner.orgId)
+			expect(body).not.toContain("host_sshKey_org_fk")
+			expect(errorResponseSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+				"SSH_KEY_IN_USE",
+			)
+
+			const remaining = await db
+				.selectFrom("sshKey")
+				.select("id")
+				.where("id", "=", sshKeyId)
+				.executeTakeFirst()
+			expect(remaining?.id).toBe(sshKeyId)
+
+			const audit = await db
+				.selectFrom("auditEvent")
+				.select("id")
+				.where("subjectId", "=", sshKeyId)
+				.where("action", "=", "sshKey.delete")
+				.executeTakeFirst()
+			expect(audit).toBeUndefined()
+		} finally {
+			await cleanUp([owner])
+		}
+	})
+
 	it("never deletes another organization's key", async () => {
 		const first = await signUpOwner()
 		const second = await signUpOwner()
@@ -393,6 +470,42 @@ describe("sshKey.remove", () => {
 			expect(remaining?.id).toBe(sshKeyId)
 		} finally {
 			await cleanUp([owner, viewer])
+		}
+	})
+})
+
+describe("host.enroll name conflicts", () => {
+	it("rejects a duplicate host name with a conflict rather than an internal error", async () => {
+		const owner = await signUpOwner()
+		try {
+			const sshKeyId = await createSshKey(owner, "enrolment")
+			await enrollHost(owner, "vps-duplicate", sshKeyId)
+
+			const res = await post("/trpc/host.enroll", owner.cookie, {
+				name: "vps-duplicate",
+				hostname: "10.0.0.43",
+				port: 22,
+				username: "root",
+				sshKeyId,
+				expectedFingerprint: PRESENTED_FINGERPRINT,
+			})
+			const body = await res.text()
+			expect(res.status, body).toBe(409)
+			expect(body).not.toContain("Internal server error")
+			expect(body).not.toContain(owner.orgId)
+			expect(body).not.toContain("host_org_name_unique")
+			expect(errorResponseSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+				"HOST_NAME_TAKEN",
+			)
+
+			const hosts = await db
+				.selectFrom("host")
+				.select("id")
+				.where("organizationId", "=", owner.orgId)
+				.execute()
+			expect(hosts).toHaveLength(1)
+		} finally {
+			await cleanUp([owner])
 		}
 	})
 })

@@ -5,7 +5,13 @@ import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
-import { Select } from "~/components/ui/select"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "~/components/ui/select"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -116,19 +122,22 @@ function EnrollHostPage() {
 				<div className="space-y-2">
 					<Label htmlFor="sshKeyId">SSH key</Label>
 					<Select
-						id="sshKeyId"
+						name="sshKeyId"
 						required
+						items={sshKeysQuery.data?.map((sshKey) => ({ label: sshKey.name, value: sshKey.id }))}
 						value={sshKeyId}
-						onChange={(event) => setSshKeyId(event.target.value)}
+						onValueChange={(value) => setSshKeyId(value ?? "")}
 					>
-						<option value="" disabled>
-							Select a key…
-						</option>
-						{sshKeysQuery.data?.map((sshKey) => (
-							<option key={sshKey.id} value={sshKey.id}>
-								{sshKey.name}
-							</option>
-						))}
+						<SelectTrigger id="sshKeyId">
+							<SelectValue placeholder="Select a key…" />
+						</SelectTrigger>
+						<SelectContent>
+							{sshKeysQuery.data?.map((sshKey) => (
+								<SelectItem key={sshKey.id} value={sshKey.id}>
+									{sshKey.name}
+								</SelectItem>
+							))}
+						</SelectContent>
 					</Select>
 				</div>
 

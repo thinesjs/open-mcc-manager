@@ -162,3 +162,27 @@
 		font-family: var(--font-sans);
 	}
 }
+
+@layer components {
+	.dropdown-glass {
+		background: var(--popover);
+		border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+		box-shadow: 0 16px 40px -18px rgb(0 0 0 / 55%);
+	}
+
+	.dark .dropdown-glass {
+		box-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%);
+	}
+
+	@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+		.dropdown-glass {
+			background: color-mix(
+				in srgb,
+				var(--popover) 18%,
+				color-mix(in srgb, var(--popover) var(--glass-opacity), transparent)
+			);
+			-webkit-backdrop-filter: blur(var(--glass-blur));
+			backdrop-filter: blur(var(--glass-blur));
+		}
+	}
+}

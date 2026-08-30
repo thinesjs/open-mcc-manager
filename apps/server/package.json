@@ -8,7 +8,8 @@
 		"build": "tsc -p tsconfig.json",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"bootstrap:owner": "tsx src/bootstrap-owner-cli.ts"
+		"bootstrap:owner": "tsx src/bootstrap-owner-cli.ts",
+		"keys:generate": "tsx src/generate-sealbox-key-cli.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^2.1.1",

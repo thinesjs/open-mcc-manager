@@ -96,6 +96,22 @@ not a goal of the current architecture.
   production shape: it signs a user in, asserts the create is refused, and
   asserts the user still cannot reach a capability-gated procedure afterwards,
   because the refusal only matters if the escalation it prevents is gone too.
+- **One origin allowlist, honoured by both layers.** `ALLOWED_ORIGINS` is the
+  deployment's CORS allowlist and is also passed to better-auth as
+  `trustedOrigins`. `requireSameOrigin` runs on `*` and so refuses a
+  state-changing request from an undeclared origin before better-auth sees it;
+  better-auth's own check is what stands behind that, for a route reached by
+  some future mount that does not sit under the middleware, and it is the
+  layer that governs the library's own notion of a trusted origin as its route
+  table changes. `advanced.disableOriginCheck` is set to `false` explicitly
+  rather than left to default, because better-auth's default disables the
+  check whenever it detects a test environment: left alone, the entire server
+  suite exercises a configuration no deployment runs.
+  `apps/server/src/auth-origin.test.ts` proves an undeclared origin is refused
+  and a declared one is not, so neither half can be removed silently. Widening
+  `ALLOWED_ORIGINS` now widens both layers at once — that is the point, and it
+  is also the reason not to put anything in it that is not a dashboard the
+  operator controls.
 - **Out-of-band host key verification.** Enrollment requires the operator to
   supply the host's expected SSH host key fingerprint in advance; the control
   plane refuses to trust a host whose presented key does not match, closing
@@ -107,8 +123,12 @@ not a goal of the current architecture.
   never to seal new ones. A key is rotated by introducing a new pair, pointing
   new seals at it, and retiring the old private key once nothing references it
   — without a flag day.
-- **Organization-scoped data access.** Every repository read and write is
-  scoped by organization id at the query level, not filtered after the fact.
+- **Organization-scoped data access.** Every repository method takes an
+  organization scope as a required first argument, so the compiler rejects a
+  call that omits one. Every read and write applies it at the query level, not
+  as a filter after the fact; the one method with no rows to predicate,
+  `host.repository.ts`'s `lockHost`, folds the organization id into its
+  advisory lock key instead.
 - **Capability-gated privileged operations.** Host enrollment, provisioning,
   and removal all check the caller's role against an explicit capability
   matrix before touching data or contacting a host.
@@ -237,15 +257,17 @@ not a goal of the current architecture.
   `CVE-2026-45447`), not a blanket `ignore-unfixed`, so the scan gate fails
   loudly again once the ignores expire rather than staying silently green.
 
-## Gate: required before the HTTP API ships
+## Gate: three controls the HTTP API had to implement, and does
 
-Two controls were deferred to the future HTTP API layer. A deferral is only
-legitimate if the work that lands the API actually implements it, so this
-section exists to make each one a checkable requirement rather than a note
-that can be lost. **None of the following may be skipped, watered down, or
-left for a later task when the HTTP API is built.** Each MUST hold, and each
-MUST be proven by a test against real server code — not by a comment, a
-TODO, or a mention in a design document:
+These three were deferred to the HTTP API layer while it was still future
+work. That API has shipped, and all three hold today against real server
+code, each with the test this section demanded. The section stays because the
+requirement did not expire with the deferral: **none of the following may be
+skipped, watered down, or removed by a later change.** Each MUST hold, and
+each MUST stay proven by a test against real server code — not by a comment,
+a TODO, or a mention in a design document. The named test is the one that
+proves it now; if you replace it, replace it with something that proves the
+same thing:
 
 - **`actorLabel` MUST be derived server-side from the authenticated user,
   never accepted from the client and never defaulted.** The router MUST
@@ -286,8 +308,11 @@ TODO, or a mention in a design document:
   expected fingerprint (nor a stack trace), mirroring the existing unit test
   that asserts this at the controller layer today.
 
-Until all three checks above pass against real server code, the HTTP API
-must not be merged or deployed.
+All three pass today: `apps/server/src/actor-label.test.ts`,
+`apps/server/src/bootstrap.test.ts` and
+`apps/server/src/error-serialization.test.ts` respectively. A change that
+makes any of them fail is a change that reopens a control this project
+committed to closing, not a test that needs relaxing.
 
 ## Reporting a vulnerability
 

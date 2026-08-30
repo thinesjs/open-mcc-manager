@@ -1,5 +1,5 @@
-import { type AuditEventRow, auditEvent, type Executor } from "@open-mcc/db"
-import { desc, eq } from "drizzle-orm"
+import type { AuditEventRow, Executor } from "@open-mcc/db"
+import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
 
 export type AuditEntry = {
@@ -25,26 +25,28 @@ const resolveActorLabel = (entry: Pick<AuditEntry, "actorId" | "actorLabel">): s
 
 export const createAuditRepository = (db: Executor) => ({
 	record: async (scope: OrgScope, entry: AuditEntry): Promise<AuditEventRow> => {
-		const rows = await db
-			.insert(auditEvent)
+		const row = await db
+			.insertInto("auditEvent")
 			.values({
 				...entry,
+				id: nanoid(),
 				organizationId: scope.organizationId,
 				actorLabel: resolveActorLabel(entry),
 			})
-			.returning()
-		const row = rows[0]
+			.returningAll()
+			.executeTakeFirst()
 		if (!row) throw new Error("Audit insert returned no row")
 		return row
 	},
 
 	list: async (scope: OrgScope, limit = 100): Promise<AuditEventRow[]> =>
 		db
-			.select()
-			.from(auditEvent)
-			.where(eq(auditEvent.organizationId, scope.organizationId))
-			.orderBy(desc(auditEvent.createdAt))
-			.limit(limit),
+			.selectFrom("auditEvent")
+			.selectAll()
+			.where("organizationId", "=", scope.organizationId)
+			.orderBy("createdAt", "desc")
+			.limit(limit)
+			.execute(),
 })
 
 export type AuditRepository = ReturnType<typeof createAuditRepository>

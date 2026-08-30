@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { type Executor, type HostInsert, type HostRow, host } from "@open-mcc/db"
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm"
+import type { Executor, HostInsert, HostRow } from "@open-mcc/db"
+import { sql } from "kysely"
+import { nanoid } from "nanoid"
 
 export type OrgScope = { organizationId: string }
 
@@ -96,54 +97,57 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 export const createHostRepository = (db: Executor) => ({
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
 		requireConsistentTrustTuple(values)
-		const rows = await db
-			.insert(host)
+		const row = await db
+			.insertInto("host")
 			.values({
 				...values,
+				id: nanoid(),
 				organizationId: scope.organizationId,
 				hostKeyTrustedByLabel: resolveHostKeyTrustedByLabel(values),
 			})
-			.returning()
-		const row = rows[0]
+			.returningAll()
+			.executeTakeFirst()
 		if (!row) throw new Error("Host insert returned no row")
 		return row
 	},
 
-	findById: async (scope: OrgScope, id: string): Promise<HostRow | undefined> => {
-		const rows = await db
-			.select()
-			.from(host)
-			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
+	findById: async (scope: OrgScope, id: string): Promise<HostRow | undefined> =>
+		db
+			.selectFrom("host")
+			.selectAll()
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
 			.limit(1)
-		return rows[0]
-	},
+			.executeTakeFirst(),
 
 	list: async (scope: OrgScope): Promise<HostRow[]> =>
-		db.select().from(host).where(eq(host.organizationId, scope.organizationId)),
+		db.selectFrom("host").selectAll().where("organizationId", "=", scope.organizationId).execute(),
 
 	update: async (
 		scope: OrgScope,
 		id: string,
 		patch: HostUpdateValues,
-	): Promise<HostRow | undefined> => {
-		const rows = await db
-			.update(host)
+	): Promise<HostRow | undefined> =>
+		db
+			.updateTable("host")
 			.set({ ...whitelistHostUpdate(patch), organizationId: scope.organizationId })
-			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
-			.returning()
-		return rows[0]
-	},
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.returningAll()
+			.executeTakeFirst(),
 
 	delete: async (scope: OrgScope, id: string): Promise<boolean> => {
 		const rows = await db
-			.delete(host)
-			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
-			.returning()
+			.deleteFrom("host")
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.returningAll()
+			.execute()
 		return rows.length > 0
 	},
 
 	lockHost: async (id: string): Promise<void> => {
-		await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`)
+		await sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`.execute(db)
 	},
 
 	claimForProvisioning: async (
@@ -153,26 +157,31 @@ export const createHostRepository = (db: Executor) => ({
 	): Promise<HostRow | undefined> => {
 		const now = new Date()
 		const staleBefore = new Date(now.getTime() - PROVISIONING_LEASE_MS)
-		const staleClaimCondition = and(
-			eq(host.status, "provisioning"),
-			or(isNull(host.provisioningClaimedAt), lt(host.provisioningClaimedAt, staleBefore)),
-		)
-		const statusCondition =
-			expectedStatus === "provisioning"
-				? staleClaimCondition
-				: or(eq(host.status, expectedStatus), staleClaimCondition)
 
-		const rows = await db
-			.update(host)
+		return db
+			.updateTable("host")
 			.set({
 				status: "provisioning",
 				provisioningAttemptId: randomUUID(),
 				provisioningClaimedAt: now,
 				organizationId: scope.organizationId,
 			})
-			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId), statusCondition))
-			.returning()
-		return rows[0]
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where((eb) => {
+				const staleClaimCondition = eb.and([
+					eb("status", "=", "provisioning"),
+					eb.or([
+						eb("provisioningClaimedAt", "is", null),
+						eb("provisioningClaimedAt", "<", staleBefore),
+					]),
+				])
+				return expectedStatus === "provisioning"
+					? staleClaimCondition
+					: eb.or([eb("status", "=", expectedStatus), staleClaimCondition])
+			})
+			.returningAll()
+			.executeTakeFirst()
 	},
 
 	finalizeProvisioning: async (
@@ -180,26 +189,21 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		attemptId: string,
 		patch: Pick<HostUpdateValues, "status" | "dockerVersion">,
-	): Promise<HostRow | undefined> => {
-		const rows = await db
-			.update(host)
+	): Promise<HostRow | undefined> =>
+		db
+			.updateTable("host")
 			.set({
 				...patch,
 				provisioningAttemptId: null,
 				provisioningClaimedAt: null,
 				organizationId: scope.organizationId,
 			})
-			.where(
-				and(
-					eq(host.id, id),
-					eq(host.organizationId, scope.organizationId),
-					eq(host.status, "provisioning"),
-					eq(host.provisioningAttemptId, attemptId),
-				),
-			)
-			.returning()
-		return rows[0]
-	},
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("status", "=", "provisioning")
+			.where("provisioningAttemptId", "=", attemptId)
+			.returningAll()
+			.executeTakeFirst(),
 
 	updateHostKeyTrust: async (
 		scope: OrgScope,
@@ -207,8 +211,8 @@ export const createHostRepository = (db: Executor) => ({
 		trust: HostKeyTrustUpdate,
 	): Promise<HostRow | undefined> => {
 		const label = requireNonBlankLabel(trust.hostKeyTrustedByLabel)
-		const rows = await db
-			.update(host)
+		return db
+			.updateTable("host")
 			.set({
 				hostKeyTrustedBy: trust.hostKeyTrustedBy,
 				hostKeyTrustedByLabel: label,
@@ -217,9 +221,10 @@ export const createHostRepository = (db: Executor) => ({
 				hostKeyTrustedAt: trust.hostKeyTrustedAt,
 				organizationId: scope.organizationId,
 			})
-			.where(and(eq(host.id, id), eq(host.organizationId, scope.organizationId)))
-			.returning()
-		return rows[0]
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.returningAll()
+			.executeTakeFirst()
 	},
 })
 

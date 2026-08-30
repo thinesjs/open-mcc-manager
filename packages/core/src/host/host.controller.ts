@@ -34,9 +34,9 @@ export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T
 
 export const createHostControllerTransaction = (db: Db): WithTransaction => {
 	const withTransaction: WithTransaction = (fn) =>
-		db.transaction((tx) =>
-			fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) }),
-		)
+		db
+			.transaction()
+			.execute((tx) => fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) }))
 	return withTransaction
 }
 

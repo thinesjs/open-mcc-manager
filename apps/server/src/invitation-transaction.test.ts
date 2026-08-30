@@ -213,11 +213,12 @@ describe("member.acceptInvitation transaction", () => {
 			expect(signInRes.status).toBe(200)
 			const orphanCookie = extractCookie(signInRes)
 
-			await app.request("/api/auth/organization/set-active", {
+			const setActiveRes = await app.request("/api/auth/organization/set-active", {
 				method: "POST",
 				headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: orphanCookie },
 				body: JSON.stringify({ organizationId: owner.orgId }),
 			})
+			expect(setActiveRes.status).toBe(403)
 
 			const hostListRes = await app.request("/trpc/host.list", {
 				method: "GET",
@@ -228,4 +229,29 @@ describe("member.acceptInvitation transaction", () => {
 			await cleanupOrg(owner.orgId, [owner.email, inviteeEmail])
 		},
 	)
+
+	it("resolveActor rejects a session whose active organization has no member row for this user", async () => {
+		const owner = await signUpAndActivate("Owner")
+		const bystander = await signUpAndActivate("Bystander")
+		const bystanderUser = await db
+			.selectFrom("user")
+			.select("id")
+			.where("email", "=", bystander.email)
+			.executeTakeFirstOrThrow()
+
+		await db
+			.updateTable("session")
+			.set({ activeOrganizationId: owner.orgId })
+			.where("userId", "=", bystanderUser.id)
+			.execute()
+
+		const hostListRes = await app.request("/trpc/host.list", {
+			method: "GET",
+			headers: { Origin: ORIGIN, Cookie: bystander.cookie },
+		})
+		expect(hostListRes.status).toBe(401)
+
+		await cleanupOrg(owner.orgId, [owner.email])
+		await cleanupOrg(bystander.orgId, [bystander.email])
+	})
 })

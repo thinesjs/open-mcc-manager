@@ -17,10 +17,25 @@ export class StreamOverflowError extends Error {
 	}
 }
 
+export class CommandAbortedError extends Error {
+	readonly signal: string | undefined
+
+	constructor(command: string, signal: string | undefined) {
+		super(
+			signal === undefined
+				? `Command closed without reporting an exit status: ${command}`
+				: `Command was terminated by ${signal}: ${command}`,
+		)
+		this.signal = signal
+	}
+}
+
 export type ExecChannel = {
 	onStdout: (listener: (chunk: Buffer) => void) => void
 	onStderr: (listener: (chunk: Buffer) => void) => void
-	onClose: (listener: (exitCode: number | undefined) => void) => void
+	onClose: (
+		listener: (exitCode: number | null | undefined, signal: string | undefined) => void,
+	) => void
 	destroy: () => void
 }
 
@@ -69,10 +84,14 @@ export const execViaChannel = (
 			const next = append(stderr, chunk, MAX_STDERR_BYTES, "stderr")
 			if (next !== undefined) stderr = next
 		})
-		channel.onClose((exitCode) => {
+		channel.onClose((exitCode, signal) => {
 			if (settled) return
 			settled = true
 			clearTimeout(timer)
-			resolve({ stdout: stdout.toString(), stderr: stderr.toString(), exitCode: exitCode ?? 0 })
+			if (typeof exitCode !== "number") {
+				reject(new CommandAbortedError(command, signal))
+				return
+			}
+			resolve({ stdout: stdout.toString(), stderr: stderr.toString(), exitCode })
 		})
 	})

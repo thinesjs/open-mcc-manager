@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+	CommandAbortedError,
 	DIAGNOSTIC_TAIL_BYTES,
 	type ExecChannel,
 	execViaChannel,
@@ -12,14 +13,16 @@ type FakeChannel = {
 	channel: ExecChannel
 	emitStdout: (chunk: Buffer) => void
 	emitStderr: (chunk: Buffer) => void
-	emitClose: (exitCode: number | undefined) => void
+	emitClose: (exitCode: number | null | undefined, signal?: string) => void
 	wasDestroyed: () => boolean
 }
 
 const createFakeChannel = (): FakeChannel => {
 	let onStdout: ((chunk: Buffer) => void) | undefined
 	let onStderr: ((chunk: Buffer) => void) | undefined
-	let onClose: ((exitCode: number | undefined) => void) | undefined
+	let onClose:
+		| ((exitCode: number | null | undefined, signal: string | undefined) => void)
+		| undefined
 	let destroyed = false
 
 	return {
@@ -39,7 +42,7 @@ const createFakeChannel = (): FakeChannel => {
 		},
 		emitStdout: (chunk) => onStdout?.(chunk),
 		emitStderr: (chunk) => onStderr?.(chunk),
-		emitClose: (exitCode) => onClose?.(exitCode),
+		emitClose: (exitCode, signal) => onClose?.(exitCode, signal),
 		wasDestroyed: () => destroyed,
 	}
 }
@@ -99,6 +102,44 @@ describe("execViaChannel", () => {
 
 		await expect(resultPromise).rejects.toBeInstanceOf(StreamOverflowError)
 		expect(fake.wasDestroyed()).toBe(true)
+	})
+
+	it("rejects rather than reporting success when the remote process is killed by a signal", async () => {
+		const fake = createFakeChannel()
+		const resultPromise = execViaChannel(fake.channel, "docker --version", 1000)
+		fake.emitStdout(Buffer.from("partial"))
+		fake.emitClose(null, "SIGKILL")
+
+		await expect(resultPromise).rejects.toBeInstanceOf(CommandAbortedError)
+		await resultPromise.catch((error: CommandAbortedError) => {
+			expect(error.signal).toBe("SIGKILL")
+			expect(error.message).toContain("SIGKILL")
+			expect(error.message).toContain("docker --version")
+		})
+	})
+
+	it("rejects rather than reporting success when the channel closes carrying no exit status at all", async () => {
+		const fake = createFakeChannel()
+		const resultPromise = execViaChannel(fake.channel, "docker --version", 1000)
+		fake.emitClose(undefined)
+
+		await expect(resultPromise).rejects.toBeInstanceOf(CommandAbortedError)
+		await resultPromise.catch((error: CommandAbortedError) => {
+			expect(error.signal).toBeUndefined()
+		})
+	})
+
+	it("resolves a genuine non-zero exit status instead of treating it as an abort", async () => {
+		const fake = createFakeChannel()
+		const resultPromise = execViaChannel(fake.channel, "docker --version", 1000)
+		fake.emitStderr(Buffer.from("command not found\n"))
+		fake.emitClose(127)
+
+		await expect(resultPromise).resolves.toEqual({
+			stdout: "",
+			stderr: "command not found\n",
+			exitCode: 127,
+		})
 	})
 
 	it("rejects and destroys the channel when the command exceeds its timeout", async () => {

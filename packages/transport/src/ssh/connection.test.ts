@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { execWithBoundedAcquisition, type RequestChannel } from "./connection"
-import type { ExecChannel } from "./exec"
+import { CommandAbortedError, type ExecChannel } from "./exec"
 
 type FakeExecChannel = {
 	channel: ExecChannel
 	emitStdout: (chunk: Buffer) => void
-	emitClose: (exitCode: number | undefined) => void
+	emitClose: (exitCode: number | null | undefined, signal?: string) => void
 	wasDestroyed: () => boolean
 }
 
 const createFakeExecChannel = (): FakeExecChannel => {
 	let onStdout: ((chunk: Buffer) => void) | undefined
-	let onClose: ((exitCode: number | undefined) => void) | undefined
+	let onClose:
+		| ((exitCode: number | null | undefined, signal: string | undefined) => void)
+		| undefined
 	let destroyed = false
 
 	return {
@@ -28,7 +30,7 @@ const createFakeExecChannel = (): FakeExecChannel => {
 			},
 		},
 		emitStdout: (chunk) => onStdout?.(chunk),
-		emitClose: (exitCode) => onClose?.(exitCode),
+		emitClose: (exitCode, signal) => onClose?.(exitCode, signal),
 		wasDestroyed: () => destroyed,
 	}
 }
@@ -51,6 +53,16 @@ describe("execWithBoundedAcquisition", () => {
 		fake.emitClose(0)
 
 		await expect(resultPromise).resolves.toEqual({ stdout: "hi\n", stderr: "", exitCode: 0 })
+	})
+
+	it("propagates a signal-killed command as a rejection rather than a successful result", async () => {
+		const fake = createFakeExecChannel()
+		const requestChannel: RequestChannel = (_command, callback) => callback(undefined, fake.channel)
+
+		const resultPromise = execWithBoundedAcquisition(requestChannel, "docker --version", 1000)
+		const assertion = expect(resultPromise).rejects.toBeInstanceOf(CommandAbortedError)
+		fake.emitClose(null, "SIGTERM")
+		await assertion
 	})
 
 	it("rejects at the timeout, rather than hanging, when the channel is never granted", async () => {

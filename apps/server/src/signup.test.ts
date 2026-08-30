@@ -49,17 +49,19 @@ describe("argon2id wiring", () => {
 			body: { email, password: "correct horse battery staple 4", name: "Argon Check" },
 		})
 
-		const account = await db
-			.selectFrom("account")
-			.select("password")
-			.where("userId", "=", signUpResult.user.id)
-			.executeTakeFirst()
-		const hash = account?.password ?? ""
-		expect(hash.startsWith("$argon2id$")).toBe(true)
-		expect(hash).toContain("m=19456,t=2,p=1")
-
-		await db.deleteFrom("session").where("userId", "=", signUpResult.user.id).execute()
-		await db.deleteFrom("account").where("userId", "=", signUpResult.user.id).execute()
-		await db.deleteFrom("user").where("id", "=", signUpResult.user.id).execute()
+		try {
+			const account = await db
+				.selectFrom("account")
+				.select("password")
+				.where("userId", "=", signUpResult.user.id)
+				.executeTakeFirst()
+			const hash = account?.password ?? ""
+			expect(hash.startsWith("$argon2id$")).toBe(true)
+			expect(hash).toContain("m=19456,t=2,p=1")
+		} finally {
+			await db.deleteFrom("session").where("userId", "=", signUpResult.user.id).execute()
+			await db.deleteFrom("account").where("userId", "=", signUpResult.user.id).execute()
+			await db.deleteFrom("user").where("id", "=", signUpResult.user.id).execute()
+		}
 	})
 })

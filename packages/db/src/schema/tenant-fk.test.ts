@@ -17,6 +17,8 @@ type SeededIds = {
 	hostIds: string[]
 	sshKeyIds: string[]
 	auditEventIds: string[]
+	instanceIds: string[]
+	instanceConfigIds: string[]
 }
 
 const emptySeededIds = (): SeededIds => ({
@@ -26,9 +28,15 @@ const emptySeededIds = (): SeededIds => ({
 	hostIds: [],
 	sshKeyIds: [],
 	auditEventIds: [],
+	instanceIds: [],
+	instanceConfigIds: [],
 })
 
 let seeded = emptySeededIds()
+
+afterAll(async () => {
+	await db.destroy()
+})
 
 const seedOrganization = async () => {
 	const id = randomUUID()
@@ -58,6 +66,19 @@ describe("tenant foreign key integrity", () => {
 		const created = seeded
 		seeded = emptySeededIds()
 		const steps: Array<() => Promise<void>> = [
+			async () => {
+				if (created.instanceConfigIds.length > 0) {
+					await db
+						.deleteFrom("instanceConfig")
+						.where("id", "in", created.instanceConfigIds)
+						.execute()
+				}
+			},
+			async () => {
+				if (created.instanceIds.length > 0) {
+					await db.deleteFrom("instance").where("id", "in", created.instanceIds).execute()
+				}
+			},
 			async () => {
 				if (created.auditEventIds.length > 0) {
 					await db.deleteFrom("auditEvent").where("id", "in", created.auditEventIds).execute()
@@ -97,10 +118,6 @@ describe("tenant foreign key integrity", () => {
 				console.error("tenant-fk.test.ts teardown: cleanup step failed", error)
 			}
 		}
-	})
-
-	afterAll(async () => {
-		await db.destroy()
 	})
 
 	it("keeps the host row and nulls only hostKeyTrustedBy when the trusting member is deleted, preserving hostKeyTrustedByLabel", async () => {
@@ -251,5 +268,143 @@ describe("tenant foreign key integrity", () => {
 				})
 				.execute(),
 		).rejects.toThrow()
+	})
+})
+
+describe("instance tenant integrity", () => {
+	afterEach(async () => {
+		const created = seeded
+		seeded = emptySeededIds()
+		if (created.instanceConfigIds.length > 0) {
+			await db.deleteFrom("instanceConfig").where("id", "in", created.instanceConfigIds).execute()
+		}
+		if (created.instanceIds.length > 0) {
+			await db.deleteFrom("instance").where("id", "in", created.instanceIds).execute()
+		}
+		if (created.hostIds.length > 0) {
+			await db.deleteFrom("host").where("id", "in", created.hostIds).execute()
+		}
+		if (created.memberIds.length > 0) {
+			await db.deleteFrom("member").where("id", "in", created.memberIds).execute()
+		}
+		if (created.userIds.length > 0) {
+			await db.deleteFrom("user").where("id", "in", created.userIds).execute()
+		}
+		if (created.organizationIds.length > 0) {
+			await db.deleteFrom("organization").where("id", "in", created.organizationIds).execute()
+		}
+	})
+
+	const seedHost = async (organizationId: string) => {
+		const id = randomUUID()
+		await db
+			.insertInto("host")
+			.values({ id, organizationId, name: `h-${id.slice(0, 8)}`, hostname: "10.0.0.1" })
+			.execute()
+		seeded.hostIds.push(id)
+		return id
+	}
+
+	it("rejects an instance in one organization referencing a host from another", async () => {
+		const orgA = await seedOrganization()
+		const orgB = await seedOrganization()
+		const hostInB = await seedHost(orgB)
+
+		await expect(
+			db
+				.insertInto("instance")
+				.values({
+					id: randomUUID(),
+					organizationId: orgA,
+					hostId: hostInB,
+					name: "cross",
+					minecraftAccount: "a@example.com",
+				})
+				.execute(),
+		).rejects.toThrow(/instance_host_org_fk/)
+	})
+
+	it("refuses to delete a host that still has an instance on it", async () => {
+		const org = await seedOrganization()
+		const hostId = await seedHost(org)
+		const instanceId = randomUUID()
+		await db
+			.insertInto("instance")
+			.values({
+				id: instanceId,
+				organizationId: org,
+				hostId,
+				name: "live",
+				minecraftAccount: "a@example.com",
+			})
+			.execute()
+		seeded.instanceIds.push(instanceId)
+
+		await expect(db.deleteFrom("host").where("id", "=", hostId).execute()).rejects.toThrow(
+			/instance_host_org_fk/,
+		)
+	})
+
+	it("keeps the config row and nulls only authorId when the author is deleted", async () => {
+		const org = await seedOrganization()
+		const hostId = await seedHost(org)
+		const memberId = await seedMember(org)
+		const instanceId = randomUUID()
+		await db
+			.insertInto("instance")
+			.values({
+				id: instanceId,
+				organizationId: org,
+				hostId,
+				name: "cfg",
+				minecraftAccount: "a@example.com",
+			})
+			.execute()
+		seeded.instanceIds.push(instanceId)
+		const configId = randomUUID()
+		await db
+			.insertInto("instanceConfig")
+			.values({
+				id: configId,
+				organizationId: org,
+				instanceId,
+				version: 1,
+				document: JSON.stringify({ serverAddress: "play.example.com" }),
+				authorId: memberId,
+				authorLabel: "author@example.com",
+			})
+			.execute()
+		seeded.instanceConfigIds.push(configId)
+
+		await db.deleteFrom("member").where("id", "=", memberId).execute()
+
+		const row = await db
+			.selectFrom("instanceConfig")
+			.selectAll()
+			.where("id", "=", configId)
+			.executeTakeFirst()
+		expect(row?.authorId).toBeNull()
+		expect(row?.authorLabel).toBe("author@example.com")
+		expect(row?.organizationId).toBe(org)
+	})
+
+	it("refuses an auth claim id without a claim timestamp", async () => {
+		const org = await seedOrganization()
+		const hostId = await seedHost(org)
+		const instanceId = randomUUID()
+
+		await expect(
+			db
+				.insertInto("instance")
+				.values({
+					id: instanceId,
+					organizationId: org,
+					hostId,
+					name: "noclaim",
+					minecraftAccount: "a@example.com",
+					authClaimId: "attempt-1",
+				})
+				.execute(),
+		).rejects.toThrow(/instance_auth_requires_lease/)
 	})
 })

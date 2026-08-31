@@ -15,7 +15,6 @@ export type HostTable = Omit<
 	| "hostKeyFingerprint"
 	| "hostKeyTrustedBy"
 	| "hostKeyTrustedAt"
-	| "dockerVersion"
 	| "osRelease"
 	| "cpuCount"
 	| "memoryMb"

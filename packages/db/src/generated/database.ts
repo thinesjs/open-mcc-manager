@@ -77,6 +77,30 @@ export interface Host {
 	username: Generated<string>
 }
 
+export interface Instance {
+	authClaimedAt: Timestamp | null
+	authClaimId: string | null
+	createdAt: Generated<Timestamp>
+	hostId: string
+	id: string
+	lastExitCode: number | null
+	minecraftAccount: string
+	name: string
+	organizationId: string
+	status: Generated<string>
+}
+
+export interface InstanceConfig {
+	authorId: string | null
+	authorLabel: string
+	createdAt: Generated<Timestamp>
+	document: Json
+	id: string
+	instanceId: string
+	organizationId: string
+	version: number
+}
+
 export interface Invitation {
 	createdAt: Generated<Timestamp>
 	email: string
@@ -150,6 +174,8 @@ export interface DB {
 	account: Account
 	auditEvent: AuditEvent
 	host: Host
+	instance: Instance
+	instanceConfig: InstanceConfig
 	invitation: Invitation
 	member: Member
 	organization: Organization

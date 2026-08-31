@@ -17,6 +17,8 @@ type SeededIds = {
 	hostIds: string[]
 	sshKeyIds: string[]
 	auditEventIds: string[]
+	instanceIds: string[]
+	instanceConfigIds: string[]
 }
 
 const seeded: SeededIds = {
@@ -26,6 +28,8 @@ const seeded: SeededIds = {
 	hostIds: [],
 	sshKeyIds: [],
 	auditEventIds: [],
+	instanceIds: [],
+	instanceConfigIds: [],
 }
 
 export const seedOrganization = async (slugPrefix: string): Promise<string> => {
@@ -63,8 +67,29 @@ export const trackAuditEventId = (id: string): void => {
 	seeded.auditEventIds.push(id)
 }
 
+export const trackInstanceId = (id: string): void => {
+	seeded.instanceIds.push(id)
+}
+
+export const trackInstanceConfigId = (id: string): void => {
+	seeded.instanceConfigIds.push(id)
+}
+
 const deleteTrackedRows = async (): Promise<void> => {
 	const steps: Array<() => Promise<void>> = [
+		async () => {
+			if (seeded.instanceConfigIds.length > 0) {
+				await testDb()
+					.deleteFrom("instanceConfig")
+					.where("id", "in", seeded.instanceConfigIds)
+					.execute()
+			}
+		},
+		async () => {
+			if (seeded.instanceIds.length > 0) {
+				await testDb().deleteFrom("instance").where("id", "in", seeded.instanceIds).execute()
+			}
+		},
 		async () => {
 			if (seeded.auditEventIds.length > 0) {
 				await testDb().deleteFrom("auditEvent").where("id", "in", seeded.auditEventIds).execute()
@@ -114,6 +139,8 @@ const deleteTrackedRows = async (): Promise<void> => {
 	seeded.hostIds = []
 	seeded.sshKeyIds = []
 	seeded.auditEventIds = []
+	seeded.instanceIds = []
+	seeded.instanceConfigIds = []
 }
 
 export const teardownTestDb = async (): Promise<void> => {

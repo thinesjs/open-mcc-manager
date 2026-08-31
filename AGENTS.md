@@ -338,40 +338,52 @@ more permissively than the deployment proves nothing about the deployment;
 
 ## Adding a domain end to end
 
-Worked example: adding an `instance` domain (a running Minecraft server on
-a host), following the actual stack above.
+The `instance` domain is the reference, and it is real code rather than a
+sketch — read the files as you go rather than trusting this summary, because a
+summary drifts and the files do not.
 
-1. `packages/contracts/src/instance.ts` — zod input and output schemas
-   (`createInstanceInput`, `instanceIdInput`), exported from
-   `packages/contracts/src/index.ts`.
-2. A new migration file, `packages/db/migrations/0006_<name>.sql`, adding an
-   `instance` table with `organizationId text not null references
-   organization(id) on delete cascade` and a composite FK back to `host`
-   scoped by organization, the same way `host` and `sshKey` do it today. Run
-   `pnpm --filter @open-mcc/db db:migrate` against the dev database, then
-   `pnpm --filter @open-mcc/db db:codegen` to regenerate
-   `generated/database.ts`, then add
-   `packages/db/src/schema/instance.ts` narrowing the generated row exactly
-   like `host.ts` does for its `status` column.
-3. `packages/core/src/instance/instance.repository.ts` — `createInstanceRepository(db: Executor)`
-   with org-scoped `insert` / `findById` / `list` / `delete`, matching the
-   shape of `host.repository.ts`.
-4. `packages/core/src/instance/instance.controller.ts` —
-   `createInstanceController(deps)` whose methods check `can(ctx.role,
-   "instance.create")` (or the relevant capability) before any side effect,
-   then do the work, then audit owner-relevant mutations through the same
-   `withTransaction` pattern `host.controller.ts` uses — the repository
-   write and its audit row commit together, and any remote effect (starting
-   the container over the host's transport) happens outside that
-   transaction, not inside it.
-5. `apps/server/src/routers/instance.router.ts` — a `protectedProcedure`
-   per method, `.input(createInstanceInput)` for validation,
-   `requireCapability(ctx.actor.role, "instance.create")` before calling the
-   controller, registered on `appRouter` in `apps/server/src/routers/index.ts`.
-6. Colocated `*.test.ts` beside each new file. Repository and controller
-   tests that hit real Postgres need `TEST_DATABASE_URL` and must include a
-   cross-tenant case — organization A's actor must not be able to read,
-   modify, or delete organization B's instance.
+1. `packages/contracts/src/instance.ts` — every zod schema and wire type for
+   the domain, exported from `packages/contracts/src/index.ts`. Note what lives
+   here and not in `core`: `DeviceCodeChallenge` is a contracts type even
+   though only `core` produces it, because `apps/web` must be able to name the
+   inferred router type and it does not depend on `core`. A return type that
+   originates in `core` and reaches a router will fail the web app's typecheck.
+2. A migration under `packages/db/migrations/` — `0009_instance.sql` for this
+   domain. Every domain table carries `organizationId` with a plain FK to
+   `organization` on delete cascade, and any FK to another domain table is
+   **composite** on `(organizationId, id)`. That requires the referenced table
+   to carry `UNIQUE (organizationId, id)`; `host` did not have one until
+   `0009` added it, so check before assuming. Use the column-scoped
+   `ON DELETE SET NULL ("authorId")` form for author columns, or member
+   deletion fails outright on the NOT NULL `organizationId`. Then
+   `DATABASE_URL=<test url> pnpm --filter @open-mcc/db db:migrate` followed by
+   `db:codegen`, and add `packages/db/src/schema/instance.ts` narrowing the
+   generated row the way `host.ts` does. **Register the narrowed table in
+   `packages/db/src/database.ts`** — without that, `status` reaches every
+   repository as a bare `string` and the narrowing does nothing.
+3. `packages/core/src/instance/instance.repository.ts` — org-scoped throughout.
+   Every method takes `OrgScope` first and filters on it. `update` writes
+   `organizationId` into the `SET` clause last so a smuggled patch cannot move
+   a row between organizations, and only whitelisted columns are updatable —
+   claim columns stay out of that whitelist deliberately.
+4. `packages/core/src/instance/instance.controller.ts` — capability check, then
+   the work, then audit. The write and its audit row commit together through
+   `withTransaction`, and **every SSH operation happens outside every
+   transaction**. This project shipped a transaction spanning network I/O once;
+   `host.controller.transaction.test.ts` exists because of it.
+5. `apps/server/src/routers/instance.router.ts` — a `protectedProcedure` per
+   method that does a `requireCapability` check and calls the controller.
+   Nothing else. The router never touches `ctx.db`.
+6. Map every new error class in `apps/server/src/errors.ts` and add its copy to
+   `apps/web/src/lib/errors.ts`. Both are enforced: `errors.test.ts` derives
+   the expected set from what the domain packages export, so an unmapped class
+   fails rather than becoming a silent 500, and the web table is
+   `Record<ErrorCode, string>`, so a code without copy fails typecheck.
+7. Colocated `*.test.ts` beside each new file, including a cross-tenant case —
+   organization A's actor must not read, modify or delete organization B's row.
+   Tests that create rows clean up in `afterEach` with tracked ids, because
+   `apps/server` runs its files sequentially and some assert a table is
+   globally empty.
 
 ## Dashboard (apps/web)
 

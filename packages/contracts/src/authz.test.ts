@@ -50,3 +50,16 @@ describe("roleSchema", () => {
 		expect(() => roleSchema.parse("admin")).toThrow()
 	})
 })
+
+describe("instance.authenticate", () => {
+	it("is granted to owner only, because it binds a real account to a real host", () => {
+		expect(can("owner", "instance.authenticate")).toBe(true)
+		expect(can("operator", "instance.authenticate")).toBe(false)
+		expect(can("viewer", "instance.authenticate")).toBe(false)
+	})
+
+	it("is distinct from instance.create, which is only bookkeeping", () => {
+		expect(can("operator", "instance.start")).toBe(true)
+		expect(can("operator", "instance.authenticate")).toBe(false)
+	})
+})

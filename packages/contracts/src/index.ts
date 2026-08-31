@@ -1,5 +1,6 @@
 export * from "./authz"
 export * from "./errors"
 export * from "./host"
+export * from "./instance"
 export * from "./member"
 export * from "./ssh-key"

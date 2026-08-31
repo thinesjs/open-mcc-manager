@@ -16,6 +16,7 @@ export const CAPABILITIES = [
 	"instance.start",
 	"config.edit",
 	"instance.create",
+	"instance.authenticate",
 	"host.enroll",
 	"sshKey.manage",
 	"member.manage",

@@ -18,7 +18,9 @@ const connected = async () => {
 describe("instance control channel", () => {
 	it("refuses a command containing a newline without dialling out at all", async () => {
 		const transport = await connected()
-		await expect(sendCommand(transport, "abc", "/say hi\n/op attacker", "/srv/open-mcc")).rejects.toThrow(/newline/i)
+		await expect(
+			sendCommand(transport, "abc", "/say hi\n/op attacker", "/srv/open-mcc"),
+		).rejects.toThrow(/newline/i)
 		expect(transport.commands).toEqual([])
 	})
 

@@ -6,6 +6,10 @@ import {
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningInProgressError,
+	InstanceAuthInProgressError,
+	InstanceConcurrentlyModifiedError,
+	InstanceHostNotFoundError,
+	InstanceNotFoundError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -46,6 +50,16 @@ const CONSTRAINT_VIOLATIONS: Record<string, MappedError> = {
 		"CONFLICT",
 		"SSH_KEY_NAME_TAKEN",
 		"An SSH key with that name already exists",
+	),
+	instance_org_name_unique: mapped(
+		"CONFLICT",
+		"INSTANCE_NAME_TAKEN",
+		"An instance with that name already exists",
+	),
+	instance_host_org_fk: mapped(
+		"CONFLICT",
+		"HOST_HAS_INSTANCES",
+		"That host still has instances on it; remove them first",
 	),
 }
 
@@ -91,6 +105,30 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	}
 	if (cause instanceof SshKeyInUseError) {
 		return mapped("CONFLICT", "SSH_KEY_IN_USE", "SSH key is still in use by an enrolled host")
+	}
+	if (cause instanceof InstanceNotFoundError) {
+		return mapped("NOT_FOUND", "INSTANCE_NOT_FOUND", "Instance not found")
+	}
+	if (cause instanceof InstanceHostNotFoundError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_HOST_NOT_READY",
+			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof InstanceAuthInProgressError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_AUTH_IN_PROGRESS",
+			"This instance is being signed in to Microsoft; wait for that to finish",
+		)
+	}
+	if (cause instanceof InstanceConcurrentlyModifiedError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_CONCURRENTLY_MODIFIED",
+			"This instance was changed by someone else. Refresh and try again",
+		)
 	}
 	if (cause instanceof InvitationNotFoundError) {
 		return mapped(

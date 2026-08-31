@@ -5,6 +5,9 @@ import {
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
+	createInstanceController,
+	createInstanceControllerTransaction,
+	createInstanceRepository,
 	createSecretStore,
 	createSshKeyController,
 	createSshKeyControllerTransaction,
@@ -68,6 +71,15 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		instancesRoot,
 		withTransaction: createHostControllerTransaction(db),
 	})
+	const instanceController = createInstanceController({
+		instances: createInstanceRepository(db),
+		hosts,
+		sshKeys,
+		secrets,
+		createTransport: createSshTransport,
+		instancesRoot,
+		withTransaction: createInstanceControllerTransaction(db),
+	})
 	const sshKeyController = createSshKeyController({
 		sshKeys,
 		secrets,
@@ -91,6 +103,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				signupAuth,
 				db,
 				hostController,
+				instanceController,
 				sshKeyController,
 			}),
 		}),

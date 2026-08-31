@@ -56,3 +56,10 @@ export const instancePublic = z.object({
 	createdAt: z.date(),
 })
 export type InstancePublic = z.infer<typeof instancePublic>
+
+export const deviceCodeChallenge = z.object({
+	userCode: z.string(),
+	verificationUri: z.string(),
+	expiresAt: z.date(),
+})
+export type DeviceCodeChallenge = z.infer<typeof deviceCodeChallenge>

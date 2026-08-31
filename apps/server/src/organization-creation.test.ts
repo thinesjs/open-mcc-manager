@@ -20,6 +20,7 @@ import { createRequestContext } from "./create-context"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
+import { createTestInstanceController } from "./test/instance-controller"
 
 const ORIGIN = "http://localhost:5173"
 const PASSWORD = "correct horse battery staple 6"
@@ -73,6 +74,7 @@ beforeAll(async () => {
 				signupAuth,
 				db,
 				hostController,
+				instanceController: await createTestInstanceController(db),
 				sshKeyController,
 			}),
 		}),

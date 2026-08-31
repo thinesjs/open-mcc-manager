@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
+import { createTestInstanceController } from "./test/instance-controller"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -92,6 +93,7 @@ const ctx: RequestContext = {
 	signupAuth: auth,
 	headers: new Headers(),
 	hostController,
+	instanceController: await createTestInstanceController(db),
 	sshKeyController,
 	db,
 }

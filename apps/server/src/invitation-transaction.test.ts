@@ -5,6 +5,7 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+import { createTestInstanceController } from "./test/instance-controller"
 
 const failNextAuditRecord = { current: false }
 
@@ -93,6 +94,7 @@ beforeAll(async () => {
 				signupAuth: auth,
 				db,
 				hostController,
+				instanceController: await createTestInstanceController(db),
 				sshKeyController,
 			}),
 		}),

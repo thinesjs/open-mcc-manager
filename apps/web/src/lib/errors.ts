@@ -21,6 +21,15 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"This SSH key is still in use by an enrolled host. Remove the hosts using it, then delete the key.",
 	HOST_NAME_TAKEN: "A host with that name already exists. Choose a different name.",
 	SSH_KEY_NAME_TAKEN: "An SSH key with that name already exists. Choose a different name.",
+	INSTANCE_NOT_FOUND: "That instance no longer exists. Refresh the list.",
+	INSTANCE_HOST_NOT_READY:
+		"That instance's host is not ready yet. Enroll and provision the host first.",
+	INSTANCE_AUTH_IN_PROGRESS:
+		"This instance is being signed in to Microsoft. Wait for that to finish, then try again.",
+	INSTANCE_CONCURRENTLY_MODIFIED:
+		"This instance was changed by someone else. Refresh and try again.",
+	INSTANCE_NAME_TAKEN: "An instance with that name already exists in this organization.",
+	HOST_HAS_INSTANCES: "That host still has instances on it. Remove them before deleting the host.",
 	CONSTRAINT_VIOLATION: "That change conflicts with data already stored. Refresh and try again.",
 }
 

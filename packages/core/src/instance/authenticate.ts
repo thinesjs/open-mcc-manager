@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { DeviceCodeChallenge } from "@open-mcc/contracts"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -18,12 +19,6 @@ export const DEVICE_CODE_POLL_ATTEMPTS = 10
 export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
 
 export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
-
-export type DeviceCodeChallenge = {
-	userCode: string
-	verificationUri: string
-	expiresAt: Date
-}
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 

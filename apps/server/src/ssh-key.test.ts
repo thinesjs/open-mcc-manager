@@ -22,6 +22,7 @@ import { createRequestContext } from "./create-context"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
+import { createTestInstanceController } from "./test/instance-controller"
 
 const ORIGIN = "http://localhost:5173"
 const SEALBOX_KEY_ID = "sshkeytestsealbox"
@@ -80,6 +81,7 @@ beforeAll(async () => {
 				signupAuth: auth,
 				db,
 				hostController,
+				instanceController: await createTestInstanceController(db),
 				sshKeyController,
 			}),
 		}),

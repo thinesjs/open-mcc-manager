@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { renderInstanceConfig } from "./config"
+import { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./config"
 
 const base = {
 	minecraftAccount: "afk@example.com",
@@ -52,5 +52,20 @@ describe("instance config rendering", () => {
 	it("escapes a value containing a quote rather than terminating the string", () => {
 		const rendered = renderInstanceConfig({ ...base, serverAddress: 'a"b' })
 		expect(rendered).toContain('Host = "a\\"b"')
+	})
+
+	it("emits exactly the keys ALLOWED_CONFIG_KEYS names, so the list cannot drift from the output", () => {
+		const rendered = renderInstanceConfig(base)
+		let section = ""
+		const emitted: string[] = []
+		for (const line of rendered.split("\n")) {
+			if (line.startsWith("[")) {
+				section = line.slice(1, -1)
+				continue
+			}
+			const match = /^([A-Za-z_][A-Za-z0-9_]*) = /.exec(line)
+			if (match) emitted.push(`${section}.${match[1]}`)
+		}
+		expect(emitted.sort()).toEqual([...ALLOWED_CONFIG_KEYS].sort())
 	})
 })

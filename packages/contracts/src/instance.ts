@@ -16,14 +16,16 @@ export type CreateInstanceInput = z.infer<typeof createInstanceInput>
 export const instanceIdInput = z.object({ instanceId: z.string().min(1) })
 export type InstanceIdInput = z.infer<typeof instanceIdInput>
 
-export const instanceConfigInput = z.object({
-	minecraftAccount: z.string().email(),
-	serverAddress: z.string().min(1).max(253),
-	autoRelogRetries: z.number().int().min(0).max(1000),
-	autoRelogDelaySeconds: z.number().int().min(1).max(3600),
-	antiAfkEnabled: z.boolean(),
-	antiAfkIntervalSeconds: z.number().int().min(1).max(3600),
-})
+export const instanceConfigInput = z
+	.object({
+		minecraftAccount: z.string().email(),
+		serverAddress: z.string().min(1).max(253),
+		autoRelogRetries: z.number().int().min(0).max(1000),
+		autoRelogDelaySeconds: z.number().int().min(1).max(3600),
+		antiAfkEnabled: z.boolean(),
+		antiAfkIntervalSeconds: z.number().int().min(1).max(3600),
+	})
+	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>
 
 export const updateInstanceConfigInput = z.object({

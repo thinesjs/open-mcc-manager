@@ -6,6 +6,8 @@ import { MCC_SHA256, MCC_VERSION, mccDownloadUrl } from "./mcc-release"
 
 export const UNIT_TEMPLATE_PATH = "/etc/systemd/system/open-mcc@.service"
 
+export const UNIT_TEMPLATE_INSTANCES_ROOT = "/srv/open-mcc"
+
 const UNIT_TEMPLATE = readFileSync(
 	join(
 		dirname(fileURLToPath(import.meta.url)),
@@ -119,4 +121,13 @@ export const provisionHost = async (
 	await step(transport, "systemctl daemon-reload", "Failed to reload systemd")
 
 	return { osRelease }
+}
+
+export const assertInstancesRootMatchesUnitTemplate = (instancesRoot: string): string => {
+	if (instancesRoot !== UNIT_TEMPLATE_INSTANCES_ROOT) {
+		throw new Error(
+			`INSTANCES_ROOT is ${instancesRoot} but the systemd unit template is fixed at ${UNIT_TEMPLATE_INSTANCES_ROOT}; the template is deliberately static, so these cannot differ`,
+		)
+	}
+	return instancesRoot
 }

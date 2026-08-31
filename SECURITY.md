@@ -145,10 +145,10 @@ not a goal of the current architecture.
   (`PROVISIONING_LEASE_MS`, currently 10 minutes) is treated as abandoned and
   may be reclaimed or the host deleted; reclaiming one is itself audited. The
   lease comfortably outlasts a single attempt's bounded worst-case runtime —
-  a 10-second connect plus two 120-second remote execs, each now bounded
-  end-to-end including channel acquisition (see
-  `packages/transport/src/ssh/connection.ts`), for about 250 seconds against
-  a 300-second lease. A row can no longer sit in `provisioning` status with
+  a 10-second connect plus eight 15-second remote steps and one 180-second
+  binary download, each bounded end-to-end including channel acquisition (see
+  `packages/transport/src/ssh/connection.ts`), for about 310 seconds against
+  a 600-second lease. A row can no longer sit in `provisioning` status with
   no attempt id or claim timestamp: a database check constraint
   (`host_provisioning_requires_lease`) requires both whenever status is
   `provisioning`, and the recovery path treats a missing claim timestamp as
@@ -165,8 +165,8 @@ not a goal of the current architecture.
   fingerprint during the attempt is told the attempt is in progress instead
   of having the revocation silently overtaken by a connection already in
   motion. The rejection holds for as long as the claim stays non-stale
-  (`PROVISIONING_LEASE_MS`, 5 minutes) — comfortably longer than an attempt's
-  ~250-second bounded worst case, so a genuinely live attempt cannot outlive
+  (`PROVISIONING_LEASE_MS`, 10 minutes) — comfortably longer than an attempt's
+  ~310-second bounded worst case, so a genuinely live attempt cannot outlive
   this protection under normal operation. A re-trust attempted before the
   claim is taken, or after the attempt has finalized (success or error) or
   its claim has gone stale, is allowed to proceed.
@@ -205,7 +205,7 @@ not a goal of the current architecture.
 - **A stalled provisioning claim is recoverable only after its lease
   expires, not immediately.** If the application process dies mid-provision,
   the affected host is unavailable for a new `provision` or a `remove` call
-  until `PROVISIONING_LEASE_MS` (currently 5 minutes) has elapsed since the
+  until `PROVISIONING_LEASE_MS` (currently 10 minutes) has elapsed since the
   claim. This bounds what was previously an unbounded, permanent lockout to a
   bounded wait — it does not eliminate the wait.
 - **Actor label provenance is not verified at the domain layer.**

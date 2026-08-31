@@ -18,19 +18,19 @@ const connected = async () => {
 describe("instance control channel", () => {
 	it("refuses a command containing a newline without dialling out at all", async () => {
 		const transport = await connected()
-		await expect(sendCommand(transport, "abc", "/say hi\n/op attacker")).rejects.toThrow(/newline/i)
+		await expect(sendCommand(transport, "abc", "/say hi\n/op attacker", "/srv/open-mcc")).rejects.toThrow(/newline/i)
 		expect(transport.commands).toEqual([])
 	})
 
 	it("refuses an id that is not a validated instance id without dialling out", async () => {
 		const transport = await connected()
-		await expect(sendCommand(transport, "../../etc", "/say hi")).rejects.toThrow()
+		await expect(sendCommand(transport, "../../etc", "/say hi", "/srv/open-mcc")).rejects.toThrow()
 		expect(transport.commands).toEqual([])
 	})
 
 	it("writes exactly one newline-terminated line to that instance's fifo", async () => {
 		const transport = await connected()
-		await sendCommand(transport, "abc", "/say hi")
+		await sendCommand(transport, "abc", "/say hi", "/srv/open-mcc")
 		expect(transport.commands[0]).toBe("cat > '/srv/open-mcc/instances/abc/control'")
 		expect(transport.stdins[0]).toBe("/say hi\n")
 	})

@@ -3,8 +3,6 @@ import { validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
 
-export const DEFAULT_INSTANCES_ROOT = "/srv/open-mcc"
-
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 const controlPath = (instancesRoot: string, instanceId: string): string =>
@@ -14,7 +12,7 @@ export const sendCommand = async (
 	transport: HostTransport,
 	instanceId: string,
 	command: string,
-	instancesRoot: string = DEFAULT_INSTANCES_ROOT,
+	instancesRoot: string,
 ): Promise<void> => {
 	const id = validateInstanceId(instanceId)
 	if (/[\n\r]/.test(command)) {

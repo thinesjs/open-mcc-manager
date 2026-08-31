@@ -34,14 +34,15 @@ export {
 	PROVISIONING_LEASE_MS,
 } from "./host/host.repository"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
-export { PROVISION_STEP_TIMEOUT_MS, provisionHost, validateInstancesRoot } from "./host/provision"
-export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
 export {
-	CONTROL_TIMEOUT_MS,
-	DEFAULT_INSTANCES_ROOT,
-	readConsole,
-	sendCommand,
-} from "./instance/control"
+	assertInstancesRootMatchesUnitTemplate,
+	PROVISION_STEP_TIMEOUT_MS,
+	provisionHost,
+	UNIT_TEMPLATE_INSTANCES_ROOT,
+	validateInstancesRoot,
+} from "./host/provision"
+export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
+export { CONTROL_TIMEOUT_MS, readConsole, sendCommand } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"
 export { interpretExitCode, shouldRestartOn } from "./instance/exit-code"
 export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"

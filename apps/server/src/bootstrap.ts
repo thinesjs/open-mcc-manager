@@ -1,6 +1,7 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
+	assertInstancesRootMatchesUnitTemplate,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
@@ -32,7 +33,9 @@ export type ServerHandle = {
 export type Serve = typeof serve
 
 export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandle> => {
-	const instancesRoot = validateInstancesRoot(env.INSTANCES_ROOT)
+	const instancesRoot = assertInstancesRootMatchesUnitTemplate(
+		validateInstancesRoot(env.INSTANCES_ROOT),
+	)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 
 	const db = createDb(env.DATABASE_URL)

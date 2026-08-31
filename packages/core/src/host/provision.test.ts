@@ -1,6 +1,10 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { provisionHost, validateInstancesRoot } from "./provision"
+import {
+	assertInstancesRootMatchesUnitTemplate,
+	provisionHost,
+	validateInstancesRoot,
+} from "./provision"
 
 describe("validateInstancesRoot", () => {
 	it("rejects a relative path and a path with a space", () => {
@@ -14,10 +18,8 @@ describe("validateInstancesRoot", () => {
 })
 
 describe("provisionHost", () => {
-	it("provisions a host that has no docker installed", async () => {
-		const transport = createFakeTransport({
-			"docker --version": { stdout: "", stderr: "not found", exitCode: 127 },
-		})
+	it("never asks the host about docker, which it no longer needs", async () => {
+		const transport = createFakeTransport()
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -72,5 +74,17 @@ describe("provisionHost", () => {
 		expect(command).toBe("cat > '/etc/systemd/system/open-mcc@.service'")
 		expect(transport.stdins.some((each) => each.includes("RestartPreventExitStatus=4"))).toBe(true)
 		expect(transport.commands).toContain("systemctl daemon-reload")
+	})
+})
+
+describe("assertInstancesRootMatchesUnitTemplate", () => {
+	it("refuses a root the static unit template cannot reference", () => {
+		expect(() => assertInstancesRootMatchesUnitTemplate("/opt/elsewhere")).toThrow(
+			/deliberately static/,
+		)
+	})
+
+	it("accepts the root the template is fixed at", () => {
+		expect(assertInstancesRootMatchesUnitTemplate("/srv/open-mcc")).toBe("/srv/open-mcc")
 	})
 })

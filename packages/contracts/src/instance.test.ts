@@ -10,7 +10,7 @@ describe("instance contracts", () => {
 		expect(INSTANCE_ID_PATTERN.test("")).toBe(false)
 	})
 
-	it("strips any config key outside the typed set, so one can never reach the serializer", () => {
+	it("refuses a config write naming a script key, which is what stops config from reaching CSharpRunner", () => {
 		const parsed = instanceConfigInput.safeParse({
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
@@ -18,18 +18,23 @@ describe("instance contracts", () => {
 			autoRelogDelaySeconds: 10,
 			antiAfkEnabled: true,
 			antiAfkIntervalSeconds: 60,
-			scriptFile: "evil",
 			"ChatBot.Script.Script_File": "evil",
 		})
-		expect(parsed.success).toBe(true)
-		expect(Object.keys(parsed.data ?? {}).sort()).toEqual([
-			"antiAfkEnabled",
-			"antiAfkIntervalSeconds",
-			"autoRelogDelaySeconds",
-			"autoRelogRetries",
-			"minecraftAccount",
-			"serverAddress",
-		])
+		expect(parsed.success).toBe(false)
+		expect(JSON.stringify(parsed.error?.issues)).toContain("unrecognized")
+	})
+
+	it("refuses any unrecognised key at all, not only script-shaped ones", () => {
+		const parsed = instanceConfigInput.safeParse({
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+			autoRelogRetries: 3,
+			autoRelogDelaySeconds: 10,
+			antiAfkEnabled: true,
+			antiAfkIntervalSeconds: 60,
+			harmlessLookingExtra: 1,
+		})
+		expect(parsed.success).toBe(false)
 	})
 
 	it("requires a real email for the account the instance logs in as", () => {

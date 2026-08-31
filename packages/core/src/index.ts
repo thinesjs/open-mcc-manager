@@ -35,6 +35,7 @@ export {
 } from "./host/host.repository"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export { PROVISION_STEP_TIMEOUT_MS, provisionHost, validateInstancesRoot } from "./host/provision"
+export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
 export { assertExhaustive } from "./lib/exhaustive"
 export { redact, redactError } from "./security/redact"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"

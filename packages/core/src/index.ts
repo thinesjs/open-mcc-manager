@@ -41,6 +41,8 @@ export {
 	UNIT_TEMPLATE_INSTANCES_ROOT,
 	validateInstancesRoot,
 } from "./host/provision"
+export type { DeviceCodeChallenge } from "./instance/authenticate"
+export { beginAuthentication, DEVICE_CODE_TTL_MS } from "./instance/authenticate"
 export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
 export { CONTROL_TIMEOUT_MS, readConsole, sendCommand } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"

@@ -147,3 +147,5 @@ export const createInstanceRepository = (db: Executor) => ({
 			.orderBy("version", "desc")
 			.executeTakeFirst(),
 })
+
+export type InstanceRepository = ReturnType<typeof createInstanceRepository>

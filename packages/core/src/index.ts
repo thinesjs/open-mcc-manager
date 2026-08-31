@@ -45,7 +45,11 @@ export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
 export { CONTROL_TIMEOUT_MS, readConsole, sendCommand } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"
 export { interpretExitCode, shouldRestartOn } from "./instance/exit-code"
-export type { InstanceCreateValues, InstanceUpdateValues } from "./instance/instance.repository"
+export type {
+	InstanceCreateValues,
+	InstanceRepository,
+	InstanceUpdateValues,
+} from "./instance/instance.repository"
 export {
 	AUTH_LEASE_MS,
 	createInstanceRepository,

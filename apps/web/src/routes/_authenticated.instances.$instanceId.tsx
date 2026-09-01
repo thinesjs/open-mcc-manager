@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, Square } from "lucide-react"
 import { useState } from "react"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
@@ -20,7 +21,10 @@ function InstanceDetailPage() {
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
-	const consoleQuery = useQuery(trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }))
+	const consoleQuery = useQuery({
+		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
+		retry: false,
+	})
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries()
@@ -182,6 +186,8 @@ function InstanceDetailPage() {
 							</dd>
 						</div>
 					</dl>
+
+					<SleepWindow instanceId={instanceId} />
 
 					<section className="space-y-3">
 						<h2 className="text-sm font-semibold text-foreground">Console</h2>

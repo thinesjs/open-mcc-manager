@@ -3,6 +3,7 @@ import {
 	instanceIdInput,
 	readInstanceConsoleInput,
 	sendInstanceCommandInput,
+	sleepWindowInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
 import { protectedProcedure, requireCapability, router } from "../trpc"
@@ -67,6 +68,22 @@ export const instanceRouter = router({
 	completeAuthentication: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.authenticate")
 		return ctx.instanceController.completeAuthentication(ctx.actor, input.instanceId)
+	}),
+
+	getSleepWindow: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.getSleepWindow(ctx.actor, input.instanceId)
+	}),
+
+	setSleepWindow: protectedProcedure.input(sleepWindowInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.start")
+		return ctx.instanceController.setSleepWindow(ctx.actor, input)
+	}),
+
+	clearSleepWindow: protectedProcedure.input(instanceIdInput).mutation(async ({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.start")
+		await ctx.instanceController.clearSleepWindow(ctx.actor, input.instanceId)
+		return { cleared: true }
 	}),
 
 	remove: protectedProcedure.input(instanceIdInput).mutation(async ({ ctx, input }) => {

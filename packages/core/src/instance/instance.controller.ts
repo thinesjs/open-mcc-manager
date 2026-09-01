@@ -2,13 +2,18 @@ import {
 	type CreateInstanceInput,
 	can,
 	type InstanceConfigInput,
+	minuteOfDay,
 	type Role,
+	type SleepWindowInput,
+	type SleepWindowPublic,
+	timeOfDay,
 } from "@open-mcc/contracts"
-import type { Db, InstanceRow } from "@open-mcc/db"
+import type { Db, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { HostRepository } from "../host/host.repository"
+import { SYSTEMD_UNIT_DIR } from "../host/provision"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { renderInstanceConfig } from "./config"
 import { readConsole, sendCommand } from "./control"
@@ -17,6 +22,13 @@ import {
 	type InstanceRepository,
 	isAuthClaimStale,
 } from "./instance.repository"
+import {
+	parseDaysOfWeek,
+	renderDaysOfWeek,
+	renderSleepTimers,
+	sleepStartTimer,
+	sleepStopTimer,
+} from "./schedule"
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { instanceDir, instanceUser, renderEnvironmentFile, unitName } from "./unit"
 
@@ -104,6 +116,69 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const found = await deps.instances.findById(scopeOf(ctx), instanceId)
 		if (!found) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
 		return found
+	}
+
+	const toSleepWindowPublic = (row: InstanceScheduleRow): SleepWindowPublic => ({
+		id: row.id,
+		instanceId: row.instanceId,
+		daysOfWeek: parseDaysOfWeek(row.daysOfWeek),
+		stopAt: timeOfDay(row.stopMinuteOfDay),
+		startAt: timeOfDay(row.startMinuteOfDay),
+		timezone: row.timezone,
+		enabled: row.enabled,
+	})
+
+	const applySleepTimers = async (
+		ctx: ActorContext,
+		instance: InstanceRow,
+		window: SleepWindowPublic,
+	): Promise<void> => {
+		const timers = renderSleepTimers(window)
+		const transport = await connectToHost(ctx, instance.hostId)
+		try {
+			for (const [name, unit] of Object.entries(timers)) {
+				const write = await transport.exec(
+					`cat > ${shellQuote(`${SYSTEMD_UNIT_DIR}/${name}`)}`,
+					INSTANCE_STEP_TIMEOUT_MS,
+					unit,
+				)
+				if (write.exitCode !== 0) {
+					throw new Error(`Failed to write ${name}: ${write.stderr.trim()}`)
+				}
+			}
+			await transport.exec("systemctl daemon-reload", INSTANCE_STEP_TIMEOUT_MS)
+			for (const name of Object.keys(timers)) {
+				const enable = await transport.exec(
+					`systemctl enable --now ${shellQuote(name)}`,
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+				if (enable.exitCode !== 0) {
+					throw new Error(`Failed to enable ${name}: ${enable.stderr.trim()}`)
+				}
+			}
+		} finally {
+			await transport.close().catch(() => undefined)
+		}
+	}
+
+	const removeSleepTimers = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
+		const names = [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]
+		const transport = await connectToHost(ctx, instance.hostId)
+		try {
+			for (const name of names) {
+				await transport.exec(
+					`systemctl disable --now ${shellQuote(name)} || true`,
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+				await transport.exec(
+					`rm -f ${shellQuote(`${SYSTEMD_UNIT_DIR}/${name}`)}`,
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+			}
+			await transport.exec("systemctl daemon-reload", INSTANCE_STEP_TIMEOUT_MS)
+		} finally {
+			await transport.close().catch(() => undefined)
+		}
 	}
 
 	const unitCommand = async (
@@ -339,6 +414,72 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: { version: String(version.version) },
 				})
 			})
+		},
+
+		getSleepWindow: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<SleepWindowPublic | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			await requireInstance(ctx, instanceId)
+			const row = await deps.schedules.findByInstance(scopeOf(ctx), instanceId)
+			return row ? toSleepWindowPublic(row) : undefined
+		},
+
+		setSleepWindow: async (
+			ctx: ActorContext,
+			input: SleepWindowInput,
+		): Promise<SleepWindowPublic> => {
+			requireCapabilityFor(ctx.role, "instance.start")
+			const instance = await requireInstance(ctx, input.instanceId)
+
+			const stored = await deps.withTransaction(async (repos) => {
+				const row = await repos.schedules.upsert(scopeOf(ctx), {
+					instanceId: input.instanceId,
+					daysOfWeek: renderDaysOfWeek(input.daysOfWeek),
+					stopMinuteOfDay: minuteOfDay(input.stopAt),
+					startMinuteOfDay: minuteOfDay(input.startAt),
+					timezone: input.timezone,
+					enabled: true,
+				})
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: input.instanceId,
+					detail: {
+						days: row.daysOfWeek,
+						stop: String(row.stopMinuteOfDay),
+						start: String(row.startMinuteOfDay),
+						timezone: row.timezone,
+					},
+				})
+				return row
+			})
+
+			const window = toSleepWindowPublic(stored)
+			await applySleepTimers(ctx, instance, window)
+			return window
+		},
+
+		clearSleepWindow: async (ctx: ActorContext, instanceId: string): Promise<void> => {
+			requireCapabilityFor(ctx.role, "instance.start")
+			const instance = await requireInstance(ctx, instanceId)
+
+			await deps.withTransaction(async (repos) => {
+				await repos.schedules.delete(scopeOf(ctx), instanceId)
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: instanceId,
+					detail: { cleared: "true" },
+				})
+			})
+
+			await removeSleepTimers(ctx, instance)
 		},
 
 		authenticate: async (ctx: ActorContext, instanceId: string) => {

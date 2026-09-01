@@ -1,3 +1,4 @@
+import type { SleepWindowInput } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
 	HostRow,
@@ -292,5 +293,72 @@ describe("instance creation prepares the host", () => {
 			serverAddress: "play.example.com",
 		})
 		expect(transport.commands.find((each) => each.includes("useradd"))).toContain("|| true")
+	})
+})
+
+describe("sleep windows", () => {
+	const window: SleepWindowInput = {
+		instanceId: "abc123",
+		daysOfWeek: ["Mon", "Tue"],
+		stopAt: { hour: 18, minute: 50 },
+		startAt: { hour: 19, minute: 30 },
+		timezone: "Asia/Kuala_Lumpur",
+	}
+
+	it("refuses a viewer's attempt to schedule sleep without touching the host", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(viewer, window)).rejects.toThrow(ForbiddenError)
+		expect(transport.commands).toEqual([])
+	})
+
+	it("lets an operator schedule sleep, since it is an operational concern", async () => {
+		const { deps } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(operator, window)).resolves.toBeDefined()
+	})
+
+	it("writes both timers, reloads systemd, then enables them in that order", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setSleepWindow(owner, window)
+
+		const written = transport.commands.filter((each) => each.startsWith("cat > "))
+		expect(written).toEqual([
+			"cat > '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'",
+			"cat > '/etc/systemd/system/open-mcc-sleep-start@abc123.timer'",
+		])
+		const reload = transport.commands.indexOf("systemctl daemon-reload")
+		const enable = transport.commands.findIndex((each) => each.startsWith("systemctl enable"))
+		expect(reload).toBeGreaterThan(transport.commands.indexOf(written[1] ?? ""))
+		expect(enable).toBeGreaterThan(reload)
+	})
+
+	it("sends the rendered timer as stdin rather than interpolating it into a command", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setSleepWindow(owner, window)
+
+		expect(
+			transport.stdins.some((each) =>
+				each.includes("OnCalendar=Mon,Tue *-*-* 18:50:00 Asia/Kuala_Lumpur"),
+			),
+		).toBe(true)
+	})
+
+	it("disables and removes both timers when the window is cleared", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.clearSleepWindow(owner, "abc123")
+
+		const joined = transport.commands.join("\n")
+		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-stop@abc123.timer'")
+		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
+		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
 	})
 })

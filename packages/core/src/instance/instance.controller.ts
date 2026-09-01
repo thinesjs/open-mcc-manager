@@ -23,6 +23,12 @@ import {
 	isAuthClaimStale,
 } from "./instance.repository"
 import {
+	expectedUnits,
+	type HostReconciliation,
+	reconcileHostOverTransport,
+	renderScheduleUnits,
+} from "./reconcile"
+import {
 	parseDaysOfWeek,
 	renderDaysOfWeek,
 	renderSleepTimers,
@@ -414,6 +420,42 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: { version: String(version.version) },
 				})
 			})
+		},
+
+		reconcileHost: async (ctx: ActorContext, hostId: string): Promise<HostReconciliation> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+
+			const scope = scopeOf(ctx)
+			const instances = (await deps.instances.list(scope)).filter(
+				(instance) => instance.hostId === hostId,
+			)
+			const schedules = (await deps.schedules.list(scope)).filter((schedule) =>
+				instances.some((instance) => instance.id === schedule.instanceId),
+			)
+			const expected = expectedUnits(instances, schedules, renderScheduleUnits)
+
+			let transport: HostTransport
+			try {
+				transport = await connectToHost(ctx, hostId)
+			} catch (error) {
+				return {
+					hostId,
+					reachable: false,
+					reason: error instanceof Error ? error.message : "Host could not be reached",
+				}
+			}
+
+			try {
+				return await reconcileHostOverTransport(transport, hostId, instances, expected)
+			} catch (error) {
+				return {
+					hostId,
+					reachable: false,
+					reason: error instanceof Error ? error.message : "Host stopped responding",
+				}
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
 		},
 
 		getSleepWindow: async (

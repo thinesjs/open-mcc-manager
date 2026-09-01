@@ -69,3 +69,30 @@ export const authenticationState = z.object({
 	status: instanceStatusSchema,
 })
 export type AuthenticationState = z.infer<typeof authenticationState>
+
+export const observedStateSchema = z.enum(["active", "inactive", "failed", "activating", "unknown"])
+export type ObservedState = z.infer<typeof observedStateSchema>
+
+export const unitDriftSchema = z.object({
+	kind: z.enum(["missing", "differs", "unexpected"]),
+	unit: z.string(),
+})
+export type UnitDrift = z.infer<typeof unitDriftSchema>
+
+export const stateDriftSchema = z.object({
+	instanceId: z.string(),
+	desired: instanceStatusSchema,
+	observed: observedStateSchema,
+})
+export type StateDrift = z.infer<typeof stateDriftSchema>
+
+export const hostReconciliationSchema = z.union([
+	z.object({ hostId: z.string(), reachable: z.literal(false), reason: z.string() }),
+	z.object({
+		hostId: z.string(),
+		reachable: z.literal(true),
+		unitDrift: z.array(unitDriftSchema),
+		stateDrift: z.array(stateDriftSchema),
+	}),
+])
+export type HostReconciliation = z.infer<typeof hostReconciliationSchema>

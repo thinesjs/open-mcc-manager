@@ -362,3 +362,37 @@ describe("sleep windows", () => {
 		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
 	})
 })
+
+describe("reconciliation", () => {
+	it("reports an unreachable host as unknown, never as drift", async () => {
+		const { deps } = makeDeps()
+		deps.createTransport = () => {
+			const transport = createFakeTransport()
+			transport.connect = async () => {
+				throw new Error("Connection refused")
+			}
+			return transport
+		}
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+		expect(result).not.toHaveProperty("unitDrift")
+		expect(result).not.toHaveProperty("stateDrift")
+	})
+
+	it("reports a host that dies mid-check as unknown rather than fully drifted", async () => {
+		const { deps, transport } = makeDeps()
+		transport.exec = async () => {
+			throw new Error("Connection reset by peer")
+		}
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+		if (result.reachable) throw new Error("unreachable expected")
+		expect(result.reason).toContain("Connection reset")
+	})
+})

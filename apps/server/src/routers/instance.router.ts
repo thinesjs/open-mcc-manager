@@ -1,5 +1,6 @@
 import {
 	createInstanceInput,
+	hostIdInput,
 	instanceIdInput,
 	readInstanceConsoleInput,
 	sendInstanceCommandInput,
@@ -68,6 +69,11 @@ export const instanceRouter = router({
 	completeAuthentication: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.authenticate")
 		return ctx.instanceController.completeAuthentication(ctx.actor, input.instanceId)
+	}),
+
+	reconcileHost: protectedProcedure.input(hostIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.reconcileHost(ctx.actor, input.hostId)
 	}),
 
 	getSleepWindow: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {

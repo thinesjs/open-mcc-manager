@@ -12,7 +12,10 @@
 		"check": "biome check --write .",
 		"check:types-policy": "node scripts/check-type-policy.mjs",
 		"check:commits": "node scripts/check-commit-subjects.mjs",
-		"lint": "node scripts/lint.mjs"
+		"lint": "node scripts/lint.mjs",
+		"dev:up": "docker compose --env-file .env -f docker/compose.yml up -d",
+		"dev:down": "docker compose --env-file .env -f docker/compose.yml down",
+		"dev:logs": "docker compose --env-file .env -f docker/compose.yml logs -f"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.7",

@@ -18,15 +18,27 @@ already exported in your shell always wins over the file, so CI — which sets
 `TEST_DATABASE_URL` itself and has no `.env` — is unaffected, and you can still
 point a single command at a different database by prefixing it.
 
-Start the stack with `docker compose -f docker/compose.yml up -d`. It builds
-the control-plane image and runs four services:
+Start the stack with `pnpm dev:up` (`pnpm dev:down` to stop, `pnpm dev:logs` to
+follow). Use those rather than `docker compose` directly: the compose file lives
+in `docker/`, so a bare `docker compose -f docker/compose.yml` takes `docker/` as
+its project directory and reads `docker/.env`, which does not exist — every
+`${...}` in the compose file then silently falls back to its default and the
+ports in your `.env` are ignored. The scripts pass `--env-file .env` explicitly.
 
-- `postgres` — the persistent development database on port 5432.
-- `postgres-test` — an ephemeral database on port 55432 that the test suite
+It builds the control-plane image and runs four services, each published on the
+port its `.env` variable names:
+
+- `postgres` — the persistent development database, `DEV_DB_PORT`.
+- `postgres-test` — an ephemeral database, `TEST_DB_PORT`, that the test suite
   connects to. It has no volume and is not expected to survive a restart.
 - `migrate` — a one-shot container that applies the schema to `postgres` and
   exits. `server` waits for it to complete successfully.
-- `server` — the control plane on port 3000.
+- `server` — the control plane, `SERVER_PORT`.
+
+The defaults in `.env.example` sit in a 25xxx block chosen not to collide with
+other local stacks. `ALLOWED_ORIGINS` must name the dashboard's own origin, and
+`BETTER_AUTH_URL` the server's — change a port and those move with it, which
+`scripts/env-example.test.ts` enforces.
 
 `postgres-test` is deliberately left out of that migrate step. It has no
 volume, so it comes back empty after any restart, while the one-shot `migrate`

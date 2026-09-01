@@ -1,3 +1,4 @@
+import "@open-mcc/config/load-env.mjs"
 import { fileURLToPath } from "node:url"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"

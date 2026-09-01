@@ -233,6 +233,15 @@ describe("instance router capability boundaries", () => {
 		expect(res.status).toBe(403)
 	})
 
+	it("refuses an operator's attempt to complete authentication, not just to begin it", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+		await demoteToRole(orgId, "operator")
+
+		const res = await call("instance.completeAuthentication", cookie, { instanceId })
+		expect(res.status).toBe(403)
+	})
+
 	it("refuses an operator's attempt to create an instance", async () => {
 		const { cookie, orgId } = await signUpAndActivate()
 		await demoteToRole(orgId, "operator")

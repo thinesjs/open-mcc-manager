@@ -21,6 +21,7 @@ RestartSec=30
 StartLimitIntervalSec=600
 StartLimitBurst=5
 NoNewPrivileges=yes
+UMask=0077
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes

@@ -4,7 +4,12 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import { beginAuthentication, DEVICE_CODE_PATTERN } from "./authenticate"
+import {
+	beginAuthentication,
+	completeAuthentication,
+	DEVICE_CODE_PATTERN,
+	SESSION_CACHE_FILE,
+} from "./authenticate"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -202,5 +207,77 @@ describe("beginAuthentication", () => {
 		const { deps, instances } = makeDeps(DEVICE_CODE_OUTPUT)
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+	})
+})
+
+describe("completeAuthentication", () => {
+	const withProbe = (sessionCacheExists: boolean) => {
+		const made = makeDeps("")
+		const original = made.transport.exec
+		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			const result = await original(command, timeoutMs, stdin)
+			if (!command.includes(SESSION_CACHE_FILE)) return result
+			return { ...result, exitCode: sessionCacheExists ? 0 : 1 }
+		}
+		return made
+	}
+
+	it("reports the instance still unauthenticated when no session cache has appeared", async () => {
+		const { deps, transport, instances } = withProbe(false)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: false, status: "needs_auth" })
+		expect(instances.update).not.toHaveBeenCalled()
+		expect(transport.commands.some((each) => each.startsWith("pkill"))).toBe(false)
+	})
+
+	it("moves the instance to stopped and clears the device-code log once the cache exists", async () => {
+		const { deps, transport, instances } = withProbe(true)
+		vi.mocked(instances.findById).mockResolvedValue(
+			instanceRow({ status: "needs_auth", authClaimId: "attempt-1", authClaimedAt: new Date() }),
+		)
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: true, status: "stopped" })
+		expect(instances.update).toHaveBeenCalledWith({ organizationId: "org-1" }, "abc123", {
+			status: "stopped",
+		})
+		expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			"attempt-1",
+		)
+		expect(
+			transport.commands.some((each) =>
+				each.includes("rm -f '/srv/open-mcc/instances/abc123/auth.log'"),
+			),
+		).toBe(true)
+	})
+
+	it("reads the session cache mcc actually writes, in the instance's own directory", async () => {
+		const { deps, transport, instances } = withProbe(true)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		await completeAuthentication(deps, owner, "abc123")
+
+		expect(SESSION_CACHE_FILE).toBe("SessionCache.ini")
+		expect(
+			transport.commands.some(
+				(each) => each === "test -s '/srv/open-mcc/instances/abc123/SessionCache.ini'",
+			),
+		).toBe(true)
+	})
+
+	it("does not touch the host for an instance that never needed authenticating", async () => {
+		const { deps, transport, instances } = withProbe(true)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: true, status: "running" })
+		expect(transport.commands).toEqual([])
 	})
 })

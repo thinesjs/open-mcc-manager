@@ -63,3 +63,9 @@ export const deviceCodeChallenge = z.object({
 	expiresAt: z.date(),
 })
 export type DeviceCodeChallenge = z.infer<typeof deviceCodeChallenge>
+
+export const authenticationState = z.object({
+	authenticated: z.boolean(),
+	status: instanceStatusSchema,
+})
+export type AuthenticationState = z.infer<typeof authenticationState>

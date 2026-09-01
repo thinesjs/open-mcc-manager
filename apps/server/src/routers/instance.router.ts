@@ -64,6 +64,11 @@ export const instanceRouter = router({
 		return ctx.instanceController.authenticate(ctx.actor, input.instanceId)
 	}),
 
+	completeAuthentication: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.authenticate")
+		return ctx.instanceController.completeAuthentication(ctx.actor, input.instanceId)
+	}),
+
 	remove: protectedProcedure.input(instanceIdInput).mutation(async ({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.create")
 		await ctx.instanceController.remove(ctx.actor, input.instanceId)

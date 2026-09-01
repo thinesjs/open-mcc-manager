@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import type { DeviceCodeChallenge } from "@open-mcc/contracts"
+import type { AuthenticationState, DeviceCodeChallenge } from "@open-mcc/contracts"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -20,6 +20,8 @@ export const DEVICE_CODE_POLL_ATTEMPTS = 10
 export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
 
 export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
+
+export const SESSION_CACHE_FILE = "SessionCache.ini"
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -134,4 +136,70 @@ export const beginAuthentication = async (
 	} finally {
 		await transport.close().catch(() => undefined)
 	}
+}
+
+export const completeAuthentication = async (
+	deps: InstanceControllerDeps,
+	ctx: ActorContext,
+	instanceId: string,
+): Promise<AuthenticationState> => {
+	const scope = { organizationId: ctx.organizationId }
+
+	const instance = await deps.instances.findById(scope, instanceId)
+	if (!instance) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+	if (instance.status !== "needs_auth") {
+		return { authenticated: instance.status !== "created", status: instance.status }
+	}
+
+	const host = await deps.hosts.findById(scope, instance.hostId)
+	if (!host?.sshKeyId || !host.hostKeyFingerprint) {
+		throw new InstanceHostNotFoundError(`Host ${instance.hostId} is not ready for authentication`)
+	}
+	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
+	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
+
+	const dir = instanceDir(deps.instancesRoot, instance.id)
+	const transport = deps.createTransport()
+	try {
+		await transport.connect({
+			hostname: host.hostname,
+			port: host.port,
+			username: host.username,
+			privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
+			expectedFingerprint: host.hostKeyFingerprint,
+			timeoutMs: AUTH_SESSION_TIMEOUT_MS,
+		})
+
+		const probe = await transport.exec(
+			`test -s ${shellQuote(`${dir}/${SESSION_CACHE_FILE}`)}`,
+			AUTH_SESSION_TIMEOUT_MS,
+		)
+		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
+
+		await transport.exec(
+			`pkill -u ${shellQuote(instanceUser(instance.id))} || true`,
+			AUTH_SESSION_TIMEOUT_MS,
+		)
+		await transport.exec(`rm -f ${shellQuote(`${dir}/auth.log`)}`, AUTH_SESSION_TIMEOUT_MS)
+	} finally {
+		await transport.close().catch(() => undefined)
+	}
+
+	await deps.withTransaction(async (repos) => {
+		await repos.instances.update(scope, instanceId, { status: "stopped" })
+		await repos.audit.record(scope, {
+			actorId: ctx.memberId,
+			actorLabel: ctx.actorLabel,
+			action: "instance.authenticate",
+			subjectType: "instance",
+			subjectId: instanceId,
+			detail: { minecraftAccount: instance.minecraftAccount, phase: "complete" },
+		})
+	})
+
+	if (instance.authClaimId !== null) {
+		await deps.instances.releaseAuthClaim(scope, instanceId, instance.authClaimId)
+	}
+
+	return { authenticated: true, status: "stopped" }
 }

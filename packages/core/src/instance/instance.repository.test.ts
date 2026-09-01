@@ -91,7 +91,10 @@ describe("instance repository organization scoping", () => {
 
 	it("cannot be made to move an instance between organizations by a smuggled patch", async () => {
 		const row = await seedInstance(orgA, hostA)
-		const smuggled = { status: "running", organizationId: orgB } as InstanceUpdateValues
+		const smuggled: InstanceUpdateValues & { organizationId: string } = {
+			status: "running",
+			organizationId: orgB,
+		}
 		await repo.update({ organizationId: orgA }, row.id, smuggled)
 		const after = await repo.findById({ organizationId: orgA }, row.id)
 		expect(after?.organizationId).toBe(orgA)

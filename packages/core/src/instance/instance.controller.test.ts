@@ -1,23 +1,36 @@
+import type {
+	AuditEventRow,
+	HostRow,
+	InstanceConfigRow,
+	InstanceRow,
+	SshKeyRow,
+} from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
+import type { HostRepository, OrgScope } from "../host/host.repository"
+import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
+	type ActorContext,
 	createInstanceController,
 	ForbiddenError,
 	InstanceAuthInProgressError,
+	type InstanceControllerDeps,
 	InstanceNotFoundError,
 } from "./instance.controller"
+import type { InstanceRepository } from "./instance.repository"
 
-const owner = {
+const owner: ActorContext = {
 	organizationId: "org-1",
 	memberId: "member-1",
 	actorLabel: "owner@example.com",
 	role: "owner",
-} as const
+}
 
-const viewer = { ...owner, role: "viewer" } as const
-const operator = { ...owner, role: "operator" } as const
+const viewer: ActorContext = { ...owner, role: "viewer" }
+const operator: ActorContext = { ...owner, role: "operator" }
 
-const instanceRow = (overrides: Record<string, unknown> = {}) => ({
+const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
 	organizationId: "org-1",
 	hostId: "host-1",
@@ -31,70 +44,117 @@ const instanceRow = (overrides: Record<string, unknown> = {}) => ({
 	...overrides,
 })
 
-const hostRow = {
+const hostRow: HostRow = {
 	id: "host-1",
 	organizationId: "org-1",
-	sshKeyId: "key-1",
-	hostKeyFingerprint: "SHA256:trusted",
+	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "root",
+	sshKeyId: "key-1",
+	hostKeyAlgorithm: "ssh-ed25519",
+	hostKeyFingerprint: "SHA256:trusted",
+	hostKeyTrustedBy: null,
+	hostKeyTrustedByLabel: "unknown",
+	hostKeyTrustedAt: null,
+	status: "ready",
+	provisioningAttemptId: null,
+	provisioningClaimedAt: null,
+	osRelease: null,
+	cpuCount: null,
+	memoryMb: null,
+	capacityLimit: null,
+	lastSeenAt: null,
+	createdAt: new Date(),
 }
 
-const makeDeps = (overrides: Record<string, unknown> = {}) => {
+const configRow = (overrides: Partial<InstanceConfigRow> = {}): InstanceConfigRow => ({
+	id: "cfg-1",
+	organizationId: "org-1",
+	instanceId: "abc123",
+	version: 1,
+	document: "",
+	authorId: null,
+	authorLabel: "owner@example.com",
+	createdAt: new Date(),
+	...overrides,
+})
+
+const sshKeyRow: SshKeyRow = {
+	id: "key-1",
+	organizationId: "org-1",
+	name: "key-1",
+	publicKey: "ssh-ed25519 AAAA",
+	privateKeyEncrypted: "sealed",
+	privateKeyKeyId: "k1",
+	createdAt: new Date(),
+}
+
+const auditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRow => ({
+	id: "audit-1",
+	organizationId: "org-1",
+	actorId: "member-1",
+	actorLabel: "owner@example.com",
+	action: "instance.create",
+	subjectType: "instance",
+	subjectId: "abc123",
+	detail: {},
+	createdAt: new Date(),
+	...overrides,
+})
+
+const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport()
-	const audit = { record: vi.fn(async () => undefined) }
-	const instances = {
-		findById: vi.fn(async (): Promise<ReturnType<typeof instanceRow> | undefined> => instanceRow()),
+	const audit: Pick<AuditRepository, "record"> = {
+		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => auditEventRow({ ...entry })),
+	}
+	const instances: InstanceRepository = {
+		findById: vi.fn(async () => instanceRow()),
 		list: vi.fn(async () => [instanceRow()]),
 		insert: vi.fn(async () => instanceRow()),
 		update: vi.fn(async () => instanceRow({ status: "running" })),
 		delete: vi.fn(async () => true),
 		claimForAuth: vi.fn(async () => instanceRow()),
 		releaseAuthClaim: vi.fn(async () => true),
-		insertConfigVersion: vi.fn(async () => ({ id: "cfg-1", version: 1 })),
+		insertConfigVersion: vi.fn(async () => configRow()),
 		latestConfig: vi.fn(async () => undefined),
 	}
-	return {
-		transport,
-		audit,
-		instances,
-		deps: {
-			instances,
-			hosts: { findById: vi.fn(async () => hostRow) },
-			sshKeys: {
-				findById: vi.fn(async () => ({
-					privateKeyEncrypted: "sealed",
-					privateKeyKeyId: "k1",
-				})),
-			},
-			secrets: {
-				open: () => "PRIVATE KEY",
-				seal: () => ({ ciphertext: "", keyId: "k1" }),
-				activeKeyId: "k1",
-			},
-			createTransport: () => transport,
-			instancesRoot: "/srv/open-mcc",
-			withTransaction: async (fn: (repos: unknown) => Promise<unknown>) =>
-				await fn({ instances, audit }),
-			...overrides,
-		},
+	const hosts: Pick<HostRepository, "findById"> = {
+		findById: vi.fn(async () => hostRow),
 	}
+	const sshKeys: Pick<SshKeyRepository, "findById"> = {
+		findById: vi.fn(async () => sshKeyRow),
+	}
+	const deps: InstanceControllerDeps = {
+		instances,
+		hosts,
+		sshKeys,
+		secrets: {
+			open: () => "PRIVATE KEY",
+			seal: () => ({ ciphertext: "", keyId: "k1" }),
+			activeKeyId: "k1",
+		},
+		createTransport: () => transport,
+		instancesRoot: "/srv/open-mcc",
+		withTransaction: async (fn) => await fn({ instances, audit }),
+		...overrides,
+	}
+	return { transport, audit, instances, deps }
 }
 
 describe("instance controller authorization", () => {
 	it("refuses a viewer's attempt to start an instance without touching the host", async () => {
 		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps as never)
-		await expect(controller.start(viewer as never, "abc123")).rejects.toThrow(ForbiddenError)
+		const controller = createInstanceController(deps)
+		await expect(controller.start(viewer, "abc123")).rejects.toThrow(ForbiddenError)
 		expect(transport.commands).toEqual([])
 	})
 
 	it("refuses an operator's attempt to create an instance", async () => {
 		const { deps } = makeDeps()
-		const controller = createInstanceController(deps as never)
+		const controller = createInstanceController(deps)
 		await expect(
-			controller.create(operator as never, {
+			controller.create(operator, {
 				hostId: "host-1",
 				name: "n",
 				minecraftAccount: "a@b.com",
@@ -105,18 +165,18 @@ describe("instance controller authorization", () => {
 
 	it("lets an operator send a console command", async () => {
 		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps as never)
-		await controller.sendCommand(operator as never, "abc123", "/say hi")
+		const controller = createInstanceController(deps)
+		await controller.sendCommand(operator, "abc123", "/say hi")
 		expect(transport.stdins).toContain("/say hi\n")
 	})
 
 	it("refuses a viewer's console write while allowing the read", async () => {
 		const { deps } = makeDeps()
-		const controller = createInstanceController(deps as never)
-		await expect(controller.sendCommand(viewer as never, "abc123", "/say hi")).rejects.toThrow(
+		const controller = createInstanceController(deps)
+		await expect(controller.sendCommand(viewer, "abc123", "/say hi")).rejects.toThrow(
 			ForbiddenError,
 		)
-		await expect(controller.readConsole(viewer as never, "abc123", 10)).resolves.toBeDefined()
+		await expect(controller.readConsole(viewer, "abc123", 10)).resolves.toBeDefined()
 	})
 })
 
@@ -124,10 +184,8 @@ describe("instance controller lifecycle guards", () => {
 	it("refuses to start an instance that has not completed its microsoft sign-in", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.findById = vi.fn(async () => instanceRow({ status: "needs_auth" }))
-		const controller = createInstanceController(deps as never)
-		await expect(controller.start(owner as never, "abc123")).rejects.toThrow(
-			InstanceAuthInProgressError,
-		)
+		const controller = createInstanceController(deps)
+		await expect(controller.start(owner, "abc123")).rejects.toThrow(InstanceAuthInProgressError)
 		expect(transport.commands).toEqual([])
 	})
 
@@ -136,10 +194,8 @@ describe("instance controller lifecycle guards", () => {
 		deps.instances.findById = vi.fn(async () =>
 			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date() }),
 		)
-		const controller = createInstanceController(deps as never)
-		await expect(controller.remove(owner as never, "abc123")).rejects.toThrow(
-			InstanceAuthInProgressError,
-		)
+		const controller = createInstanceController(deps)
+		await expect(controller.remove(owner, "abc123")).rejects.toThrow(InstanceAuthInProgressError)
 		expect(transport.commands).toEqual([])
 	})
 
@@ -148,15 +204,15 @@ describe("instance controller lifecycle guards", () => {
 		deps.instances.findById = vi.fn(async () =>
 			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date(Date.now() - 3_600_000) }),
 		)
-		const controller = createInstanceController(deps as never)
-		await expect(controller.remove(owner as never, "abc123")).resolves.toBeUndefined()
+		const controller = createInstanceController(deps)
+		await expect(controller.remove(owner, "abc123")).resolves.toBeUndefined()
 	})
 
 	it("reports a missing instance rather than reaching for a host", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.findById = vi.fn(async () => undefined)
-		const controller = createInstanceController(deps as never)
-		await expect(controller.start(owner as never, "nope")).rejects.toThrow(InstanceNotFoundError)
+		const controller = createInstanceController(deps)
+		await expect(controller.start(owner, "nope")).rejects.toThrow(InstanceNotFoundError)
 		expect(transport.commands).toEqual([])
 	})
 })
@@ -164,8 +220,8 @@ describe("instance controller lifecycle guards", () => {
 describe("instance creation prepares the host", () => {
 	it("creates the user, directory and control fifo, and writes the environment as stdin", async () => {
 		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps as never)
-		await controller.create(owner as never, {
+		const controller = createInstanceController(deps)
+		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
 			minecraftAccount: "afk@example.com",
@@ -173,16 +229,41 @@ describe("instance creation prepares the host", () => {
 		})
 
 		const joined = transport.commands.join("\n")
-		expect(joined).toContain("useradd -r -g open-mcc")
-		expect(joined).toContain("mkfifo -m 0660")
+		expect(joined).toContain("useradd -r -U")
+		expect(joined).toContain("mkfifo -m 0600")
 		expect(joined).toContain("/srv/open-mcc/instances/abc123/env")
 		expect(transport.stdins.some((each) => each.includes("MCC_SERVER="))).toBe(true)
 	})
 
+	it("gives the instance a private group and no group-readable state, so co-tenants cannot reach it", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		const joined = transport.commands.join("\n")
+		const user = "mcc-abc123"
+
+		expect(joined).not.toContain("open-mcc'")
+		expect(joined).not.toContain("-g open-mcc")
+		expect(joined).toContain(`install -d -m 0700 -o '${user}' -g '${user}'`)
+		expect(joined).toContain(`chown '${user}:${user}' '/srv/open-mcc/instances/abc123/control'`)
+		expect(joined).toContain("(umask 077; cat > '/srv/open-mcc/instances/abc123/env')")
+
+		for (const mode of joined.match(/-m [0-7]{4}/g) ?? []) {
+			expect(Number.parseInt(mode.slice(3), 8) & 0o077).toBe(0)
+		}
+	})
+
 	it("creates the instance user idempotently so a retry after a partial failure does not fail", async () => {
 		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps as never)
-		await controller.create(owner as never, {
+		const controller = createInstanceController(deps)
+		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
 			minecraftAccount: "afk@example.com",

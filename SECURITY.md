@@ -188,13 +188,16 @@ not a goal of the current architecture.
   diverging from upstream's cache handling. A compromised host therefore yields
   that account's Microsoft refresh token, and hosts should not be shared across
   trust boundaries an operator cares about keeping separate.
-- **Instances sharing a host are isolated by systemd, not by containers.** Each
-  runs as its own unprivileged user under `ProtectSystem=strict`,
-  `NoNewPrivileges=yes`, and a `ReadWritePaths=` scoped to its own directory.
-  That is weaker than kernel-namespace isolation, and it is a deliberate trade:
-  the exit-code policy the supervisor needs — never restart on a rejected login —
-  cannot be expressed by a container restart policy. An escape from one
-  instance's sandbox reaches the other instances on that host.
+- **Instances sharing a host are isolated by systemd and POSIX ownership, not by
+  containers.** Each runs as its own unprivileged user in its own private group
+  under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`
+  scoped to its own directory. Instance state is owner-only: the directory is
+  `0700`, and `env`, `MinecraftClient.ini`, `auth.log` and the control FIFO are
+  all `0600`, so no instance is a group peer of any other. That is weaker than
+  kernel-namespace isolation, and it is a deliberate trade: the exit-code policy
+  the supervisor needs — never restart on a rejected login — cannot be expressed
+  by a container restart policy. An escape from one instance's sandbox reaches
+  the other instances on that host.
 - **Per-host SSH identities are an operator recommendation, not an enforced
   property.** `host.sshKeyId` is a plain nullable foreign key; the only
   uniqueness constraint on `host` is `(organizationId, name)`. Nothing today

@@ -34,8 +34,6 @@ export const PROVISION_STEP_TIMEOUT_MS = 15_000
 
 export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
 
-export const INSTANCE_GROUP = "open-mcc"
-
 const INSTANCES_ROOT_PATTERN = /^\/[A-Za-z0-9._\-/]*$/
 
 export const validateInstancesRoot = (instancesRoot: string): string => {
@@ -75,39 +73,21 @@ export const provisionHost = async (
 
 	await step(
 		transport,
-		`groupadd -f ${shellQuote(INSTANCE_GROUP)}`,
-		"Failed to create the instance group",
-	)
-
-	await step(
-		transport,
-		`usermod -aG ${shellQuote(INSTANCE_GROUP)} "$(id -un)"`,
-		"Failed to add the connecting principal to the instance group",
-	)
-
-	await step(
-		transport,
-		`install -d -m 2770 -g ${shellQuote(INSTANCE_GROUP)} ${shellQuote(`${instancesRoot}/instances`)}`,
+		`install -d -m 0711 -o root -g root ${shellQuote(`${instancesRoot}/instances`)}`,
 		"Failed to create instances directory",
 	)
 
 	await step(
 		transport,
-		`curl -fsSL ${shellQuote(mccDownloadUrl(MCC_VERSION))} -o /tmp/mcc-download`,
-		"Failed to download the Minecraft Console Client",
+		`set -e; d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; curl -fsSL ${shellQuote(
+			mccDownloadUrl(MCC_VERSION),
+		)} -o "$d/mcc"; printf '%s  %s' ${shellQuote(
+			MCC_SHA256,
+		)} "$d/mcc" | sha256sum -c -; install -D -m 0755 "$d/mcc" ${shellQuote(
+			`${instancesRoot}/bin/MinecraftClient`,
+		)}`,
+		"Failed to install a verified Minecraft Console Client",
 		PROVISION_DOWNLOAD_TIMEOUT_MS,
-	)
-
-	await step(
-		transport,
-		`printf '%s  /tmp/mcc-download' ${shellQuote(MCC_SHA256)} | sha256sum -c -`,
-		"Downloaded client failed its checksum",
-	)
-
-	await step(
-		transport,
-		`install -D -m 0755 /tmp/mcc-download ${shellQuote(`${instancesRoot}/bin/MinecraftClient`)} && rm -f /tmp/mcc-download`,
-		"Failed to install the client",
 	)
 
 	await step(

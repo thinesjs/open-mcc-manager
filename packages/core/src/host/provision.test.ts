@@ -48,13 +48,34 @@ describe("provisionHost", () => {
 		const original = transport.exec
 		transport.exec = async (command: string, timeoutMs: number, stdin?: string) =>
 			command.includes("sha256sum")
-				? { stdout: "", stderr: "/tmp/mcc-download: FAILED", exitCode: 1 }
+				? { stdout: "", stderr: "FAILED", exitCode: 1 }
 				: await original(command, timeoutMs, stdin)
 
 		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
-			/checksum/i,
+			/verified/i,
 		)
-		expect(transport.commands.some((command) => command.includes("install -D"))).toBe(false)
+	})
+
+	it("verifies and installs the client in one command from a private temporary directory", async () => {
+		const transport = createFakeTransport({}, {})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+
+		const install = transport.commands.find((command) => command.includes("install -D"))
+		if (install === undefined) throw new Error("no install step was issued")
+
+		expect(install).toContain("set -e")
+		expect(install).toContain("mktemp -d")
+		expect(install.indexOf("sha256sum")).toBeLessThan(install.indexOf("install -D"))
+		expect(transport.commands.some((command) => command.includes("/tmp/mcc-download"))).toBe(false)
 	})
 
 	it("delivers the unit template as stdin rather than a concatenated heredoc", async () => {

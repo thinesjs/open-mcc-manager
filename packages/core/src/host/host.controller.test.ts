@@ -499,7 +499,7 @@ describe("host controller provisioning", () => {
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
 		expect(transport.commands).toContain("systemctl --version | head -n 1")
 		expect(transport.commands).toContain(
-			"install -d -m 2770 -g 'open-mcc' '/var/lib/open-mcc-manager/instances'",
+			"install -d -m 0711 -o root -g root '/var/lib/open-mcc-manager/instances'",
 		)
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.osRelease).toBe("systemd 252")
@@ -687,7 +687,7 @@ describe("provisionHost", () => {
 		const result = await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
 		expect(result.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
 		expect(transport.commands).toContain(
-			"install -d -m 2770 -g 'open-mcc' '/var/lib/open-mcc-manager/instances'",
+			"install -d -m 0711 -o root -g root '/var/lib/open-mcc-manager/instances'",
 		)
 	})
 

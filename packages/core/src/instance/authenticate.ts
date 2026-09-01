@@ -95,7 +95,7 @@ export const beginAuthentication = async (
 
 		await transport.exec(
 			`rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instance.id))} -- sh -c ${shellQuote(
-				`cd ${dir} && nohup ${deps.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
+				`umask 077 && cd ${dir} && nohup ${deps.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
 			)}`,
 			AUTH_SESSION_TIMEOUT_MS,
 		)

@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=mcc-%i
-Group=open-mcc
+Group=mcc-%i
 WorkingDirectory=/srv/open-mcc/instances/%i
 EnvironmentFile=/srv/open-mcc/instances/%i/env
 ExecStart=/srv/open-mcc/bin/MinecraftClient BasicIO-NoColor

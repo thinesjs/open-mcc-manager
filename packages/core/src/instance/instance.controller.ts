@@ -159,27 +159,29 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				const dir = instanceDir(deps.instancesRoot, created.id)
 				const steps: Array<[string, string, string | undefined]> = [
 					[
-						`useradd -r -g open-mcc -d ${shellQuote(dir)} -s /usr/sbin/nologin ${shellQuote(instanceUser(created.id))} || true`,
+						`useradd -r -U -d ${shellQuote(dir)} -s /usr/sbin/nologin ${shellQuote(instanceUser(created.id))} || true`,
 						"Failed to create the instance user",
 						undefined,
 					],
 					[
-						`install -d -m 2770 -g open-mcc -o ${shellQuote(instanceUser(created.id))} ${shellQuote(dir)}`,
+						`install -d -m 0700 -o ${shellQuote(instanceUser(created.id))} -g ${shellQuote(instanceUser(created.id))} ${shellQuote(dir)}`,
 						"Failed to create the instance directory",
 						undefined,
 					],
 					[
-						`test -p ${shellQuote(`${dir}/control`)} || mkfifo -m 0660 ${shellQuote(`${dir}/control`)}`,
+						`test -p ${shellQuote(`${dir}/control`)} || mkfifo -m 0600 ${shellQuote(`${dir}/control`)}`,
 						"Failed to create the control fifo",
 						undefined,
 					],
 					[
-						`chown ${shellQuote(`${instanceUser(created.id)}:open-mcc`)} ${shellQuote(`${dir}/control`)}`,
+						`chown ${shellQuote(`${instanceUser(created.id)}:${instanceUser(created.id)}`)} ${shellQuote(`${dir}/control`)}`,
 						"Failed to own the control fifo",
 						undefined,
 					],
 					[
-						`cat > ${shellQuote(`${dir}/env`)}`,
+						`(umask 077; cat > ${shellQuote(`${dir}/env`)}) && chown ${shellQuote(
+							`${instanceUser(created.id)}:${instanceUser(created.id)}`,
+						)} ${shellQuote(`${dir}/env`)}`,
 						"Failed to write the instance environment",
 						renderEnvironmentFile({
 							serverAddress: input.serverAddress,
@@ -301,7 +303,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const transport = await connectToHost(ctx, instance.hostId)
 			try {
 				const result = await transport.exec(
-					`cat > ${shellQuote(`${instanceDir(deps.instancesRoot, instance.id)}/MinecraftClient.ini`)}`,
+					`(umask 077; cat > ${shellQuote(
+						`${instanceDir(deps.instancesRoot, instance.id)}/MinecraftClient.ini`,
+					)}) && chown ${shellQuote(
+						`${instanceUser(instance.id)}:${instanceUser(instance.id)}`,
+					)} ${shellQuote(`${instanceDir(deps.instancesRoot, instance.id)}/MinecraftClient.ini`)}`,
 					INSTANCE_STEP_TIMEOUT_MS,
 					document,
 				)

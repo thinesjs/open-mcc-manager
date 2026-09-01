@@ -1,19 +1,27 @@
+import type { AuditEventRow, HostRow, InstanceRow, SshKeyRow } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
+import type { HostRepository, OrgScope } from "../host/host.repository"
+import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { beginAuthentication, DEVICE_CODE_PATTERN } from "./authenticate"
+import {
+	type ActorContext,
+	InstanceAuthInProgressError,
+	type InstanceControllerDeps,
+} from "./instance.controller"
+import type { InstanceRepository } from "./instance.repository"
 
 const FAST_POLL = { attempts: 2, intervalMs: 1 }
 
-import { InstanceAuthInProgressError } from "./instance.controller"
-
-const owner = {
+const owner: ActorContext = {
 	organizationId: "org-1",
 	memberId: "member-1",
 	actorLabel: "owner@example.com",
 	role: "owner",
-} as const
+}
 
-const instanceRow = (overrides: Record<string, unknown> = {}) => ({
+const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
 	organizationId: "org-1",
 	hostId: "host-1",
@@ -33,7 +41,54 @@ const DEVICE_CODE_OUTPUT = [
 	"and enter the code ABCD-EFGH to authenticate.",
 ].join("\n")
 
-const makeDeps = (journal: string, overrides: Record<string, unknown> = {}) => {
+const hostRow: HostRow = {
+	id: "host-1",
+	organizationId: "org-1",
+	name: "vps",
+	hostname: "10.0.0.1",
+	port: 22,
+	username: "root",
+	sshKeyId: "key-1",
+	hostKeyAlgorithm: "ssh-ed25519",
+	hostKeyFingerprint: "SHA256:trusted",
+	hostKeyTrustedBy: null,
+	hostKeyTrustedByLabel: "unknown",
+	hostKeyTrustedAt: null,
+	status: "ready",
+	provisioningAttemptId: null,
+	provisioningClaimedAt: null,
+	osRelease: null,
+	cpuCount: null,
+	memoryMb: null,
+	capacityLimit: null,
+	lastSeenAt: null,
+	createdAt: new Date(),
+}
+
+const sshKeyRow: SshKeyRow = {
+	id: "key-1",
+	organizationId: "org-1",
+	name: "key-1",
+	publicKey: "ssh-ed25519 AAAA",
+	privateKeyEncrypted: "sealed",
+	privateKeyKeyId: "k1",
+	createdAt: new Date(),
+}
+
+const auditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRow => ({
+	id: "audit-1",
+	organizationId: "org-1",
+	actorId: "member-1",
+	actorLabel: "owner@example.com",
+	action: "instance.authenticate",
+	subjectType: "instance",
+	subjectId: "abc123",
+	detail: {},
+	createdAt: new Date(),
+	...overrides,
+})
+
+const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({})
 	const original = transport.exec
 	transport.exec = async (command: string, timeoutMs: number, stdin?: string) =>
@@ -41,48 +96,43 @@ const makeDeps = (journal: string, overrides: Record<string, unknown> = {}) => {
 			? { stdout: journal, stderr: "", exitCode: 0 }
 			: await original(command, timeoutMs, stdin)
 
-	const instances = {
+	const instances: InstanceRepository = {
 		findById: vi.fn(async () => instanceRow()),
+		list: vi.fn(async () => [instanceRow()]),
+		insert: vi.fn(async () => instanceRow()),
 		claimForAuth: vi.fn(async () =>
 			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date() }),
 		),
 		releaseAuthClaim: vi.fn(async () => true),
 		update: vi.fn(async () => instanceRow()),
+		delete: vi.fn(async () => true),
+		insertConfigVersion: vi.fn(async () => {
+			throw new Error("not used")
+		}),
+		latestConfig: vi.fn(async () => undefined),
 	}
-	const audit = { record: vi.fn(async () => undefined) }
+	const audit: Pick<AuditRepository, "record"> = {
+		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => auditEventRow({ ...entry })),
+	}
+	const hosts: Pick<HostRepository, "findById"> = { findById: vi.fn(async () => hostRow) }
+	const sshKeys: Pick<SshKeyRepository, "findById"> = { findById: vi.fn(async () => sshKeyRow) }
 
-	return {
-		transport,
+	const deps: InstanceControllerDeps = {
 		instances,
-		audit,
-		deps: {
-			instances,
-			hosts: {
-				findById: vi.fn(async () => ({
-					id: "host-1",
-					organizationId: "org-1",
-					sshKeyId: "key-1",
-					hostKeyFingerprint: "SHA256:trusted",
-					hostname: "10.0.0.1",
-					port: 22,
-					username: "root",
-				})),
-			},
-			sshKeys: {
-				findById: vi.fn(async () => ({ privateKeyEncrypted: "sealed", privateKeyKeyId: "k1" })),
-			},
-			secrets: {
-				open: () => "PRIVATE KEY",
-				seal: () => ({ ciphertext: "", keyId: "k1" }),
-				activeKeyId: "k1",
-			},
-			createTransport: () => transport,
-			instancesRoot: "/srv/open-mcc",
-			withTransaction: async (fn: (repos: unknown) => Promise<unknown>) =>
-				await fn({ instances, audit }),
-			...overrides,
+		hosts,
+		sshKeys,
+		secrets: {
+			open: () => "PRIVATE KEY",
+			seal: () => ({ ciphertext: "", keyId: "k1" }),
+			activeKeyId: "k1",
 		},
+		createTransport: () => transport,
+		instancesRoot: "/srv/open-mcc",
+		withTransaction: async (fn) => await fn({ instances, audit }),
+		...overrides,
 	}
+
+	return { transport, instances, audit, deps }
 }
 
 describe("device code pattern", () => {
@@ -95,7 +145,7 @@ describe("device code pattern", () => {
 describe("beginAuthentication", () => {
 	it("stops the unit before starting an authentication session", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
-		await beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 		const stopAt = transport.commands.findIndex((each) => each.includes("systemctl stop"))
 		const authAt = transport.commands.findIndex((each) => each.includes("MinecraftClient"))
 		expect(stopAt).toBeGreaterThanOrEqual(0)
@@ -104,7 +154,7 @@ describe("beginAuthentication", () => {
 
 	it("runs the authentication session as the instance's own user", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
-		await beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 		expect(transport.commands.find((each) => each.includes("MinecraftClient"))).toContain(
 			"runuser -u 'mcc-abc123'",
 		)
@@ -113,7 +163,7 @@ describe("beginAuthentication", () => {
 	it("surfaces the pairing code without carrying anything the client wrote afterwards", async () => {
 		const withToken = `${DEVICE_CODE_OUTPUT}\nrefresh_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9`
 		const { deps } = makeDeps(withToken)
-		const result = await beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL)
+		const result = await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 		expect(result.userCode).toBe("ABCD-EFGH")
 		expect(result.verificationUri).toBe("https://www.microsoft.com/link")
 		expect(JSON.stringify(result)).not.toContain("eyJ")
@@ -128,17 +178,17 @@ describe("beginAuthentication", () => {
 				_attemptId: string,
 			): Promise<ReturnType<typeof instanceRow> | undefined> => undefined,
 		)
-		await expect(
-			beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL),
-		).rejects.toThrow(InstanceAuthInProgressError)
+		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
+			InstanceAuthInProgressError,
+		)
 	})
 
 	it("releases the claim when the session fails, rather than holding it for the whole lease", async () => {
 		const { deps, transport, instances } = makeDeps("no code here at all")
-		await expect(
-			beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL),
-		).rejects.toThrow(/device code/i)
-		const claimedWith = instances.claimForAuth.mock.calls.at(0)?.at(2)
+		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
+			/device code/i,
+		)
+		const claimedWith = vi.mocked(instances.claimForAuth).mock.calls.at(0)?.at(2)
 		expect(claimedWith).toBeDefined()
 		expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
@@ -150,7 +200,7 @@ describe("beginAuthentication", () => {
 
 	it("holds the claim on success, because the operator needs minutes to finish the login", async () => {
 		const { deps, instances } = makeDeps(DEVICE_CODE_OUTPUT)
-		await beginAuthentication(deps as never, owner as never, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
 	})
 })

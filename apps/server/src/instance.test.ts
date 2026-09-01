@@ -194,7 +194,11 @@ const seedInstance = async (orgId: string): Promise<string> => {
 	return instanceId
 }
 
-const call = async (path: string, cookie: string, input: unknown): Promise<Response> =>
+const call = async (
+	path: string,
+	cookie: string,
+	input: Record<string, string>,
+): Promise<Response> =>
 	await app.request(`/trpc/${path}`, {
 		method: "POST",
 		headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: cookie },

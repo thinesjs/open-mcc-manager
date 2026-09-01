@@ -12,7 +12,7 @@
 		"check": "biome check --write .",
 		"check:types-policy": "node scripts/check-type-policy.mjs",
 		"check:commits": "node scripts/check-commit-subjects.mjs",
-		"lint": "biome check . && node scripts/check-type-policy.mjs"
+		"lint": "node scripts/lint.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.7",

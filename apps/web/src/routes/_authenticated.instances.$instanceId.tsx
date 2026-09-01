@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, Square } from "lucide-react"
 import { useState } from "react"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -188,6 +189,8 @@ function InstanceDetailPage() {
 					</dl>
 
 					<SleepWindow instanceId={instanceId} />
+
+					<ScheduledCommands instanceId={instanceId} />
 
 					<section className="space-y-3">
 						<h2 className="text-sm font-semibold text-foreground">Console</h2>

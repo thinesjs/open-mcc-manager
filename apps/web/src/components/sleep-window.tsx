@@ -48,7 +48,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 	const save = useMutation(trpc.instance.setSleepWindow.mutationOptions({ onSuccess, onError }))
 	const clear = useMutation(trpc.instance.clearSleepWindow.mutationOptions({ onSuccess, onError }))
 
-	const existing = query.data
+	const existing = query.data ?? undefined
 
 	const beginEditing = () => {
 		setDays(existing ? [...existing.daysOfWeek] : [...DAYS_OF_WEEK])

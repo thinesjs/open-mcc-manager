@@ -575,11 +575,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		getSleepWindow: async (
 			ctx: ActorContext,
 			instanceId: string,
-		): Promise<SleepWindowPublic | undefined> => {
+		): Promise<SleepWindowPublic | null> => {
 			requireCapabilityFor(ctx.role, "instance.read")
 			await requireInstance(ctx, instanceId)
 			const row = await deps.schedules.findByInstance(scopeOf(ctx), instanceId)
-			return row ? toSleepWindowPublic(row) : undefined
+			return row ? toSleepWindowPublic(row) : null
 		},
 
 		setSleepWindow: async (

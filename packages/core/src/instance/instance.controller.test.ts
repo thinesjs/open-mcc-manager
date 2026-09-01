@@ -335,6 +335,13 @@ describe("instance creation prepares the host", () => {
 })
 
 describe("sleep windows", () => {
+	it("returns null rather than undefined when no window exists, which react-query rejects", async () => {
+		const { deps } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(controller.getSleepWindow(owner, "abc123")).resolves.toBeNull()
+	})
+
 	const window: SleepWindowInput = {
 		instanceId: "abc123",
 		daysOfWeek: ["Mon", "Tue"],

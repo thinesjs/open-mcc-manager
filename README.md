@@ -93,8 +93,38 @@ BOOTSTRAP_OWNER_NAME=Owner BOOTSTRAP_ORG_NAME=Fleet BOOTSTRAP_ORG_SLUG=fleet \
 ```
 
 `ALLOWED_ORIGINS` is both this application's CORS allowlist and the origin list
-better-auth trusts, so the dashboard's dev origin (`http://localhost:5173`)
-can authenticate against the dev server on `http://localhost:3000`.
+better-auth trusts, so the dashboard's own origin (`WEB_PORT`) can authenticate
+against the server (`SERVER_PORT`).
+
+## Network topologies
+
+Hosts may sit on the public internet or on a private tailnet, and a single
+deployment may mix the two. `host.hostname` is accepted as a free-form address
+rather than matched against a public-DNS shape, so a public name, a public IP, a
+tailnet CGNAT address and a MagicDNS name are all valid enrolments.
+`packages/contracts/src/host.test.ts` pins that, because narrowing the field to
+something DNS-shaped would silently drop tailnet support.
+
+What the manager can reach depends on where it runs, not on what it accepts.
+Measured from a container on the default bridge network, with Tailscale running
+on the host:
+
+| Address the host is enrolled under | Reachable from the manager container |
+| --- | --- |
+| `vps.example.com`, `203.0.113.10` | yes, no configuration |
+| `100.101.102.103` (tailnet address) | yes, no configuration |
+| `vps-1.tailnet.ts.net` (MagicDNS) | only with Tailscale's resolver |
+| `vps-1` (bare MagicDNS) | only with Tailscale's resolver and search domain |
+
+Tailnet addresses route without configuration because the container's traffic
+leaves through the host's routing table, which Tailscale has already populated.
+MagicDNS names do not resolve, because the container's resolver is Docker's, not
+Tailscale's. Start the stack with `pnpm dev:up:tailnet` to point the server at
+Tailscale's resolver on `100.100.100.100`; it requires `TAILNET_DNS_SUFFIX` and
+refuses to start without it rather than leaving names quietly unresolvable.
+
+Enrolling hosts by tailnet address avoids the resolver question entirely, and is
+the simpler choice unless you need names.
 
 ## Security
 

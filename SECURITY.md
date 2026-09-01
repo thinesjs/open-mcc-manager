@@ -39,6 +39,13 @@ authenticated API in place of raw SSH access, or a wholly separate
 control-plane deployment per customer. Multi-tenant, hostile-tenant isolation is
 not a goal of the current architecture.
 
+Hosts may be reached over the public internet or over a private tailnet, and the
+two may be mixed in one deployment. That choice changes the network exposure of
+the SSH port, not the trust model: every control described below applies
+unchanged either way, and none of them is relaxed because a host is only
+reachable privately. Keeping hosts off the public internet is a defence in
+depth, not a substitute for one.
+
 ## Current controls
 
 - **Closed registration; accounts are provisioned, not self-served.** Public
@@ -116,7 +123,12 @@ not a goal of the current architecture.
 - **Out-of-band host key verification.** Enrollment requires the operator to
   supply the host's expected SSH host key fingerprint in advance; the control
   plane refuses to trust a host whose presented key does not match, closing
-  the on-path MITM window that trust-on-first-use would leave open.
+  the on-path MITM window that trust-on-first-use would leave open. This holds
+  identically for hosts reached over a private tailnet: the fingerprint is
+  required and checked there too. A tailnet authenticates the *network peer*,
+  not the SSH service the manager then speaks to, and it does not distinguish a
+  reinstalled or substituted host from the original — so it narrows who can
+  attempt the connection without establishing what answers it.
 - **Sealed secrets with rotation.** Private keys and other secrets are sealed
   with `libsodium` public-key sealed boxes, addressed by `keyId`. Exactly one
   key pair is active for sealing new secrets at a time (`SecretStore.activeKeyId`);

@@ -36,3 +36,15 @@ export type InstanceScheduleTable = Omit<DB["instanceSchedule"], "enabled"> & {
 
 export type InstanceScheduleRow = Selectable<InstanceScheduleTable>
 export type InstanceScheduleInsert = Insertable<InstanceScheduleTable>
+
+export type InstanceCommandTable = Omit<
+	DB["instanceCommand"],
+	"enabled" | "lastRunAt" | "lastRunError"
+> & {
+	enabled: Generated<boolean>
+	lastRunAt: Generated<DB["instanceCommand"]["lastRunAt"]>
+	lastRunError: Generated<DB["instanceCommand"]["lastRunError"]>
+}
+
+export type InstanceCommandRow = Selectable<InstanceCommandTable>
+export type InstanceCommandInsert = Insertable<InstanceCommandTable>

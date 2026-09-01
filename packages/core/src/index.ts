@@ -42,6 +42,8 @@ export {
 	validateInstancesRoot,
 } from "./host/provision"
 export { beginAuthentication, DEVICE_CODE_TTL_MS } from "./instance/authenticate"
+export type { CommandRepository, ScheduledCommandValues } from "./instance/command.repository"
+export { createCommandRepository } from "./instance/command.repository"
 export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
 export { CONTROL_TIMEOUT_MS, readConsole, sendCommand } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"
@@ -76,6 +78,13 @@ export {
 } from "./instance/schedule"
 export type { ScheduleRepository, SleepWindowValues } from "./instance/schedule.repository"
 export { createScheduleRepository } from "./instance/schedule.repository"
+export type { SchedulerDeps, SchedulerHandle, SchedulerRun } from "./instance/scheduler"
+export {
+	runSchedulerTick,
+	SCHEDULER_ACTOR_LABEL,
+	SCHEDULER_TICK_MS,
+	startScheduler,
+} from "./instance/scheduler"
 export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
 export { assertExhaustive } from "./lib/exhaustive"
 export { redact, redactError } from "./security/redact"

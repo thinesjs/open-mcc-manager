@@ -90,6 +90,21 @@ export interface Instance {
 	status: Generated<string>
 }
 
+export interface InstanceCommand {
+	command: string
+	createdAt: Generated<Timestamp>
+	daysOfWeek: string
+	enabled: Generated<boolean>
+	id: string
+	instanceId: string
+	lastRunAt: Timestamp | null
+	lastRunError: string | null
+	minuteOfDay: number
+	name: string
+	organizationId: string
+	timezone: string
+}
+
 export interface InstanceConfig {
 	authorId: string | null
 	authorLabel: string
@@ -187,6 +202,7 @@ export interface DB {
 	auditEvent: AuditEvent
 	host: Host
 	instance: Instance
+	instanceCommand: InstanceCommand
 	instanceConfig: InstanceConfig
 	instanceSchedule: InstanceSchedule
 	invitation: Invitation

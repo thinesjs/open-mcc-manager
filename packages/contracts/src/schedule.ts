@@ -47,3 +47,37 @@ export const sleepWindowPublic = z.object({
 	enabled: z.boolean(),
 })
 export type SleepWindowPublic = z.infer<typeof sleepWindowPublic>
+
+export const INSTANCE_COMMAND_MAX_BYTES = 256
+
+export const instanceCommandText = z
+	.string()
+	.min(1)
+	.max(INSTANCE_COMMAND_MAX_BYTES)
+	.refine((value) => !/[\n\r]/.test(value), "A scheduled command must be a single line")
+
+export const scheduledCommandInput = z
+	.object({
+		instanceId: z.string().min(1),
+		name: z.string().min(1).max(64),
+		command: instanceCommandText,
+		daysOfWeek: z.array(dayOfWeekSchema).min(1).max(7),
+		runAt: timeOfDaySchema,
+		timezone: z.string().min(1).max(64).regex(TIMEZONE_PATTERN, "Expected an IANA timezone name"),
+	})
+	.strict()
+export type ScheduledCommandInput = z.infer<typeof scheduledCommandInput>
+
+export const scheduledCommandPublic = z.object({
+	id: z.string(),
+	instanceId: z.string(),
+	name: z.string(),
+	command: z.string(),
+	daysOfWeek: z.array(dayOfWeekSchema),
+	runAt: timeOfDaySchema,
+	timezone: z.string(),
+	enabled: z.boolean(),
+	lastRunAt: z.date().nullable(),
+	lastRunError: z.string().nullable(),
+})
+export type ScheduledCommandPublic = z.infer<typeof scheduledCommandPublic>

@@ -1,4 +1,5 @@
 import {
+	createCommandRepository,
 	createHostRepository,
 	createInstanceController,
 	createInstanceControllerTransaction,
@@ -15,6 +16,7 @@ export const createTestInstanceController = async (db: Db) =>
 	createInstanceController({
 		instances: createInstanceRepository(db),
 		schedules: createScheduleRepository(db),
+		commands: createCommandRepository(db),
 		hosts: createHostRepository(db),
 		sshKeys: createSshKeyRepository(db),
 		secrets: await createSecretStore(await generateKeyPair("k1")),

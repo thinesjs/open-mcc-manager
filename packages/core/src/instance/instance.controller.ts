@@ -4,17 +4,20 @@ import {
 	type InstanceConfigInput,
 	minuteOfDay,
 	type Role,
+	type ScheduledCommandInput,
+	type ScheduledCommandPublic,
 	type SleepWindowInput,
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
-import type { Db, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
+import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import type { HostRepository } from "../host/host.repository"
+import type { HostRepository, OrgScope } from "../host/host.repository"
 import { SYSTEMD_UNIT_DIR } from "../host/provision"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { type CommandRepository, createCommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
 import { readConsole, sendCommand } from "./control"
 import {
@@ -36,6 +39,7 @@ import {
 	sleepStopTimer,
 } from "./schedule"
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
+import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
 import { instanceDir, instanceUser, renderEnvironmentFile, unitName } from "./unit"
 
 export type ActorContext = {
@@ -48,6 +52,7 @@ export type ActorContext = {
 export type InstanceTransactionRepos = {
 	instances: InstanceRepository
 	schedules: ScheduleRepository
+	commands: CommandRepository
 	audit: Pick<AuditRepository, "record">
 }
 
@@ -61,6 +66,7 @@ export const createInstanceControllerTransaction = (db: Db): WithInstanceTransac
 			fn({
 				instances: createInstanceRepository(tx),
 				schedules: createScheduleRepository(tx),
+				commands: createCommandRepository(tx),
 				audit: createAuditRepository(tx),
 			}),
 		)
@@ -70,6 +76,7 @@ export const createInstanceControllerTransaction = (db: Db): WithInstanceTransac
 export type InstanceControllerDeps = {
 	instances: InstanceRepository
 	schedules: ScheduleRepository
+	commands: CommandRepository
 	hosts: Pick<HostRepository, "findById">
 	sshKeys: Pick<SshKeyRepository, "findById">
 	secrets: SecretStore
@@ -83,6 +90,7 @@ const CONNECT_TIMEOUT_MS = 10_000
 
 export class ForbiddenError extends Error {}
 export class InstanceNotFoundError extends Error {}
+export class InstanceNotRunningError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceAuthInProgressError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
@@ -96,14 +104,14 @@ const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
 
-	const connectToHost = async (ctx: ActorContext, hostId: string): Promise<HostTransport> => {
-		const host = await deps.hosts.findById(scopeOf(ctx), hostId)
+	const connectToHost = async (scope: OrgScope, hostId: string): Promise<HostTransport> => {
+		const host = await deps.hosts.findById(scope, hostId)
 		if (!host) throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 		if (!host.sshKeyId) throw new InstanceHostNotFoundError(`Host ${hostId} has no ssh key`)
 		if (!host.hostKeyFingerprint) {
 			throw new InstanceHostNotFoundError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
-		const key = await deps.sshKeys.findById(scopeOf(ctx), host.sshKeyId)
+		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
 
 		const transport = deps.createTransport()
@@ -124,6 +132,19 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return found
 	}
 
+	const toScheduledCommandPublic = (row: InstanceCommandRow): ScheduledCommandPublic => ({
+		id: row.id,
+		instanceId: row.instanceId,
+		name: row.name,
+		command: row.command,
+		daysOfWeek: parseDaysOfWeek(row.daysOfWeek),
+		runAt: timeOfDay(row.minuteOfDay),
+		timezone: row.timezone,
+		enabled: row.enabled,
+		lastRunAt: row.lastRunAt,
+		lastRunError: row.lastRunError,
+	})
+
 	const toSleepWindowPublic = (row: InstanceScheduleRow): SleepWindowPublic => ({
 		id: row.id,
 		instanceId: row.instanceId,
@@ -140,7 +161,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		window: SleepWindowPublic,
 	): Promise<void> => {
 		const timers = renderSleepTimers(window)
-		const transport = await connectToHost(ctx, instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			for (const [name, unit] of Object.entries(timers)) {
 				const write = await transport.exec(
@@ -169,7 +190,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 	const removeSleepTimers = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
 		const names = [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]
-		const transport = await connectToHost(ctx, instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			for (const name of names) {
 				await transport.exec(
@@ -192,7 +213,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		instance: InstanceRow,
 		verb: "start" | "stop",
 	): Promise<void> => {
-		const transport = await connectToHost(ctx, instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			const result = await transport.exec(
 				`systemctl ${verb} ${shellQuote(unitName(instance.id))}`,
@@ -240,7 +261,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return row
 			})
 
-			const transport = await connectToHost(ctx, input.hostId)
+			const transport = await connectToHost(scopeOf(ctx), input.hostId)
 			try {
 				const dir = instanceDir(deps.instancesRoot, created.id)
 				const steps: Array<[string, string, string | undefined]> = [
@@ -345,8 +366,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		sendCommand: async (ctx: ActorContext, instanceId: string, command: string): Promise<void> => {
 			requireCapabilityFor(ctx.role, "console.write")
 			const instance = await requireInstance(ctx, instanceId)
+			if (instance.status !== "running") {
+				throw new InstanceNotRunningError(
+					`Instance ${instanceId} is ${instance.status}; nothing is reading its control channel`,
+				)
+			}
 
-			const transport = await connectToHost(ctx, instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				await sendCommand(transport, instance.id, command, deps.instancesRoot)
 			} finally {
@@ -369,7 +395,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const transport = await connectToHost(ctx, instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				return await readConsole(transport, instance.id, lines)
 			} finally {
@@ -386,7 +412,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const instance = await requireInstance(ctx, instanceId)
 			const document = renderInstanceConfig(config)
 
-			const transport = await connectToHost(ctx, instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				const result = await transport.exec(
 					`(umask 077; cat > ${shellQuote(
@@ -436,7 +462,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			let transport: HostTransport
 			try {
-				transport = await connectToHost(ctx, hostId)
+				transport = await connectToHost(scopeOf(ctx), hostId)
 			} catch (error) {
 				return {
 					hostId,
@@ -456,6 +482,94 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
+		},
+
+		listScheduledCommands: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<ScheduledCommandPublic[]> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			await requireInstance(ctx, instanceId)
+			const rows = await deps.commands.listForInstance(scopeOf(ctx), instanceId)
+			return rows.map(toScheduledCommandPublic)
+		},
+
+		setScheduledCommand: async (
+			ctx: ActorContext,
+			input: ScheduledCommandInput,
+		): Promise<ScheduledCommandPublic> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			await requireInstance(ctx, input.instanceId)
+
+			const row = await deps.withTransaction(async (repos) => {
+				const stored = await repos.commands.upsert(scopeOf(ctx), {
+					instanceId: input.instanceId,
+					name: input.name,
+					command: input.command,
+					daysOfWeek: renderDaysOfWeek(input.daysOfWeek),
+					minuteOfDay: minuteOfDay(input.runAt),
+					timezone: input.timezone,
+					enabled: true,
+				})
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: input.instanceId,
+					detail: { schedule: input.name, command: input.command },
+				})
+				return stored
+			})
+
+			return toScheduledCommandPublic(row)
+		},
+
+		deleteScheduledCommand: async (ctx: ActorContext, id: string): Promise<void> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			await deps.withTransaction(async (repos) => {
+				const removed = await repos.commands.delete(scopeOf(ctx), id)
+				if (!removed) return
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: id,
+					detail: { removed: "true" },
+				})
+			})
+		},
+
+		runScheduledCommand: async (row: InstanceCommandRow): Promise<void> => {
+			const scope = { organizationId: row.organizationId }
+			const instance = await deps.instances.findById(scope, row.instanceId)
+			if (!instance) {
+				throw new InstanceNotFoundError(`Instance not found: ${row.instanceId}`)
+			}
+			if (instance.status !== "running") {
+				throw new InstanceNotRunningError(
+					`Instance ${row.instanceId} is ${instance.status}, so its scheduled command was not sent`,
+				)
+			}
+
+			const transport = await connectToHost(scope, instance.hostId)
+			try {
+				await sendCommand(transport, instance.id, row.command, deps.instancesRoot)
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
+
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scope, {
+					actorId: null,
+					actorLabel: SCHEDULER_ACTOR_LABEL,
+					action: "instance.command",
+					subjectType: "instance",
+					subjectId: row.instanceId,
+					detail: { command: row.command, schedule: row.name },
+				})
+			})
 		},
 
 		getSleepWindow: async (
@@ -545,7 +659,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const transport = await connectToHost(ctx, instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				await transport.exec(
 					`systemctl disable --now ${shellQuote(unitName(instance.id))} || true`,

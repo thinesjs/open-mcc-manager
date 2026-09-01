@@ -2,6 +2,7 @@ import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
 	assertInstancesRootMatchesUnitTemplate,
+	createCommandRepository,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
@@ -14,6 +15,9 @@ import {
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
 	generateSshKeyPair,
+	redactError,
+	type SchedulerHandle,
+	startScheduler,
 	validateInstancesRoot,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
@@ -32,6 +36,7 @@ export type ServerHandle = {
 	server: ReturnType<typeof serve>
 	lock: SingletonLock
 	db: Db
+	scheduler: SchedulerHandle
 }
 
 export type Serve = typeof serve
@@ -75,6 +80,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	const instanceController = createInstanceController({
 		instances: createInstanceRepository(db),
 		schedules: createScheduleRepository(db),
+		commands: createCommandRepository(db),
 		hosts,
 		sshKeys,
 		secrets,
@@ -119,5 +125,16 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		process.exit(1)
 	})
 
-	return { app, server, lock, db }
+	const commands = createCommandRepository(db)
+	const scheduler = startScheduler({
+		dueCommands: () => commands.listEnabledAcrossOrganizations(),
+		send: (row) => instanceController.runScheduledCommand(row),
+		recordRun: (id, ranAt, error) => commands.recordRun(id, ranAt, error),
+		now: () => new Date(),
+		onError: (message, error) => {
+			console.error(message, error instanceof Error ? redactError(error) : message)
+		},
+	})
+
+	return { app, server, lock, db, scheduler }
 }

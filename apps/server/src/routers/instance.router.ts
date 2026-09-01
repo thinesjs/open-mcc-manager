@@ -3,10 +3,12 @@ import {
 	hostIdInput,
 	instanceIdInput,
 	readInstanceConsoleInput,
+	scheduledCommandInput,
 	sendInstanceCommandInput,
 	sleepWindowInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
+import { z } from "zod"
 import { protectedProcedure, requireCapability, router } from "../trpc"
 
 export const instanceRouter = router({
@@ -70,6 +72,26 @@ export const instanceRouter = router({
 		requireCapability(ctx.actor.role, "instance.authenticate")
 		return ctx.instanceController.completeAuthentication(ctx.actor, input.instanceId)
 	}),
+
+	listScheduledCommands: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.listScheduledCommands(ctx.actor, input.instanceId)
+	}),
+
+	setScheduledCommand: protectedProcedure
+		.input(scheduledCommandInput)
+		.mutation(({ ctx, input }) => {
+			requireCapability(ctx.actor.role, "console.write")
+			return ctx.instanceController.setScheduledCommand(ctx.actor, input)
+		}),
+
+	deleteScheduledCommand: protectedProcedure
+		.input(z.object({ id: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			requireCapability(ctx.actor.role, "console.write")
+			await ctx.instanceController.deleteScheduledCommand(ctx.actor, input.id)
+			return { deleted: true }
+		}),
 
 	reconcileHost: protectedProcedure.input(hostIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")

@@ -1,6 +1,7 @@
 import type {
 	AuditEventRow,
 	HostRow,
+	InstanceCommandRow,
 	InstanceRow,
 	InstanceScheduleRow,
 	SshKeyRow,
@@ -16,6 +17,7 @@ import {
 	DEVICE_CODE_PATTERN,
 	SESSION_CACHE_FILE,
 } from "./authenticate"
+import type { CommandRepository } from "./command.repository"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -113,6 +115,22 @@ const scheduleRow = (overrides: Partial<InstanceScheduleRow> = {}): InstanceSche
 	...overrides,
 })
 
+const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceCommandRow => ({
+	id: "cmd-1",
+	organizationId: "org-1",
+	instanceId: "abc123",
+	name: "morning wave",
+	command: "/say good morning",
+	daysOfWeek: "Mon",
+	minuteOfDay: 540,
+	timezone: "UTC",
+	enabled: true,
+	lastRunAt: null,
+	lastRunError: null,
+	createdAt: new Date(),
+	...overrides,
+})
+
 const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({})
 	const original = transport.exec
@@ -145,12 +163,20 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 		list: vi.fn(async () => []),
 		delete: vi.fn(async () => true),
 	}
+	const commands: CommandRepository = {
+		upsert: vi.fn(async () => commandRow()),
+		listForInstance: vi.fn(async () => []),
+		listEnabledAcrossOrganizations: vi.fn(async () => []),
+		delete: vi.fn(async () => true),
+		recordRun: vi.fn(async () => undefined),
+	}
 	const hosts: Pick<HostRepository, "findById"> = { findById: vi.fn(async () => hostRow) }
 	const sshKeys: Pick<SshKeyRepository, "findById"> = { findById: vi.fn(async () => sshKeyRow) }
 
 	const deps: InstanceControllerDeps = {
 		instances,
 		schedules,
+		commands,
 		hosts,
 		sshKeys,
 		secrets: {
@@ -160,7 +186,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 		},
 		createTransport: () => transport,
 		instancesRoot: "/srv/open-mcc",
-		withTransaction: async (fn) => await fn({ instances, schedules, audit }),
+		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
 		...overrides,
 	}
 

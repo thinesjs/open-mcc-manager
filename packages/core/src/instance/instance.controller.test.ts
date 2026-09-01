@@ -2,6 +2,7 @@ import type { SleepWindowInput } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
 	HostRow,
+	InstanceCommandRow,
 	InstanceConfigRow,
 	InstanceRow,
 	InstanceScheduleRow,
@@ -12,6 +13,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import type { CommandRepository } from "./command.repository"
 import {
 	type ActorContext,
 	createInstanceController,
@@ -19,6 +21,7 @@ import {
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
 	InstanceNotFoundError,
+	InstanceNotRunningError,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
@@ -119,6 +122,22 @@ const scheduleRow = (overrides: Partial<InstanceScheduleRow> = {}): InstanceSche
 	...overrides,
 })
 
+const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceCommandRow => ({
+	id: "cmd-1",
+	organizationId: "org-1",
+	instanceId: "abc123",
+	name: "morning wave",
+	command: "/say good morning",
+	daysOfWeek: "Mon",
+	minuteOfDay: 540,
+	timezone: "UTC",
+	enabled: true,
+	lastRunAt: null,
+	lastRunError: null,
+	createdAt: new Date(),
+	...overrides,
+})
+
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport()
 	const audit: Pick<AuditRepository, "record"> = {
@@ -141,6 +160,13 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		list: vi.fn(async () => []),
 		delete: vi.fn(async () => true),
 	}
+	const commands: CommandRepository = {
+		upsert: vi.fn(async () => commandRow()),
+		listForInstance: vi.fn(async () => []),
+		listEnabledAcrossOrganizations: vi.fn(async () => []),
+		delete: vi.fn(async () => true),
+		recordRun: vi.fn(async () => undefined),
+	}
 	const hosts: Pick<HostRepository, "findById"> = {
 		findById: vi.fn(async () => hostRow),
 	}
@@ -150,6 +176,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const deps: InstanceControllerDeps = {
 		instances,
 		schedules,
+		commands,
 		hosts,
 		sshKeys,
 		secrets: {
@@ -159,7 +186,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		},
 		createTransport: () => transport,
 		instancesRoot: "/srv/open-mcc",
-		withTransaction: async (fn) => await fn({ instances, schedules, audit }),
+		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
 		...overrides,
 	}
 	return { transport, audit, instances, deps }
@@ -186,11 +213,22 @@ describe("instance controller authorization", () => {
 		).rejects.toThrow(ForbiddenError)
 	})
 
-	it("lets an operator send a console command", async () => {
-		const { deps, transport } = makeDeps()
+	it("lets an operator send a console command to a running instance", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
 		const controller = createInstanceController(deps)
 		await controller.sendCommand(operator, "abc123", "/say hi")
 		expect(transport.stdins).toContain("/say hi\n")
+	})
+
+	it("refuses a command to an instance that is not running, whose fifo has no reader", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(controller.sendCommand(operator, "abc123", "/say hi")).rejects.toThrow(
+			InstanceNotRunningError,
+		)
+		expect(transport.commands).toEqual([])
 	})
 
 	it("refuses a viewer's console write while allowing the read", async () => {
@@ -394,5 +432,47 @@ describe("reconciliation", () => {
 		expect(result.reachable).toBe(false)
 		if (result.reachable) throw new Error("unreachable expected")
 		expect(result.reason).toContain("Connection reset")
+	})
+})
+
+describe("scheduled commands", () => {
+	it("sends a scheduled command with no actor, audited as the scheduler", async () => {
+		const { deps, transport, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.runScheduledCommand(commandRow())
+
+		expect(transport.stdins).toContain("/say good morning\n")
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ actorId: null, actorLabel: "scheduler" }),
+		)
+	})
+
+	it("refuses to write to a stopped instance's fifo, which nothing is reading", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(controller.runScheduledCommand(commandRow())).rejects.toThrow(
+			InstanceNotRunningError,
+		)
+		expect(transport.commands).toEqual([])
+	})
+
+	it("refuses a viewer's attempt to define a scheduled command", async () => {
+		const { deps } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setScheduledCommand(viewer, {
+				instanceId: "abc123",
+				name: "n",
+				command: "/say hi",
+				daysOfWeek: ["Mon"],
+				runAt: { hour: 9, minute: 0 },
+				timezone: "UTC",
+			}),
+		).rejects.toThrow(ForbiddenError)
 	})
 })

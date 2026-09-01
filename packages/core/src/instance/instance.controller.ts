@@ -17,6 +17,7 @@ import {
 	type InstanceRepository,
 	isAuthClaimStale,
 } from "./instance.repository"
+import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { instanceDir, instanceUser, renderEnvironmentFile, unitName } from "./unit"
 
 export type ActorContext = {
@@ -28,6 +29,7 @@ export type ActorContext = {
 
 export type InstanceTransactionRepos = {
 	instances: InstanceRepository
+	schedules: ScheduleRepository
 	audit: Pick<AuditRepository, "record">
 }
 
@@ -37,16 +39,19 @@ export type WithInstanceTransaction = <T>(
 
 export const createInstanceControllerTransaction = (db: Db): WithInstanceTransaction => {
 	const withTransaction: WithInstanceTransaction = (fn) =>
-		db
-			.transaction()
-			.execute((tx) =>
-				fn({ instances: createInstanceRepository(tx), audit: createAuditRepository(tx) }),
-			)
+		db.transaction().execute((tx) =>
+			fn({
+				instances: createInstanceRepository(tx),
+				schedules: createScheduleRepository(tx),
+				audit: createAuditRepository(tx),
+			}),
+		)
 	return withTransaction
 }
 
 export type InstanceControllerDeps = {
 	instances: InstanceRepository
+	schedules: ScheduleRepository
 	hosts: Pick<HostRepository, "findById">
 	sshKeys: Pick<SshKeyRepository, "findById">
 	secrets: SecretStore

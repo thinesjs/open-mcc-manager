@@ -1,0 +1,6 @@
+[Unit]
+Description=Start open-mcc instance %i after its sleep window
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl start open-mcc@%i.service

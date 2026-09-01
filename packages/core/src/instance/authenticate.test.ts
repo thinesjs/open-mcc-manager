@@ -1,4 +1,10 @@
-import type { AuditEventRow, HostRow, InstanceRow, SshKeyRow } from "@open-mcc/db"
+import type {
+	AuditEventRow,
+	HostRow,
+	InstanceRow,
+	InstanceScheduleRow,
+	SshKeyRow,
+} from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
@@ -16,6 +22,7 @@ import {
 	type InstanceControllerDeps,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
+import type { ScheduleRepository } from "./schedule.repository"
 
 const FAST_POLL = { attempts: 2, intervalMs: 1 }
 
@@ -93,6 +100,19 @@ const auditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRow =>
 	...overrides,
 })
 
+const scheduleRow = (overrides: Partial<InstanceScheduleRow> = {}): InstanceScheduleRow => ({
+	id: "sched-1",
+	organizationId: "org-1",
+	instanceId: "abc123",
+	daysOfWeek: "Mon,Tue",
+	stopMinuteOfDay: 18 * 60 + 50,
+	startMinuteOfDay: 19 * 60 + 30,
+	timezone: "Asia/Kuala_Lumpur",
+	enabled: true,
+	createdAt: new Date(),
+	...overrides,
+})
+
 const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({})
 	const original = transport.exec
@@ -119,11 +139,18 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 	const audit: Pick<AuditRepository, "record"> = {
 		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => auditEventRow({ ...entry })),
 	}
+	const schedules: ScheduleRepository = {
+		upsert: vi.fn(async () => scheduleRow()),
+		findByInstance: vi.fn(async () => undefined),
+		list: vi.fn(async () => []),
+		delete: vi.fn(async () => true),
+	}
 	const hosts: Pick<HostRepository, "findById"> = { findById: vi.fn(async () => hostRow) }
 	const sshKeys: Pick<SshKeyRepository, "findById"> = { findById: vi.fn(async () => sshKeyRow) }
 
 	const deps: InstanceControllerDeps = {
 		instances,
+		schedules,
 		hosts,
 		sshKeys,
 		secrets: {
@@ -133,7 +160,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 		},
 		createTransport: () => transport,
 		instancesRoot: "/srv/open-mcc",
-		withTransaction: async (fn) => await fn({ instances, audit }),
+		withTransaction: async (fn) => await fn({ instances, schedules, audit }),
 		...overrides,
 	}
 

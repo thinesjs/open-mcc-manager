@@ -8,6 +8,7 @@ import {
 	createInstanceController,
 	createInstanceControllerTransaction,
 	createInstanceRepository,
+	createScheduleRepository,
 	createSecretStore,
 	createSshKeyController,
 	createSshKeyControllerTransaction,
@@ -73,6 +74,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 	const instanceController = createInstanceController({
 		instances: createInstanceRepository(db),
+		schedules: createScheduleRepository(db),
 		hosts,
 		sshKeys,
 		secrets,

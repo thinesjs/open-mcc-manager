@@ -101,6 +101,18 @@ export interface InstanceConfig {
 	version: number
 }
 
+export interface InstanceSchedule {
+	createdAt: Generated<Timestamp>
+	daysOfWeek: string
+	enabled: Generated<boolean>
+	id: string
+	instanceId: string
+	organizationId: string
+	startMinuteOfDay: number
+	stopMinuteOfDay: number
+	timezone: string
+}
+
 export interface Invitation {
 	createdAt: Generated<Timestamp>
 	email: string
@@ -176,6 +188,7 @@ export interface DB {
 	host: Host
 	instance: Instance
 	instanceConfig: InstanceConfig
+	instanceSchedule: InstanceSchedule
 	invitation: Invitation
 	member: Member
 	organization: Organization

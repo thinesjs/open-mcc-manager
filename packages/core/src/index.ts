@@ -65,6 +65,8 @@ export {
 	createInstanceRepository,
 	isAuthClaimStale,
 } from "./instance/instance.repository"
+export type { ScheduleRepository, SleepWindowValues } from "./instance/schedule.repository"
+export { createScheduleRepository } from "./instance/schedule.repository"
 export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
 export { assertExhaustive } from "./lib/exhaustive"
 export { redact, redactError } from "./security/redact"

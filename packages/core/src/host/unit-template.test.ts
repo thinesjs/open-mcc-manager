@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { UNIT_TEMPLATE } from "./unit-template"
+import { UNIT_TEMPLATE, UNIT_TEMPLATES } from "./unit-template"
 
-const REPOSITORY_TEMPLATE = join(
+const SYSTEMD_DIR = join(
 	dirname(fileURLToPath(import.meta.url)),
 	"..",
 	"..",
@@ -12,17 +12,30 @@ const REPOSITORY_TEMPLATE = join(
 	"..",
 	"docker",
 	"systemd",
-	"open-mcc@.service",
 )
 
-describe("embedded systemd unit template", () => {
-	it("is byte-identical to the unit file in the repository, so the two cannot drift", () => {
-		expect(UNIT_TEMPLATE).toBe(readFileSync(REPOSITORY_TEMPLATE, "utf8"))
+describe("embedded systemd unit templates", () => {
+	it("embeds every unit file the repository ships, so none is silently left behind", () => {
+		expect(Object.keys(UNIT_TEMPLATES).sort()).toEqual(readdirSync(SYSTEMD_DIR).sort())
+	})
+
+	it("is byte-identical to each unit file, so the two cannot drift", () => {
+		for (const [name, embedded] of Object.entries(UNIT_TEMPLATES)) {
+			expect(embedded).toBe(readFileSync(join(SYSTEMD_DIR, name), "utf8"))
+		}
 	})
 
 	it("is embedded rather than read at runtime, so a bundled server has no file dependency", () => {
-		expect(UNIT_TEMPLATE.length).toBeGreaterThan(0)
 		expect(UNIT_TEMPLATE).toContain("User=mcc-%i")
 		expect(UNIT_TEMPLATE).toContain("RestartPreventExitStatus=4")
+	})
+
+	it("drives the sleep units through systemctl on the instance's own unit", () => {
+		expect(UNIT_TEMPLATES["open-mcc-sleep-stop@.service"]).toContain(
+			"systemctl stop open-mcc@%i.service",
+		)
+		expect(UNIT_TEMPLATES["open-mcc-sleep-start@.service"]).toContain(
+			"systemctl start open-mcc@%i.service",
+		)
 	})
 })

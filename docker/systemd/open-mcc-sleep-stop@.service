@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop open-mcc instance %i for its sleep window
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop open-mcc@%i.service

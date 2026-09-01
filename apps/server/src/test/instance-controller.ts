@@ -3,6 +3,7 @@ import {
 	createInstanceController,
 	createInstanceControllerTransaction,
 	createInstanceRepository,
+	createScheduleRepository,
 	createSecretStore,
 	createSshKeyRepository,
 	generateKeyPair,
@@ -13,6 +14,7 @@ import { createFakeTransport } from "@open-mcc/transport"
 export const createTestInstanceController = async (db: Db) =>
 	createInstanceController({
 		instances: createInstanceRepository(db),
+		schedules: createScheduleRepository(db),
 		hosts: createHostRepository(db),
 		sshKeys: createSshKeyRepository(db),
 		secrets: await createSecretStore(await generateKeyPair("k1")),

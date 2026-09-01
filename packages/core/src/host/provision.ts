@@ -1,8 +1,17 @@
 import type { HostTransport } from "@open-mcc/transport"
 import { mccReleaseForMachine } from "./mcc-release"
-import { UNIT_TEMPLATE } from "./unit-template"
+import { UNIT_TEMPLATES } from "./unit-template"
 
-export const UNIT_TEMPLATE_PATH = "/etc/systemd/system/open-mcc@.service"
+export const SYSTEMD_UNIT_DIR = "/etc/systemd/system"
+
+export const INSTANCE_UNIT_NAME = "open-mcc@.service"
+
+export const SLEEP_UNIT_NAMES = [
+	"open-mcc-sleep-stop@.service",
+	"open-mcc-sleep-start@.service",
+] as const
+
+export const UNIT_TEMPLATE_PATH = `${SYSTEMD_UNIT_DIR}/${INSTANCE_UNIT_NAME}`
 
 export const UNIT_TEMPLATE_INSTANCES_ROOT = "/srv/open-mcc"
 
@@ -82,8 +91,18 @@ export const provisionHost = async (
 		`cat > ${shellQuote(UNIT_TEMPLATE_PATH)}`,
 		"Failed to install the instance unit template",
 		PROVISION_STEP_TIMEOUT_MS,
-		UNIT_TEMPLATE,
+		UNIT_TEMPLATES[INSTANCE_UNIT_NAME],
 	)
+
+	for (const name of SLEEP_UNIT_NAMES) {
+		await step(
+			transport,
+			`cat > ${shellQuote(`${SYSTEMD_UNIT_DIR}/${name}`)}`,
+			`Failed to install the ${name} unit template`,
+			PROVISION_STEP_TIMEOUT_MS,
+			UNIT_TEMPLATES[name],
+		)
+	}
 
 	await step(transport, "systemctl daemon-reload", "Failed to reload systemd")
 

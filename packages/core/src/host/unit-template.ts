@@ -1,4 +1,5 @@
-export const UNIT_TEMPLATE = `[Unit]
+export const UNIT_TEMPLATES: Record<string, string> = {
+	"open-mcc@.service": `[Unit]
 Description=open-mcc-manager instance %i
 After=network-online.target
 Wants=network-online.target
@@ -29,4 +30,21 @@ ReadWritePaths=/srv/open-mcc/instances/%i
 
 [Install]
 WantedBy=multi-user.target
-`
+`,
+	"open-mcc-sleep-stop@.service": `[Unit]
+Description=Stop open-mcc instance %i for its sleep window
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop open-mcc@%i.service
+`,
+	"open-mcc-sleep-start@.service": `[Unit]
+Description=Start open-mcc instance %i after its sleep window
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl start open-mcc@%i.service
+`,
+}
+
+export const UNIT_TEMPLATE = UNIT_TEMPLATES["open-mcc@.service"] ?? ""

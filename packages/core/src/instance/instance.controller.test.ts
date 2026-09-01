@@ -3,6 +3,7 @@ import type {
 	HostRow,
 	InstanceConfigRow,
 	InstanceRow,
+	InstanceScheduleRow,
 	SshKeyRow,
 } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
@@ -19,6 +20,7 @@ import {
 	InstanceNotFoundError,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
+import type { ScheduleRepository } from "./schedule.repository"
 
 const owner: ActorContext = {
 	organizationId: "org-1",
@@ -103,6 +105,19 @@ const auditEventRow = (overrides: Partial<AuditEventRow> = {}): AuditEventRow =>
 	...overrides,
 })
 
+const scheduleRow = (overrides: Partial<InstanceScheduleRow> = {}): InstanceScheduleRow => ({
+	id: "sched-1",
+	organizationId: "org-1",
+	instanceId: "abc123",
+	daysOfWeek: "Mon,Tue",
+	stopMinuteOfDay: 18 * 60 + 50,
+	startMinuteOfDay: 19 * 60 + 30,
+	timezone: "Asia/Kuala_Lumpur",
+	enabled: true,
+	createdAt: new Date(),
+	...overrides,
+})
+
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport()
 	const audit: Pick<AuditRepository, "record"> = {
@@ -119,6 +134,12 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		insertConfigVersion: vi.fn(async () => configRow()),
 		latestConfig: vi.fn(async () => undefined),
 	}
+	const schedules: ScheduleRepository = {
+		upsert: vi.fn(async () => scheduleRow()),
+		findByInstance: vi.fn(async () => undefined),
+		list: vi.fn(async () => []),
+		delete: vi.fn(async () => true),
+	}
 	const hosts: Pick<HostRepository, "findById"> = {
 		findById: vi.fn(async () => hostRow),
 	}
@@ -127,6 +148,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	}
 	const deps: InstanceControllerDeps = {
 		instances,
+		schedules,
 		hosts,
 		sshKeys,
 		secrets: {
@@ -136,7 +158,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		},
 		createTransport: () => transport,
 		instancesRoot: "/srv/open-mcc",
-		withTransaction: async (fn) => await fn({ instances, audit }),
+		withTransaction: async (fn) => await fn({ instances, schedules, audit }),
 		...overrides,
 	}
 	return { transport, audit, instances, deps }

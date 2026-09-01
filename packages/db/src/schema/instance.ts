@@ -29,3 +29,10 @@ export type InstanceConfigTable = Omit<DB["instanceConfig"], "authorId"> & {
 
 export type InstanceConfigRow = Selectable<InstanceConfigTable>
 export type InstanceConfigInsert = Insertable<InstanceConfigTable>
+
+export type InstanceScheduleTable = Omit<DB["instanceSchedule"], "enabled"> & {
+	enabled: Generated<boolean>
+}
+
+export type InstanceScheduleRow = Selectable<InstanceScheduleTable>
+export type InstanceScheduleInsert = Insertable<InstanceScheduleTable>

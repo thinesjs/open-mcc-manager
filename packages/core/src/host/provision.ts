@@ -1,26 +1,10 @@
-import { readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import type { HostTransport } from "@open-mcc/transport"
 import { MCC_SHA256, MCC_VERSION, mccDownloadUrl } from "./mcc-release"
+import { UNIT_TEMPLATE } from "./unit-template"
 
 export const UNIT_TEMPLATE_PATH = "/etc/systemd/system/open-mcc@.service"
 
 export const UNIT_TEMPLATE_INSTANCES_ROOT = "/srv/open-mcc"
-
-const UNIT_TEMPLATE = readFileSync(
-	join(
-		dirname(fileURLToPath(import.meta.url)),
-		"..",
-		"..",
-		"..",
-		"..",
-		"docker",
-		"systemd",
-		"open-mcc@.service",
-	),
-	"utf8",
-)
 
 export type ProvisionOptions = {
 	instancesRoot: string

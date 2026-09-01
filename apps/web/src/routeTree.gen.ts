@@ -13,10 +13,13 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
 import { Route as AuthenticatedSshKeysRouteImport } from './routes/_authenticated.ssh-keys'
 import { Route as AuthenticatedHostsIndexRouteImport } from './routes/_authenticated.hosts.index'
 import { Route as AuthenticatedHostsHostIdRouteImport } from './routes/_authenticated.hosts.$hostId'
 import { Route as AuthenticatedHostsNewRouteImport } from './routes/_authenticated.hosts.new'
+import { Route as AuthenticatedInstancesIndexRouteImport } from './routes/_authenticated.instances.index'
+import { Route as AuthenticatedInstancesInstanceIdRouteImport } from './routes/_authenticated.instances.$instanceId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -36,6 +39,11 @@ const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedOverviewRoute = AuthenticatedOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSshKeysRoute = AuthenticatedSshKeysRouteImport.update({
   id: '/ssh-keys',
@@ -58,24 +66,42 @@ const AuthenticatedHostsNewRoute = AuthenticatedHostsNewRouteImport.update({
   path: '/hosts/new',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedInstancesIndexRoute =
+  AuthenticatedInstancesIndexRouteImport.update({
+    id: '/instances/',
+    path: '/instances/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedInstancesInstanceIdRoute =
+  AuthenticatedInstancesInstanceIdRouteImport.update({
+    id: '/instances/$instanceId',
+    path: '/instances/$instanceId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/hosts/$hostId': typeof AuthenticatedHostsHostIdRoute
   '/hosts/new': typeof AuthenticatedHostsNewRoute
+  '/instances/$instanceId': typeof AuthenticatedInstancesInstanceIdRoute
   '/hosts/': typeof AuthenticatedHostsIndexRoute
+  '/instances/': typeof AuthenticatedInstancesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/hosts/$hostId': typeof AuthenticatedHostsHostIdRoute
   '/hosts/new': typeof AuthenticatedHostsNewRoute
+  '/instances/$instanceId': typeof AuthenticatedInstancesInstanceIdRoute
   '/hosts': typeof AuthenticatedHostsIndexRoute
+  '/instances': typeof AuthenticatedInstancesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -83,10 +109,13 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/_authenticated/overview': typeof AuthenticatedOverviewRoute
   '/_authenticated/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/_authenticated/hosts/$hostId': typeof AuthenticatedHostsHostIdRoute
   '/_authenticated/hosts/new': typeof AuthenticatedHostsNewRoute
+  '/_authenticated/instances/$instanceId': typeof AuthenticatedInstancesInstanceIdRoute
   '/_authenticated/hosts/': typeof AuthenticatedHostsIndexRoute
+  '/_authenticated/instances/': typeof AuthenticatedInstancesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -94,29 +123,38 @@ export interface FileRouteTypes {
     | '/'
     | '/accept-invitation'
     | '/sign-in'
+    | '/overview'
     | '/ssh-keys'
     | '/hosts/$hostId'
     | '/hosts/new'
+    | '/instances/$instanceId'
     | '/hosts/'
+    | '/instances/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/accept-invitation'
     | '/sign-in'
+    | '/overview'
     | '/ssh-keys'
     | '/hosts/$hostId'
     | '/hosts/new'
+    | '/instances/$instanceId'
     | '/hosts'
+    | '/instances'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/accept-invitation'
     | '/sign-in'
+    | '/_authenticated/overview'
     | '/_authenticated/ssh-keys'
     | '/_authenticated/hosts/$hostId'
     | '/_authenticated/hosts/new'
+    | '/_authenticated/instances/$instanceId'
     | '/_authenticated/hosts/'
+    | '/_authenticated/instances/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -156,6 +194,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/overview': {
+      id: '/_authenticated/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof AuthenticatedOverviewRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/ssh-keys': {
       id: '/_authenticated/ssh-keys'
       path: '/ssh-keys'
@@ -184,21 +229,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHostsNewRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/instances/': {
+      id: '/_authenticated/instances/'
+      path: '/instances'
+      fullPath: '/instances/'
+      preLoaderRoute: typeof AuthenticatedInstancesIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/instances/$instanceId': {
+      id: '/_authenticated/instances/$instanceId'
+      path: '/instances/$instanceId'
+      fullPath: '/instances/$instanceId'
+      preLoaderRoute: typeof AuthenticatedInstancesInstanceIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedOverviewRoute: typeof AuthenticatedOverviewRoute
   AuthenticatedSshKeysRoute: typeof AuthenticatedSshKeysRoute
   AuthenticatedHostsHostIdRoute: typeof AuthenticatedHostsHostIdRoute
   AuthenticatedHostsNewRoute: typeof AuthenticatedHostsNewRoute
+  AuthenticatedInstancesInstanceIdRoute: typeof AuthenticatedInstancesInstanceIdRoute
   AuthenticatedHostsIndexRoute: typeof AuthenticatedHostsIndexRoute
+  AuthenticatedInstancesIndexRoute: typeof AuthenticatedInstancesIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedOverviewRoute: AuthenticatedOverviewRoute,
   AuthenticatedSshKeysRoute: AuthenticatedSshKeysRoute,
   AuthenticatedHostsHostIdRoute: AuthenticatedHostsHostIdRoute,
   AuthenticatedHostsNewRoute: AuthenticatedHostsNewRoute,
+  AuthenticatedInstancesInstanceIdRoute: AuthenticatedInstancesInstanceIdRoute,
   AuthenticatedHostsIndexRoute: AuthenticatedHostsIndexRoute,
+  AuthenticatedInstancesIndexRoute: AuthenticatedInstancesIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
-import { KeyRound, LogOut, Server } from "lucide-react"
+import { Boxes, KeyRound, LayoutDashboard, LogOut, Server } from "lucide-react"
 import { authClient } from "~/lib/auth-client"
 
 export const Route = createFileRoute("/_authenticated")({
@@ -13,9 +13,27 @@ export const Route = createFileRoute("/_authenticated")({
 })
 
 const NAV_LINK_CLASSES =
-	"flex items-center gap-2 rounded-[var(--control-radius)] px-3 py-2 text-sm font-medium text-sidebar-muted-foreground hover:bg-accent hover:text-foreground"
+	"flex items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 
 const NAV_LINK_ACTIVE_CLASSES = "bg-accent text-foreground"
+
+const SECTIONS = [
+	{
+		label: undefined,
+		items: [{ to: "/overview", icon: LayoutDashboard, label: "Overview" }],
+	},
+	{
+		label: "Fleet",
+		items: [
+			{ to: "/instances", icon: Boxes, label: "Instances" },
+			{ to: "/hosts", icon: Server, label: "Hosts" },
+		],
+	},
+	{
+		label: "Access",
+		items: [{ to: "/ssh-keys", icon: KeyRound, label: "SSH keys" }],
+	},
+] as const
 
 function AuthenticatedLayout() {
 	const navigate = useNavigate()
@@ -28,43 +46,62 @@ function AuthenticatedLayout() {
 
 	return (
 		<div className="flex min-h-dvh">
-			<aside className="flex w-56 shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
-				<nav className="flex flex-col gap-1">
-					<Link
-						to="/hosts"
-						className={NAV_LINK_CLASSES}
-						activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
-					>
-						<Server className="size-4" />
-						Hosts
-					</Link>
-					<Link
-						to="/ssh-keys"
-						className={NAV_LINK_CLASSES}
-						activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
-					>
-						<KeyRound className="size-4" />
-						SSH keys
-					</Link>
-				</nav>
-				<div className="space-y-2 border-t border-sidebar-border pt-4">
+			<aside className="flex w-60 shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+				<div>
+					<div className="flex items-center gap-2 px-5 py-4">
+						<span className="grid size-7 place-items-center rounded-[var(--control-radius)] bg-primary text-xs font-bold text-primary-foreground">
+							M
+						</span>
+						<span className="text-sm font-semibold tracking-tight text-foreground">OpenMCC</span>
+					</div>
+					<nav className="flex flex-col gap-5 px-3 py-2">
+						{SECTIONS.map((section) => (
+							<div key={section.label ?? "root"} className="flex flex-col gap-1">
+								{section.label ? (
+									<p className="px-3 pb-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-sidebar-muted-foreground">
+										{section.label}
+									</p>
+								) : null}
+								{section.items.map((item) => (
+									<Link
+										key={item.to}
+										to={item.to}
+										className={NAV_LINK_CLASSES}
+										activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
+									>
+										<item.icon className="size-4" />
+										{item.label}
+									</Link>
+								))}
+							</div>
+						))}
+					</nav>
+				</div>
+				<div className="space-y-2 border-t border-sidebar-border p-4">
 					{session.data ? (
-						<p className="truncate text-xs text-sidebar-muted-foreground">
-							{session.data.user.email}
-						</p>
+						<div className="px-1">
+							<p className="truncate text-xs font-medium text-foreground">
+								{session.data.user.name || session.data.user.email}
+							</p>
+							<p className="truncate text-xs text-sidebar-muted-foreground">
+								{session.data.user.email}
+							</p>
+						</div>
 					) : null}
 					<button
 						type="button"
 						onClick={handleSignOut}
-						className="flex w-full items-center gap-2 rounded-[var(--control-radius)] px-3 py-2 text-sm font-medium text-sidebar-muted-foreground hover:bg-accent hover:text-foreground"
+						className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<LogOut className="size-4" />
 						Sign out
 					</button>
 				</div>
 			</aside>
-			<main className="flex-1 overflow-y-auto p-6">
-				<Outlet />
+			<main className="flex-1 overflow-y-auto p-8">
+				<div className="mx-auto max-w-6xl">
+					<Outlet />
+				</div>
 			</main>
 		</div>
 	)

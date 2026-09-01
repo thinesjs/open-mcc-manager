@@ -26,3 +26,10 @@ export const renderEnvironmentFile = (values: EnvironmentValues): string =>
 		`MCC_ACCOUNT=${environmentValue(values.minecraftAccount)}`,
 		"",
 	].join("\n")
+
+export const unitName = (instanceId: string): string => `open-mcc@${validateInstanceId(instanceId)}`
+
+export const instanceDir = (instancesRoot: string, instanceId: string): string =>
+	`${instancesRoot}/instances/${validateInstanceId(instanceId)}`
+
+export const instanceUser = (instanceId: string): string => `mcc-${validateInstanceId(instanceId)}`

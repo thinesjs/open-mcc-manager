@@ -7,6 +7,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
+import { instanceDir, instanceUser, unitName } from "./unit"
 
 export const DEVICE_CODE_PATTERN = /\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/
 
@@ -85,15 +86,15 @@ export const beginAuthentication = async (
 		})
 
 		await transport.exec(
-			`systemctl stop ${shellQuote(`open-mcc@${instance.id}`)} || true`,
+			`systemctl stop ${shellQuote(unitName(instance.id))} || true`,
 			AUTH_SESSION_TIMEOUT_MS,
 		)
 
-		const dir = `${deps.instancesRoot}/instances/${instance.id}`
+		const dir = instanceDir(deps.instancesRoot, instance.id)
 		const log = `${dir}/auth.log`
 
 		await transport.exec(
-			`rm -f ${shellQuote(log)} && runuser -u ${shellQuote(`mcc-${instance.id}`)} -- sh -c ${shellQuote(
+			`rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instance.id))} -- sh -c ${shellQuote(
 				`cd ${dir} && nohup ${deps.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
 			)}`,
 			AUTH_SESSION_TIMEOUT_MS,

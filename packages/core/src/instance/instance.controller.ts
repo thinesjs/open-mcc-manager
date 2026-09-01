@@ -17,7 +17,7 @@ import {
 	type InstanceRepository,
 	isAuthClaimStale,
 } from "./instance.repository"
-import { renderEnvironmentFile, validateInstanceId } from "./unit"
+import { instanceDir, instanceUser, renderEnvironmentFile, unitName } from "./unit"
 
 export type ActorContext = {
 	organizationId: string
@@ -109,7 +109,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const transport = await connectToHost(ctx, instance.hostId)
 		try {
 			const result = await transport.exec(
-				`systemctl ${verb} ${shellQuote(`open-mcc@${instance.id}`)}`,
+				`systemctl ${verb} ${shellQuote(unitName(instance.id))}`,
 				INSTANCE_STEP_TIMEOUT_MS,
 			)
 			if (result.exitCode !== 0) {
@@ -154,19 +154,17 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return row
 			})
 
-			validateInstanceId(created.id)
-
 			const transport = await connectToHost(ctx, input.hostId)
 			try {
-				const dir = `${deps.instancesRoot}/instances/${created.id}`
+				const dir = instanceDir(deps.instancesRoot, created.id)
 				const steps: Array<[string, string, string | undefined]> = [
 					[
-						`useradd -r -g open-mcc -d ${shellQuote(dir)} -s /usr/sbin/nologin ${shellQuote(`mcc-${created.id}`)} || true`,
+						`useradd -r -g open-mcc -d ${shellQuote(dir)} -s /usr/sbin/nologin ${shellQuote(instanceUser(created.id))} || true`,
 						"Failed to create the instance user",
 						undefined,
 					],
 					[
-						`install -d -m 2770 -g open-mcc -o ${shellQuote(`mcc-${created.id}`)} ${shellQuote(dir)}`,
+						`install -d -m 2770 -g open-mcc -o ${shellQuote(instanceUser(created.id))} ${shellQuote(dir)}`,
 						"Failed to create the instance directory",
 						undefined,
 					],
@@ -176,7 +174,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						undefined,
 					],
 					[
-						`chown ${shellQuote(`mcc-${created.id}:open-mcc`)} ${shellQuote(`${dir}/control`)}`,
+						`chown ${shellQuote(`${instanceUser(created.id)}:open-mcc`)} ${shellQuote(`${dir}/control`)}`,
 						"Failed to own the control fifo",
 						undefined,
 					],
@@ -303,7 +301,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const transport = await connectToHost(ctx, instance.hostId)
 			try {
 				const result = await transport.exec(
-					`cat > ${shellQuote(`${deps.instancesRoot}/instances/${instance.id}/MinecraftClient.ini`)}`,
+					`cat > ${shellQuote(`${instanceDir(deps.instancesRoot, instance.id)}/MinecraftClient.ini`)}`,
 					INSTANCE_STEP_TIMEOUT_MS,
 					document,
 				)
@@ -350,7 +348,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const transport = await connectToHost(ctx, instance.hostId)
 			try {
 				await transport.exec(
-					`systemctl disable --now ${shellQuote(`open-mcc@${instance.id}`)} || true`,
+					`systemctl disable --now ${shellQuote(unitName(instance.id))} || true`,
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
 			} finally {

@@ -1,12 +1,12 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { validateInstanceId } from "./unit"
+import { instanceDir, unitName, validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 const controlPath = (instancesRoot: string, instanceId: string): string =>
-	`${instancesRoot}/instances/${instanceId}/control`
+	`${instanceDir(instancesRoot, instanceId)}/control`
 
 export const sendCommand = async (
 	transport: HostTransport,
@@ -38,7 +38,7 @@ export const readConsole = async (
 		throw new Error("Console line count must be a whole number between 1 and 1000")
 	}
 	const result = await transport.exec(
-		`journalctl -u ${shellQuote(`open-mcc@${id}`)} --lines ${lines} --no-pager --output cat`,
+		`journalctl -u ${shellQuote(unitName(id))} --lines ${lines} --no-pager --output cat`,
 		CONTROL_TIMEOUT_MS,
 	)
 	if (result.exitCode !== 0) {

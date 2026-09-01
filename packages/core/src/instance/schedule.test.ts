@@ -1,3 +1,4 @@
+import { DAYS_OF_WEEK, type DayOfWeek } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import {
 	parseDaysOfWeek,
@@ -29,8 +30,21 @@ describe("sleep window rendering", () => {
 		)
 	})
 
-	it("collapses a whole week to systemd's wildcard rather than listing seven days", () => {
+	it("stores a whole week as a single marker rather than seven names", () => {
 		expect(renderDaysOfWeek(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])).toBe("*")
+	})
+
+	it("omits the weekday for a daily window, which is the form systemd parses", () => {
+		expect(renderOnCalendar(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], 1170, "UTC")).toBe(
+			"*-*-* 19:30:00 UTC",
+		)
+	})
+
+	it("never emits a bare asterisk weekday, which systemd rejects as invalid", () => {
+		const cases: DayOfWeek[][] = [["Mon"], ["Mon", "Tue"], [...DAYS_OF_WEEK]]
+		for (const days of cases) {
+			expect(renderOnCalendar(days, 600, "UTC")).not.toMatch(/^\* /)
+		}
 	})
 
 	it("orders days as systemd expects regardless of the order they arrive in", () => {

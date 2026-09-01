@@ -65,6 +65,15 @@ export {
 	createInstanceRepository,
 	isAuthClaimStale,
 } from "./instance/instance.repository"
+export {
+	calendarWeekdayPrefix,
+	parseDaysOfWeek,
+	renderDaysOfWeek,
+	renderOnCalendar,
+	renderSleepTimers,
+	sleepStartTimer,
+	sleepStopTimer,
+} from "./instance/schedule"
 export type { ScheduleRepository, SleepWindowValues } from "./instance/schedule.repository"
 export { createScheduleRepository } from "./instance/schedule.repository"
 export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"

@@ -32,6 +32,12 @@ export const renderDaysOfWeek = (days: readonly DayOfWeek[]): string => {
 	return ordered.length === DAYS_OF_WEEK.length ? "*" : ordered.join(",")
 }
 
+export const calendarWeekdayPrefix = (days: readonly DayOfWeek[]): string => {
+	const ordered = orderedDays(days)
+	if (ordered.length === 0) throw new Error("A sleep window must name at least one day")
+	return ordered.length === DAYS_OF_WEEK.length ? "" : `${ordered.join(",")} `
+}
+
 export const parseDaysOfWeek = (stored: string): DayOfWeek[] =>
 	stored === "*" ? [...DAYS_OF_WEEK] : orderedDays(stored.split(",").filter(isDayOfWeek))
 
@@ -45,7 +51,7 @@ export const renderOnCalendar = (
 	const hour = Math.floor(minutes / 60)
 	const minute = minutes % 60
 	const pad = (value: number) => String(value).padStart(2, "0")
-	return `${renderDaysOfWeek(days)} *-*-* ${pad(hour)}:${pad(minute)}:00 ${validateTimezone(timezone)}`
+	return `${calendarWeekdayPrefix(days)}*-*-* ${pad(hour)}:${pad(minute)}:00 ${validateTimezone(timezone)}`
 }
 
 export type RenderableSleepWindow = Omit<SleepWindowPublic, "daysOfWeek"> & {

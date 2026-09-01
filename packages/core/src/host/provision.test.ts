@@ -78,6 +78,46 @@ describe("provisionHost", () => {
 		expect(transport.commands.some((command) => command.includes("/tmp/mcc-download"))).toBe(false)
 	})
 
+	it("installs the build matching the host's own architecture, not a fixed one", async () => {
+		const transport = createFakeTransport({
+			"uname -m": { stdout: "aarch64\n", stderr: "", exitCode: 0 },
+		})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+
+		const install = transport.commands.find((command) => command.includes("install -D"))
+		if (install === undefined) throw new Error("no install step was issued")
+		expect(install).toContain("linux-arm64")
+		expect(install).not.toContain("linux-x64")
+	})
+
+	it("refuses to provision a host whose architecture has no published build", async () => {
+		const transport = createFakeTransport({
+			"uname -m": { stdout: "riscv64", stderr: "", exitCode: 0 },
+		})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
+			/riscv64/,
+		)
+		expect(transport.commands.some((command) => command.includes("install -D"))).toBe(false)
+	})
+
 	it("delivers the unit template as stdin rather than a concatenated heredoc", async () => {
 		const transport = createFakeTransport()
 		await transport.connect({

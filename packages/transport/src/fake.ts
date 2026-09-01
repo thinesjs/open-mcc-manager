@@ -2,6 +2,10 @@ import type { ConnectionState, ExecResult, HostTransport } from "./types"
 
 export type FakeScript = Record<string, ExecResult>
 
+export const FAKE_HOST_DEFAULTS: FakeScript = {
+	"uname -m": { stdout: "x86_64", stderr: "", exitCode: 0 },
+}
+
 export type FakeFailures = {
 	connect?: Error
 	exec?: Record<string, Error>
@@ -40,7 +44,9 @@ export const createFakeTransport = (
 			if (stdin !== undefined) stdins.push(stdin)
 			const failure = failures.exec?.[command]
 			if (failure) throw failure
-			return script[command] ?? { stdout: "", stderr: "", exitCode: 0 }
+			return (
+				script[command] ?? FAKE_HOST_DEFAULTS[command] ?? { stdout: "", stderr: "", exitCode: 0 }
+			)
 		},
 		close: async () => {
 			state = "disconnected"

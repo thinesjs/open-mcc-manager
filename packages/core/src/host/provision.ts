@@ -1,5 +1,5 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { MCC_SHA256, MCC_VERSION, mccDownloadUrl } from "./mcc-release"
+import { mccReleaseForMachine } from "./mcc-release"
 import { UNIT_TEMPLATE } from "./unit-template"
 
 export const UNIT_TEMPLATE_PATH = "/etc/systemd/system/open-mcc@.service"
@@ -61,12 +61,15 @@ export const provisionHost = async (
 		"Failed to create instances directory",
 	)
 
+	const machine = await step(transport, "uname -m", "Failed to read the host machine architecture")
+	const release = mccReleaseForMachine(machine)
+
 	await step(
 		transport,
 		`set -e; d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; curl -fsSL ${shellQuote(
-			mccDownloadUrl(MCC_VERSION),
+			release.url,
 		)} -o "$d/mcc"; printf '%s  %s' ${shellQuote(
-			MCC_SHA256,
+			release.sha256,
 		)} "$d/mcc" | sha256sum -c -; install -D -m 0755 "$d/mcc" ${shellQuote(
 			`${instancesRoot}/bin/MinecraftClient`,
 		)}`,

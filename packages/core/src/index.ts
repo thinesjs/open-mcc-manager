@@ -1,7 +1,12 @@
 export type { AuditEntry, AuditRepository } from "./audit/audit.repository"
 export { createAuditRepository } from "./audit/audit.repository"
 export type { SealedValue, SecretStore } from "./crypto/sealed-box"
-export { createSecretStore, generateKeyPair } from "./crypto/sealed-box"
+export {
+	createSecretStore,
+	generateKeyPair,
+	KNOWN_INSECURE_KEY_ID,
+	usesKnownInsecureKey,
+} from "./crypto/sealed-box"
 export type {
 	ActorContext,
 	HostController,

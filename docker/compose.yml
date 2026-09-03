@@ -1,8 +1,10 @@
+name: ${COMPOSE_PROJECT_NAME:-open-mcc}
+
 services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: open_mcc_manager
     ports:
       - "127.0.0.1:${DEV_DB_PORT:-5432}:5432"
@@ -35,7 +37,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/open_mcc_manager
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/open_mcc_manager
     restart: "no"
 
   server:
@@ -48,12 +50,12 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/open_mcc_manager
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/open_mcc_manager
       PORT: "3000"
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
-      BETTER_AUTH_SECRET: dev-only-secret-change-me-before-any-real-deploy
-      SEALBOX_KEYS: "dev-insecure-publicly-known:Am5fPqmntZmYRD3qh57huQfRy+oSfBgo1tzp8PNcNS8=:MDiplVb87qftrMZUimPXPEqL/CLTjlFUguzjwGwUgP0="
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      SEALBOX_KEYS: ${SEALBOX_KEYS}
     ports:
       - "127.0.0.1:${SERVER_PORT:-3000}:3000"
     read_only: true

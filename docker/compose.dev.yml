@@ -1,0 +1,5 @@
+services:
+  server:
+    environment:
+      BETTER_AUTH_SECRET: dev-only-secret-change-me-before-any-real-deploy
+      SEALBOX_KEYS: "dev-insecure-publicly-known:Am5fPqmntZmYRD3qh57huQfRy+oSfBgo1tzp8PNcNS8=:MDiplVb87qftrMZUimPXPEqL/CLTjlFUguzjwGwUgP0="

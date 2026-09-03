@@ -96,6 +96,32 @@ BOOTSTRAP_OWNER_NAME=Owner BOOTSTRAP_ORG_NAME=Fleet BOOTSTRAP_ORG_SLUG=fleet \
 better-auth trusts, so the dashboard's own origin (`WEB_PORT`) can authenticate
 against the server (`SERVER_PORT`).
 
+## Installing
+
+```bash
+sh scripts/install.sh
+```
+
+Run it inside a checkout, or on a machine with only Docker and git — it clones,
+builds the control-plane image, generates a sealbox keypair, a session secret and
+a database password, writes them to `.env` with mode `600`, and starts the stack
+on free ports in the 25xxx block.
+
+It refuses rather than guessing in two cases. An existing `.env` is never
+overwritten, because that file is the only copy of the sealbox private key. An
+existing `<project>_pgdata` volume also stops the install: Postgres applies
+`POSTGRES_PASSWORD` only when its volume is first created, so a freshly generated
+password could not authenticate against a database that already exists.
+
+**Back up `.env`.** `SEALBOX_KEYS` decrypts every stored SSH private key. Lose it
+and the enrolled hosts have to be re-enrolled with new keys.
+
+Development is the one case that does not need generated secrets: `pnpm dev:up`
+layers `docker/compose.dev.yml` over the base file to supply a publicly known
+key and session secret. Those values are deliberately not in `docker/compose.yml`,
+so no real deployment can pick them up by accident, and the server logs a loud
+warning if it ever starts with them.
+
 ## Network topologies
 
 Hosts may sit on the public internet or on a private tailnet, and a single

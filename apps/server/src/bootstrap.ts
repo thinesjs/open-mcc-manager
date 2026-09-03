@@ -18,6 +18,7 @@ import {
 	redactError,
 	type SchedulerHandle,
 	startScheduler,
+	usesKnownInsecureKey,
 	validateInstancesRoot,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
@@ -58,6 +59,12 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		disableSignUp: false,
 		trustedOrigins: allowed,
 	})
+
+	if (usesKnownInsecureKey(env.SEALBOX_KEYS)) {
+		console.warn(
+			"WARNING: SEALBOX_KEYS uses the publicly known development key. Every secret sealed with it is readable by anyone with this repository. Generate a real key before storing any host credential.",
+		)
+	}
 
 	const lock = await acquireSingletonLock(env.DATABASE_URL)
 	if (!lock.acquired) {

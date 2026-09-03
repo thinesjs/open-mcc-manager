@@ -104,3 +104,8 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 		},
 	}
 }
+
+export const KNOWN_INSECURE_KEY_ID = "dev-insecure-publicly-known"
+
+export const usesKnownInsecureKey = (sealboxKeys: string): boolean =>
+	sealboxKeys.split(",").some((entry) => entry.trim().startsWith(`${KNOWN_INSECURE_KEY_ID}:`))

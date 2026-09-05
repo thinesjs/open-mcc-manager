@@ -13,6 +13,8 @@ const base = {
 	antiAfkEnabled: false,
 	antiAfkIntervalSeconds: 60,
 	autoRespawnEnabled: false,
+	liveControlEnabled: false,
+	liveControlPort: 33333,
 } as const
 
 const realConfig = readFileSync(
@@ -27,11 +29,58 @@ describe("instance config drift", () => {
 		expect(compareInstanceConfig(document, document)).toEqual([])
 	})
 
-	it("reports nothing after the client has expanded our document itself", () => {
+	it("agrees with the document the client expanded, on every key it was told about", () => {
 		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
-		const drift = compareInstanceConfig(expected, realConfig)
+		const settled = compareInstanceConfig(expected, realConfig).filter(
+			(entry) => entry.kind !== "section" && !entry.key.startsWith("ChatBot.McpServer."),
+		)
 
-		expect(drift.filter((entry) => entry.kind === "managed")).toEqual([])
+		expect(settled).toEqual([])
+	})
+
+	it("reports the client's own defaults for live control as drift, because they are unsafe", () => {
+		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
+		const live = compareInstanceConfig(expected, realConfig).filter(
+			(entry) => entry.kind !== "section" && entry.key.startsWith("ChatBot.McpServer."),
+		)
+
+		expect(live).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "fixed",
+					key: "ChatBot.McpServer.Transport.RequireAuthToken",
+					expected: true,
+					actual: false,
+				}),
+				expect.objectContaining({
+					kind: "fixed",
+					key: "ChatBot.McpServer.Capabilities.ChatAndCommands",
+					expected: false,
+					actual: true,
+				}),
+			]),
+		)
+	})
+
+	it("leaves the endpoint switched off when the operator has not asked for it", () => {
+		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
+		const live = compareInstanceConfig(expected, realConfig).filter(
+			(entry) => entry.kind !== "section" && entry.key === "ChatBot.McpServer.Enabled",
+		)
+
+		expect(live).toEqual([])
+	})
+
+	it("reports the alias list that document was written before we emptied it", () => {
+		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
+		const sections = compareInstanceConfig(expected, realConfig).filter(
+			(entry) => entry.kind === "section",
+		)
+
+		expect(sections).toEqual([
+			{ kind: "section", section: "Main.Advanced.AccountList", entries: 2 },
+			{ kind: "section", section: "Main.Advanced.ServerList", entries: 2 },
+		])
 	})
 
 	it("names a managed key an operator changed on the host", () => {

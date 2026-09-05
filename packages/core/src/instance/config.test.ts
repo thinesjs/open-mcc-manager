@@ -16,6 +16,8 @@ const base = {
 	antiAfkEnabled: true,
 	antiAfkIntervalSeconds: 60,
 	autoRespawnEnabled: false,
+	liveControlEnabled: false,
+	liveControlPort: 33333,
 } as const
 
 describe("instance config rendering", () => {
@@ -33,6 +35,9 @@ describe("instance config rendering", () => {
 			"[Main.Advanced.ServerList]",
 			"[ChatBot.AutoRelog]",
 			"[ChatBot.AntiAFK]",
+			"[ChatBot.McpServer]",
+			"[ChatBot.McpServer.Transport]",
+			"[ChatBot.McpServer.Capabilities]",
 		])
 
 		const hostLines = rendered.split("\n").filter((line) => line.startsWith("Host = "))
@@ -58,6 +63,17 @@ describe("instance config rendering", () => {
 			"Delay",
 			"Enabled",
 			"Delay",
+			"Enabled",
+			"BindHost",
+			"Port",
+			"Route",
+			"RequireAuthToken",
+			"AuthTokenEnvVar",
+			"SessionStatus",
+			"ChatAndCommands",
+			"Movement",
+			"Inventory",
+			"EntityWorld",
 		])
 	})
 
@@ -224,9 +240,10 @@ describe("instance config rendering", () => {
 
 	it("writes no port when the address carries none, letting the client resolve it", () => {
 		const rendered = renderInstanceConfig({ ...base, serverAddress: "play.example.net" })
+		const serverSection = rendered.split("[Main.General.Server]")[1]?.split("[")[0]
 
 		expect(rendered).toContain('Host = "play.example.net"')
-		expect(rendered).not.toContain("Port = ")
+		expect(serverSection).not.toContain("Port = ")
 	})
 
 	it("leaves an address alone when what follows the colon is not a port", () => {
@@ -242,5 +259,43 @@ describe("instance config rendering", () => {
 
 	it("does not try to split a bracketed address", () => {
 		expect(splitServerAddress("[::1]:25565")).toEqual({ host: "[::1]:25565", port: undefined })
+	})
+
+	it("switches the live endpoint off unless the operator asked for it", () => {
+		const rendered = renderInstanceConfig(base)
+
+		expect(rendered).toContain("[ChatBot.McpServer]")
+		expect(rendered.match(/^Enabled = .*$/gm)?.at(-1)).toBe("Enabled = false")
+	})
+
+	it("requires a token on the live endpoint, which the client does not by default", () => {
+		expect(renderInstanceConfig(base)).toContain("RequireAuthToken = true")
+	})
+
+	it("pins the live endpoint to loopback, never offering the choice", () => {
+		const rendered = renderInstanceConfig({ ...base, liveControlEnabled: true })
+
+		expect(rendered).toContain('BindHost = "127.0.0.1"')
+		expect(rendered).not.toContain("0.0.0.0")
+	})
+
+	it("denies the live endpoint every write, leaving the fifo the only way in", () => {
+		const rendered = renderInstanceConfig({ ...base, liveControlEnabled: true })
+
+		expect(rendered).toContain("ChatAndCommands = false")
+		expect(rendered).toContain("Movement = false")
+		expect(rendered).toContain("Inventory = false")
+		expect(rendered).toContain("EntityWorld = false")
+	})
+
+	it("opens the read surface only when live control is on", () => {
+		expect(renderInstanceConfig({ ...base, liveControlEnabled: true })).toContain(
+			"SessionStatus = true",
+		)
+		expect(renderInstanceConfig(base)).toContain("SessionStatus = false")
+	})
+
+	it("gives each instance its own port, since rootless siblings share a network", () => {
+		expect(renderInstanceConfig({ ...base, liveControlPort: 33401 })).toContain("Port = 33401")
 	})
 })

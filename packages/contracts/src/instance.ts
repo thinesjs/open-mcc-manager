@@ -65,6 +65,8 @@ export const instanceConfigInput = z
 		antiAfkEnabled: z.boolean(),
 		antiAfkIntervalSeconds: z.number().int().min(1).max(3600),
 		autoRespawnEnabled: z.boolean().default(false),
+		liveControlEnabled: z.boolean().default(false),
+		liveControlPort: z.number().int().min(1024).max(65535).default(33333),
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>

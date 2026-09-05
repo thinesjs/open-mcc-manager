@@ -485,6 +485,8 @@ describe("comparing a host's client config", () => {
 			antiAfkEnabled: false,
 			antiAfkIntervalSeconds: 60,
 			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
 		})
 		const transport = await connected({
 			...fileReplies(expected),

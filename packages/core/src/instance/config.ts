@@ -14,6 +14,11 @@ export const ALLOWED_CONFIG_KEYS = [
 	"Main.General.Server.Host",
 	"Main.General.Server.Port",
 	"Main.Advanced.AutoRespawn",
+	"ChatBot.McpServer.Enabled",
+	"ChatBot.McpServer.Transport.Port",
+	"ChatBot.McpServer.Capabilities.SessionStatus",
+	"ChatBot.McpServer.Capabilities.Inventory",
+	"ChatBot.McpServer.Capabilities.EntityWorld",
 	"ChatBot.AutoRelog.Enabled",
 	"ChatBot.AutoRelog.Retries",
 	"ChatBot.AutoRelog.Delay",
@@ -26,7 +31,19 @@ export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.ExitOnFailure",
 	"Main.Advanced.InternalCmdChar",
 	"Main.General.Method",
+	"ChatBot.McpServer.Transport.BindHost",
+	"ChatBot.McpServer.Transport.Route",
+	"ChatBot.McpServer.Transport.RequireAuthToken",
+	"ChatBot.McpServer.Transport.AuthTokenEnvVar",
+	"ChatBot.McpServer.Capabilities.ChatAndCommands",
+	"ChatBot.McpServer.Capabilities.Movement",
 ] as const
+
+export const LIVE_CONTROL_BIND_HOST = "127.0.0.1"
+
+export const LIVE_CONTROL_ROUTE = "/mcp"
+
+export const LIVE_CONTROL_TOKEN_ENV = "MCC_MCP_AUTH_TOKEN"
 
 export const EMPTIED_CONFIG_SECTIONS = [
 	"Main.Advanced.AccountList",
@@ -93,6 +110,8 @@ export const DEFAULT_AUTO_RELOG_DELAY_SECONDS = 10
 
 export const DEFAULT_ANTI_AFK_INTERVAL_SECONDS = 60
 
+export const DEFAULT_LIVE_CONTROL_PORT = 33333
+
 export const defaultInstanceConfig = (values: {
 	accountType: AccountType
 	minecraftAccount: string
@@ -106,6 +125,8 @@ export const defaultInstanceConfig = (values: {
 	antiAfkEnabled: false,
 	antiAfkIntervalSeconds: DEFAULT_ANTI_AFK_INTERVAL_SECONDS,
 	autoRespawnEnabled: false,
+	liveControlEnabled: false,
+	liveControlPort: DEFAULT_LIVE_CONTROL_PORT,
 })
 
 export type ServerAddress = { host: string; port: number | undefined }
@@ -149,5 +170,22 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[ChatBot.AntiAFK]",
 		`Enabled = ${tomlBool(config.antiAfkEnabled)}`,
 		`Delay = ${tomlSecondsRange(config.antiAfkIntervalSeconds)}`,
+		"",
+		"[ChatBot.McpServer]",
+		`Enabled = ${tomlBool(config.liveControlEnabled)}`,
+		"",
+		"[ChatBot.McpServer.Transport]",
+		`BindHost = ${tomlString(LIVE_CONTROL_BIND_HOST)}`,
+		`Port = ${tomlInt(config.liveControlPort)}`,
+		`Route = ${tomlString(LIVE_CONTROL_ROUTE)}`,
+		`RequireAuthToken = ${tomlBool(true)}`,
+		`AuthTokenEnvVar = ${tomlString(LIVE_CONTROL_TOKEN_ENV)}`,
+		"",
+		"[ChatBot.McpServer.Capabilities]",
+		`SessionStatus = ${tomlBool(config.liveControlEnabled)}`,
+		`ChatAndCommands = ${tomlBool(false)}`,
+		`Movement = ${tomlBool(false)}`,
+		`Inventory = ${tomlBool(false)}`,
+		`EntityWorld = ${tomlBool(false)}`,
 		"",
 	].join("\n")

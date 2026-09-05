@@ -66,13 +66,24 @@ that means reimplementing Tomlet's serialisation, MCC's comment injection and ev
 `OnSettingUpdate` normalisation, and keeping it correct across MCC versions — for
 no benefit, because MCC overwrites the file regardless.
 
-Comparison is semantic, not textual. `Delay = { min = 10.0, max = 10.0 }` and
-`Delay = 10` mean the same thing to MCC and must compare equal.
+Comparison is semantic, not textual, and the file MCC actually writes proves why. Read back
+from a live host, MCC had reshaped the `[Main.General.Account]` sub-table we wrote into an
+**inline table**, `Account = { Login = "OpenMccBot", Password = "-" }`, and done the same to
+`Server`. A comparison that does not normalise sub-table and inline-table spellings to one
+dotted path reports permanent drift on every instance's account. Likewise
+`Delay = { min = 10.0, max = 10.0 }` and `Delay = 10` mean the same thing to MCC.
+
+Everything else we manage round-tripped unchanged, including the `{ min, max }` delay form,
+which is already byte-identical to MCC's canonical output.
+
+Whatever parses this file must also handle quoted keys containing spaces
+(`Head."Current Version"`) and arrays with trailing commas
+(`BotOwners = [ "player1", "player2", ]`).
 
 **New `FIXED` key this stage must add:** `Main.Advanced.InternalCmdChar`. It
 defaults to `slash` and governs how a line arriving on stdin is parsed. If an operator changes it, every line the manager writes
 to the FIFO changes meaning — chat becomes commands, or commands become chat. The
-send path is only sound while we own this key.
+send path is only sound while we own this key. *(Landed.)*
 
 ## Stage 2 — One live connection per host
 
@@ -139,7 +150,9 @@ implying instances are isolated from one another.
 **Ships:** the feature as specified — read public chat, system messages and whispers
 in real time; send chat and commands from the browser.
 
-The send half already works through the FIFO. This stage replaces the polled
+The send half already works through the FIFO. It must respect
+`Main.Advanced.MessageCooldown` (default `1.0` seconds, the minimum interval between
+messages to the server), or a burst is silently dropped. This stage replaces the polled
 `journalctl` snapshot with a live event stream over the Stage 2 channel, and adds
 the read half's structure: chat arrives as typed events rather than as journal text,
 so whispers can be distinguished from public chat and system messages.
@@ -170,15 +183,34 @@ raw key rather than throwing.
 
 **Ships:** server GUI and inventory, live world and radar, health and position.
 
-These are reads over the Stage 2 channel. They are grouped because they share a
-shape — a periodically refreshed projection of client state — and because none of
-them is worth a connection of its own.
+These are reads over the Stage 2 channel, grouped because they share a shape — a
+periodically refreshed projection of client state — and because none is worth a
+connection of its own.
+
+**They are not reads alone, and this is the correction the real config forced.** Three
+keys gate them, and all three default to `false` in the file MCC writes:
+
+| Key | Gates |
+| --- | --- |
+| `Main.Advanced.TerrainAndMovements` | movement, world view, radar |
+| `Main.Advanced.InventoryHandling` | the inventory view |
+| `Main.Advanced.EntityHandling` | entity data, radar contents |
+
+So Stage 4 depends on Stage 1 owning these keys, and cannot ship by opening a channel.
+MCC's own comment on `TerrainAndMovements` warns it "uses more ram, cpu, bandwidth" — which
+runs directly against this project's reason for existing, a small-footprint supplement on a
+server someone else is paying for. They are therefore **per-instance opt-in, never fleet
+defaults**, and the UI must say what each one costs.
 
 Tab containers land here, when there is enough on the instance page to warrant them.
 
 ## Stage 5 — Autonomy
 
 **Ships:** anti-AFK, auto-rejoin, push notifications.
+
+`Main.Advanced.AutoRespawn` defaults to `false`, which is why a client that dies simply
+stays dead — observed live on a sandbox server, where a bot was killed by a spider and sat
+there until sent an explicit respawn. It becomes a `MANAGED` key here.
 
 MCC has its own `ScriptScheduler`, which duplicates the scheduler this repo already
 has. Use ours: it is already audited, organization-scoped and visible in the UI,

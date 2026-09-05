@@ -170,9 +170,38 @@ must be rendered here, or the channel deletes itself:
 | `ChatBot.McpServer.Enabled` | `MANAGED` | `false` |
 | `ChatBot.McpServer.Transport.RequireAuthToken` | `FIXED` | `false` — no initializer |
 | `ChatBot.McpServer.Transport.BindHost` | `FIXED` | `"127.0.0.1"` |
-| `ChatBot.McpServer.Transport.Port` | `MANAGED` | `33333` |
+| `ChatBot.McpServer.Transport.Port` | `MANAGED` | `33333` — see below |
 | `ChatBot.McpServer.Transport.Route` | `FIXED` | `"/mcp"` |
 | `ChatBot.McpServer.Transport.AuthTokenEnvVar` | `FIXED` | `"MCC_MCP_AUTH_TOKEN"` |
+| `ChatBot.McpServer.Capabilities.SessionStatus` | `MANAGED` | `true` |
+| `ChatBot.McpServer.Capabilities.ChatAndCommands` | `FIXED` | `true` — **we render `false`** |
+| `ChatBot.McpServer.Capabilities.Movement` | `FIXED` | `true` — we render `false` |
+| `ChatBot.McpServer.Capabilities.Inventory` | `MANAGED` | `true` — we render `false` |
+| `ChatBot.McpServer.Capabilities.EntityWorld` | `MANAGED` | `true` — we render `false` |
+
+**The port cannot be left at its default.** Every instance would take `33333`, and on a
+rootless host they share one network namespace — so the second instance to start cannot
+bind and its endpoint never appears at all. The port is allocated per instance.
+
+### MCP is a read channel; the FIFO stays the only write
+
+`mcc_run_internal_command` is MCC's *entire* internal command
+surface behind a single tool call — `script`, `upgrade`, `connect` and the rest. Enabling it
+would route straight around the FIFO allowlist and reinstate the arbitrary-code path that
+allowlist exists to close.
+
+It is gated by `ChatAndCommands`. The reads this project actually needs — `GetChatHistory`
+and `GetRecentEvents`, plus player, server and world state — are gated by `SessionStatus`
+instead. The two are independent, so the whole read surface is available with **no** write
+surface, and `ChatAndCommands = false` is rendered as a fixed key.
+
+Nothing is given up. Chat send, respawn and quit already travel over the FIFO behind an
+allowlist that has been adversarially reviewed. Keeping one audited write gate is worth
+more than a second path to the same actions.
+
+Two toggles remain genuinely mixed: `Inventory` and `EntityWorld` each gate reads Stage 4
+wants alongside mutations it does not (`DropInventoryItem`, `AttackEntity`). They are
+therefore managed, default off, and Stage 4 must state the mutation each one also grants.
 
 Miss them and the failure is not a security gap but a **total outage of the transport every
 later stage rides on**, triggered by routine unrelated work: an operator adjusts an

@@ -102,6 +102,55 @@ describe("checking a host before committing to enrol it", () => {
 
 		expect(report.ready).toBe(false)
 		expect(outcomeOf(report, "reachable")).toBe("fail")
-		expect(report.checks.filter((check) => check.outcome === "skipped")).toHaveLength(5)
+		expect(report.checks.filter((check) => check.outcome === "skipped")).toHaveLength(6)
+	})
+})
+
+describe("checking that live control can reach an instance", () => {
+	it("passes when the host permits forwarding through the existing connection", async () => {
+		const report = await checkHostOverTransport(await connected(READY), "rootless")
+
+		expect(outcomeOf(report, "tcp-forwarding")).toBe("pass")
+	})
+
+	it("warns rather than blocks when forwarding is refused, since instances still run", async () => {
+		const transport = createFakeTransport(READY, {}, false)
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "u",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		const report = await checkHostOverTransport(transport, "rootless")
+
+		expect(outcomeOf(report, "tcp-forwarding")).toBe("warn")
+		expect(report.ready).toBe(true)
+	})
+
+	it("names the sshd setting an operator has to change", async () => {
+		const transport = createFakeTransport(READY, {}, false)
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "u",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		const report = await checkHostOverTransport(transport, "rootless")
+
+		expect(report.checks.find((check) => check.name === "tcp-forwarding")?.detail).toContain(
+			"AllowTcpForwarding",
+		)
+	})
+
+	it("reports it as unchecked when the host could not be reached at all", () => {
+		expect(
+			unreachableReport("nope").checks.find((check) => check.name === "tcp-forwarding")?.outcome,
+		).toBe("skipped")
 	})
 })

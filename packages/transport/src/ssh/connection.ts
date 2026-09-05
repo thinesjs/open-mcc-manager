@@ -98,6 +98,26 @@ export const createSshTransport = (): HostTransport => {
 				}
 			}),
 
+		canForward: (port: number, timeoutMs: number) =>
+			new Promise<boolean>((resolve) => {
+				const conn = client
+				if (!conn) return resolve(false)
+				let settled = false
+				const settle = (allowed: boolean) => {
+					if (settled) return
+					settled = true
+					clearTimeout(timer)
+					resolve(allowed)
+				}
+				const timer = setTimeout(() => settle(false), timeoutMs)
+				conn.forwardOut("127.0.0.1", 0, "127.0.0.1", port, (error, stream) => {
+					if (error) return settle(false)
+					stream.on("error", () => settle(false))
+					stream.end()
+					settle(true)
+				})
+			}),
+
 		exec: (command: string, timeoutMs: number, stdin?: string) => {
 			const conn = client
 			if (!conn) return Promise.reject(new Error("Transport is not connected"))

@@ -14,6 +14,7 @@ export type FakeFailures = {
 export const createFakeTransport = (
 	script: FakeScript = {},
 	failures: FakeFailures = {},
+	forwarding = true,
 ): HostTransport & {
 	commands: string[]
 	stdins: string[]
@@ -37,6 +38,8 @@ export const createFakeTransport = (
 			}
 			state = "ready"
 		},
+		canForward: async () => forwarding,
+
 		exec: async (command: string, timeoutMs?: number, stdin?: string) => {
 			if (state !== "ready") throw new Error("Transport is not connected")
 			commands.push(command)

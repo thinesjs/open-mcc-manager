@@ -8,6 +8,7 @@ export const HOST_CHECK_NAMES = [
 	"client-runtime",
 	"lingering",
 	"confinement",
+	"tcp-forwarding",
 ] as const
 
 export type HostCheckName = (typeof HOST_CHECK_NAMES)[number]
@@ -51,6 +52,7 @@ export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {
 	"client-runtime": "Client dependencies",
 	lingering: "Lingering enabled",
 	confinement: "Instance confinement",
+	"tcp-forwarding": "SSH port forwarding",
 }
 
 export const isBlocking = (check: HostCheckResult): boolean => check.outcome === "fail"

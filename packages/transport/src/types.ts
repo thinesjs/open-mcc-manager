@@ -19,5 +19,6 @@ export type HostTransport = {
 	state: () => ConnectionState
 	connect: (options: ConnectOptions) => Promise<void>
 	exec: (command: string, timeoutMs: number, stdin?: string) => Promise<ExecResult>
+	canForward: (port: number, timeoutMs: number) => Promise<boolean>
 	close: () => Promise<void>
 }

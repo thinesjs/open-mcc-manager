@@ -136,6 +136,7 @@ const createRejectingTransport = (
 			if (mode === "exec") throw new Error("Connection reset by peer")
 			return { stdout: "", stderr: "", exitCode: 0 }
 		},
+		canForward: async () => true,
 		close: async () => {
 			closeAttempted = true
 			if (options.closeError) throw options.closeError

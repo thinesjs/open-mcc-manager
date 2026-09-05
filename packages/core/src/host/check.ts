@@ -11,6 +11,8 @@ import { explainClientFailure } from "./provision"
 
 export const CHECK_TIMEOUT_MS = 20_000
 
+export const FORWARD_PROBE_PORT = 22
+
 export const LINGER_COMMAND =
 	'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no'
 
@@ -48,6 +50,7 @@ export const unreachableReport = (reason: string): HostCheckReport =>
 		skipped("client-runtime", "Not checked"),
 		skipped("lingering", "Not checked"),
 		skipped("confinement", "Not checked"),
+		skipped("tcp-forwarding", "Not checked"),
 	])
 
 export const checkHostOverTransport = async (
@@ -106,6 +109,16 @@ export const checkHostOverTransport = async (
 		checks.push(skipped("lingering", "Not used when running with root"))
 		checks.push(skipped("confinement", "Enforced by the system manager"))
 	}
+
+	const forwards = await transport.canForward(FORWARD_PROBE_PORT, CHECK_TIMEOUT_MS)
+	checks.push(
+		forwards
+			? pass("tcp-forwarding", "Live control can reach instances through this connection")
+			: warn(
+					"tcp-forwarding",
+					"This host's sshd refuses port forwarding, so live instance control will not work. Set AllowTcpForwarding to yes to enable it.",
+				),
+	)
 
 	return reportFrom(checks)
 }

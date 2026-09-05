@@ -427,6 +427,21 @@ describe("reconciliation", () => {
 		expect(result).not.toHaveProperty("stateDrift")
 	})
 
+	it("reports a host whose unit listing is refused as unknown, not as having nothing extra", async () => {
+		const { deps, transport } = makeDeps()
+		const original = transport.exec
+		transport.exec = async (command: string, timeoutMs: number, stdin?: string) =>
+			command.startsWith("ls -1")
+				? { stdout: "", stderr: "Permission denied", exitCode: 2 }
+				: await original(command, timeoutMs, stdin)
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+		expect(result).not.toHaveProperty("unitDrift")
+	})
+
 	it("reports a host that dies mid-check as unknown rather than fully drifted", async () => {
 		const { deps, transport } = makeDeps()
 		transport.exec = async () => {

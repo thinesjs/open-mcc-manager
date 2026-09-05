@@ -63,6 +63,29 @@ export const expectedUnits = (
 	return expected
 }
 
+export const MANAGED_UNIT_PREFIXES = [
+	"open-mcc@",
+	"open-mcc-sleep-stop@",
+	"open-mcc-sleep-start@",
+] as const
+
+export const isManagedUnit = (name: string): boolean =>
+	MANAGED_UNIT_PREFIXES.some((prefix) => name.startsWith(prefix))
+
+const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
+	const result = await transport.exec(
+		`ls -1 ${shellQuote(SYSTEMD_UNIT_DIR)}`,
+		RECONCILE_STEP_TIMEOUT_MS,
+	)
+	if (result.exitCode !== 0) {
+		throw new Error(`Could not list ${SYSTEMD_UNIT_DIR}: ${result.stderr.trim()}`)
+	}
+	return result.stdout
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && isManagedUnit(line))
+}
+
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
 	hostId: string,
@@ -74,6 +97,10 @@ export const reconcileHostOverTransport = async (
 		const actual = await readFile(transport, `${SYSTEMD_UNIT_DIR}/${name}`)
 		if (actual === undefined) unitDrift.push({ kind: "missing", unit: name })
 		else if (actual !== contents) unitDrift.push({ kind: "differs", unit: name })
+	}
+
+	for (const name of await listManagedUnits(transport)) {
+		if (!expected.has(name)) unitDrift.push({ kind: "unexpected", unit: name })
 	}
 
 	const stateDrift: StateDrift[] = []

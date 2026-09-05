@@ -5,6 +5,7 @@ import { UNIT_TEMPLATES } from "../host/unit-template"
 import {
 	desiredStateIsSatisfied,
 	expectedUnits,
+	isManagedUnit,
 	parseObservedState,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
@@ -165,5 +166,72 @@ describe("reconciling a host", () => {
 		expect(result.stateDrift).toEqual([
 			{ instanceId: "abc123", desired: "running", observed: "inactive" },
 		])
+	})
+})
+
+describe("units the manager does not define", () => {
+	const listing = (names: string[]) => ({
+		"ls -1 '/etc/systemd/system'": {
+			stdout: names.join("\n"),
+			stderr: "",
+			exitCode: 0,
+		},
+	})
+
+	it("recognises only the units this manager installs", () => {
+		expect(isManagedUnit("open-mcc@abc.service")).toBe(true)
+		expect(isManagedUnit("open-mcc-sleep-stop@abc.timer")).toBe(true)
+		expect(isManagedUnit("nginx.service")).toBe(false)
+		expect(isManagedUnit("open-mcc-manager-backup.service")).toBe(false)
+	})
+
+	it("reports a timer left behind for an instance that no longer exists", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			...listing([...expected.keys(), "open-mcc-sleep-stop@deleted1.timer"]),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.unitDrift).toEqual([
+			{ kind: "unexpected", unit: "open-mcc-sleep-stop@deleted1.timer" },
+		])
+	})
+
+	it("leaves unrelated units on the host alone, which are none of its business", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			...listing([...expected.keys(), "nginx.service", "ssh.service", "cron.service"]),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.unitDrift).toEqual([])
+	})
+
+	it("treats a failed listing as unknown rather than as a host with nothing extra", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			"ls -1 '/etc/systemd/system'": { stdout: "", stderr: "Permission denied", exitCode: 2 },
+		})
+
+		await expect(
+			reconcileHostOverTransport(transport, "host-1", [instance()], expected),
+		).rejects.toThrow(/Permission denied/)
 	})
 })

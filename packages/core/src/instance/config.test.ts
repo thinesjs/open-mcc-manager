@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./config"
+import { ALLOWED_CONFIG_KEYS, FIXED_CONFIG_KEYS, renderInstanceConfig } from "./config"
 
 const base = {
 	minecraftAccount: "afk@example.com",
@@ -19,6 +19,7 @@ describe("instance config rendering", () => {
 		expect(sections).toEqual([
 			"[Main.General.Account]",
 			"[Main.General.Server]",
+			"[Main.Advanced]",
 			"[ChatBot.AutoRelog]",
 			"[ChatBot.AntiAFK]",
 		])
@@ -34,6 +35,7 @@ describe("instance config rendering", () => {
 		expect(assignments).toEqual([
 			"Login",
 			"Host",
+			"EnableSentry",
 			"Enabled",
 			"Retries",
 			"Delay",
@@ -66,6 +68,21 @@ describe("instance config rendering", () => {
 			const match = /^([A-Za-z_][A-Za-z0-9_]*) = /.exec(line)
 			if (match) emitted.push(`${section}.${match[1]}`)
 		}
-		expect(emitted.sort()).toEqual([...ALLOWED_CONFIG_KEYS].sort())
+		expect(emitted.sort()).toEqual([...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS].sort())
+	})
+
+	it("opts out of the client's error telemetry, whatever the operator asks for", () => {
+		const rendered = renderInstanceConfig(base)
+		expect(rendered).toContain("[Main.Advanced]")
+		expect(rendered.match(/^EnableSentry = .*$/gm)).toEqual(["EnableSentry = false"])
+	})
+
+	it("never lets operator input reach a key the manager fixes", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			minecraftAccount: 'x"\nEnableSentry = true\n',
+			serverAddress: "EnableSentry = true",
+		})
+		expect(rendered.match(/^EnableSentry = .*$/gm)).toEqual(["EnableSentry = false"])
 	})
 })

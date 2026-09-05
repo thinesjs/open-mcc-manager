@@ -156,7 +156,23 @@ export const createHostRepository = (db: Executor) => ({
 				provisioningStep: progress.step,
 				provisioningStepIndex: progress.index,
 				provisioningStepTotal: progress.total,
+				provisioningError: null,
 			})
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("provisioningAttemptId", "=", attemptId)
+			.execute()
+	},
+
+	recordProvisioningFailure: async (
+		scope: OrgScope,
+		id: string,
+		attemptId: string,
+		reason: string,
+	): Promise<void> => {
+		await db
+			.updateTable("host")
+			.set({ provisioningError: reason })
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("provisioningAttemptId", "=", attemptId)

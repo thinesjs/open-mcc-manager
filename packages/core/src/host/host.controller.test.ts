@@ -58,6 +58,7 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	provisioningStep: null,
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
+	provisioningError: null,
 	osRelease: null,
 	cpuCount: null,
 	memoryMb: null,
@@ -140,6 +141,7 @@ const deps = (
 		),
 		delete: vi.fn(async () => true),
 		recordProvisioningProgress: vi.fn(async () => undefined),
+		recordProvisioningFailure: vi.fn(async () => undefined),
 		lockHost: vi.fn(async () => undefined),
 		claimForProvisioning: vi.fn(async (_scope: OrgScope, id: string) =>
 			makeHostRow({
@@ -342,6 +344,7 @@ describe("host controller provisioning", () => {
 				update: vi.fn(async () => makeHostRow()),
 				delete: vi.fn(async () => true),
 				recordProvisioningProgress: vi.fn(async () => undefined),
+				recordProvisioningFailure: vi.fn(async () => undefined),
 				lockHost: vi.fn(async () => undefined),
 				claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 				finalizeProvisioning: vi.fn(async () => makeHostRow()),
@@ -375,6 +378,7 @@ describe("host controller provisioning", () => {
 			update: vi.fn(async () => makeHostRow()),
 			delete: vi.fn(async () => true),
 			recordProvisioningProgress: vi.fn(async () => undefined),
+			recordProvisioningFailure: vi.fn(async () => undefined),
 			lockHost: vi.fn(async () => undefined),
 			claimForProvisioning: vi.fn(async () =>
 				makeHostRow({
@@ -428,6 +432,7 @@ describe("host controller provisioning", () => {
 					update: vi.fn(async () => makeHostRow()),
 					delete: vi.fn(async () => true),
 					recordProvisioningProgress: vi.fn(async () => undefined),
+					recordProvisioningFailure: vi.fn(async () => undefined),
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning,
 					finalizeProvisioning: vi.fn(async () => makeHostRow()),
@@ -467,6 +472,7 @@ describe("host controller provisioning", () => {
 					update: vi.fn(async () => makeHostRow()),
 					delete: vi.fn(async () => false),
 					recordProvisioningProgress: vi.fn(async () => undefined),
+					recordProvisioningFailure: vi.fn(async () => undefined),
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning: vi.fn(async () =>
 						makeHostRow({
@@ -656,6 +662,7 @@ describe("host controller removal", () => {
 			update: vi.fn(async () => makeHostRow()),
 			delete: vi.fn(async () => true),
 			recordProvisioningProgress: vi.fn(async () => undefined),
+			recordProvisioningFailure: vi.fn(async () => undefined),
 			lockHost: vi.fn(async () => undefined),
 			claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 			finalizeProvisioning: vi.fn(async () => makeHostRow()),

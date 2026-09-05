@@ -138,20 +138,14 @@ function HostDetailPage() {
 				</CardContent>
 			</Card>
 
-			{host.status === "error" && host.provisioningStep ? (
-				<Alert variant="error" icon={<CircleAlert />}>
-					Provisioning stopped at step {(host.provisioningStepIndex ?? 0) + 1} of{" "}
-					{host.provisioningStepTotal ?? 0}: {host.provisioningStep}. Fix the cause on the host,
-					then provision again.
-				</Alert>
-			) : null}
-
-			{host.status === "provisioning" ? (
+			{host.provisioningStep && (host.status === "provisioning" || host.status === "error") ? (
 				<Card>
 					<CardHeader>
 						<CardTitle>Provisioning</CardTitle>
 						<p className="text-sm text-muted-foreground">
-							This continues on the server. You can leave this page and come back.
+							{host.status === "provisioning"
+								? "This continues on the server. You can leave this page and come back."
+								: "This run did not finish. Fix the cause on the host, then provision again."}
 						</p>
 					</CardHeader>
 					<CardContent>
@@ -159,6 +153,8 @@ function HostDetailPage() {
 							step={host.provisioningStep}
 							index={host.provisioningStepIndex}
 							total={host.provisioningStepTotal}
+							failure={host.provisioningError}
+							running={host.status === "provisioning"}
 						/>
 					</CardContent>
 				</Card>

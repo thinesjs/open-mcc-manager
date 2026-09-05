@@ -77,6 +77,7 @@ const hostRow: HostRow = {
 	provisioningStep: null,
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
+	provisioningError: null,
 	osRelease: null,
 	cpuCount: null,
 	memoryMb: null,

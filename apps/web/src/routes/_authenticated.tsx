@@ -47,8 +47,8 @@ function AuthenticatedLayout() {
 	}
 
 	return (
-		<div className="flex min-h-dvh">
-			<aside className="flex w-60 shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+		<div className="flex h-dvh overflow-hidden">
+			<aside className="flex h-full w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
 				<div>
 					<div className="flex items-center gap-2 px-5 py-4">
 						<span className="grid size-7 place-items-center rounded-[var(--control-radius)] bg-primary text-xs font-bold text-primary-foreground">
@@ -79,7 +79,7 @@ function AuthenticatedLayout() {
 						))}
 					</nav>
 				</div>
-				<div className="space-y-2 border-t border-sidebar-border p-4">
+				<div className="shrink-0 space-y-2 border-t border-sidebar-border p-4">
 					{session.data ? (
 						<div className="px-1">
 							<p className="truncate text-xs font-medium text-foreground">
@@ -101,7 +101,7 @@ function AuthenticatedLayout() {
 					</button>
 				</div>
 			</aside>
-			<main className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+			<main className="h-full min-w-0 flex-1 overflow-y-auto px-8 py-6">
 				<Outlet />
 			</main>
 		</div>

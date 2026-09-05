@@ -72,6 +72,7 @@ export interface Host {
 	port: Generated<number>
 	provisioningAttemptId: string | null
 	provisioningClaimedAt: Timestamp | null
+	provisioningError: string | null
 	provisioningStep: string | null
 	provisioningStepIndex: number | null
 	provisioningStepTotal: number | null

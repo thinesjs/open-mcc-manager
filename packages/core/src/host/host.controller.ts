@@ -211,6 +211,12 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				return await runProvision()
 			} catch (error) {
 				try {
+					await deps.hosts.recordProvisioningFailure(
+						scope,
+						hostId,
+						attemptId,
+						error instanceof Error ? error.message : "Provisioning failed",
+					)
 					await deps.withTransaction(async (repos) => {
 						await repos.hosts.lockHost(scope, hostId)
 						await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })

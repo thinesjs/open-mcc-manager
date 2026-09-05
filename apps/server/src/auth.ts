@@ -34,6 +34,9 @@ export const createAuth = (
 		},
 		trustedOrigins: [...(options.trustedOrigins ?? [])],
 		advanced: {
+			ipAddress: {
+				ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
+			},
 			disableOriginCheck: false,
 			useSecureCookies: true,
 			cookiePrefix: "__Host-",
@@ -44,7 +47,14 @@ export const createAuth = (
 				path: "/",
 			},
 		},
-		rateLimit: { enabled: !options.disableRateLimit, window: 60, max: 10 },
+		rateLimit: {
+			enabled: !options.disableRateLimit,
+			window: 60,
+			max: 10,
+			customRules: {
+				"/get-session": { window: 60, max: 600 },
+			},
+		},
 		databaseHooks: {
 			session: {
 				create: {

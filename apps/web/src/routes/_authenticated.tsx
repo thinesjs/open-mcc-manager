@@ -1,11 +1,12 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
 import { Boxes, KeyRound, LayoutDashboard, LogOut, Server } from "lucide-react"
 import { authClient } from "~/lib/auth-client"
+import { decideFromSession } from "~/lib/session-guard"
 
 export const Route = createFileRoute("/_authenticated")({
 	beforeLoad: async () => {
 		const session = await authClient.getSession()
-		if (!session.data?.session.activeOrganizationId) {
+		if (decideFromSession(session) === "redirect") {
 			throw redirect({ to: "/sign-in" })
 		}
 	},

@@ -36,8 +36,20 @@ describe("the compose file a real deployment uses", () => {
 		expect(dev).toContain(KNOWN_DEV_SECRET)
 	})
 
-	it("interpolates the database password everywhere it appears", () => {
-		const hardcoded = base.match(/postgres:postgres@/g) ?? []
-		expect(hardcoded).toEqual([])
+	it("gives no secret a default, so an unset one fails closed instead of falling back", () => {
+		const SECRETS = ["POSTGRES_PASSWORD", "BETTER_AUTH_SECRET", "SEALBOX_KEYS"]
+		const defaulted = SECRETS.filter((name) => new RegExp(`\\$\\{${name}:[-?]`).test(base))
+
+		expect(defaulted).toEqual([])
+	})
+
+	it("interpolates every database password rather than writing one in", () => {
+		expect(base.match(/postgres:[^$@\s]+@/g) ?? []).toEqual([])
+		expect(base.match(/^\s*POSTGRES_PASSWORD: (?!\$\{)/gm) ?? []).toEqual([])
+	})
+
+	it("keeps the ephemeral test database out of a real deployment", () => {
+		expect(base).not.toContain("postgres-test")
+		expect(dev).toContain("postgres-test")
 	})
 })

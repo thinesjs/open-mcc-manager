@@ -107,6 +107,10 @@ builds the control-plane image, generates a sealbox keypair, a session secret an
 a database password, writes them to `.env` with mode `600`, and starts the stack
 on free ports in the 25xxx block.
 
+The generated `.env` pins `COMPOSE_PROJECT_NAME`. Without it, a later plain
+`docker compose` call would resolve to a different project, create a second empty
+database volume, migrate that one, and quietly orphan the real one.
+
 It refuses rather than guessing in two cases. An existing `.env` is never
 overwritten, because that file is the only copy of the sealbox private key. An
 existing `<project>_pgdata` volume also stops the install: Postgres applies

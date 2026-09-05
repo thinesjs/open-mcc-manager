@@ -33,6 +33,10 @@ const portOf = (url: string): string => {
 }
 
 describe(".env.example", () => {
+	it("pins the compose project, so a later plain command cannot orphan the database", () => {
+		expect(example.has("COMPOSE_PROJECT_NAME")).toBe(true)
+	})
+
 	it("names every port the compose file interpolates, so no service falls back to a default", () => {
 		const names = [...compose.matchAll(/\$\{([A-Z_]*PORT)(?::-[^}]*)?\}/g)].map(
 			(match) => match[1] ?? "",

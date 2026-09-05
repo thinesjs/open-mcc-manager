@@ -14,7 +14,6 @@ export const INTERNAL_COMMANDS = [
 	"animation",
 	"bed",
 	"blockinfo",
-	"book",
 	"changeslot",
 	"chunk",
 	"dialog",
@@ -28,7 +27,6 @@ export const INTERNAL_COMMANDS = [
 	"help",
 	"inventory",
 	"list",
-	"log",
 	"look",
 	"minimap",
 	"move",
@@ -49,20 +47,28 @@ const INTERNAL_COMMAND_SET: ReadonlySet<string> = new Set(INTERNAL_COMMANDS)
 
 export const INTERNAL_COMMAND_PREFIX = "!"
 
+const hasControlCharacter = (value: string): boolean => {
+	for (const character of value) {
+		const code = character.codePointAt(0) ?? 0
+		if (code < 0x20 || code === 0x7f) return true
+	}
+	return false
+}
+
 export class DisallowedInternalCommandError extends Error {}
 
 export const controlLine = (input: string): string => {
 	if (!input.startsWith(INTERNAL_COMMAND_PREFIX)) {
 		return input.startsWith("/") ? `/${input}` : input
 	}
-	const body = input.slice(INTERNAL_COMMAND_PREFIX.length).trimStart()
-	const name = body.split(/\s+/)[0]?.toLowerCase() ?? ""
+	const words = input.slice(INTERNAL_COMMAND_PREFIX.length).trim().split(/\s+/)
+	const name = words[0]?.toLowerCase() ?? ""
 	if (!INTERNAL_COMMAND_SET.has(name)) {
 		throw new DisallowedInternalCommandError(
 			`The client command '${name}' is not one this manager will run`,
 		)
 	}
-	return `/${body}`
+	return `/${[name, ...words.slice(1)].join(" ")}`
 }
 
 export const sendCommand = async (
@@ -72,8 +78,8 @@ export const sendCommand = async (
 	instancesRoot: string,
 ): Promise<void> => {
 	const id = validateInstanceId(instanceId)
-	if (/[\n\r]/.test(command)) {
-		throw new Error("Instance commands must not contain a newline")
+	if (hasControlCharacter(command)) {
+		throw new Error("Instance commands must not contain a control character")
 	}
 	const line = controlLine(command)
 	const result = await transport.exec(

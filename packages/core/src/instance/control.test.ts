@@ -27,7 +27,7 @@ describe("instance control channel", () => {
 		const transport = await connected()
 		await expect(
 			sendCommand(transport, "abc", "/say hi\n/op attacker", "/srv/open-mcc"),
-		).rejects.toThrow(/newline/i)
+		).rejects.toThrow(/control character/i)
 		expect(transport.commands).toEqual([])
 	})
 
@@ -114,5 +114,44 @@ describe("instance control channel", () => {
 		await expect(readConsole(transport, "abc", 0, systemProfile())).rejects.toThrow()
 		await expect(readConsole(transport, "abc", 10_000, systemProfile())).rejects.toThrow()
 		expect(transport.commands).toEqual([])
+	})
+
+	it("emits an allowed command in the exact casing MCC's parser matches", () => {
+		expect(controlLine("!List")).toBe("/list")
+		expect(controlLine("!RESPAWN")).toBe("/respawn")
+	})
+
+	it("separates arguments with the single space MCC's parser requires", () => {
+		expect(controlLine("!list\textra")).toBe("/list extra")
+		expect(controlLine("!look  north   east")).toBe("/look north east")
+	})
+
+	it("refuses a command that would read a file off the host", () => {
+		expect(() => controlLine("!book write file /etc/passwd")).toThrow(
+			DisallowedInternalCommandError,
+		)
+	})
+
+	it("refuses a command that can forge the markers reconciliation reads", () => {
+		expect(() => controlLine("!log Not connected to any server")).toThrow(
+			DisallowedInternalCommandError,
+		)
+	})
+
+	it("refuses a control character, which the client reads as a protocol frame", async () => {
+		const transport = await connected()
+		await expect(
+			sendCommand(transport, "abc", "\u0000autocomplete", "/srv/open-mcc"),
+		).rejects.toThrow()
+		expect(transport.commands).toEqual([])
+	})
+
+	it("writes nothing to the fifo when the command is denied", async () => {
+		const transport = await connected()
+		await expect(sendCommand(transport, "abc", "!script pwn", "/srv/open-mcc")).rejects.toThrow(
+			DisallowedInternalCommandError,
+		)
+		expect(transport.commands).toEqual([])
+		expect(transport.stdins).toEqual([])
 	})
 })

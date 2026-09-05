@@ -4,7 +4,11 @@ export const TRANSIENT_POLL_MS = 4_000
 
 export const SETTLED_POLL_MS = 30_000
 
-export const TRANSIENT_HOST_STATUSES: readonly HostStatus[] = ["pending", "provisioning"]
+export const TRANSIENT_HOST_STATUSES: readonly HostStatus[] = [
+	"pending",
+	"provisioning",
+	"removing",
+]
 
 export const TRANSIENT_INSTANCE_STATUSES: readonly InstanceStatus[] = ["created", "needs_auth"]
 

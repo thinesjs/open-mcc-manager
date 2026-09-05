@@ -70,7 +70,12 @@ export type TeardownJobDeps = {
 		privateKey: string
 		expectedFingerprint: string
 	}) => Promise<HostTransport>
-	onCleaned: (hostId: string, summary: Record<string, string>) => Promise<void>
+	onCleaned: (
+		hostId: string,
+		organizationId: string,
+		summary: Record<string, string>,
+	) => Promise<void>
+	onFailed: (hostId: string, organizationId: string, reason: string) => Promise<void>
 }
 
 export const createHostTeardownHandler =
@@ -80,7 +85,14 @@ export const createHostTeardownHandler =
 		if (!payload) return
 
 		const key = await deps.openKey(payload.organizationId, payload.sshKeyId)
-		if (!key) throw new Error(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
+		if (!key) {
+			await deps.onFailed(
+				payload.hostId,
+				payload.organizationId,
+				`The SSH key for this host is gone, so it cannot be reached to clean it.`,
+			)
+			throw new Error(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
+		}
 
 		const profile = profileFrom(
 			payload.mode === "system" ? "system" : "rootless",
@@ -98,16 +110,24 @@ export const createHostTeardownHandler =
 				expectedFingerprint: payload.hostKeyFingerprint,
 			})
 			const report = await tearDownHost(transport, profile, instanceIdsFrom(payload.instanceIds))
-			await deps.onCleaned(payload.hostId, {
+			if (report.remaining.length > 0) {
+				const reason = `Not fully cleaned: ${report.remaining.join("; ")}`
+				await deps.onFailed(payload.hostId, payload.organizationId, reason)
+				throw new Error(reason)
+			}
+			await deps.onCleaned(payload.hostId, payload.organizationId, {
 				unitsRemoved: String(report.unitsRemoved.length),
 				accountsRemoved: String(report.accountsRemoved.length),
 				directoryRemoved: String(report.directoryRemoved),
 				lingeringLeft: String(report.lingeringLeft),
-				remaining: report.remaining.join("; "),
 			})
-			if (report.remaining.length > 0) {
-				throw new Error(`Host was not fully cleaned: ${report.remaining.join("; ")}`)
-			}
+		} catch (error) {
+			await deps.onFailed(
+				payload.hostId,
+				payload.organizationId,
+				error instanceof Error ? error.message : "Could not reach the host to clean it",
+			)
+			throw error
 		} finally {
 			await transport?.close().catch(() => undefined)
 		}

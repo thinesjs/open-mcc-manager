@@ -3,6 +3,7 @@ import {
 	FingerprintMismatchError,
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
+	HostHasInstancesError,
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningFailedError,
@@ -110,6 +111,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	}
 	if (cause instanceof InstanceNotFoundError) {
 		return mapped("NOT_FOUND", "INSTANCE_NOT_FOUND", "Instance not found")
+	}
+	if (cause instanceof HostHasInstancesError) {
+		return mapped("BAD_REQUEST", "HOST_HAS_INSTANCES", "That host still has instances on it")
 	}
 	if (cause instanceof HostProvisioningFailedError) {
 		return mapped("BAD_REQUEST", "HOST_PROVISIONING_FAILED", cause.message)

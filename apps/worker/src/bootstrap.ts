@@ -1,5 +1,6 @@
 import {
 	createAuditRepository,
+	createHostRepository,
 	createHostTeardownHandler,
 	createSecretStore,
 	createSshKeyRepository,
@@ -23,6 +24,7 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 	const db = createDb(env.DATABASE_URL)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 	const sshKeys = createSshKeyRepository(db)
+	const hosts = createHostRepository(db)
 	const audit = createAuditRepository(db)
 
 	const boss = new PgBoss({ connectionString: env.DATABASE_URL })
@@ -43,10 +45,10 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 			await transport.connect({ ...options, timeoutMs: CONNECT_TIMEOUT_MS })
 			return transport
 		},
-		onCleaned: async (hostId, summary) => {
+		onCleaned: async (hostId, organizationId, summary) => {
 			await audit
 				.record(
-					{ organizationId: summary.organizationId ?? "" },
+					{ organizationId },
 					{
 						actorId: null,
 						actorLabel: "worker",
@@ -57,6 +59,10 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 					},
 				)
 				.catch(() => undefined)
+			await hosts.deleteAfterTeardown(hostId, organizationId)
+		},
+		onFailed: async (hostId, organizationId, reason) => {
+			await hosts.recordTeardownFailure(hostId, organizationId, reason).catch(() => undefined)
 		},
 	})
 

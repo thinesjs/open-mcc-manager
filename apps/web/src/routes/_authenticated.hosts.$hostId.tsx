@@ -160,6 +160,30 @@ function HostDetailPage() {
 				</CardContent>
 			</Card>
 
+			{host.status === "removing" ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Removing this host</CardTitle>
+						<p className="text-sm text-muted-foreground">
+							{host.teardownError
+								? "The host could not be cleaned. It stays here until it has been, so nothing is left behind on it."
+								: "Stopping its units, removing what was installed, then deleting this record. This continues on the server."}
+						</p>
+					</CardHeader>
+					<CardContent>
+						{host.teardownError ? (
+							<Alert variant="error" icon={<CircleAlert />}>
+								{host.teardownError}
+							</Alert>
+						) : (
+							<p className="text-sm text-muted-foreground">
+								Requested {formatDate(host.teardownRequestedAt)}.
+							</p>
+						)}
+					</CardContent>
+				</Card>
+			) : null}
+
 			{(host.provisioningStep || host.provisioningError) &&
 			(host.status === "provisioning" || host.status === "error") ? (
 				<Card>
@@ -191,14 +215,20 @@ function HostDetailPage() {
 			<div className="flex gap-3">
 				<Button
 					onClick={handleProvision}
-					disabled={provisionMutation.isPending || host.status === "provisioning"}
+					disabled={
+						provisionMutation.isPending ||
+						host.status === "provisioning" ||
+						host.status === "removing"
+					}
 				>
 					{provisionMutation.isPending ? "Provisioning…" : "Provision"}
 				</Button>
 				<Button
 					variant="destructive-outline"
 					onClick={() => setConfirmingRemove(true)}
-					disabled={removeMutation.isPending || host.status === "provisioning"}
+					disabled={
+						removeMutation.isPending || host.status === "provisioning" || host.status === "removing"
+					}
 				>
 					{removeMutation.isPending ? "Removing…" : "Remove"}
 				</Button>
@@ -207,7 +237,7 @@ function HostDetailPage() {
 			<ConfirmDialog
 				open={confirmingRemove}
 				title="Remove host"
-				description={`Removing ${host.name} deletes its record and disables its units. Instances on this host must be removed first. This action cannot be undone.`}
+				description={`Stops and removes everything this control plane installed on ${host.name}, then deletes its record. The host stays listed until it has been cleaned. Remove its instances first. This cannot be undone.`}
 				confirmLabel="Remove host"
 				destructive
 				busy={removeMutation.isPending}

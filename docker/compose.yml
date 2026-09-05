@@ -54,5 +54,26 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/worker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/open_mcc_manager
+      SEALBOX_KEYS: ${SEALBOX_KEYS}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   pgdata:

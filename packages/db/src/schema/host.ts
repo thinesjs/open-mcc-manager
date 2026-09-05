@@ -3,7 +3,7 @@ import type { DB, Generated } from "../generated/database"
 
 type RefinementOf<Narrowed extends Base, Base> = Narrowed
 
-export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | "error"
+export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | "error" | "removing"
 
 type _HostStatusRefinesGeneratedColumn = RefinementOf<HostStatus, SelectType<DB["host"]["status"]>>
 
@@ -18,6 +18,8 @@ export type HostTable = Omit<
 	| "instancesRoot"
 	| "osId"
 	| "failedUnits"
+	| "teardownError"
+	| "teardownRequestedAt"
 	| "osName"
 	| "sandboxed"
 	| "unitDir"
@@ -38,6 +40,8 @@ export type HostTable = Omit<
 	instancesRoot: Generated<DB["host"]["instancesRoot"]>
 	osId: Generated<DB["host"]["osId"]>
 	failedUnits: Generated<DB["host"]["failedUnits"]>
+	teardownError: Generated<DB["host"]["teardownError"]>
+	teardownRequestedAt: Generated<DB["host"]["teardownRequestedAt"]>
 	osName: Generated<DB["host"]["osName"]>
 	sandboxed: Generated<DB["host"]["sandboxed"]>
 	unitDir: Generated<DB["host"]["unitDir"]>

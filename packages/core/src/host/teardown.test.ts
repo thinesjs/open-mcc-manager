@@ -1,7 +1,7 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { rootlessProfile, systemProfile } from "./profile"
-import { isSafeToRemove, PROTECTED_PATHS, tearDownHost } from "./teardown"
+import { isSafeToRemove, PROTECTED_PATHS, selfExcludingPattern, tearDownHost } from "./teardown"
 
 const connected = async (
 	responses: Record<string, { stdout: string; stderr: string; exitCode: number }>,
@@ -84,7 +84,7 @@ describe("cleaning a host when it is removed", () => {
 
 		await tearDownHost(transport, systemProfile(), [])
 
-		expect(transport.commands.some((c) => c.startsWith("pkill -f '/srv/open-mcc'"))).toBe(true)
+		expect(transport.commands.some((c) => c.startsWith("pkill -f '/srv/[o]pen-mcc'"))).toBe(true)
 	})
 
 	it("removes the per-instance accounts on a host that has them", async () => {
@@ -153,5 +153,39 @@ describe("cleaning a host when it is removed", () => {
 		const report = await tearDownHost(transport, rootlessProfile("/home/pi"), [])
 
 		expect(report.lingeringLeft).toBe(true)
+	})
+})
+
+describe("sweeping leftover processes without killing the sweep itself", () => {
+	it("hides the pattern from its own command line, which pkill would otherwise match", () => {
+		expect(selfExcludingPattern("/srv/open-mcc")).toBe("/srv/[o]pen-mcc")
+		expect(selfExcludingPattern("/home/pi/.local/share/open-mcc")).toBe(
+			"/home/pi/.local/share/[o]pen-mcc",
+		)
+	})
+
+	it("still matches the real path, since the class matches its own first character", () => {
+		const pattern = selfExcludingPattern("/srv/open-mcc")
+
+		expect(new RegExp(pattern).test("/srv/open-mcc/bin/MinecraftClient")).toBe(true)
+	})
+
+	it("does not match the command that carries the pattern, which is the whole point", () => {
+		const pattern = selfExcludingPattern("/srv/open-mcc")
+
+		expect(new RegExp(pattern).test(`pkill -f ${pattern}`)).toBe(false)
+	})
+
+	it("tolerates a trailing slash rather than producing an empty class", () => {
+		expect(selfExcludingPattern("/srv/open-mcc/")).toBe("/srv/[o]pen-mcc")
+	})
+
+	it("uses the guarded pattern in the commands it runs", async () => {
+		const transport = await connected(CLEAN)
+
+		await tearDownHost(transport, systemProfile(), [])
+
+		expect(transport.commands.some((c) => c.includes("[o]pen-mcc"))).toBe(true)
+		expect(transport.commands.some((c) => c.startsWith("pkill -f '/srv/open-mcc'"))).toBe(false)
 	})
 })

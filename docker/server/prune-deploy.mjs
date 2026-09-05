@@ -15,6 +15,7 @@ const runtimeRoots = [
 	"libsodium-wrappers-sumo",
 	"nanoid",
 	"pg",
+	"pg-boss",
 	"ssh2",
 	"sshpk",
 	"zod",

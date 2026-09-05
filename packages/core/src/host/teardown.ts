@@ -35,6 +35,15 @@ export const isSafeToRemove = (path: string): boolean => {
 	return trimmed.split("/").filter((segment) => segment.length > 0).length >= 2
 }
 
+export const selfExcludingPattern = (path: string): string => {
+	const trimmed = path.replace(/\/+$/, "")
+	const cut = trimmed.lastIndexOf("/")
+	const head = trimmed.slice(0, cut + 1)
+	const tail = trimmed.slice(cut + 1)
+	if (tail.length === 0) return trimmed
+	return `${head}[${tail.slice(0, 1)}]${tail.slice(1)}`
+}
+
 export type TeardownReport = {
 	unitsRemoved: readonly string[]
 	accountsRemoved: readonly string[]
@@ -80,7 +89,7 @@ export const tearDownHost = async (
 
 	if (isSafeToRemove(profile.instancesRoot)) {
 		await transport.exec(
-			`pkill -f ${shellQuote(profile.instancesRoot)} || true`,
+			`pkill -f ${shellQuote(selfExcludingPattern(profile.instancesRoot))} || true`,
 			TEARDOWN_TIMEOUT_MS,
 		)
 	}
@@ -114,7 +123,7 @@ export const tearDownHost = async (
 	for (const unit of leftoverUnits) remaining.push(`${unit} is still installed`)
 
 	const processes = await transport.exec(
-		`pgrep -f ${shellQuote(profile.instancesRoot)} 2>/dev/null | grep -c . || true`,
+		`pgrep -f ${shellQuote(selfExcludingPattern(profile.instancesRoot))} 2>/dev/null | grep -c . || true`,
 		TEARDOWN_TIMEOUT_MS,
 	)
 	const processesLeft = Number.parseInt(processes.stdout.trim(), 10)

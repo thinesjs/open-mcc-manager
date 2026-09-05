@@ -74,6 +74,7 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 	createTransport: vi.fn(),
 	instanceIdsOnHost: vi.fn(async () => []),
+	now: () => new Date(),
 })
 
 describe("host controller transactional mutations", () => {
@@ -179,6 +180,7 @@ describe("host controller transactional mutations", () => {
 			...baseDeps(),
 			hosts,
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -237,6 +239,8 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -287,6 +291,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -329,6 +334,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -377,6 +383,8 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -409,6 +417,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -419,7 +428,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 		expect(stillThere?.status).toBe("provisioning")
 	})
 
-	it("still deletes a host in any other status", async () => {
+	it("marks a provisioned host for teardown rather than deleting it outright", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-allow-delete")
 
@@ -430,12 +439,16 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
 		const ctx = actorFor(organizationId, memberId)
 		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
-		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
+
+		const stillThere = await hosts.findById({ organizationId }, hostId)
+		expect(stillThere?.status).toBe("removing")
+		expect(stillThere?.teardownRequestedAt).not.toBeNull()
 	})
 
 	it("rejects a delete attempted during the remote-work window, then completes provisioning normally", async () => {
@@ -475,6 +488,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -509,6 +523,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -517,7 +532,8 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 		expect((await hosts.findById({ organizationId }, hostId))?.status).toBe("ready")
 
 		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
-		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
+		const marked = await hosts.findById({ organizationId }, hostId)
+		expect(marked?.status).toBe("removing")
 	})
 
 	it("deletes a host whose provisioning claim has expired past the lease", async () => {
@@ -533,12 +549,14 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
 		})
 
 		const ctx = actorFor(organizationId, memberId)
 		await expect(controller.remove(ctx, hostId)).resolves.toBe(true)
-		expect(await hosts.findById({ organizationId }, hostId)).toBeUndefined()
+		const marked = await hosts.findById({ organizationId }, hostId)
+		expect(marked?.status).toBe("removing")
 	})
 
 	it("still refuses to delete a host whose provisioning claim is still within its lease", async () => {
@@ -553,6 +571,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
 		})
 
@@ -597,6 +616,8 @@ describe("host controller keeps no transaction open across remote provisioning w
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -667,6 +688,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(instrumentedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction,
 		})
 
@@ -714,6 +736,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(slowTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: withShortIdleTimeout,
 		})
 
@@ -760,6 +783,8 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -800,6 +825,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -827,6 +853,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -873,6 +900,8 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -925,6 +954,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
@@ -941,6 +971,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1021,6 +1052,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 		const retrustController = createHostController({
@@ -1030,6 +1062,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1100,6 +1133,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1165,6 +1199,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1218,6 +1253,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1282,6 +1318,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1339,6 +1376,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1401,6 +1439,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 		const retrustController = createHostController({
@@ -1410,6 +1449,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 
@@ -1454,6 +1494,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 		await provisionController.provision(ctx, hostId)
@@ -1466,6 +1507,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
 		})
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
@@ -1489,6 +1531,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
 		})
 		const ctx = actorFor(organizationId, memberId)

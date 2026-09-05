@@ -61,6 +61,7 @@ export type HostControllerDeps = {
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
 	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
+	now: () => Date
 	withTransaction: WithTransaction
 }
 
@@ -72,6 +73,7 @@ export class HostUnreachableError extends Error {}
 export class HostProvisioningFailedError extends Error {}
 export class FingerprintMismatchError extends Error {}
 export class HostNotFoundError extends Error {}
+export class HostHasInstancesError extends Error {}
 export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
 export class HostConcurrentlyModifiedError extends Error {}
@@ -397,40 +399,60 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const scope = { organizationId: ctx.organizationId }
 
 			const target = await deps.hosts.findById(scope, hostId)
-			const teardownPayload = target ? await teardownPayloadFor(target) : undefined
+			if (!target) return false
 
-			const removedHost = await deps.withTransaction(async (repos) => {
+			const instanceIds = await deps.instanceIdsOnHost(scope, hostId)
+			if (instanceIds.length > 0) {
+				throw new HostHasInstancesError(
+					`Host ${hostId} still has ${instanceIds.length} instance(s); remove them first`,
+				)
+			}
+
+			const teardownPayload = await teardownPayloadFor(target)
+
+			return deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 				const found = await repos.hosts.findById(scope, hostId)
+				if (!found) return false
 				if (
-					found?.status === "provisioning" &&
+					found.status === "provisioning" &&
 					!isProvisioningClaimStale(found.provisioningClaimedAt)
 				) {
 					throw new HostProvisioningInProgressError(
 						`Host ${hostId} cannot be deleted while its status is 'provisioning'`,
 					)
 				}
-				const removed = await repos.hosts.delete(scope, hostId)
-				if (removed) {
-					await repos.audit.record(scope, {
-						actorId: ctx.memberId,
-						actorLabel: ctx.actorLabel,
-						action: "host.delete",
-						subjectType: "host",
-						subjectId: hostId,
-						detail: {},
-					})
-					if (teardownPayload) {
-						await repos.jobs.enqueue(HOST_TEARDOWN_QUEUE, {
-							...teardownPayload,
-							organizationId: ctx.organizationId,
+
+				if (!teardownPayload) {
+					const removed = await repos.hosts.delete(scope, hostId)
+					if (removed) {
+						await repos.audit.record(scope, {
+							actorId: ctx.memberId,
+							actorLabel: ctx.actorLabel,
+							action: "host.delete",
+							subjectType: "host",
+							subjectId: hostId,
+							detail: { cleaned: "nothing was installed" },
 						})
 					}
+					return removed
 				}
-				return removed
-			})
 
-			return removedHost
+				await repos.hosts.beginTeardown(scope, hostId, deps.now())
+				await repos.jobs.enqueue(HOST_TEARDOWN_QUEUE, {
+					...teardownPayload,
+					organizationId: ctx.organizationId,
+				})
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "host.teardown.requested",
+					subjectType: "host",
+					subjectId: hostId,
+					detail: {},
+				})
+				return true
+			})
 		},
 	}
 }

@@ -13,6 +13,7 @@ RUN pnpm dlx esbuild@0.25.12 apps/server/src/index.ts \
 	--external:argon2 --external:better-auth --external:better-auth/* \
 	--external:hono --external:hono/* --external:kysely --external:kysely/* \
 	--external:libsodium-wrappers-sumo --external:nanoid --external:pg \
+	--external:pg-boss \
 	--external:ssh2 --external:sshpk --external:zod
 RUN pnpm deploy --filter @open-mcc/server --prod --legacy --config.node-linker=hoisted /out
 RUN cp server.mjs /out/server.mjs

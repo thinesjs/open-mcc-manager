@@ -28,6 +28,7 @@ export {
 	FingerprintMismatchError,
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
+	HostHasInstancesError,
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningFailedError,

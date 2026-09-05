@@ -13,6 +13,7 @@ const PRESENTATION_BY_STATUS: Record<HostStatus, HostStatusPresentation> = {
 	ready: { label: "Ready", variant: "success" },
 	unreachable: { label: "Unreachable", variant: "error" },
 	error: { label: "Error", variant: "error" },
+	removing: { label: "Removing", variant: "warning" },
 }
 
 export const presentHostStatus = (status: HostStatus): HostStatusPresentation =>

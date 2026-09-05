@@ -60,6 +60,7 @@ beforeAll(async () => {
 					probeHostKey: async () => Buffer.alloc(0),
 					createTransport: () => createFakeTransport(),
 					instanceIdsOnHost: async () => [],
+					now: () => new Date(),
 					withTransaction: createHostControllerTransaction(db, async () => null),
 				}),
 				instanceController: await createTestInstanceController(db),

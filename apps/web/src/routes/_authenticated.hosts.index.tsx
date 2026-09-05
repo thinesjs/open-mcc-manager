@@ -90,7 +90,13 @@ function HostListPage() {
 								<p className="truncate text-sm text-muted-foreground">
 									{host.username}@{host.hostname}:{host.port}
 								</p>
-								<HostHealthBadge host={host} />
+								{host.status === "removing" ? (
+									<p className="truncate text-xs text-muted-foreground">
+										{host.teardownError ? "Could not be cleaned" : "Cleaning the host…"}
+									</p>
+								) : (
+									<HostHealthBadge host={host} />
+								)}
 								{host.osName ? (
 									<p className="truncate text-xs text-muted-foreground">{host.osName}</p>
 								) : null}

@@ -10,6 +10,7 @@ import {
 	createHostController,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	HostHasInstancesError,
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostUnreachableError,
@@ -65,6 +66,8 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
+	teardownError: null,
+	teardownRequestedAt: null,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,
@@ -183,6 +186,9 @@ const deps = (
 					osRelease: patch.osRelease ?? null,
 				}),
 		),
+		beginTeardown: vi.fn(async () => true),
+		recordTeardownFailure: vi.fn(async () => undefined),
+		deleteAfterTeardown: vi.fn(async () => true),
 		listPollableAcrossOrganizations: vi.fn(async () => []),
 		recordSeen: vi.fn(async () => undefined),
 		updateHostKeyTrust: vi.fn(async (_scope: OrgScope, id: string, trust: HostKeyTrustUpdate) =>
@@ -213,6 +219,7 @@ const deps = (
 			}),
 		),
 		instanceIdsOnHost: vi.fn(async () => []),
+		now: () => new Date(),
 		withTransaction,
 		...overrides,
 	}
@@ -374,6 +381,9 @@ describe("host controller provisioning", () => {
 				lockHost: vi.fn(async () => undefined),
 				claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 				finalizeProvisioning: vi.fn(async () => makeHostRow()),
+				beginTeardown: vi.fn(async () => true),
+				recordTeardownFailure: vi.fn(async () => undefined),
+				deleteAfterTeardown: vi.fn(async () => true),
 				listPollableAcrossOrganizations: vi.fn(async () => []),
 				recordSeen: vi.fn(async () => undefined),
 				updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -429,6 +439,9 @@ describe("host controller provisioning", () => {
 						osRelease: patch.osRelease ?? null,
 					}),
 			),
+			beginTeardown: vi.fn(async () => true),
+			recordTeardownFailure: vi.fn(async () => undefined),
+			deleteAfterTeardown: vi.fn(async () => true),
 			listPollableAcrossOrganizations: vi.fn(async () => []),
 			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -466,6 +479,9 @@ describe("host controller provisioning", () => {
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning,
 					finalizeProvisioning: vi.fn(async () => makeHostRow()),
+					beginTeardown: vi.fn(async () => true),
+					recordTeardownFailure: vi.fn(async () => undefined),
+					deleteAfterTeardown: vi.fn(async () => true),
 					listPollableAcrossOrganizations: vi.fn(async () => []),
 					recordSeen: vi.fn(async () => undefined),
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -516,6 +532,9 @@ describe("host controller provisioning", () => {
 						}),
 					),
 					finalizeProvisioning,
+					beginTeardown: vi.fn(async () => true),
+					recordTeardownFailure: vi.fn(async () => undefined),
+					deleteAfterTeardown: vi.fn(async () => true),
 					listPollableAcrossOrganizations: vi.fn(async () => []),
 					recordSeen: vi.fn(async () => undefined),
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -714,6 +733,9 @@ describe("host controller removal", () => {
 			lockHost: vi.fn(async () => undefined),
 			claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			beginTeardown: vi.fn(async () => true),
+			recordTeardownFailure: vi.fn(async () => undefined),
+			deleteAfterTeardown: vi.fn(async () => true),
 			listPollableAcrossOrganizations: vi.fn(async () => []),
 			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -837,6 +859,9 @@ describe("what provisioning tells the operator when it fails", () => {
 				}),
 			),
 			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			beginTeardown: vi.fn(async () => true),
+			recordTeardownFailure: vi.fn(async () => undefined),
+			deleteAfterTeardown: vi.fn(async () => true),
 			listPollableAcrossOrganizations: vi.fn(async () => []),
 			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
@@ -878,5 +903,42 @@ describe("what provisioning tells the operator when it fails", () => {
 			"attempt-1",
 			expect.stringMatching(/.+/),
 		)
+	})
+})
+
+describe("removing a host that is still in use", () => {
+	it("refuses while instances remain, rather than orphaning them on a host it is cleaning", async () => {
+		const d = deps({ instanceIdsOnHost: vi.fn(async () => ["abc", "def"]) })
+		const controller = createHostController(d)
+
+		await expect(controller.remove(ctx, "host-1")).rejects.toBeInstanceOf(HostHasInstancesError)
+		expect(d.hosts.beginTeardown).not.toHaveBeenCalled()
+	})
+
+	it("names how many instances are in the way, so the operator knows what to do", async () => {
+		const controller = createHostController(deps({ instanceIdsOnHost: vi.fn(async () => ["abc"]) }))
+
+		await expect(controller.remove(ctx, "host-1")).rejects.toThrow(/1 instance/)
+	})
+
+	it("marks a provisioned host for teardown instead of deleting its record", async () => {
+		const d = deps({ instanceIdsOnHost: vi.fn(async () => []) })
+		const controller = createHostController(d)
+
+		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)
+
+		expect(d.hosts.beginTeardown).toHaveBeenCalled()
+		expect(d.hosts.delete).not.toHaveBeenCalled()
+	})
+
+	it("deletes outright when nothing was ever installed, since there is nothing to clean", async () => {
+		const d = deps({ instanceIdsOnHost: vi.fn(async () => []) })
+		d.hosts.findById = vi.fn(async () => makeHostRow({ instancesRoot: null, unitDir: null }))
+		const controller = createHostController(d)
+
+		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)
+
+		expect(d.hosts.delete).toHaveBeenCalled()
+		expect(d.hosts.beginTeardown).not.toHaveBeenCalled()
 	})
 })

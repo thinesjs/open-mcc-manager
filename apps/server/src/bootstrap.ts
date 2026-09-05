@@ -94,6 +94,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		secrets,
 		probeHostKey,
 		createTransport: createSshTransport,
+		now: () => new Date(),
 		instanceIdsOnHost: async (scope, hostId) =>
 			(await createInstanceRepository(db).list(scope))
 				.filter((instance) => instance.hostId === hostId)

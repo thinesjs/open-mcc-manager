@@ -103,6 +103,39 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 })
 
 export const createHostRepository = (db: Executor) => ({
+	beginTeardown: async (scope: OrgScope, id: string, at: Date): Promise<boolean> => {
+		const result = await db
+			.updateTable("host")
+			.set({ status: "removing", teardownRequestedAt: at, teardownError: null })
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.executeTakeFirst()
+		return Number(result.numUpdatedRows) > 0
+	},
+
+	recordTeardownFailure: async (
+		id: string,
+		organizationId: string,
+		reason: string,
+	): Promise<void> => {
+		await db
+			.updateTable("host")
+			.set({ teardownError: reason.slice(0, 2000) })
+			.where("id", "=", id)
+			.where("organizationId", "=", organizationId)
+			.execute()
+	},
+
+	deleteAfterTeardown: async (id: string, organizationId: string): Promise<boolean> => {
+		const result = await db
+			.deleteFrom("host")
+			.where("id", "=", id)
+			.where("organizationId", "=", organizationId)
+			.where("status", "=", "removing")
+			.executeTakeFirst()
+		return Number(result.numDeletedRows) > 0
+	},
+
 	listPollableAcrossOrganizations: async (): Promise<HostRow[]> =>
 		db.selectFrom("host").selectAll().where("status", "=", "ready").execute(),
 

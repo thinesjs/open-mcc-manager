@@ -1,6 +1,13 @@
 import { z } from "zod"
 
-export const hostStatusSchema = z.enum(["pending", "provisioning", "ready", "unreachable", "error"])
+export const hostStatusSchema = z.enum([
+	"pending",
+	"provisioning",
+	"ready",
+	"unreachable",
+	"error",
+	"removing",
+])
 
 export type HostStatus = z.infer<typeof hostStatusSchema>
 

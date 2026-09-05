@@ -83,6 +83,8 @@ export interface Host {
 	sandboxed: boolean | null
 	sshKeyId: string | null
 	status: Generated<string>
+	teardownError: string | null
+	teardownRequestedAt: Timestamp | null
 	unitDir: string | null
 	username: Generated<string>
 }
@@ -148,22 +150,6 @@ export interface Invitation {
 	organizationId: string
 	role: string | null
 	status: string
-}
-
-export interface Job {
-	attempts: Generated<number>
-	claimedAt: Timestamp | null
-	claimId: string | null
-	completedAt: Timestamp | null
-	createdAt: Generated<Timestamp>
-	failedAt: Timestamp | null
-	id: string
-	kind: string
-	lastError: string | null
-	maxAttempts: Generated<number>
-	organizationId: string
-	payload: Generated<Json>
-	runAfter: Generated<Timestamp>
 }
 
 export interface Member {
@@ -233,7 +219,6 @@ export interface DB {
 	instanceConfig: InstanceConfig
 	instanceSchedule: InstanceSchedule
 	invitation: Invitation
-	job: Job
 	member: Member
 	organization: Organization
 	session: Session

@@ -61,6 +61,11 @@ export const instanceRouter = router({
 		return ctx.instanceController.readLiveStatus(ctx.actor, input.instanceId)
 	}),
 
+	readLiveChat: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "console.read")
+		return ctx.instanceController.readLiveChat(ctx.actor, input.instanceId)
+	}),
+
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
 		return ctx.instanceController.getConfig(ctx.actor, input.instanceId)

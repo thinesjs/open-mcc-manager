@@ -7,6 +7,7 @@ import { ConsoleComposer } from "~/components/console-composer"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { LiveChat } from "~/components/live-chat"
 import { MinecraftText } from "~/components/minecraft-text"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
@@ -36,6 +37,12 @@ function InstanceDetailPage() {
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
+	const liveChatQuery = useQuery({
+		...trpc.instance.readLiveChat.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 3000,
+	})
 	const liveStatusQuery = useQuery({
 		...trpc.instance.readLiveStatus.queryOptions({ instanceId }),
 		enabled: configQuery.data?.liveControlEnabled === true,
@@ -313,6 +320,15 @@ function InstanceDetailPage() {
 									Not answering yet. The client only opens this once it has joined a server.
 								</p>
 							)}
+
+							{liveChatQuery.data && liveChatQuery.data.length > 0 ? (
+								<div className="space-y-2">
+									<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+										Chat
+									</h3>
+									<LiveChat entries={liveChatQuery.data} />
+								</div>
+							) : null}
 						</section>
 					) : null}
 

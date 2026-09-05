@@ -1,12 +1,14 @@
 import { request as httpRequest } from "node:http"
 import {
 	callToolRequest,
+	chatHistoryFrom,
 	initializedNotification,
 	initializeRequest,
 	type JsonRpcNotification,
 	type JsonRpcRequest,
 	type JsonRpcResponse,
 	MCP_SESSION_HEADER,
+	type McpChatEntry,
 	type McpSessionStatus,
 	responseFrom,
 	sessionStatusFrom,
@@ -133,3 +135,18 @@ export const readSessionStatus = (
 	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpSessionStatus> =>
 	callLiveTool(target, "mcc_session_status", sessionStatusFrom, {}, timeoutMs)
+
+export const LIVE_CHAT_MAX_LINES = 200
+
+export const readChatHistory = (
+	target: LiveControlTarget,
+	maxCount: number = LIVE_CHAT_MAX_LINES,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpChatEntry[]> =>
+	callLiveTool(
+		target,
+		"mcc_chat_history",
+		chatHistoryFrom,
+		{ maxCount, includeJson: true },
+		timeoutMs,
+	)

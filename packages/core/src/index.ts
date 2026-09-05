@@ -98,8 +98,10 @@ export {
 } from "./instance/instance.repository"
 export {
 	callLiveTool,
+	LIVE_CHAT_MAX_LINES,
 	LIVE_CONTROL_TIMEOUT_MS,
 	LiveControlUnauthorizedError,
+	readChatHistory,
 	readSessionStatus,
 } from "./instance/live-control"
 export {

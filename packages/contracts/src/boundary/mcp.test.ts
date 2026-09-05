@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
 	callToolRequest,
+	chatHistoryFrom,
 	dataFramesOf,
 	initializeRequest,
 	McpProtocolError,
@@ -163,5 +164,91 @@ describe("mcp wire format", () => {
 		)
 
 		expect(() => toolResultOf(response)).toThrow(/capability_disabled/)
+	})
+
+	it("reads the chat history a real client returned", () => {
+		const real =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":' +
+			'"2026-09-05T23:22:43.0381159+00:00","kind":"chat","text":"<LiveBot> hello",' +
+			'"sender":"LiveBot","message":"hello","json":"hello"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: real }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)).toEqual([
+			{
+				timestampUtc: "2026-09-05T23:22:43.0381159+00:00",
+				kind: "chat",
+				text: "<LiveBot> hello",
+				sender: "LiveBot",
+				message: "hello",
+				json: "hello",
+			},
+		])
+	})
+
+	it("keeps a whisper apart from public chat", () => {
+		const body =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":"t","kind":"private",' +
+			'"text":"x","sender":"Someone","message":"psst"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)[0]?.kind).toBe("private")
+	})
+
+	it("treats a kind it does not know as a system message rather than failing", () => {
+		const body =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":"t","kind":"newthing",' +
+			'"text":"x"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)[0]?.kind).toBe("system")
+	})
+
+	it("reports an absent sender as absent rather than as an empty name", () => {
+		const body =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":"t","kind":"system",' +
+			'"text":"x","sender":null,"message":"","json":null}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+		const entry = chatHistoryFrom(response)[0]
+
+		expect(entry?.sender).toBeUndefined()
+		expect(entry?.message).toBeUndefined()
+		expect(entry?.json).toBeUndefined()
+	})
+
+	it("reads an empty history without complaint", () => {
+		const body = '{"success":true,"data":{"count":0,"entries":[]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)).toEqual([])
 	})
 })

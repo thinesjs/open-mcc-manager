@@ -163,3 +163,55 @@ export const sessionStatusFrom = (response: JsonRpcResponse): McpSessionStatus =
 	}
 	return parsed.data
 }
+
+export const CHAT_KINDS = ["chat", "private", "system"] as const
+
+export const chatKindSchema = z.enum(CHAT_KINDS)
+
+export type ChatKind = z.infer<typeof chatKindSchema>
+
+const chatEntrySchema = z.object({
+	timestampUtc: z.string(),
+	kind: z.string(),
+	text: z.string(),
+	sender: z.string().nullable().optional(),
+	message: z.string().nullable().optional(),
+	json: z.string().nullable().optional(),
+})
+
+const chatHistorySchema = z.object({
+	count: z.number(),
+	entries: z.array(chatEntrySchema),
+})
+
+export type McpChatEntry = {
+	timestampUtc: string
+	kind: ChatKind
+	text: string
+	sender: string | undefined
+	message: string | undefined
+	json: string | undefined
+}
+
+const asChatKind = (value: string): ChatKind => {
+	const parsed = chatKindSchema.safeParse(value)
+	return parsed.success ? parsed.data : "system"
+}
+
+const orUndefined = (value: string | null | undefined): string | undefined =>
+	value === null || value === undefined || value.length === 0 ? undefined : value
+
+export const chatHistoryFrom = (response: JsonRpcResponse): McpChatEntry[] => {
+	const parsed = chatHistorySchema.safeParse(toolResultOf(response))
+	if (!parsed.success) {
+		throw new McpProtocolError("The client reported a chat history this manager cannot read")
+	}
+	return parsed.data.entries.map((entry) => ({
+		timestampUtc: entry.timestampUtc,
+		kind: asChatKind(entry.kind),
+		text: entry.text,
+		sender: orUndefined(entry.sender),
+		message: orUndefined(entry.message),
+		json: orUndefined(entry.json),
+	}))
+}

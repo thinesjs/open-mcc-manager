@@ -158,3 +158,19 @@ export const flattenChatComponent = (
 	collect(component, INHERITED, translate, spans)
 	return spans
 }
+
+export const renderChatJson = (json: string | undefined): string | undefined => {
+	if (json === undefined || json.length === 0) return undefined
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(json)
+	} catch {
+		return undefined
+	}
+	const component = safeParseChatComponent(parsed)
+	if (!component) return undefined
+	const rendered = flattenChatComponent(component)
+		.map((span) => span.text)
+		.join("")
+	return rendered.length > 0 ? rendered : undefined
+}

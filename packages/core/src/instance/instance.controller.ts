@@ -13,7 +13,7 @@ import {
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
-import type { McpSessionStatus } from "@open-mcc/contracts/boundary/mcp"
+import type { McpChatEntry, McpSessionStatus } from "@open-mcc/contracts/boundary/mcp"
 import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
@@ -36,7 +36,7 @@ import {
 	type InstanceRepository,
 	isAuthClaimStale,
 } from "./instance.repository"
-import { readSessionStatus } from "./live-control"
+import { type LiveControlTarget, readChatHistory, readSessionStatus } from "./live-control"
 import {
 	expectedUnits,
 	type HostReconciliation,
@@ -178,6 +178,35 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return taken.includes(config.liveControlPort)
 			? allocateLiveControlPort(taken)
 			: config.liveControlPort
+	}
+
+	const liveControlTargetFor = async (
+		ctx: ActorContext,
+		instanceId: string,
+	): Promise<{ target: LiveControlTarget; close: () => Promise<void> } | undefined> => {
+		const instance = await requireInstance(ctx, instanceId)
+		if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
+		const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
+		if (!saved) return undefined
+		const config = instanceConfigInput.safeParse(saved.document)
+		if (!config.success || !config.data.liveControlEnabled) return undefined
+
+		const token = deps.secrets.open(
+			instance.liveControlTokenEncrypted,
+			instance.liveControlTokenKeyId,
+		)
+		const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
+		return {
+			target: {
+				transport,
+				port: config.data.liveControlPort,
+				route: LIVE_CONTROL_ROUTE,
+				token,
+			},
+			close: async () => {
+				await transport.close().catch(() => undefined)
+			},
+		}
 	}
 
 	const requireInstance = async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
@@ -503,30 +532,32 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpSessionStatus | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const instance = await requireInstance(ctx, instanceId)
-			if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
-			const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
-			if (!saved) return undefined
-			const config = instanceConfigInput.safeParse(saved.document)
-			if (!config.success || !config.data.liveControlEnabled) return undefined
-
-			const token = deps.secrets.open(
-				instance.liveControlTokenEncrypted,
-				instance.liveControlTokenKeyId,
-			)
-			const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
 			try {
-				return await readSessionStatus({
-					transport,
-					port: config.data.liveControlPort,
-					route: LIVE_CONTROL_ROUTE,
-					token,
-				})
+				return await readSessionStatus(target.target)
 			} catch (error) {
 				if (error instanceof LiveChannelUnavailableError) return undefined
 				throw error
 			} finally {
-				await transport.close().catch(() => undefined)
+				await target.close()
+			}
+		},
+
+		readLiveChat: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpChatEntry[] | undefined> => {
+			requireCapabilityFor(ctx.role, "console.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readChatHistory(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
 			}
 		},
 

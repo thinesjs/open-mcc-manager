@@ -7,13 +7,48 @@ import {
 	type HostTransport,
 	LiveChannelUnavailableError,
 } from "../types"
-import { type ExecChannel, execViaChannel } from "./exec"
+import { type ExecChannel, execViaChannel, namedChannelError } from "./exec"
 import { verifyHostKey } from "./verify"
 
 export type RequestChannel = (
 	command: string,
 	callback: (error: Error | undefined, channel: ExecChannel | undefined) => void,
 ) => void
+
+export const DEFAULT_EXEC_CONCURRENCY = 6
+
+export type ChannelLimiter = {
+	acquire: () => Promise<void>
+	release: () => void
+	active: () => number
+	queued: () => number
+}
+
+export const createChannelLimiter = (limit: number): ChannelLimiter => {
+	let active = 0
+	const waiting: Array<() => void> = []
+	return {
+		acquire: () =>
+			new Promise<void>((resolve) => {
+				if (active < limit) {
+					active += 1
+					resolve()
+					return
+				}
+				waiting.push(() => {
+					active += 1
+					resolve()
+				})
+			}),
+		release: () => {
+			active -= 1
+			const next = waiting.shift()
+			if (next) next()
+		},
+		active: () => active,
+		queued: () => waiting.length,
+	}
+}
 
 export const execWithBoundedAcquisition = (
 	requestChannel: RequestChannel,
@@ -38,7 +73,11 @@ export const execWithBoundedAcquisition = (
 			clearTimeout(timer)
 			if (error || !channel) {
 				settled = true
-				reject(error ?? new Error(`Failed to open a channel for: ${command}`))
+				reject(
+					error
+						? namedChannelError(error, command)
+						: new Error(`Failed to open a channel for: ${command}`),
+				)
 				return
 			}
 			const remainingMs = Math.max(0, timeoutMs - (Date.now() - startedAt))
@@ -58,6 +97,7 @@ export const execWithBoundedAcquisition = (
 export const createSshTransport = (): HostTransport => {
 	let client: Client | undefined
 	let state: ConnectionState = "disconnected"
+	const limiter = createChannelLimiter(DEFAULT_EXEC_CONCURRENCY)
 
 	return {
 		state: () => state,
@@ -150,41 +190,46 @@ export const createSshTransport = (): HostTransport => {
 				})
 			}),
 
-		exec: (command: string, timeoutMs: number, stdin?: string) => {
+		exec: async (command: string, timeoutMs: number, stdin?: string) => {
 			const conn = client
-			if (!conn) return Promise.reject(new Error("Transport is not connected"))
-			return execWithBoundedAcquisition(
-				(cmd, callback) =>
-					conn.exec(cmd, (error, stream) => {
-						if (error) {
-							callback(error, undefined)
-							return
-						}
-						callback(undefined, {
-							write: (chunk) => {
-								stream.write(chunk)
-							},
-							end: () => {
-								stream.end()
-							},
-							onStdout: (listener) => {
-								stream.on("data", listener)
-							},
-							onStderr: (listener) => {
-								stream.stderr.on("data", listener)
-							},
-							onClose: (listener) => {
-								stream.on("close", listener)
-							},
-							destroy: () => {
-								stream.destroy()
-							},
-						})
-					}),
-				command,
-				timeoutMs,
-				stdin,
-			)
+			if (!conn) throw new Error("Transport is not connected")
+			await limiter.acquire()
+			try {
+				return await execWithBoundedAcquisition(
+					(cmd, callback) =>
+						conn.exec(cmd, (error, stream) => {
+							if (error) {
+								callback(error, undefined)
+								return
+							}
+							callback(undefined, {
+								write: (chunk) => {
+									stream.write(chunk)
+								},
+								end: () => {
+									stream.end()
+								},
+								onStdout: (listener) => {
+									stream.on("data", listener)
+								},
+								onStderr: (listener) => {
+									stream.stderr.on("data", listener)
+								},
+								onClose: (listener) => {
+									stream.on("close", listener)
+								},
+								destroy: () => {
+									stream.destroy()
+								},
+							})
+						}),
+					command,
+					timeoutMs,
+					stdin,
+				)
+			} finally {
+				limiter.release()
+			}
 		},
 
 		close: async () => {

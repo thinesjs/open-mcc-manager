@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { execWithBoundedAcquisition, type RequestChannel } from "./connection"
-import { CommandAbortedError, type ExecChannel } from "./exec"
+import {
+	createChannelLimiter,
+	DEFAULT_EXEC_CONCURRENCY,
+	execWithBoundedAcquisition,
+	type RequestChannel,
+} from "./connection"
+import {
+	ChannelLimitReachedError,
+	CommandAbortedError,
+	type ExecChannel,
+	isChannelExhaustion,
+	namedChannelError,
+} from "./exec"
 
 type FakeExecChannel = {
 	channel: ExecChannel
@@ -83,7 +94,16 @@ describe("execWithBoundedAcquisition", () => {
 
 		const resultPromise = execWithBoundedAcquisition(requestChannel, "echo hi", 1000)
 
-		await expect(resultPromise).rejects.toThrow(/channel open failed/i)
+		await expect(resultPromise).rejects.toThrow(ChannelLimitReachedError)
+	})
+
+	it("keeps an acquisition error that is not about channels unchanged", async () => {
+		const requestChannel: RequestChannel = (_command, callback) =>
+			callback(new Error("connection reset by peer"), undefined)
+
+		await expect(execWithBoundedAcquisition(requestChannel, "echo hi", 1000)).rejects.toThrow(
+			/connection reset/i,
+		)
 	})
 
 	it("bounds the total time across acquisition and execution, not just execution", async () => {
@@ -133,5 +153,78 @@ describe("execWithBoundedAcquisition", () => {
 		await vi.advanceTimersByTimeAsync(5000)
 
 		expect(fake.wasDestroyed()).toBe(false)
+	})
+})
+
+describe("bounding how many session channels are open at once", () => {
+	it("lets work through up to the limit without waiting", async () => {
+		const limiter = createChannelLimiter(2)
+
+		await limiter.acquire()
+		await limiter.acquire()
+
+		expect(limiter.active()).toBe(2)
+		expect(limiter.queued()).toBe(0)
+	})
+
+	it("queues past the limit rather than opening a channel the host would refuse", async () => {
+		const limiter = createChannelLimiter(1)
+		await limiter.acquire()
+		let admitted = false
+		const pending = limiter.acquire().then(() => {
+			admitted = true
+		})
+
+		expect(limiter.queued()).toBe(1)
+		expect(admitted).toBe(false)
+
+		limiter.release()
+		await pending
+		expect(admitted).toBe(true)
+		expect(limiter.active()).toBe(1)
+	})
+
+	it("admits waiters in the order they arrived", async () => {
+		const limiter = createChannelLimiter(1)
+		await limiter.acquire()
+		const order: number[] = []
+		const first = limiter.acquire().then(() => order.push(1))
+		const second = limiter.acquire().then(() => order.push(2))
+
+		limiter.release()
+		await first
+		limiter.release()
+		await second
+
+		expect(order).toEqual([1, 2])
+	})
+
+	it("stays well under the ten channels a default sshd allows", () => {
+		expect(DEFAULT_EXEC_CONCURRENCY).toBeLessThan(10)
+	})
+})
+
+describe("naming a refused channel", () => {
+	it("says a refused channel is a limit, not an unreachable host", () => {
+		const named = namedChannelError(new Error("(SSH) Channel open failure: open failed"), "ls")
+
+		expect(named).toBeInstanceOf(ChannelLimitReachedError)
+		expect(named.message).toContain("MaxSessions")
+	})
+
+	it("recognises the other ways a host refuses a channel", () => {
+		for (const message of [
+			"administratively prohibited",
+			"resource shortage",
+			"too many open channels",
+		]) {
+			expect(isChannelExhaustion(new Error(message))).toBe(true)
+		}
+	})
+
+	it("leaves an unrelated failure exactly as it was", () => {
+		const original = new Error("connection reset by peer")
+
+		expect(namedChannelError(original, "ls")).toBe(original)
 	})
 })

@@ -21,6 +21,7 @@ import {
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
 import { constraintViolationOf } from "@open-mcc/db"
+import { ChannelLimitReachedError } from "@open-mcc/transport"
 
 export class InvitationNotFoundError extends Error {}
 
@@ -137,6 +138,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_HOST_NOT_READY",
 			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof ChannelLimitReachedError) {
+		return mapped(
+			"CONFLICT",
+			"HOST_CHANNEL_LIMIT",
+			"The host refused another SSH session. Its MaxSessions limit is reached, so this is a limit rather than an unreachable host",
 		)
 	}
 	if (cause instanceof LiveControlUnauthorizedError) {

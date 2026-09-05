@@ -17,6 +17,19 @@ export class StreamOverflowError extends Error {
 	}
 }
 
+export class ChannelLimitReachedError extends Error {}
+
+const CHANNEL_EXHAUSTION = /open failed|administratively prohibited|resource shortage|too many/i
+
+export const isChannelExhaustion = (error: Error): boolean => CHANNEL_EXHAUSTION.test(error.message)
+
+export const namedChannelError = (error: Error, command: string): Error =>
+	isChannelExhaustion(error)
+		? new ChannelLimitReachedError(
+				`The host refused another session channel, so this command could not run: ${command}. Its MaxSessions limit is likely reached; this is a limit, not an unreachable host`,
+			)
+		: error
+
 export class CommandAbortedError extends Error {
 	readonly signal: string | undefined
 

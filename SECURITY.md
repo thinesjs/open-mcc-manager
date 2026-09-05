@@ -218,15 +218,15 @@ depth, not a substitute for one.
   permanently diverging from upstream's cache handling. A compromised host yields
   that account's Microsoft refresh token, and hosts should not be shared across
   trust boundaries an operator cares about keeping separate.
-- **Without root, instances on one host share a user and are not isolated from
-  each other.** Creating a user per instance needs root, so under **Without
-  root** every instance runs as the connecting account and can read every other
-  instance's directory, including its Microsoft session cache. Their files are
-  still `0700`/`0600`, but identical ownership makes those modes no barrier
-  between siblings. This is a deliberate trade: it removes root from the fleet
-  at the cost of isolation between instances that already belong to the same
-  operator. Choose **With root** where that isolation matters more than the
-  blast radius of a stolen key.
+- **Without root, instances share a user, so their isolation rests entirely on
+  systemd.** Creating an account per instance needs root. Under **Without root**
+  every instance runs as the connecting account, and identical ownership makes
+  `0700`/`0600` no barrier between siblings. The units therefore hide the home
+  directory behind a tmpfs and bind back only the instance's own directory, so
+  an instance cannot see another's Microsoft session cache at all. That holds
+  only where the host's systemd applies it — see the next point — and where it
+  does not, one instance can read every other's files. Choose **With root**
+  where the isolation must not depend on the host's systemd version.
 - **Under Without root, systemd's filesystem hardening may be silently
   discarded.** The instance unit asks for `ProtectSystem=strict`, `PrivateTmp`
   and a `ReadWritePaths=` scoped to its own directory. Those directives need a
@@ -240,12 +240,12 @@ depth, not a substitute for one.
   siblings. `NoNewPrivileges=yes`, `UMask=0077` and the exit-code restart policy
   need no namespace and apply in both cases. Under **With root** the system
   manager enforces all of it.
-- **The Microsoft sign-in window is unsandboxed in both modes.** To read the
-  device code, the client is launched directly rather than through its unit, so
-  for the duration of that flow it runs without the unit's filesystem
-  restrictions. Under **With root** the instance's own account still contains
-  it. Under **Without root** there is no such boundary, so treat sign-in as a
-  moment when that instance can reach every sibling instance's files.
+- **Signing in to Microsoft runs under its own unit, with the same
+  restrictions.** Reading the device code needs the client's output, which the
+  manager takes from a file inside the instance's directory rather than by
+  launching the client outside systemd. Sign-in is therefore confined exactly as
+  a running instance is, and is stopped by unit name rather than by matching
+  process names.
 - **With root, instances sharing a host are isolated by systemd and POSIX
   ownership, not by containers.** Each runs as its own unprivileged user in its own private group
   under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`

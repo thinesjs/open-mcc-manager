@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { rootlessProfile, systemProfile } from "./profile"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "./unit-template"
+import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "./unit-template"
 
 const SYSTEMD_DIR = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -45,8 +45,13 @@ describe("the units a host without root runs", () => {
 		expect(template).not.toContain("Group=")
 	})
 
-	it("does not shut itself out of the home directory its files live in", () => {
-		expect(rootless[INSTANCE_UNIT_NAME]).not.toContain("ProtectHome")
+	it("hides the home directory its files live in, but binds its own directory back", () => {
+		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
+		const dir = "/home/mccuser/.local/share/open-mcc/instances/%i"
+
+		expect(template).toContain("ProtectHome=tmpfs")
+		expect(template).toContain(`BindPaths=${dir}`)
+		expect(template).toContain(`WorkingDirectory=${dir}`)
 		expect(system[INSTANCE_UNIT_NAME]).toContain("ProtectHome=yes")
 	})
 
@@ -105,5 +110,63 @@ describe("the units both modes run", () => {
 	it("drives the sleep units through systemctl on the instance's own unit", () => {
 		expect(system["open-mcc-sleep-stop@.service"]).toContain("systemctl stop open-mcc@%i.service")
 		expect(system["open-mcc-sleep-start@.service"]).toContain("systemctl start open-mcc@%i.service")
+	})
+})
+
+describe("the unit that signs an instance in to Microsoft", () => {
+	it("exists in both modes, so sign-in is never an unsupervised process", () => {
+		expect(system[AUTH_UNIT_NAME]).toBeDefined()
+		expect(rootless[AUTH_UNIT_NAME]).toBeDefined()
+	})
+
+	it("carries the same confinement as the instance it signs in", () => {
+		for (const template of [system[AUTH_UNIT_NAME] ?? "", rootless[AUTH_UNIT_NAME] ?? ""]) {
+			expect(template).toContain("ProtectSystem=strict")
+			expect(template).toContain("NoNewPrivileges=yes")
+			expect(template).toContain("PrivateTmp=yes")
+			expect(template).toContain("ReadWritePaths=")
+		}
+	})
+
+	it("runs as the instance's own account wherever there is one", () => {
+		expect(system[AUTH_UNIT_NAME]).toContain("User=mcc-%i")
+		expect(rootless[AUTH_UNIT_NAME]).not.toContain("User=")
+	})
+
+	it("takes no input, since a sign-in has nothing to read", () => {
+		expect(system[AUTH_UNIT_NAME]).toContain("StandardInput=null")
+	})
+
+	it("never restarts, because a sign-in is a single attempt an operator is watching", () => {
+		expect(system[AUTH_UNIT_NAME]).not.toContain("Restart=")
+	})
+
+	it("is started on demand rather than enabled at boot", () => {
+		expect(system[AUTH_UNIT_NAME]).not.toContain("[Install]")
+	})
+})
+
+describe("keeping rootless instances out of each other's files", () => {
+	const rootlessUnits = [AUTH_UNIT_NAME, INSTANCE_UNIT_NAME]
+
+	it("hides the home directory and binds back only the instance's own, in every rootless unit", () => {
+		for (const name of rootlessUnits) {
+			const template = rootless[name] ?? ""
+			expect(template).toContain("ProtectHome=tmpfs")
+			expect(template).toContain("BindPaths=/home/mccuser/.local/share/open-mcc/instances/%i")
+		}
+	})
+
+	it("binds the client read-only, since an instance has no reason to rewrite it", () => {
+		expect(rootless[INSTANCE_UNIT_NAME]).toContain(
+			"BindReadOnlyPaths=/home/mccuser/.local/share/open-mcc/bin",
+		)
+	})
+
+	it("leaves a root-owned host to its per-instance accounts instead", () => {
+		for (const name of rootlessUnits) {
+			expect(system[name]).not.toContain("BindPaths=")
+			expect(system[name]).toContain("ProtectHome=yes")
+		}
 	})
 })

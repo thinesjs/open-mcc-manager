@@ -78,7 +78,7 @@ export const expectedUnits = (
 }
 
 export const MANAGED_UNIT_PATTERN =
-	/^open-mcc(?:-sleep-(?:stop|start))?@[A-Za-z0-9_-]{0,64}\.(?:service|timer)$/
+	/^open-mcc(?:-sleep-(?:stop|start)|-auth)?@[A-Za-z0-9_-]{0,64}\.(?:service|timer)$/
 
 export const isManagedUnit = (name: string): boolean => MANAGED_UNIT_PATTERN.test(name)
 

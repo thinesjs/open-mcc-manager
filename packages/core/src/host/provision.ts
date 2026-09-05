@@ -16,9 +16,9 @@ import {
 	usesPerInstanceUsers,
 	validateHostPath,
 } from "./profile"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates, SLEEP_UNIT_NAMES } from "./unit-template"
+import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "./unit-template"
 
-export { INSTANCE_UNIT_NAME, SLEEP_UNIT_NAMES }
+export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
 export const PROVISION_STEPS = PROVISION_STEP_LABELS
 
@@ -216,7 +216,7 @@ export const provisionHost = async (
 	)
 
 	advance()
-	for (const name of SLEEP_UNIT_NAMES) {
+	for (const name of SUPPORTING_UNIT_NAMES) {
 		await step(
 			transport,
 			`cat > ${shellQuote(`${profile.unitDir}/${name}`)}`,

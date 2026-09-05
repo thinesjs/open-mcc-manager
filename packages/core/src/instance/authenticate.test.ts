@@ -234,18 +234,34 @@ describe("beginAuthentication", () => {
 	it("stops the unit before starting an authentication session", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
-		const stopAt = transport.commands.findIndex((each) => each.includes("systemctl stop"))
-		const authAt = transport.commands.findIndex((each) => each.includes("MinecraftClient"))
+		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
+		const authAt = transport.commands.findIndex((each) =>
+			each.includes("start 'open-mcc-auth@abc123.service'"),
+		)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(stopAt).toBeLessThan(authAt)
 	})
 
-	it("runs the authentication session as the instance's own user", async () => {
+	it("runs the sign-in through its own unit, so it is confined the same way a running instance is", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
-		expect(transport.commands.find((each) => each.includes("MinecraftClient"))).toContain(
-			"runuser -u 'mcc-abc123'",
-		)
+
+		expect(
+			transport.commands.some((each) => each.includes("start 'open-mcc-auth@abc123.service'")),
+		).toBe(true)
+	})
+
+	it("launches nothing detached from systemd, which would escape the unit's restrictions", async () => {
+		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		for (const command of transport.commands) {
+			expect(command).not.toContain("nohup")
+			expect(command).not.toContain("runuser")
+			expect(command).not.toContain("pkill")
+		}
 	})
 
 	it("surfaces the pairing code without carrying anything the client wrote afterwards", async () => {
@@ -368,36 +384,50 @@ describe("completeAuthentication", () => {
 })
 
 describe("orphaned authentication clients", () => {
-	const killCommand = "pkill -u 'mcc-abc123' || true"
+	const stoppedAuthUnit = (command: string): boolean =>
+		command.includes("stop 'open-mcc-auth@abc123.service'")
 
-	it("kills any client left by an earlier attempt before starting a new one", async () => {
+	it("stops a session left by an earlier attempt before starting a new one", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
 
-		const killAt = transport.commands.indexOf(killCommand)
-		const launchAt = transport.commands.findIndex((each) => each.includes("nohup"))
-		expect(killAt).toBeGreaterThanOrEqual(0)
-		expect(killAt).toBeLessThan(launchAt)
+		const stopAt = transport.commands.findIndex(stoppedAuthUnit)
+		const startAt = transport.commands.findIndex((each) =>
+			each.includes("start 'open-mcc-auth@abc123.service'"),
+		)
+		expect(stopAt).toBeGreaterThanOrEqual(0)
+		expect(stopAt).toBeLessThan(startAt)
 	})
 
-	it("does not leave a detached client running when no device code ever appears", async () => {
+	it("does not leave a session running when no device code ever appears", async () => {
 		const { deps, transport } = makeDeps("nothing resembling a device code")
 
 		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
 			/device code/i,
 		)
 
-		const kills = transport.commands.filter((each) => each === killCommand)
-		expect(kills.length).toBeGreaterThanOrEqual(2)
+		expect(transport.commands.filter(stoppedAuthUnit).length).toBeGreaterThanOrEqual(2)
 	})
 
-	it("kills the client on the way out even though the claim is also released", async () => {
+	it("stops the session on the way out even though the claim is also released", async () => {
 		const { deps, transport, instances } = makeDeps("no code")
 
 		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow()
 
-		expect(transport.commands).toContain(killCommand)
+		expect(transport.commands.some(stoppedAuthUnit)).toBe(true)
 		expect(instances.releaseAuthClaim).toHaveBeenCalled()
+	})
+
+	it("clears a failed session so systemd will start it again next time", async () => {
+		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		expect(
+			transport.commands.some((each) =>
+				each.includes("reset-failed 'open-mcc-auth@abc123.service'"),
+			),
+		).toBe(true)
 	})
 })

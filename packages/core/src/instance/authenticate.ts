@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { AuthenticationState, DeviceCodeChallenge } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
+import { type HostProfile, profileFrom, systemctl } from "../host/profile"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -9,7 +9,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
-import { instanceDir, instanceUser, unitName } from "./unit"
+import { instanceDir, unitName, validateInstanceId } from "./unit"
 
 export const DEVICE_CODE_PATTERN = /enter the code:?\s*([A-Z0-9]{4,6}-?[A-Z0-9]{4,6})\b/i
 
@@ -45,28 +45,21 @@ export type AuthPolling = {
 	intervalMs: number
 }
 
-export const authClientPath = (profile: HostProfile, instanceId: string): string =>
-	`${instanceDir(profile.instancesRoot, instanceId)}/client`
+export const authUnitName = (instanceId: string): string =>
+	`open-mcc-auth@${validateInstanceId(instanceId)}.service`
 
-export const killCommand = (profile: HostProfile, instanceId: string): string =>
-	usesPerInstanceUsers(profile)
-		? `pkill -u ${shellQuote(instanceUser(instanceId))} || true`
-		: `pkill -f ${shellQuote(authClientPath(profile, instanceId))} || true`
+export const startAuthCommand = (profile: HostProfile, instanceId: string): string => {
+	const log = `${instanceDir(profile.instancesRoot, instanceId)}/auth.log`
+	const unit = shellQuote(authUnitName(instanceId))
+	return `rm -f ${shellQuote(log)} && ${systemctl(profile, `start ${unit}`)}`
+}
 
-export const launchCommand = (profile: HostProfile, instanceId: string): string => {
-	const dir = instanceDir(profile.instancesRoot, instanceId)
-	const log = `${dir}/auth.log`
-	if (usesPerInstanceUsers(profile)) {
-		return `rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instanceId))} -- sh -c ${shellQuote(
-			`umask 077 && cd ${dir} && nohup ${profile.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
-		)}`
-	}
-	const client = authClientPath(profile, instanceId)
-	return `rm -f ${shellQuote(log)} && ln -sf ${shellQuote(
-		`${profile.instancesRoot}/bin/MinecraftClient`,
-	)} ${shellQuote(client)} && sh -c ${shellQuote(
-		`umask 077 && cd ${dir} && nohup ${client} BasicIO-NoColor > ${log} 2>&1 &`,
-	)}`
+export const stopAuthCommand = (profile: HostProfile, instanceId: string): string => {
+	const unit = shellQuote(authUnitName(instanceId))
+	return `${systemctl(profile, `stop ${unit}`)} || true; ${systemctl(
+		profile,
+		`reset-failed ${unit}`,
+	)} || true`
 }
 
 const requireProfile = (host: {
@@ -82,12 +75,12 @@ const requireProfile = (host: {
 	return profileFrom(host.mode, host.instancesRoot, host.unitDir)
 }
 
-const killInstanceProcesses = async (
+const stopAuthSession = async (
 	transport: HostTransport,
 	profile: HostProfile,
 	instanceId: string,
 ): Promise<void> => {
-	await transport.exec(killCommand(profile, instanceId), AUTH_SESSION_TIMEOUT_MS)
+	await transport.exec(stopAuthCommand(profile, instanceId), AUTH_SESSION_TIMEOUT_MS)
 }
 
 export const beginAuthentication = async (
@@ -143,9 +136,9 @@ export const beginAuthentication = async (
 		const dir = instanceDir(profile.instancesRoot, instance.id)
 		const log = `${dir}/auth.log`
 
-		await killInstanceProcesses(transport, profile, instance.id)
+		await stopAuthSession(transport, profile, instance.id)
 
-		await transport.exec(launchCommand(profile, instance.id), AUTH_SESSION_TIMEOUT_MS)
+		await transport.exec(startAuthCommand(profile, instance.id), AUTH_SESSION_TIMEOUT_MS)
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
 			const read = await transport.exec(
@@ -176,7 +169,7 @@ export const beginAuthentication = async (
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {
-		await killInstanceProcesses(transport, profile, instance.id).catch(() => undefined)
+		await stopAuthSession(transport, profile, instance.id).catch(() => undefined)
 		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
 		throw error
 	} finally {
@@ -223,7 +216,7 @@ export const completeAuthentication = async (
 		)
 		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
 
-		await killInstanceProcesses(transport, profile, instance.id)
+		await stopAuthSession(transport, profile, instance.id)
 		await transport.exec(`rm -f ${shellQuote(`${dir}/auth.log`)}`, AUTH_SESSION_TIMEOUT_MS)
 	} finally {
 		await transport.close().catch(() => undefined)

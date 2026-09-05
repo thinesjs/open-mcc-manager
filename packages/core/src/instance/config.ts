@@ -22,7 +22,10 @@ export const ALLOWED_CONFIG_KEYS = [
 export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.EnableSentry",
 	"Main.Advanced.ExitOnFailure",
+	"Main.Advanced.InternalCmdChar",
 ] as const
+
+export const INTERNAL_CMD_CHAR = "slash"
 
 const TOML_ESCAPES: Record<string, string> = {
 	"\\": "\\\\",
@@ -102,6 +105,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[Main.Advanced]",
 		`EnableSentry = ${tomlBool(false)}`,
 		`ExitOnFailure = ${tomlBool(true)}`,
+		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		"",
 		"[ChatBot.AutoRelog]",
 		`Enabled = ${tomlBool(true)}`,

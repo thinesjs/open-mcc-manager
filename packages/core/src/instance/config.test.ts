@@ -41,6 +41,7 @@ describe("instance config rendering", () => {
 			"Host",
 			"EnableSentry",
 			"ExitOnFailure",
+			"InternalCmdChar",
 			"Enabled",
 			"Retries",
 			"Delay",
@@ -154,5 +155,13 @@ describe("instance config rendering", () => {
 		expect(lines.findIndex((line) => line.startsWith("AccountType = "))).toBeLessThan(
 			lines.indexOf("[Main.General.Account]"),
 		)
+	})
+
+	it("pins the character that decides whether a line we send is a command or chat", () => {
+		expect(renderInstanceConfig(base)).toContain('InternalCmdChar = "slash"')
+	})
+
+	it("declares that character fixed, because the send path's meaning depends on it", () => {
+		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.InternalCmdChar")
 	})
 })

@@ -3,11 +3,25 @@
 ## Trust boundary
 
 The control plane holds credentials — SSH private keys and, through them, the
-ability to install and start systemd units — that grant root-equivalent control
-over every host it manages.
+ability to install and start systemd units — for every host it manages. How far
+that reaches depends on the host's privilege model, chosen at enrolment and
+fixed thereafter:
+
+- **Without root** (the default). The manager connects as an ordinary account
+  and works only inside that account's home directory, under its systemd user
+  manager. It never gains root, and a stolen key yields one unprivileged account
+  per host rather than the host itself. The operator runs
+  `loginctl enable-linger <user>` once, by hand, so instances survive logout and
+  start at boot; provisioning refuses to continue until they have.
+- **With root.** The manager installs system-wide units under
+  `/etc/systemd/system` and gives each instance its own locked account. This
+  buys isolation between instances on one host, and costs root-equivalent
+  control of that host.
+
 A compromise of the control plane's application process, or of an
-authenticated operator's session, is a compromise of the entire fleet: either
-one lets an attacker act as root on any managed VPS. A compromise limited to
+authenticated operator's session, is a compromise of the entire fleet. What an
+attacker gains on each host is bounded by that host's mode: an unprivileged
+account under **Without root**, and root under **With root**. A compromise limited to
 the database alone is narrower — private keys are stored sealed (see
 **Sealed secrets with rotation** below), so a database-only attacker gets
 ciphertext they cannot open without also reaching the application process or
@@ -204,8 +218,18 @@ depth, not a substitute for one.
   permanently diverging from upstream's cache handling. A compromised host yields
   that account's Microsoft refresh token, and hosts should not be shared across
   trust boundaries an operator cares about keeping separate.
-- **Instances sharing a host are isolated by systemd and POSIX ownership, not by
-  containers.** Each runs as its own unprivileged user in its own private group
+- **Without root, instances on one host share a user and are not isolated from
+  each other.** Creating a user per instance needs root, so under **Without
+  root** every instance runs as the connecting account and can read every other
+  instance's directory, including its Microsoft session cache. Instances are
+  still separated from the rest of the host by `ProtectSystem=strict`,
+  `NoNewPrivileges=yes` and a `ReadWritePaths=` scoped to their own directory,
+  and their files remain `0700`/`0600`. This is a deliberate trade: it removes
+  root from the fleet at the cost of isolation between instances that already
+  belong to the same operator. Choose **With root** where that isolation matters
+  more than the blast radius of a stolen key.
+- **With root, instances sharing a host are isolated by systemd and POSIX
+  ownership, not by containers.** Each runs as its own unprivileged user in its own private group
   under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`
   scoped to its own directory. Instance state is owner-only: the directory is
   `0700`, and `env`, `MinecraftClient.ini`, `auth.log` and the control FIFO are

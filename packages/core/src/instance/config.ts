@@ -27,6 +27,11 @@ export const FIXED_CONFIG_KEYS = [
 	"Main.General.Method",
 ] as const
 
+export const EMPTIED_CONFIG_SECTIONS = [
+	"Main.Advanced.AccountList",
+	"Main.Advanced.ServerList",
+] as const
+
 export const INTERNAL_CMD_CHAR = "slash"
 
 export const LOGIN_METHOD = "mcc"
@@ -113,6 +118,10 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`ExitOnFailure = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
+		"",
+		"[Main.Advanced.AccountList]",
+		"",
+		"[Main.Advanced.ServerList]",
 		"",
 		"[ChatBot.AutoRelog]",
 		`Enabled = ${tomlBool(true)}`,

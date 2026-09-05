@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { ALLOWED_CONFIG_KEYS, FIXED_CONFIG_KEYS, renderInstanceConfig } from "./config"
+import {
+	ALLOWED_CONFIG_KEYS,
+	EMPTIED_CONFIG_SECTIONS,
+	FIXED_CONFIG_KEYS,
+	renderInstanceConfig,
+} from "./config"
 
 const base = {
 	accountType: "microsoft",
@@ -23,6 +28,8 @@ describe("instance config rendering", () => {
 			"[Main.General.Account]",
 			"[Main.General.Server]",
 			"[Main.Advanced]",
+			"[Main.Advanced.AccountList]",
+			"[Main.Advanced.ServerList]",
 			"[ChatBot.AutoRelog]",
 			"[ChatBot.AntiAFK]",
 		])
@@ -184,5 +191,26 @@ describe("instance config rendering", () => {
 
 	it("declares the sign-in method fixed, since a browser flow has no display to open", () => {
 		expect(FIXED_CONFIG_KEYS).toContain("Main.General.Method")
+	})
+
+	it("empties the alias lists MCC ships examples in, so no second identity exists", () => {
+		const rendered = renderInstanceConfig(base)
+
+		for (const section of EMPTIED_CONFIG_SECTIONS) {
+			expect(rendered).toContain(`[${section}]`)
+		}
+		expect(rendered).not.toContain("AccountNikename")
+	})
+
+	it("declares every emptied section, so the list cannot drift from the output", () => {
+		const rendered = renderInstanceConfig(base)
+		const emptied = rendered
+			.split("\n")
+			.filter((line, index, lines) => line.startsWith("[") && lines[index + 1] === "")
+			.map((line) => line.slice(1, -1))
+
+		for (const section of EMPTIED_CONFIG_SECTIONS) {
+			expect(emptied).toContain(section)
+		}
 	})
 })

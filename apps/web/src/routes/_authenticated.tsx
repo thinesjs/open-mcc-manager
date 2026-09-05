@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
 import { Boxes, KeyRound, LayoutDashboard, LogOut, Server } from "lucide-react"
+import { ThemeToggle } from "~/components/theme-toggle"
 import { authClient } from "~/lib/auth-client"
 import { decideFromSession } from "~/lib/session-guard"
 
@@ -89,6 +90,7 @@ function AuthenticatedLayout() {
 							</p>
 						</div>
 					) : null}
+					<ThemeToggle />
 					<button
 						type="button"
 						onClick={handleSignOut}
@@ -99,10 +101,8 @@ function AuthenticatedLayout() {
 					</button>
 				</div>
 			</aside>
-			<main className="flex-1 overflow-y-auto p-8">
-				<div className="mx-auto max-w-6xl">
-					<Outlet />
-				</div>
+			<main className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+				<Outlet />
 			</main>
 		</div>
 	)

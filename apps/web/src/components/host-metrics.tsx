@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Activity, CircleAlert, RefreshCw } from "lucide-react"
+import { CircleAlert, RefreshCw } from "lucide-react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
@@ -51,10 +51,7 @@ export const HostMetricsPanel = ({ hostId }: HostMetricsPanelProps) => {
 		<Card>
 			<CardHeader className="flex flex-row items-center justify-between gap-4">
 				<div>
-					<CardTitle className="flex items-center gap-2">
-						<Activity className="size-4" />
-						Host resources
-					</CardTitle>
+					<CardTitle>Host resources</CardTitle>
 					<p className="text-sm text-muted-foreground">
 						Load, memory and disk as the host reports them.
 					</p>

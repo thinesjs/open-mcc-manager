@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
+import { useState } from "react"
 import { HostDrift } from "~/components/host-drift"
 import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { ConfirmDialog } from "~/components/ui/dialog"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -24,6 +26,7 @@ function HostDetailPage() {
 	const trpc = useTRPC()
 	const navigate = useNavigate()
 	const queryClient = useQueryClient()
+	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const provisionMutation = useMutation(trpc.host.provision.mutationOptions())
@@ -43,11 +46,11 @@ function HostDetailPage() {
 	}
 
 	const handleRemove = () => {
-		if (!window.confirm("Remove this host? This cannot be undone.")) return
 		removeMutation.mutate(
 			{ hostId },
 			{
 				onSuccess: () => {
+					setConfirmingRemove(false)
 					queryClient.invalidateQueries({ queryKey: trpc.host.list.queryKey() })
 					navigate({ to: "/hosts" })
 				},
@@ -76,7 +79,7 @@ function HostDetailPage() {
 	}
 
 	return (
-		<div className="max-w-2xl space-y-6">
+		<div className="space-y-6">
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-lg font-semibold text-foreground">{host.name}</h1>
@@ -143,12 +146,24 @@ function HostDetailPage() {
 				</Button>
 				<Button
 					variant="destructive-outline"
-					onClick={handleRemove}
+					onClick={() => setConfirmingRemove(true)}
 					disabled={removeMutation.isPending || host.status === "provisioning"}
 				>
 					{removeMutation.isPending ? "Removing…" : "Remove"}
 				</Button>
 			</div>
+
+			<ConfirmDialog
+				open={confirmingRemove}
+				title="Remove host"
+				description={`Removing ${host.name} deletes its record and disables its units. Instances on this host must be removed first. This action cannot be undone.`}
+				confirmLabel="Remove host"
+				destructive
+				busy={removeMutation.isPending}
+				error={removeMutation.isError ? getErrorMessage(removeMutation.error) : undefined}
+				onConfirm={handleRemove}
+				onCancel={() => setConfirmingRemove(false)}
+			/>
 		</div>
 	)
 }

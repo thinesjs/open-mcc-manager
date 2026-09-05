@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { CircleAlert, TriangleAlert } from "lucide-react"
+import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react"
+import { EmptyState } from "~/components/empty-state"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { ManagerHealth } from "~/components/manager-health"
@@ -100,11 +101,16 @@ function OverviewPage() {
 				{instancesQuery.isPending ? (
 					<p className="text-sm text-muted-foreground">Loading fleet…</p>
 				) : attention.length === 0 ? (
-					<div className="rounded-[var(--radius)] border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-						{instances.length === 0
-							? "No instances yet. Create one to start AFK-ing on a server."
-							: "Every instance is healthy. Nothing needs your attention."}
-					</div>
+					<EmptyState
+						compact
+						icon={CircleCheck}
+						title={instances.length === 0 ? "No instances" : "All instances healthy"}
+						description={
+							instances.length === 0
+								? "Create an instance on an enrolled host to begin."
+								: "No instance requires attention."
+						}
+					/>
 				) : (
 					<div className="divide-y divide-border overflow-hidden rounded-[var(--radius)] border border-border bg-card">
 						{attention.map((instance) => (

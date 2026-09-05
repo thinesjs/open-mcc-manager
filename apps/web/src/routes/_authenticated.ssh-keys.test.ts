@@ -5,9 +5,14 @@ import { describe, expect, it } from "vitest"
 const source = readFileSync(join(__dirname, "_authenticated.ssh-keys.tsx"), "utf8")
 
 describe("ssh key deletion copy and error surface", () => {
-	it("warns that a key an enrolled host uses cannot be deleted", () => {
-		expect(source).toContain("cannot be deleted")
-		expect(source).toContain("remove those hosts first")
+	it("warns that hosts referencing the key must be removed first", () => {
+		expect(source).toContain("must be removed first")
+		expect(source).toContain("unreachable")
+	})
+
+	it("asks through a dialog rather than a browser prompt", () => {
+		expect(source).toContain("ConfirmDialog")
+		expect(source).not.toContain("window.confirm")
 	})
 
 	it("never promises that hosts enrolled with a deleted key keep working", () => {

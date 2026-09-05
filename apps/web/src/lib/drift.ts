@@ -20,12 +20,12 @@ export const summariseDrift = (reconciliation: HostReconciliation): DriftSummary
 }
 
 export const describeUnitDrift = (drift: UnitDrift): string => {
-	if (drift.kind === "missing") return `${drift.unit} is not installed on this host.`
-	if (drift.kind === "differs") return `${drift.unit} was changed outside the manager.`
-	return `${drift.unit} is installed but the manager does not define it.`
+	if (drift.kind === "missing") return "Not installed."
+	if (drift.kind === "differs") return "Modified outside the control plane."
+	return "Present on host, not defined by the control plane."
 }
 
 export const describeStateDrift = (drift: StateDrift): string =>
 	drift.observed === "stuck"
-		? "The unit is running, but the client is wedged and is not connected to any server."
-		: `Recorded as ${drift.desired}, but systemd reports ${drift.observed}.`
+		? "Process running but not connected to a server."
+		: `Expected ${drift.desired}, systemd reports ${drift.observed}.`

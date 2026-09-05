@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { ChevronRight, CircleAlert, Plus } from "lucide-react"
+import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
+import { EmptyState } from "~/components/empty-state"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { buttonVariants } from "~/components/ui/button"
@@ -36,13 +37,17 @@ function HostListPage() {
 			) : null}
 
 			{hostsQuery.data && hostsQuery.data.length === 0 ? (
-				<div className="rounded-[var(--radius)] border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-					No hosts enrolled yet.{" "}
-					<Link to="/hosts/new" className="text-primary underline-offset-4 hover:underline">
-						Enroll your first host
-					</Link>
-					.
-				</div>
+				<EmptyState
+					icon={Server}
+					title="No hosts enrolled"
+					description="Enroll a VPS to run Minecraft Console Client instances on it. You will need its SSH host key fingerprint."
+					action={
+						<Link to="/hosts/new" className={buttonVariants({ size: "sm" })}>
+							<Plus className="size-4" />
+							Enroll host
+						</Link>
+					}
+				/>
 			) : null}
 
 			{hostsQuery.data && hostsQuery.data.length > 0 ? (

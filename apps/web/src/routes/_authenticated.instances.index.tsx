@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { ChevronRight, CircleAlert } from "lucide-react"
+import { Boxes, ChevronRight, CircleAlert } from "lucide-react"
+import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { Alert } from "~/components/ui/alert"
+import { buttonVariants } from "~/components/ui/button"
 import { getErrorMessage } from "~/lib/errors"
 import { describeExitCode } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -38,19 +40,16 @@ function InstanceListPage() {
 			) : null}
 
 			{instancesQuery.data && instancesQuery.data.length === 0 ? (
-				<div className="rounded-[var(--radius)] border border-dashed border-border p-8 text-center">
-					<p className="text-sm font-medium text-foreground">No instances yet</p>
-					<p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-						An instance is one Minecraft Console Client running on a host, signed in to one
-						Microsoft account. Enroll a host first, then create an instance on it.
-					</p>
-					<Link
-						to="/hosts"
-						className="mt-3 inline-block text-sm text-primary underline-offset-4 hover:underline"
-					>
-						Go to hosts
-					</Link>
-				</div>
+				<EmptyState
+					icon={Boxes}
+					title="No instances"
+					description="An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account. Enroll a host first, then create an instance on it."
+					action={
+						<Link to="/hosts" className={buttonVariants({ size: "sm" })}>
+							Go to hosts
+						</Link>
+					}
+				/>
 			) : null}
 
 			{instancesQuery.data && instancesQuery.data.length > 0 ? (

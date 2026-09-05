@@ -75,7 +75,7 @@
 	--card-foreground: var(--color-zinc-800);
 	--popover: var(--color-white);
 	--popover-foreground: var(--color-zinc-800);
-	--primary: oklch(0.488 0.217 264);
+	--primary: var(--color-zinc-900);
 	--primary-foreground: var(--color-white);
 	--secondary: var(--color-zinc-50);
 	--secondary-foreground: var(--color-zinc-800);
@@ -98,8 +98,8 @@
 	--warning: var(--color-amber-500);
 	--warning-foreground: var(--color-amber-700);
 	--warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
-	--update: var(--primary);
-	--update-foreground: var(--primary);
+	--update: var(--color-zinc-400);
+	--update-foreground: var(--color-zinc-600);
 	--update-surface: color-mix(in srgb, var(--update) 12%, transparent);
 	--sidebar: var(--color-zinc-50);
 	--sidebar-foreground: var(--foreground);
@@ -118,7 +118,8 @@
 		--card-foreground: var(--color-neutral-100);
 		--popover: color-mix(in srgb, var(--background) 94%, var(--color-white));
 		--popover-foreground: var(--color-neutral-100);
-		--primary: oklch(0.571 0.21 264);
+		--primary: var(--color-neutral-100);
+		--primary-foreground: var(--color-neutral-900);
 		--secondary: --alpha(var(--color-white) / 4%);
 		--secondary-foreground: var(--color-neutral-100);
 		--muted: --alpha(var(--color-white) / 4%);
@@ -134,7 +135,7 @@
 		--success-foreground: var(--color-emerald-400);
 		--warning-foreground: var(--color-amber-400);
 		--warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
-		--update-foreground: var(--color-blue-400);
+		--update-foreground: var(--color-neutral-400);
 		--update-surface: color-mix(in srgb, var(--update) 18%, transparent);
 		--sidebar: var(--card);
 		--terminal-cursor: rgb(180 203 255);

@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { CircleAlert, Copy, Info, Trash2 } from "lucide-react"
+import { CircleAlert, Info, Trash2 } from "lucide-react"
 import { type FormEvent, useState } from "react"
+import { CopyButton } from "~/components/copy-button"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { ConfirmDialog } from "~/components/ui/dialog"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { getErrorMessage } from "~/lib/errors"
@@ -17,6 +19,7 @@ export const Route = createFileRoute("/_authenticated/ssh-keys")({
 function SshKeysPage() {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
+	const [pendingDelete, setPendingDelete] = useState<string | undefined>(undefined)
 	const sshKeysQuery = useQuery(trpc.sshKey.list.queryOptions())
 	const createMutation = useMutation(trpc.sshKey.create.mutationOptions())
 	const deleteMutation = useMutation(trpc.sshKey.remove.mutationOptions())
@@ -40,25 +43,27 @@ function SshKeysPage() {
 		)
 	}
 
-	const handleDelete = (sshKeyId: string) => {
-		if (
-			!window.confirm(
-				"Delete this SSH key? A key an enrolled host still uses cannot be deleted — remove those hosts first.",
-			)
-		) {
-			return
-		}
-		deleteMutation.mutate({ sshKeyId }, { onSuccess: invalidateList })
+	const handleDelete = () => {
+		if (!pendingDelete) return
+		deleteMutation.mutate(
+			{ sshKeyId: pendingDelete },
+			{
+				onSuccess: () => {
+					setPendingDelete(undefined)
+					invalidateList()
+				},
+			},
+		)
 	}
 
 	return (
-		<div className="max-w-2xl space-y-6">
+		<div className="space-y-6">
 			<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
 
 			<Alert variant="info" controlAlignment="first-line" icon={<Info />}>
-				open-mcc-manager generates the key pair on the server. The private key is encrypted at rest
-				and never leaves the server — copy the public key below and add it to the target VPS's
-				authorized_keys before enrolling a host with this key.
+				The key pair is generated on the server. The private key is encrypted at rest and never
+				leaves the server. Add the public key below to the target host's authorized_keys before
+				enrolling a host against this key.
 			</Alert>
 
 			<Card>
@@ -121,22 +126,14 @@ function SshKeysPage() {
 							</p>
 						</div>
 						<div className="flex shrink-0 gap-2">
-							<Button
-								type="button"
-								variant="outline"
-								size="icon"
-								aria-label="Copy public key"
-								onClick={() => navigator.clipboard.writeText(sshKey.publicKey)}
-							>
-								<Copy />
-							</Button>
+							<CopyButton value={sshKey.publicKey} label="Public key" />
 							<Button
 								type="button"
 								variant="destructive-outline"
 								size="icon"
 								aria-label="Delete key"
 								disabled={deleteMutation.isPending}
-								onClick={() => handleDelete(sshKey.id)}
+								onClick={() => setPendingDelete(sshKey.id)}
 							>
 								<Trash2 />
 							</Button>
@@ -144,6 +141,18 @@ function SshKeysPage() {
 					</CardContent>
 				</Card>
 			))}
+
+			<ConfirmDialog
+				open={pendingDelete !== undefined}
+				title="Delete SSH key"
+				description="Any host still using this key will be unreachable. Hosts that reference it must be removed first. This action cannot be undone."
+				confirmLabel="Delete key"
+				destructive
+				busy={deleteMutation.isPending}
+				error={deleteMutation.isError ? getErrorMessage(deleteMutation.error) : undefined}
+				onConfirm={handleDelete}
+				onCancel={() => setPendingDelete(undefined)}
+			/>
 		</div>
 	)
 }

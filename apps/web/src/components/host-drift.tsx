@@ -27,7 +27,7 @@ export const HostDrift = ({ hostId }: HostDriftProps) => {
 				<div>
 					<CardTitle>Configuration drift</CardTitle>
 					<p className="text-sm text-muted-foreground">
-						Compares the units and run state on this host against what the manager defines.
+						Compares installed units and runtime state against the expected configuration.
 					</p>
 				</div>
 				<Button
@@ -52,30 +52,29 @@ export const HostDrift = ({ hostId }: HostDriftProps) => {
 
 				{summary === undefined && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">
-						Not checked yet. Checking opens an SSH session to this host.
+						Not checked. Requires an SSH connection to the host.
 					</p>
 				) : null}
 
 				{summary?.verdict === "unknown" ? (
 					<Alert variant="warning" icon={<CircleHelp />}>
-						<span className="block font-medium">This host could not be reached.</span>
+						<span className="block font-medium">Host unreachable</span>
 						<span className="block text-sm">
-							Its units and state are unknown — not necessarily wrong. {summary.reason}
+							Configuration state could not be determined. {summary.reason}
 						</span>
 					</Alert>
 				) : null}
 
 				{summary?.verdict === "converged" ? (
 					<Alert variant="success" icon={<CircleCheck />}>
-						Every unit and instance on this host matches what the manager defines.
+						No drift detected. Host matches the expected configuration.
 					</Alert>
 				) : null}
 
 				{summary?.verdict === "drifted" ? (
 					<>
 						<Alert variant="warning" icon={<TriangleAlert />}>
-							{summary.total} difference{summary.total === 1 ? "" : "s"} between this host and the
-							manager.
+							{summary.total} discrepanc{summary.total === 1 ? "y" : "ies"} detected.
 						</Alert>
 						<ul className="divide-y divide-border overflow-hidden rounded-[var(--radius)] border border-border">
 							{summary.unitDrift.map((drift) => (

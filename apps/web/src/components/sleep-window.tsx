@@ -1,6 +1,6 @@
 import { DAYS_OF_WEEK, type DayOfWeek } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Clock, Moon } from "lucide-react"
+import { CircleAlert, Clock } from "lucide-react"
 import { useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -67,10 +67,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 		<Card>
 			<CardHeader className="flex flex-row items-start justify-between gap-4">
 				<div>
-					<CardTitle className="flex items-center gap-2">
-						<Moon className="size-4" />
-						Sleep window
-					</CardTitle>
+					<CardTitle>Sleep window</CardTitle>
 					<p className="text-sm text-muted-foreground">
 						Stop the client before a scheduled server restart and bring it back once the server is
 						warm.

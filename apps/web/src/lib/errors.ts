@@ -13,6 +13,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	FINGERPRINT_MISMATCH:
 		"The key the host presented did not match the fingerprint you provided. Refusing to trust an unverified host.",
 	HOST_MISCONFIGURED: "This host is missing configuration required for that action.",
+	HOST_UNREACHABLE:
+		"The control plane could not open an SSH session to this host. Check that the host is running, reachable on its address, and that its authorized_keys contains this deployment's public key.",
 	HOST_CONCURRENTLY_MODIFIED: "This host was changed by someone else. Refresh and try again.",
 	HOST_PROVISIONING_IN_PROGRESS:
 		"A provisioning attempt for this host is already in progress. Retry shortly.",

@@ -55,7 +55,7 @@ function EnrollHostPage() {
 	const hasSshKeys = (sshKeysQuery.data?.length ?? 0) > 0
 
 	return (
-		<div className="max-w-lg space-y-6">
+		<div className="max-w-2xl space-y-6">
 			<h1 className="text-lg font-semibold text-foreground">Enroll a host</h1>
 
 			{sshKeysQuery.data && !hasSshKeys ? (
@@ -155,10 +155,10 @@ function EnrollHostPage() {
 						onChange={(event) => setExpectedFingerprint(event.target.value)}
 					/>
 					<p className="text-sm text-muted-foreground">
-						Get this from your VPS provider's console or an existing known_hosts entry — not from
-						this dashboard. open-mcc-manager will connect to the host, compare its key against this
-						value, and refuse to enroll it on any mismatch without revealing what the host actually
-						presented, so a spoofed host can never be confirmed by trial and error.
+						Obtain this from your provider's console or an existing known_hosts entry. Do not take
+						it from this dashboard. The control plane compares the key the host presents against
+						this value and refuses enrolment on any mismatch, without disclosing what the host
+						presented, so a spoofed host cannot be confirmed by trial and error.
 					</p>
 				</div>
 

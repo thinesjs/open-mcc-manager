@@ -16,7 +16,7 @@ describe("instance status presentation", () => {
 	})
 
 	it("explains the exit code mcc uses for a rejected login, which is never retried", () => {
-		expect(describeExitCode(4)).toContain("will not restart")
+		expect(describeExitCode(4)).toContain("Automatic restart is disabled")
 	})
 
 	it("explains a lost connection and an in-game kick distinctly", () => {

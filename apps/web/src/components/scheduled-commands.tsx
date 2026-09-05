@@ -1,6 +1,6 @@
 import { DAYS_OF_WEEK, type DayOfWeek } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Pause, Play, Plus, Terminal, Trash2, TriangleAlert } from "lucide-react"
+import { CircleAlert, Pause, Play, Plus, Trash2, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -66,10 +66,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 		<Card>
 			<CardHeader className="flex flex-row items-start justify-between gap-4">
 				<div>
-					<CardTitle className="flex items-center gap-2">
-						<Terminal className="size-4" />
-						Scheduled commands
-					</CardTitle>
+					<CardTitle>Scheduled commands</CardTitle>
 					<p className="text-sm text-muted-foreground">
 						The manager sends these into the client's console on a schedule. They run only while the
 						instance is running.

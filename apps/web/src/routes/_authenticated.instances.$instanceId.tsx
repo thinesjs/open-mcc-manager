@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { ChevronLeft, CircleAlert, KeyRound, Play, Square } from "lucide-react"
+import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "lucide-react"
 import { useState } from "react"
+import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
@@ -203,9 +204,12 @@ function InstanceDetailPage() {
 								{consoleQuery.data.output}
 							</pre>
 						) : (
-							<div className="rounded-[var(--radius)] border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-								No console output yet. Output appears once the instance has run.
-							</div>
+							<EmptyState
+								compact
+								icon={Terminal}
+								title="No console output"
+								description="Output appears once the instance has run."
+							/>
 						)}
 					</section>
 				</>

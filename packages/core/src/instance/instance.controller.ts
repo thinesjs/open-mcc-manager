@@ -92,6 +92,7 @@ const CONNECT_TIMEOUT_MS = 10_000
 export class ForbiddenError extends Error {}
 export class InstanceNotFoundError extends Error {}
 export class InstanceNotRunningError extends Error {}
+export class HostUnreachableError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceAuthInProgressError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
@@ -116,14 +117,21 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
 
 		const transport = deps.createTransport()
-		await transport.connect({
-			hostname: host.hostname,
-			port: host.port,
-			username: host.username,
-			privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
-			expectedFingerprint: host.hostKeyFingerprint,
-			timeoutMs: CONNECT_TIMEOUT_MS,
-		})
+		try {
+			await transport.connect({
+				hostname: host.hostname,
+				port: host.port,
+				username: host.username,
+				privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
+				expectedFingerprint: host.hostKeyFingerprint,
+				timeoutMs: CONNECT_TIMEOUT_MS,
+			})
+		} catch (error) {
+			await transport.close().catch(() => undefined)
+			throw new HostUnreachableError(
+				error instanceof Error ? error.message : `Could not reach ${host.hostname}`,
+			)
+		}
 		return transport
 	}
 

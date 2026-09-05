@@ -40,18 +40,18 @@ describe("drift summary", () => {
 		const missing = describeUnitDrift({ kind: "missing", unit: "u" })
 		const differs = describeUnitDrift({ kind: "differs", unit: "u" })
 		expect(missing).not.toBe(differs)
-		expect(differs).toContain("changed outside the manager")
+		expect(differs).toContain("Modified outside the control plane")
 	})
 
 	it("says a wedged client is wedged, not that systemd disagrees", () => {
 		const described = describeStateDrift({ instanceId: "a", desired: "running", observed: "stuck" })
-		expect(described).toContain("wedged")
+		expect(described).toContain("not connected")
 		expect(described).not.toContain("stuck")
 	})
 
 	it("names both the recorded and observed state so the mismatch is legible", () => {
 		expect(describeStateDrift({ instanceId: "a", desired: "running", observed: "inactive" })).toBe(
-			"Recorded as running, but systemd reports inactive.",
+			"Expected running, systemd reports inactive.",
 		)
 	})
 })

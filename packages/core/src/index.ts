@@ -62,6 +62,7 @@ export type { InstanceController } from "./instance/instance.controller"
 export {
 	createInstanceController,
 	createInstanceControllerTransaction,
+	HostUnreachableError,
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
 	InstanceHostNotFoundError,

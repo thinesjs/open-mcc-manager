@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "lucide-react"
 import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
@@ -8,7 +8,8 @@ import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
-import { LoadingBlock } from "~/components/ui/spinner"
+import { ConfirmDialog } from "~/components/ui/dialog"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -19,9 +20,11 @@ export const Route = createFileRoute("/_authenticated/instances/$instanceId")({
 
 function InstanceDetailPage() {
 	const { instanceId } = Route.useParams()
+	const navigate = useNavigate()
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
+	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const consoleQuery = useQuery({
@@ -47,6 +50,7 @@ function InstanceDetailPage() {
 	const completeMutation = useMutation(
 		trpc.instance.completeAuthentication.mutationOptions({ onSuccess, onError }),
 	)
+	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
 	const instance = instanceQuery.data
 	const challenge = authenticateMutation.data
@@ -54,7 +58,8 @@ function InstanceDetailPage() {
 		startMutation.isPending ||
 		stopMutation.isPending ||
 		authenticateMutation.isPending ||
-		completeMutation.isPending
+		completeMutation.isPending ||
+		removeMutation.isPending
 
 	return (
 		<div className="space-y-6">
@@ -211,8 +216,41 @@ function InstanceDetailPage() {
 							/>
 						)}
 					</section>
+
+					<div className="flex gap-3">
+						<Button
+							variant="destructive-outline"
+							onClick={() => setConfirmingRemove(true)}
+							disabled={busy}
+						>
+							{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove instance"}
+						</Button>
+					</div>
 				</>
 			) : null}
+
+			<ConfirmDialog
+				open={confirmingRemove}
+				title="Remove instance"
+				description={`Stops ${instance?.name ?? "this instance"} and removes its unit, schedules and data from the host. Its sign-in is discarded. This cannot be undone.`}
+				confirmLabel="Remove instance"
+				destructive
+				busy={removeMutation.isPending}
+				error={removeMutation.isError ? getErrorMessage(removeMutation.error) : undefined}
+				onConfirm={() => {
+					removeMutation.mutate(
+						{ instanceId },
+						{
+							onSuccess: async () => {
+								setConfirmingRemove(false)
+								await queryClient.invalidateQueries()
+								navigate({ to: "/instances" })
+							},
+						},
+					)
+				}}
+				onCancel={() => setConfirmingRemove(false)}
+			/>
 		</div>
 	)
 }

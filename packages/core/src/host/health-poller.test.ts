@@ -30,7 +30,6 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	osRelease: null,
 	cpuCount: null,
 	memoryMb: null,
-	capacityLimit: null,
 	lastSeenAt: null,
 	provisioningAttemptId: null,
 	provisioningClaimedAt: null,

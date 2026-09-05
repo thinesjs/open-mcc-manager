@@ -1,6 +1,7 @@
 export * from "./authz"
 export * from "./errors"
 export * from "./host"
+export * from "./host-check"
 export * from "./host-health"
 export * from "./instance"
 export * from "./member"

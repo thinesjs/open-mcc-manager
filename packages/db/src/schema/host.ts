@@ -29,7 +29,6 @@ export type HostTable = Omit<
 	| "osRelease"
 	| "cpuCount"
 	| "memoryMb"
-	| "capacityLimit"
 	| "lastSeenAt"
 	| "provisioningAttemptId"
 	| "provisioningClaimedAt"
@@ -50,7 +49,6 @@ export type HostTable = Omit<
 	osRelease: Generated<DB["host"]["osRelease"]>
 	cpuCount: Generated<DB["host"]["cpuCount"]>
 	memoryMb: Generated<DB["host"]["memoryMb"]>
-	capacityLimit: Generated<DB["host"]["capacityLimit"]>
 	lastSeenAt: Generated<DB["host"]["lastSeenAt"]>
 	provisioningAttemptId: Generated<DB["host"]["provisioningAttemptId"]>
 	provisioningClaimedAt: Generated<DB["host"]["provisioningClaimedAt"]>

@@ -54,7 +54,6 @@ export interface AuditEvent {
 }
 
 export interface Host {
-	capacityLimit: number | null
 	cpuCount: number | null
 	createdAt: Generated<Timestamp>
 	failedUnits: number | null

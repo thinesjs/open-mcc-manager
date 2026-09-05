@@ -5,6 +5,7 @@ import { CircleAlert, Info } from "lucide-react"
 import { useState } from "react"
 import { CommandBlock } from "~/components/command-block"
 import { CopyButton } from "~/components/copy-button"
+import { HostCheckList } from "~/components/host-check-list"
 import { SetupCommand } from "~/components/setup-command"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -56,6 +57,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const queryClient = useQueryClient()
 	const sshKeysQuery = useQuery(trpc.sshKey.list.queryOptions())
 	const enrollMutation = useMutation(trpc.host.enroll.mutationOptions())
+	const checkMutation = useMutation(trpc.host.check.mutationOptions())
 
 	const [step, setStep] = useState(0)
 	const [direction, setDirection] = useState<1 | -1>(1)
@@ -75,6 +77,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 		setDirection(directionBetween(step, target))
 		setStep(target)
 	}
+
+	const canCheck = expectedFingerprint.length > 0 && hostname.length > 0
 
 	const canAdvance =
 		step === 0 ? sshKeyId.length > 0 : step === 1 ? name.length > 0 && hostname.length > 0 : true
@@ -271,6 +275,41 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							command={fingerprintCommand()}
 							caption="Run on the host. Source the fingerprint from the host, never from this dashboard: on a mismatch, the dashboard is the untrusted side."
 						/>
+
+						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
+							<div className="flex items-start justify-between gap-3">
+								<div>
+									<p className="text-sm font-medium text-foreground">Readiness</p>
+									<p className="mt-0.5 text-xs text-muted-foreground">
+										Connects once and verifies the host before enrolling it.
+									</p>
+								</div>
+								<Button
+									type="button"
+									size="sm"
+									variant="secondary"
+									disabled={!canCheck || checkMutation.isPending}
+									onClick={() =>
+										checkMutation.mutate({
+											hostname,
+											port: Number.parseInt(port, 10),
+											username,
+											mode,
+											sshKeyId,
+											expectedFingerprint,
+										})
+									}
+								>
+									{checkMutation.isPending ? "Checking…" : "Check host"}
+								</Button>
+							</div>
+							{checkMutation.isError ? (
+								<Alert variant="error" icon={<CircleAlert />}>
+									{getErrorMessage(checkMutation.error)}
+								</Alert>
+							) : null}
+							{checkMutation.data ? <HostCheckList report={checkMutation.data} /> : null}
+						</div>
 
 						<dl className="grid gap-x-6 gap-y-2 rounded-[var(--radius)] border border-border p-3 text-sm sm:grid-cols-2">
 							<div>

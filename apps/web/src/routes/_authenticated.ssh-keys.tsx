@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { CircleAlert, Info, Trash2 } from "lucide-react"
+import { CircleAlert, Info, Plus, Trash2 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { CopyButton } from "~/components/copy-button"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { Card, CardContent } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
+import { Modal } from "~/components/ui/modal"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -20,6 +21,7 @@ function SshKeysPage() {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const [pendingDelete, setPendingDelete] = useState<string | undefined>(undefined)
+	const [creating, setCreating] = useState(false)
 	const sshKeysQuery = useQuery(trpc.sshKey.list.queryOptions())
 	const createMutation = useMutation(trpc.sshKey.create.mutationOptions())
 	const deleteMutation = useMutation(trpc.sshKey.remove.mutationOptions())
@@ -37,6 +39,7 @@ function SshKeysPage() {
 			{
 				onSuccess: () => {
 					setName("")
+					setCreating(false)
 					invalidateList()
 				},
 			},
@@ -58,43 +61,18 @@ function SshKeysPage() {
 
 	return (
 		<div className="space-y-6">
-			<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
+			<div className="flex items-center justify-between">
+				<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
+				<Button size="sm" onClick={() => setCreating(true)}>
+					<Plus className="size-4" />
+					Generate key
+				</Button>
+			</div>
 
 			<Alert variant="info" controlAlignment="first-line" icon={<Info />}>
-				The key pair is generated on the server. The private key is encrypted at rest and never
-				leaves the server. Add the public key below to the target host's authorized_keys before
-				enrolling a host against this key.
+				Key pairs are generated on the server. Private keys are encrypted at rest and never leave
+				it. Enrolling a host issues the command that installs the matching public key on that host.
 			</Alert>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>New key</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<form onSubmit={handleCreate} className="space-y-4">
-						{createMutation.isError ? (
-							<Alert variant="error" icon={<CircleAlert />}>
-								{getErrorMessage(createMutation.error)}
-							</Alert>
-						) : null}
-						<div className="flex items-end gap-3">
-							<div className="flex-1 space-y-2">
-								<Label htmlFor="sshKeyName">Name</Label>
-								<Input
-									id="sshKeyName"
-									required
-									maxLength={64}
-									value={name}
-									onChange={(event) => setName(event.target.value)}
-								/>
-							</div>
-							<Button type="submit" disabled={createMutation.isPending}>
-								{createMutation.isPending ? "Generating…" : "Generate key"}
-							</Button>
-						</div>
-					</form>
-				</CardContent>
-			</Card>
 
 			{sshKeysQuery.isPending ? (
 				<p className="text-sm text-muted-foreground">Loading SSH keys…</p>
@@ -141,6 +119,44 @@ function SshKeysPage() {
 					</CardContent>
 				</Card>
 			))}
+
+			<Modal
+				open={creating}
+				title="Generate an SSH key"
+				description="The key pair is generated on the server. The private key is encrypted at rest and never leaves it."
+				onClose={() => setCreating(false)}
+			>
+				<form onSubmit={handleCreate} className="space-y-4">
+					{createMutation.isError ? (
+						<Alert variant="error" icon={<CircleAlert />}>
+							{getErrorMessage(createMutation.error)}
+						</Alert>
+					) : null}
+					<div className="space-y-1.5">
+						<Label htmlFor="sshKeyName">Name</Label>
+						<Input
+							id="sshKeyName"
+							required
+							autoFocus
+							maxLength={64}
+							placeholder="fleet-production"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Names the key in this dashboard. It is not sent to any host.
+						</p>
+					</div>
+					<div className="flex justify-end gap-2">
+						<Button type="button" size="sm" variant="secondary" onClick={() => setCreating(false)}>
+							Cancel
+						</Button>
+						<Button type="submit" size="sm" disabled={createMutation.isPending}>
+							{createMutation.isPending ? "Generating…" : "Generate key"}
+						</Button>
+					</div>
+				</form>
+			</Modal>
 
 			<ConfirmDialog
 				open={pendingDelete !== undefined}

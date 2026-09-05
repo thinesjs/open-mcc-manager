@@ -1,7 +1,6 @@
 export type { HealthInput, HostHealth } from "@open-mcc/contracts"
 export { HEALTH_POLL_MS, HOST_HEALTH, healthFor, OFFLINE_AFTER_MS } from "@open-mcc/contracts"
 
-import { HEALTH_POLL_MS } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
 import { OS_RELEASE_COMMAND, parseOsRelease } from "./facts"
 import { type HostProfile, systemctl } from "./profile"

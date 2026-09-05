@@ -1,10 +1,20 @@
-import { createHostInput, hostIdInput, retrustHostKeyInput } from "@open-mcc/contracts"
+import {
+	checkHostInput,
+	createHostInput,
+	hostIdInput,
+	retrustHostKeyInput,
+} from "@open-mcc/contracts"
 import { protectedProcedure, requireCapability, router } from "../trpc"
 
 export const hostRouter = router({
 	list: protectedProcedure.query(({ ctx }) => {
 		requireCapability(ctx.actor.role, "instance.read")
 		return ctx.hostController.list(ctx.actor)
+	}),
+
+	check: protectedProcedure.input(checkHostInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "host.enroll")
+		return ctx.hostController.checkHost(ctx.actor, input)
 	}),
 
 	enroll: protectedProcedure.input(createHostInput).mutation(({ ctx, input }) => {

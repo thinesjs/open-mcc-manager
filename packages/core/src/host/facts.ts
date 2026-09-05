@@ -1,5 +1,5 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, systemctl } from "./profile"
+import type { HostProfile } from "./profile"
 
 export const FACT_TIMEOUT_MS = 15_000
 

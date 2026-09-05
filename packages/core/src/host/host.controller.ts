@@ -1,4 +1,10 @@
-import { type CreateHostInput, can, type Role } from "@open-mcc/contracts"
+import {
+	type CheckHostInput,
+	type CreateHostInput,
+	can,
+	type HostCheckReport,
+	type Role,
+} from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { Db } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
@@ -6,6 +12,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { checkHostOverTransport, unreachableReport } from "./check"
 import {
 	createHostRepository,
 	type HostKeyTrustUpdate,
@@ -64,6 +71,37 @@ export class HostConcurrentlyModifiedError extends Error {}
 export class HostProvisioningInProgressError extends Error {}
 
 export const createHostController = (deps: HostControllerDeps) => ({
+	checkHost: async (ctx: ActorContext, input: CheckHostInput): Promise<HostCheckReport> => {
+		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
+		const scope = { organizationId: ctx.organizationId }
+
+		const key = await deps.sshKeys.findById(scope, input.sshKeyId)
+		if (!key) throw new SshKeyNotFoundError(`SSH key not found: ${input.sshKeyId}`)
+
+		const transport = deps.createTransport()
+		try {
+			await transport.connect({
+				hostname: input.hostname,
+				port: input.port,
+				username: input.username,
+				privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
+				expectedFingerprint: input.expectedFingerprint,
+				timeoutMs: CONNECT_TIMEOUT_MS,
+			})
+		} catch (error) {
+			await transport.close().catch(() => undefined)
+			return unreachableReport(
+				error instanceof Error ? error.message : `Could not reach ${input.hostname}`,
+			)
+		}
+
+		try {
+			return await checkHostOverTransport(transport, input.mode)
+		} finally {
+			await transport.close().catch(() => undefined)
+		}
+	},
+
 	enroll: async (ctx: ActorContext, input: CreateHostInput) => {
 		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
 

@@ -82,7 +82,6 @@ const hostRow: HostRow = {
 	osRelease: null,
 	cpuCount: null,
 	memoryMb: null,
-	capacityLimit: null,
 	lastSeenAt: null,
 	createdAt: new Date(),
 }

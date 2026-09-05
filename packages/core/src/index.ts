@@ -23,6 +23,7 @@ export {
 	HostConcurrentlyModifiedError,
 	HostMisconfiguredError,
 	HostNotFoundError,
+	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	SshKeyNotFoundError,
 } from "./host/host.controller"

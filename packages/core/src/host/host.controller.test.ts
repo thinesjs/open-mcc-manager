@@ -10,7 +10,9 @@ import {
 	createHostController,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
+	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
+	HostUnreachableError,
 	type WithTransaction,
 } from "./host.controller"
 import type {
@@ -777,5 +779,75 @@ describe("provisionHost", () => {
 		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs
 		expect(transport.timeouts).toHaveLength(transport.commands.length)
 		expect(worstCaseMs).toBeLessThan(PROVISIONING_LEASE_MS)
+	})
+})
+
+describe("what provisioning tells the operator when it fails", () => {
+	const provisioningHosts = (transport: HostTransport) => {
+		const hosts = {
+			findById: vi.fn(async () =>
+				makeHostRow({
+					status: "pending",
+					sshKeyId: "key-1",
+					hostKeyFingerprint: "SHA256:trusted",
+					provisioningAttemptId: null,
+					provisioningClaimedAt: null,
+				}),
+			),
+			insert: vi.fn(async () => makeHostRow()),
+			list: vi.fn(async () => []),
+			update: vi.fn(async () => makeHostRow()),
+			delete: vi.fn(async () => true),
+			recordProvisioningProgress: vi.fn(async () => undefined),
+			recordProvisioningFailure: vi.fn(async () => undefined),
+			lockHost: vi.fn(async () => undefined),
+			claimForProvisioning: vi.fn(async () =>
+				makeHostRow({
+					status: "provisioning",
+					hostKeyFingerprint: "SHA256:trusted",
+					provisioningAttemptId: "attempt-1",
+					provisioningClaimedAt: new Date(),
+				}),
+			),
+			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
+		}
+		const withTransaction: WithTransaction = async (fn) =>
+			fn({ hosts, audit: { record: vi.fn(async () => makeAuditEventRow({})) } })
+		return {
+			hosts,
+			controller: createHostController(
+				deps({ hosts, withTransaction, createTransport: () => transport }),
+			),
+		}
+	}
+
+	it("reports a host it could not connect to as unreachable, not as an internal fault", async () => {
+		const { controller } = provisioningHosts(createRejectingTransport("connect"))
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(HostUnreachableError)
+	})
+
+	it("reports a step that failed on the host as a provisioning failure, not as an internal fault", async () => {
+		const transport = createFakeTransport({
+			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
+		})
+		const { controller } = provisioningHosts(transport)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+	})
+
+	it("still records why it failed, so the host page can show the reason", async () => {
+		const { controller, hosts } = provisioningHosts(createRejectingTransport("connect"))
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow()
+		expect(hosts.recordProvisioningFailure).toHaveBeenCalledWith(
+			expect.anything(),
+			"host-1",
+			"attempt-1",
+			expect.stringMatching(/.+/),
+		)
 	})
 })

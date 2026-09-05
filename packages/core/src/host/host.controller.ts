@@ -54,6 +54,8 @@ const PROBE_TIMEOUT_MS = 10_000
 export const CONNECT_TIMEOUT_MS = 10_000
 
 export class ForbiddenError extends Error {}
+export class HostUnreachableError extends Error {}
+export class HostProvisioningFailedError extends Error {}
 export class FingerprintMismatchError extends Error {}
 export class HostNotFoundError extends Error {}
 export class SshKeyNotFoundError extends Error {}
@@ -189,14 +191,20 @@ export const createHostController = (deps: HostControllerDeps) => ({
 					sshKeyRow.privateKeyEncrypted,
 					sshKeyRow.privateKeyKeyId,
 				)
-				await transport.connect({
-					hostname: claimed.hostname,
-					port: claimed.port,
-					username: claimed.username,
-					privateKey,
-					expectedFingerprint,
-					timeoutMs: CONNECT_TIMEOUT_MS,
-				})
+				try {
+					await transport.connect({
+						hostname: claimed.hostname,
+						port: claimed.port,
+						username: claimed.username,
+						privateKey,
+						expectedFingerprint,
+						timeoutMs: CONNECT_TIMEOUT_MS,
+					})
+				} catch (error) {
+					throw new HostUnreachableError(
+						error instanceof Error ? error.message : `Could not reach ${claimed.hostname}`,
+					)
+				}
 				return await provisionHost(transport, {
 					mode: claimed.mode,
 					onProgress: (progress) => {
@@ -231,7 +239,10 @@ export const createHostController = (deps: HostControllerDeps) => ({
 						redactError(updateError instanceof Error ? updateError : String(updateError)),
 					)
 				}
-				throw error
+				if (error instanceof HostUnreachableError) throw error
+				throw new HostProvisioningFailedError(
+					error instanceof Error ? error.message : "Provisioning failed",
+				)
 			}
 		}
 

@@ -14,6 +14,7 @@ import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@
 import type { HostTransport } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
+import { HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import {
 	type HostProfile,
@@ -97,7 +98,8 @@ const CONNECT_TIMEOUT_MS = 10_000
 export class ForbiddenError extends Error {}
 export class InstanceNotFoundError extends Error {}
 export class InstanceNotRunningError extends Error {}
-export class HostUnreachableError extends Error {}
+export { HostUnreachableError }
+
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceHostNotProvisionedError extends Error {}
 

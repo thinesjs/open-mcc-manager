@@ -138,7 +138,8 @@ function HostDetailPage() {
 				</CardContent>
 			</Card>
 
-			{host.provisioningStep && (host.status === "provisioning" || host.status === "error") ? (
+			{(host.provisioningStep || host.provisioningError) &&
+			(host.status === "provisioning" || host.status === "error") ? (
 				<Card>
 					<CardHeader>
 						<CardTitle>Provisioning</CardTitle>

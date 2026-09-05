@@ -5,6 +5,7 @@ import {
 	HostConcurrentlyModifiedError,
 	HostMisconfiguredError,
 	HostNotFoundError,
+	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostUnreachableError,
 	InstanceAuthInProgressError,
@@ -109,6 +110,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	}
 	if (cause instanceof InstanceNotFoundError) {
 		return mapped("NOT_FOUND", "INSTANCE_NOT_FOUND", "Instance not found")
+	}
+	if (cause instanceof HostProvisioningFailedError) {
+		return mapped("BAD_REQUEST", "HOST_PROVISIONING_FAILED", cause.message)
 	}
 	if (cause instanceof HostUnreachableError) {
 		return mapped("BAD_REQUEST", "HOST_UNREACHABLE", "Could not open an SSH session to this host")

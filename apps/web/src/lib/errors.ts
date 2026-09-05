@@ -15,6 +15,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	HOST_MISCONFIGURED: "This host is missing configuration required for that action.",
 	HOST_UNREACHABLE:
 		"The control plane could not open an SSH session to this host. Check that the host is running, reachable on its address, and that its authorized_keys contains this deployment's public key.",
+	HOST_PROVISIONING_FAILED:
+		"Provisioning did not finish. The step it stopped on, and the reason, are shown on the host's page.",
 	HOST_CONCURRENTLY_MODIFIED: "This host was changed by someone else. Refresh and try again.",
 	HOST_PROVISIONING_IN_PROGRESS:
 		"A provisioning attempt for this host is already in progress. Retry shortly.",

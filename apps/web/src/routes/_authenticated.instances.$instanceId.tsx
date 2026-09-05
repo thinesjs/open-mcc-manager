@@ -36,6 +36,12 @@ function InstanceDetailPage() {
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
+	const liveStatusQuery = useQuery({
+		...trpc.instance.readLiveStatus.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
 	const consoleQuery = useQuery({
 		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
 		retry: false,
@@ -266,6 +272,49 @@ function InstanceDetailPage() {
 							</dl>
 						)}
 					</section>
+
+					{configQuery.data?.liveControlEnabled ? (
+						<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+							<div>
+								<h2 className="text-sm font-semibold text-foreground">Live state</h2>
+								<p className="text-xs text-muted-foreground">
+									Read from the client itself over the SSH tunnel, not from its log.
+								</p>
+							</div>
+							{liveStatusQuery.isPending ? (
+								<Spinner label="Reading live state" />
+							) : liveStatusQuery.data ? (
+								<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+									<div className="flex justify-between gap-4">
+										<dt className="text-sm text-muted-foreground">Signed in as</dt>
+										<dd className="text-sm text-foreground">{liveStatusQuery.data.username}</dd>
+									</div>
+									<div className="flex justify-between gap-4">
+										<dt className="text-sm text-muted-foreground">Connected to</dt>
+										<dd className="text-sm text-foreground">
+											{liveStatusQuery.data.host}:{liveStatusQuery.data.port}
+										</dd>
+									</div>
+									<div className="flex justify-between gap-4">
+										<dt className="text-sm text-muted-foreground">Protocol</dt>
+										<dd className="text-sm tabular-nums text-foreground">
+											{liveStatusQuery.data.protocolVersion}
+										</dd>
+									</div>
+									<div className="flex justify-between gap-4">
+										<dt className="text-sm text-muted-foreground">World data</dt>
+										<dd className="text-sm text-foreground">
+											{liveStatusQuery.data.terrainEnabled ? "Terrain" : "No terrain"}
+										</dd>
+									</div>
+								</dl>
+							) : (
+								<p className="text-sm text-muted-foreground">
+									Not answering yet. The client only opens this once it has joined a server.
+								</p>
+							)}
+						</section>
+					) : null}
 
 					<SleepWindow instanceId={instanceId} />
 

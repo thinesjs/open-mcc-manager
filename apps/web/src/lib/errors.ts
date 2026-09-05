@@ -28,6 +28,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_NOT_FOUND: "That instance no longer exists. Refresh the list.",
 	INSTANCE_HOST_NOT_READY:
 		"That instance's host is not ready yet. Enroll and provision the host first.",
+	INSTANCE_LIVE_CONTROL_REJECTED:
+		"This instance refused the manager's live control token. Save its settings again and restart it.",
 	INSTANCE_COMMAND_NOT_ALLOWED:
 		"That client command is not one this manager will run. Chat and server commands still work.",
 	INSTANCE_ACCOUNT_NOT_INTERACTIVE:

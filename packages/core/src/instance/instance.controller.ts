@@ -13,8 +13,9 @@ import {
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
+import type { McpSessionStatus } from "@open-mcc/contracts/boundary/mcp"
 import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import type { HostTransport } from "@open-mcc/transport"
+import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { HostUnreachableError } from "../host/host.controller"
@@ -23,13 +24,19 @@ import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
-import { allocateLiveControlPort, defaultInstanceConfig, renderInstanceConfig } from "./config"
+import {
+	allocateLiveControlPort,
+	defaultInstanceConfig,
+	LIVE_CONTROL_ROUTE,
+	renderInstanceConfig,
+} from "./config"
 import { readConsole, sendCommand } from "./control"
 import {
 	createInstanceRepository,
 	type InstanceRepository,
 	isAuthClaimStale,
 } from "./instance.repository"
+import { readSessionStatus } from "./live-control"
 import {
 	expectedUnits,
 	type HostReconciliation,
@@ -486,6 +493,38 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				return await readConsole(transport, instance.id, lines, profile)
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
+		},
+
+		readLiveStatus: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpSessionStatus | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const instance = await requireInstance(ctx, instanceId)
+			if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
+			const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
+			if (!saved) return undefined
+			const config = instanceConfigInput.safeParse(saved.document)
+			if (!config.success || !config.data.liveControlEnabled) return undefined
+
+			const token = deps.secrets.open(
+				instance.liveControlTokenEncrypted,
+				instance.liveControlTokenKeyId,
+			)
+			const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
+			try {
+				return await readSessionStatus({
+					transport,
+					port: config.data.liveControlPort,
+					route: LIVE_CONTROL_ROUTE,
+					token,
+				})
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

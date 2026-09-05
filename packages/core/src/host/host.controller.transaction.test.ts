@@ -472,6 +472,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					signalConnectStarted()
 					await gate
@@ -671,6 +672,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					sightings.push(isInsideTransaction())
 					await inner.connect(options)
@@ -723,6 +725,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					await new Promise((resolve) => setTimeout(resolve, 400))
 					await inner.connect(options)
@@ -1041,6 +1044,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					observedFingerprint = options.expectedFingerprint
 					await inner.connect(options)
@@ -1118,6 +1122,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					observedTarget = {
 						hostname: options.hostname,
@@ -1427,6 +1432,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			return {
 				state: inner.state,
 				canForward: inner.canForward,
+				forward: () => Promise.reject(new Error("not forwarded in this test")),
 				connect: async (options) => {
 					observedFingerprint = options.expectedFingerprint
 					signalConnectStarted()

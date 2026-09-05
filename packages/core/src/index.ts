@@ -97,6 +97,12 @@ export {
 	isAuthClaimStale,
 } from "./instance/instance.repository"
 export {
+	callLiveTool,
+	LIVE_CONTROL_TIMEOUT_MS,
+	LiveControlUnauthorizedError,
+	readSessionStatus,
+} from "./instance/live-control"
+export {
 	calendarWeekdayPrefix,
 	parseDaysOfWeek,
 	renderDaysOfWeek,

@@ -137,6 +137,7 @@ const createRejectingTransport = (
 			return { stdout: "", stderr: "", exitCode: 0 }
 		},
 		canForward: async () => true,
+		forward: () => Promise.reject(new Error("not forwarded in this test")),
 		close: async () => {
 			closeAttempted = true
 			if (options.closeError) throw options.closeError

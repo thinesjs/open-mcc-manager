@@ -16,6 +16,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
+	LiveControlUnauthorizedError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -136,6 +137,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_HOST_NOT_READY",
 			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof LiveControlUnauthorizedError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_LIVE_CONTROL_REJECTED",
+			"The client refused this manager's live control token. Re-save its settings and restart it",
 		)
 	}
 	if (cause instanceof DisallowedInternalCommandError) {

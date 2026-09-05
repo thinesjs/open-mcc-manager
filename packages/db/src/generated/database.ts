@@ -82,7 +82,6 @@ export interface Host {
 	status: Generated<string>
 	unitDir: string | null
 	username: Generated<string>
-	useSudo: Generated<boolean>
 }
 
 export interface Instance {

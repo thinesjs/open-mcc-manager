@@ -59,7 +59,6 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	mode: "system",
 	instancesRoot: "/srv/open-mcc",
 	unitDir: "/etc/systemd/system",
-	useSudo: false,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,

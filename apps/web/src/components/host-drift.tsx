@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, CircleHelp, RefreshCw, TriangleAlert } from "
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { describeStateDrift, describeUnitDrift, summariseDrift } from "~/lib/drift"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
@@ -41,7 +42,7 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 					}}
 				>
 					<RefreshCw className={query.isFetching ? "size-4 animate-spin-quick" : "size-4"} />
-					{query.isFetching ? "Checking…" : "Check now"}
+					{query.isFetching ? <Spinner label="Checking" /> : "Check now"}
 				</Button>
 			</CardHeader>
 
@@ -50,6 +51,10 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 					<Alert variant="error" icon={<CircleAlert />}>
 						{getErrorMessage(query.error)}
 					</Alert>
+				) : null}
+
+				{query.isFetching && summary === undefined ? (
+					<LoadingBlock label="Checking configuration drift" />
 				) : null}
 
 				{summary === undefined && !query.isFetching && !query.isError ? (

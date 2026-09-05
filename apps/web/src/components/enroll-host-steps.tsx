@@ -20,6 +20,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "~/components/ui/select"
+import { Spinner } from "~/components/ui/spinner"
 import { StepIndicator, Steps } from "~/components/ui/steps"
 import { getErrorMessage } from "~/lib/errors"
 import {
@@ -300,7 +301,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 										})
 									}
 								>
-									{checkMutation.isPending ? "Checking…" : "Check host"}
+									{checkMutation.isPending ? <Spinner label="Checking" /> : "Check host"}
 								</Button>
 							</div>
 							{checkMutation.isError ? (
@@ -348,7 +349,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						disabled={enrollMutation.isPending || expectedFingerprint.length === 0}
 						onClick={submit}
 					>
-						{enrollMutation.isPending ? "Enrolling…" : "Enroll host"}
+						{enrollMutation.isPending ? <Spinner label="Enrolling" /> : "Enroll host"}
 					</Button>
 				) : (
 					<Button size="sm" disabled={!canAdvance} onClick={() => goTo(step + 1)}>

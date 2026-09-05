@@ -10,6 +10,7 @@ import { OsIcon } from "~/components/os-icon"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
+import { LoadingBlock } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
@@ -31,8 +32,13 @@ function HostListPage() {
 
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between">
-				<h1 className="text-lg font-semibold text-foreground">Hosts</h1>
+			<div className="flex items-start justify-between gap-4">
+				<div>
+					<h1 className="text-lg font-semibold text-foreground">Hosts</h1>
+					<p className="text-sm text-muted-foreground">
+						Every server this organization runs Minecraft Console Client instances on.
+					</p>
+				</div>
 				<div className="flex items-center gap-2">
 					<ViewToggle mode={view} onChange={setView} label="Host layout" />
 					<Button size="sm" onClick={() => setEnrolling(true)}>
@@ -42,9 +48,7 @@ function HostListPage() {
 				</div>
 			</div>
 
-			{hostsQuery.isPending ? (
-				<p className="text-sm text-muted-foreground">Loading hosts…</p>
-			) : null}
+			{hostsQuery.isPending ? <LoadingBlock label="Loading hosts" /> : null}
 
 			{hostsQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>

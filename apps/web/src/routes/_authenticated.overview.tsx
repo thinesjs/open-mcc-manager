@@ -6,6 +6,7 @@ import { HostStatusBadge } from "~/components/host-status-badge"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { ManagerHealth } from "~/components/manager-health"
 import { Alert } from "~/components/ui/alert"
+import { LoadingBlock } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import {
 	countByStatus,
@@ -110,7 +111,7 @@ function OverviewPage() {
 			<section className="space-y-3">
 				<h2 className="text-sm font-semibold text-foreground">Needs attention</h2>
 				{instancesQuery.isPending ? (
-					<p className="text-sm text-muted-foreground">Loading fleet…</p>
+					<LoadingBlock label="Loading fleet" />
 				) : attention.length === 0 ? (
 					<EmptyState
 						compact

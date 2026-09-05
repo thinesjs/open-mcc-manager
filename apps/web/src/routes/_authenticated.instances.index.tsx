@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { Boxes, ChevronRight, CircleAlert, Plus } from "lucide-react"
+import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
 import { EmptyState } from "~/components/empty-state"
@@ -9,6 +9,7 @@ import { PlayerAvatar } from "~/components/player-avatar"
 import { Alert } from "~/components/ui/alert"
 import { Button, buttonVariants } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
+import { LoadingBlock } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
@@ -51,9 +52,7 @@ function InstanceListPage() {
 				</div>
 			</div>
 
-			{instancesQuery.isPending ? (
-				<p className="text-sm text-muted-foreground">Loading instances…</p>
-			) : null}
+			{instancesQuery.isPending ? <LoadingBlock label="Loading instances" /> : null}
 
 			{instancesQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
@@ -107,8 +106,11 @@ function InstanceListPage() {
 									</div>
 									<InstanceStatusBadge status={instance.status} />
 								</div>
-								<p className="truncate text-sm text-muted-foreground">
-									on {hostNameById.get(instance.hostId) ?? "an unknown host"}
+								<p className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+									<Server className="size-3.5 shrink-0" aria-label="Host" />
+									<span className="truncate">
+										{hostNameById.get(instance.hostId) ?? "Unknown host"}
+									</span>
 								</p>
 								{describeExitCode(instance.lastExitCode) ? (
 									<p className="truncate text-xs text-muted-foreground">

@@ -3,6 +3,7 @@ import { CircleAlert, RefreshCw } from "lucide-react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import { formatDuration, formatMegabytes, percentOf } from "~/lib/format-bytes"
 import { useTRPC } from "~/lib/trpc"
@@ -63,7 +64,7 @@ export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 					}}
 				>
 					<RefreshCw className={query.isFetching ? "size-4 animate-spin-quick" : "size-4"} />
-					{query.isFetching ? "Reading…" : "Read now"}
+					{query.isFetching ? <Spinner label="Reading" /> : "Read now"}
 				</Button>
 			</CardHeader>
 
@@ -73,6 +74,8 @@ export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 						{getErrorMessage(query.error)}
 					</Alert>
 				) : null}
+
+				{query.isFetching && !metrics ? <LoadingBlock label="Reading host resources" /> : null}
 
 				{!metrics && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">

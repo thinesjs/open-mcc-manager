@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect } from "react"
 import { Button } from "~/components/ui/button"
 import { HoldToConfirm } from "~/components/ui/hold-to-confirm"
+import { Spinner } from "~/components/ui/spinner"
 
 export type ConfirmDialogProps = {
 	open: boolean
@@ -94,14 +95,14 @@ export const ConfirmDialog = ({
 							</Button>
 							{destructive ? (
 								<HoldToConfirm
-									label={busy ? "Working…" : confirmLabel}
+									label={confirmLabel}
 									holdingLabel="Keep holding…"
 									disabled={busy}
 									onConfirm={onConfirm}
 								/>
 							) : (
 								<Button autoFocus size="sm" onClick={onConfirm} disabled={busy}>
-									{busy ? "Working…" : confirmLabel}
+									{busy ? <Spinner label="Working" /> : confirmLabel}
 								</Button>
 							)}
 						</div>

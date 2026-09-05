@@ -14,6 +14,7 @@ import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { Modal } from "~/components/ui/modal"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
@@ -85,7 +86,7 @@ function HostDetailPage() {
 	}
 
 	if (hostsQuery.isPending) {
-		return <p className="text-sm text-muted-foreground">Loading host…</p>
+		return <LoadingBlock label="Loading host" />
 	}
 
 	if (hostsQuery.isError) {
@@ -245,7 +246,7 @@ function HostDetailPage() {
 						host.status === "removing"
 					}
 				>
-					{provisionMutation.isPending ? "Provisioning…" : "Provision"}
+					{provisionMutation.isPending ? <Spinner label="Provisioning" /> : "Provision"}
 				</Button>
 				<Button
 					variant="destructive-outline"
@@ -254,7 +255,7 @@ function HostDetailPage() {
 						removeMutation.isPending || host.status === "provisioning" || host.status === "removing"
 					}
 				>
-					{removeMutation.isPending ? "Removing…" : "Remove"}
+					{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove"}
 				</Button>
 			</div>
 

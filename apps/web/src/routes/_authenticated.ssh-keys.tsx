@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { CircleAlert, Info, KeyRound, Plus, Trash2 } from "lucide-react"
+import { CircleAlert, KeyRound, Plus, Trash2 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { CopyButton } from "~/components/copy-button"
 import { EmptyState } from "~/components/empty-state"
@@ -10,6 +10,7 @@ import { ConfirmDialog } from "~/components/ui/dialog"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Modal } from "~/components/ui/modal"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { keyTypeOf } from "~/lib/ssh-key-type"
@@ -64,8 +65,14 @@ function SshKeysPage() {
 
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between">
-				<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
+			<div className="flex items-start justify-between gap-4">
+				<div>
+					<h1 className="text-lg font-semibold text-foreground">SSH keys</h1>
+					<p className="text-sm text-muted-foreground">
+						Key pairs are generated on the server, encrypted at rest, and never leave it. Enrolling
+						a host issues the command that installs the matching public key.
+					</p>
+				</div>
 				<div className="flex items-center gap-2">
 					<ViewToggle mode={view} onChange={setView} label="Key layout" />
 					<Button size="sm" onClick={() => setCreating(true)}>
@@ -75,14 +82,7 @@ function SshKeysPage() {
 				</div>
 			</div>
 
-			<Alert variant="info" controlAlignment="first-line" icon={<Info />}>
-				Key pairs are generated on the server. Private keys are encrypted at rest and never leave
-				it. Enrolling a host issues the command that installs the matching public key on that host.
-			</Alert>
-
-			{sshKeysQuery.isPending ? (
-				<p className="text-sm text-muted-foreground">Loading SSH keys…</p>
-			) : null}
+			{sshKeysQuery.isPending ? <LoadingBlock label="Loading SSH keys" /> : null}
 
 			{sshKeysQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
@@ -208,7 +208,7 @@ function SshKeysPage() {
 							Cancel
 						</Button>
 						<Button type="submit" size="sm" disabled={createMutation.isPending}>
-							{createMutation.isPending ? "Generating…" : "Generate key"}
+							{createMutation.isPending ? <Spinner label="Generating" /> : "Generate key"}
 						</Button>
 					</div>
 				</form>

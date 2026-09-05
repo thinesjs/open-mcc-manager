@@ -12,6 +12,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "~/components/ui/select"
+import { Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -138,7 +139,7 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 					size="sm"
 					disabled={createMutation.isPending || selectedHost.length === 0}
 				>
-					{createMutation.isPending ? "Creating…" : "Create instance"}
+					{createMutation.isPending ? <Spinner label="Creating" /> : "Create instance"}
 				</Button>
 			</div>
 		</form>

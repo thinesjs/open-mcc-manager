@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -87,9 +88,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 					</Alert>
 				) : null}
 
-				{query.isPending ? (
-					<p className="text-sm text-muted-foreground">Loading schedules…</p>
-				) : null}
+				{query.isPending ? <LoadingBlock label="Loading schedules" /> : null}
 
 				{!query.isPending && rows.length === 0 && !adding ? (
 					<p className="text-sm text-muted-foreground">
@@ -237,7 +236,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 									})
 								}
 							>
-								{save.isPending ? "Saving…" : "Save command"}
+								{save.isPending ? <Spinner label="Saving" /> : "Save command"}
 							</Button>
 							<Button size="sm" variant="secondary" onClick={() => setAdding(false)}>
 								Cancel

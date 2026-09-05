@@ -37,8 +37,12 @@ describe("ssh key screen variant restraint", () => {
 		expect(source).not.toContain('variant="destructive"')
 	})
 
-	it("keeps the private-key notice on the restrained info alert", () => {
-		expect(source).toContain('<Alert variant="info"')
+	it("still tells the operator that private keys never leave the server", () => {
+		expect(source).toContain("never leave it")
+	})
+
+	it("states that as page copy rather than raising an alert for a normal condition", () => {
+		expect(source).not.toContain('<Alert variant="info"')
 		expect(source).not.toContain('variant="warning"')
 	})
 })

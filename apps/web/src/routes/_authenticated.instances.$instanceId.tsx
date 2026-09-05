@@ -8,6 +8,7 @@ import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
+import { LoadingBlock } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -65,9 +66,7 @@ function InstanceDetailPage() {
 				Instances
 			</Link>
 
-			{instanceQuery.isPending ? (
-				<p className="text-sm text-muted-foreground">Loading instance…</p>
-			) : null}
+			{instanceQuery.isPending ? <LoadingBlock label="Loading instance" /> : null}
 
 			{instanceQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>

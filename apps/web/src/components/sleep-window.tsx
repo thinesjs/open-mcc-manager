@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
+import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -87,9 +88,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 					</Alert>
 				) : null}
 
-				{!editing && query.isPending ? (
-					<p className="text-sm text-muted-foreground">Loading schedule…</p>
-				) : null}
+				{!editing && query.isPending ? <LoadingBlock label="Loading schedule" /> : null}
 
 				{!editing && !query.isPending && !existing ? (
 					<p className="text-sm text-muted-foreground">
@@ -172,7 +171,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 									})
 								}
 							>
-								{save.isPending ? "Saving…" : "Save window"}
+								{save.isPending ? <Spinner label="Saving" /> : "Save window"}
 							</Button>
 							<Button size="sm" variant="secondary" onClick={() => setEditing(false)}>
 								Cancel
@@ -184,7 +183,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 									disabled={clear.isPending}
 									onClick={() => clear.mutate({ instanceId })}
 								>
-									{clear.isPending ? "Removing…" : "Remove window"}
+									{clear.isPending ? <Spinner label="Removing" /> : "Remove window"}
 								</Button>
 							) : null}
 						</div>

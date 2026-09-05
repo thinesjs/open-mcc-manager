@@ -446,9 +446,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
-				return await readConsole(transport, instance.id, lines)
+				return await readConsole(transport, instance.id, lines, profile)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

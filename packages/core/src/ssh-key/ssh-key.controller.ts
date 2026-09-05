@@ -28,7 +28,7 @@ export const createSshKeyControllerTransaction = (db: Db): WithSshKeyTransaction
 export type SshKeyControllerDeps = {
 	sshKeys: Pick<SshKeyRepository, "list">
 	secrets: Pick<SecretStore, "seal">
-	generateKeyPair: () => GeneratedSshKeyPair
+	generateKeyPair: (name: string) => GeneratedSshKeyPair
 	withTransaction: WithSshKeyTransaction
 }
 
@@ -66,7 +66,7 @@ export const createSshKeyController = (deps: SshKeyControllerDeps) => ({
 	create: async (ctx: ActorContext, input: CreateSshKeyInput): Promise<SshKeyPublic> => {
 		if (!can(ctx.role, "sshKey.manage")) throw new ForbiddenError("Forbidden: sshKey.manage")
 
-		const generated = deps.generateKeyPair()
+		const generated = deps.generateKeyPair(input.name)
 		const sealed = deps.secrets.seal(generated.privateKey)
 		const scope = { organizationId: ctx.organizationId }
 

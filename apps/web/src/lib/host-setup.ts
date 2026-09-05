@@ -61,7 +61,8 @@ fi
 install -d -m 700 "$home/.ssh"
 chown "$account:" "$home/.ssh"
 touch "$home/.ssh/authorized_keys"
-if grep -qxF "$key" "$home/.ssh/authorized_keys"; then
+material=$(printf '%s' "$key" | awk '{print $2}')
+if [ -n "$material" ] && grep -qF "$material" "$home/.ssh/authorized_keys"; then
   echo "  key already present, left alone"
 else
   printf '%s\\n' "$key" >> "$home/.ssh/authorized_keys"

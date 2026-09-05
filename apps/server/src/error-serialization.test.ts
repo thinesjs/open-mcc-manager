@@ -77,7 +77,7 @@ const hostController = createHostController(hostControllerDeps)
 const sshKeyController = createSshKeyController({
 	sshKeys,
 	secrets: hostControllerDeps.secrets,
-	generateKeyPair: vi.fn(() => {
+	generateKeyPair: vi.fn((_name: string) => {
 		throw new Error("generateKeyPair should not be called in this test")
 	}),
 	withTransaction: withSshKeyTransaction,

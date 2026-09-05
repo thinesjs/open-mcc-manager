@@ -28,7 +28,7 @@ describe("the command an operator pastes onto a new host", () => {
 	it("adds the key only when it is missing, so running it twice leaves one copy", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 
-		expect(script).toContain('grep -qxF "$key"')
+		expect(script).toContain('grep -qF "$material"')
 		expect(script).toContain('>> "$home/.ssh/authorized_keys"')
 	})
 

@@ -44,7 +44,10 @@ const withTransaction: WithSshKeyTransaction = (fn) =>
 const deps: SshKeyControllerDeps = {
 	sshKeys: repo,
 	secrets: { seal: (plaintext) => ({ ciphertext: `sealed:${plaintext}`, keyId: "k1" }) },
-	generateKeyPair: () => ({ publicKey: "ssh-ed25519 AAAAtest", privateKey: "private-key" }),
+	generateKeyPair: (_name: string) => ({
+		publicKey: "ssh-ed25519 AAAAtest",
+		privateKey: "private-key",
+	}),
 	withTransaction,
 }
 

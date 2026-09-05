@@ -70,7 +70,7 @@ const harness = (overrides: Partial<SshKeyTransactionRepos> = {}): Harness => {
 		secrets: {
 			seal: vi.fn(() => ({ ciphertext: SEALED_CIPHERTEXT, keyId: SEALBOX_KEY_ID })),
 		},
-		generateKeyPair: vi.fn(() => ({
+		generateKeyPair: vi.fn((_name: string) => ({
 			publicKey: "ssh-ed25519 AAAApublic",
 			privateKey: PLAINTEXT_PRIVATE_KEY,
 		})),

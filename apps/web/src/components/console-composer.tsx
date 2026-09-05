@@ -62,8 +62,8 @@ export const ConsoleComposer = ({ instanceId, running, onSent }: ConsoleComposer
 				</Button>
 			</div>
 			<p className="text-xs text-muted-foreground">
-				Plain text goes to public chat. A line starting with <code>/</code> is sent to the server as
-				a command.
+				Plain text goes to public chat. <code>/</code> sends a server command. <code>!</code> runs a
+				client command such as <code>!respawn</code>, <code>!reco</code> or <code>!list</code>.
 			</p>
 		</form>
 	)

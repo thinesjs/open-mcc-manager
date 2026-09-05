@@ -6,6 +6,7 @@ import { useState } from "react"
 import { ConsoleComposer } from "~/components/console-composer"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { MinecraftText } from "~/components/minecraft-text"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
@@ -214,7 +215,13 @@ function InstanceDetailPage() {
 							</Alert>
 						) : consoleQuery.data && consoleQuery.data.output.trim().length > 0 ? (
 							<pre className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground">
-								{consoleQuery.data.output}
+								{consoleQuery.data.output
+									.replace(/\n$/, "")
+									.split("\n")
+									.map((line, index) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: journal lines are positional
+										<MinecraftText key={index} value={`${line}\n`} />
+									))}
 							</pre>
 						) : (
 							<EmptyState

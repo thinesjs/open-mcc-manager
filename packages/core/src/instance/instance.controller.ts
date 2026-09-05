@@ -16,13 +16,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import {
-	type HostProfile,
-	journalctl,
-	profileFrom,
-	systemctl,
-	usesPerInstanceUsers,
-} from "../host/profile"
+import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
@@ -430,7 +424,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				return await readConsole(transport, instance.id, lines)
 			} finally {

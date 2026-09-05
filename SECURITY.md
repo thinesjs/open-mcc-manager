@@ -230,10 +230,13 @@ depth, not a substitute for one.
 - **Under Without root, systemd's filesystem hardening may be silently
   discarded.** The instance unit asks for `ProtectSystem=strict`, `PrivateTmp`
   and a `ReadWritePaths=` scoped to its own directory. Those directives need a
-  mount namespace, and older systemd user managers ignore them without logging
-  anything: measured directly, systemd 252 (Debian 12) drops them while systemd
-  255 (Ubuntu 24.04) enforces them. Provisioning therefore probes the host
-  rather than trusting the unit file, and the host page reports whether
+  mount namespace, and a systemd user manager that cannot set one up ignores
+  them without logging anything. Whether it can depends on the host, not on the
+  unit: the same systemd version was measured enforcing them on one machine and
+  discarding them on another, so the version alone does not tell you. Because
+  the answer cannot be inferred, provisioning measures it. The host is asked to
+  run a throwaway unit with `PrivateTmp` and the result is checked for whether
+  the isolation actually took, and the host page reports whether
   confinement is **Enforced by systemd** or **Not enforced by this host's
   systemd**. Where it is not enforced, an instance is confined only by POSIX
   ownership — which, per the point above, does not separate it from its

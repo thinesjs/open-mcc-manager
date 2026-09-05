@@ -525,7 +525,7 @@ describe("host controller provisioning", () => {
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
 			...CLIENT_PROBE_OK,
-			['. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "${ID:-}" "${PRETTY_NAME:-}"']: {
+			'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"': {
 				stdout: "debian\nDebian GNU/Linux 12 (bookworm)",
 				stderr: "",
 				exitCode: 0,

@@ -3,8 +3,10 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Boxes, ChevronRight, CircleAlert } from "lucide-react"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { PlayerAvatar } from "~/components/player-avatar"
 import { Alert } from "~/components/ui/alert"
 import { buttonVariants } from "~/components/ui/button"
+import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
 import { describeExitCode } from "~/lib/instance-status"
@@ -16,6 +18,7 @@ export const Route = createFileRoute("/_authenticated/instances/")({
 
 function InstanceListPage() {
 	const trpc = useTRPC()
+	const [view, setView] = useViewMode("open-mcc.view.instances")
 	const instancesQuery = useQuery({
 		...trpc.instance.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
@@ -26,11 +29,14 @@ function InstanceListPage() {
 
 	return (
 		<div className="space-y-6">
-			<div>
-				<h1 className="text-lg font-semibold text-foreground">Instances</h1>
-				<p className="text-sm text-muted-foreground">
-					Every Minecraft Console Client this organization supervises.
-				</p>
+			<div className="flex items-start justify-between gap-4">
+				<div>
+					<h1 className="text-lg font-semibold text-foreground">Instances</h1>
+					<p className="text-sm text-muted-foreground">
+						Every Minecraft Console Client this organization supervises.
+					</p>
+				</div>
+				<ViewToggle mode={view} onChange={setView} label="Instance layout" />
 			</div>
 
 			{instancesQuery.isPending ? (
@@ -57,51 +63,87 @@ function InstanceListPage() {
 			) : null}
 
 			{instancesQuery.data && instancesQuery.data.length > 0 ? (
-				<div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-								<th className="px-4 py-2 font-medium">Instance</th>
-								<th className="px-4 py-2 font-medium">Host</th>
-								<th className="px-4 py-2 font-medium">Account</th>
-								<th className="px-4 py-2 font-medium">Status</th>
-								<th className="w-8 px-4 py-2" />
-							</tr>
-						</thead>
-						<tbody className="divide-y divide-border">
-							{instancesQuery.data.map((instance) => (
-								<tr key={instance.id} className="hover:bg-accent">
-									<td className="px-4 py-2.5">
-										<Link
-											to="/instances/$instanceId"
-											params={{ instanceId: instance.id }}
-											className="font-medium text-foreground"
-										>
-											{instance.name}
-										</Link>
-										{describeExitCode(instance.lastExitCode) ? (
-											<p className="text-xs text-muted-foreground">
-												{describeExitCode(instance.lastExitCode)}
+				view === "cards" ? (
+					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+						{instancesQuery.data.map((instance) => (
+							<Link
+								key={instance.id}
+								to="/instances/$instanceId"
+								params={{ instanceId: instance.id }}
+								className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4 transition-colors hover:border-foreground/16 hover:bg-accent/40"
+							>
+								<div className="flex items-start justify-between gap-3">
+									<div className="flex min-w-0 items-center gap-2.5">
+										<PlayerAvatar username={instance.minecraftUsername} fallback={instance.name} />
+										<div className="min-w-0">
+											<p className="truncate font-medium text-foreground">{instance.name}</p>
+											<p className="truncate text-xs text-muted-foreground">
+												{instance.minecraftUsername ?? instance.minecraftAccount}
 											</p>
-										) : null}
-									</td>
-									<td className="px-4 py-2.5 text-muted-foreground">
-										{hostNameById.get(instance.hostId) ?? "—"}
-									</td>
-									<td className="px-4 py-2.5 text-muted-foreground">{instance.minecraftAccount}</td>
-									<td className="px-4 py-2.5">
-										<InstanceStatusBadge status={instance.status} />
-									</td>
-									<td className="px-4 py-2.5">
-										<Link to="/instances/$instanceId" params={{ instanceId: instance.id }}>
-											<ChevronRight className="size-4 text-muted-foreground" />
-										</Link>
-									</td>
+										</div>
+									</div>
+									<InstanceStatusBadge status={instance.status} />
+								</div>
+								<p className="truncate text-sm text-muted-foreground">
+									on {hostNameById.get(instance.hostId) ?? "an unknown host"}
+								</p>
+								{describeExitCode(instance.lastExitCode) ? (
+									<p className="truncate text-xs text-muted-foreground">
+										{describeExitCode(instance.lastExitCode)}
+									</p>
+								) : null}
+							</Link>
+						))}
+					</div>
+				) : (
+					<div className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
+						<table className="w-full text-sm">
+							<thead>
+								<tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+									<th className="px-4 py-2 font-medium">Instance</th>
+									<th className="px-4 py-2 font-medium">Host</th>
+									<th className="px-4 py-2 font-medium">Account</th>
+									<th className="px-4 py-2 font-medium">Status</th>
+									<th className="w-8 px-4 py-2" />
 								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
+							</thead>
+							<tbody className="divide-y divide-border">
+								{instancesQuery.data.map((instance) => (
+									<tr key={instance.id} className="hover:bg-accent">
+										<td className="px-4 py-2.5">
+											<Link
+												to="/instances/$instanceId"
+												params={{ instanceId: instance.id }}
+												className="font-medium text-foreground"
+											>
+												{instance.name}
+											</Link>
+											{describeExitCode(instance.lastExitCode) ? (
+												<p className="text-xs text-muted-foreground">
+													{describeExitCode(instance.lastExitCode)}
+												</p>
+											) : null}
+										</td>
+										<td className="px-4 py-2.5 text-muted-foreground">
+											{hostNameById.get(instance.hostId) ?? "—"}
+										</td>
+										<td className="px-4 py-2.5 text-muted-foreground">
+											{instance.minecraftAccount}
+										</td>
+										<td className="px-4 py-2.5">
+											<InstanceStatusBadge status={instance.status} />
+										</td>
+										<td className="px-4 py-2.5">
+											<Link to="/instances/$instanceId" params={{ instanceId: instance.id }}>
+												<ChevronRight className="size-4 text-muted-foreground" />
+											</Link>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)
 			) : null}
 		</div>
 	)

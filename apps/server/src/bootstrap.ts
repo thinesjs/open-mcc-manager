@@ -23,6 +23,7 @@ import { createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { createAuth } from "./auth"
+import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { appRouter } from "./routers/index"
@@ -101,6 +102,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	app.use("*", requireSameOrigin(allowed))
 
 	app.get("/healthz", (c) => c.json({ ok: true }))
+	app.get("/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
 	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 	app.use(
 		"/trpc/*",

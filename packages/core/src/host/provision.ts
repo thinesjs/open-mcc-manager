@@ -40,7 +40,7 @@ export type ProvisionResult = {
 }
 
 export const OS_RELEASE_COMMAND =
-	'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "${ID:-}" "${PRETTY_NAME:-}"'
+	'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"'
 
 export const parseOsRelease = (output: string): { osId: string | null; osName: string | null } => {
 	const [id = "", name = ""] = output.split("\n")

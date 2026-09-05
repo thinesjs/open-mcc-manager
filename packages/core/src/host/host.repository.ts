@@ -24,6 +24,7 @@ const MUTABLE_HOST_COLUMNS = [
 	"sandboxed",
 	"osId",
 	"osName",
+	"failedUnits",
 ] as const
 
 export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
@@ -100,9 +101,32 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.sandboxed !== undefined && { sandboxed: patch.sandboxed }),
 	...(patch.osId !== undefined && { osId: patch.osId }),
 	...(patch.osName !== undefined && { osName: patch.osName }),
+	...(patch.failedUnits !== undefined && { failedUnits: patch.failedUnits }),
 })
 
 export const createHostRepository = (db: Executor) => ({
+	listPollableAcrossOrganizations: async (): Promise<HostRow[]> =>
+		db.selectFrom("host").selectAll().where("status", "=", "ready").execute(),
+
+	recordSeen: async (
+		id: string,
+		organizationId: string,
+		seenAt: Date,
+		observed: { failedUnits: number; osId: string | null; osName: string | null },
+	): Promise<void> => {
+		await db
+			.updateTable("host")
+			.set({
+				lastSeenAt: seenAt,
+				failedUnits: observed.failedUnits,
+				...(observed.osId !== null && { osId: observed.osId }),
+				...(observed.osName !== null && { osName: observed.osName }),
+			})
+			.where("id", "=", id)
+			.where("organizationId", "=", organizationId)
+			.execute()
+	},
+
 	insert: async (scope: OrgScope, values: HostCreateValues): Promise<HostRow> => {
 		requireConsistentTrustTuple(values)
 		const row = await db

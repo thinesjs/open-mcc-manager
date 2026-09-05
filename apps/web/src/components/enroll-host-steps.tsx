@@ -224,9 +224,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Prepare the host</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Run this once on {hostname || "the host"}. It authorises this deployment's key for{" "}
-								{username}, installs what the client needs, and prints the fingerprint for the next
-								step. Running it again is safe.
+								Run once on {hostname || "the host"}. Authorises this deployment's key for{" "}
+								{username}, installs the client's dependencies, and outputs the host key fingerprint
+								required by the next step. Idempotent.
 							</p>
 						</div>
 
@@ -251,9 +251,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Confirm the host's identity</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Every SSH server has its own key, and its fingerprint is how the control plane
-								recognises {hostname || "this host"} on every later connection. The setup command
-								printed it as its last line. Paste that here.
+								The control plane pins this fingerprint and verifies it on every connection to{" "}
+								{hostname || "this host"}. The setup command output it as its final line.
 							</p>
 						</div>
 
@@ -270,7 +269,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<CommandBlock
 							label="If you no longer have that output"
 							command={fingerprintCommand()}
-							caption="Run it on the host. Read it from the host itself, not from anything this dashboard shows you: if the two ever disagree, the dashboard is the side that could be wrong."
+							caption="Run on the host. Source the fingerprint from the host, never from this dashboard: on a mismatch, the dashboard is the untrusted side."
 						/>
 
 						<dl className="grid gap-x-6 gap-y-2 rounded-[var(--radius)] border border-border p-3 text-sm sm:grid-cols-2">

@@ -7,6 +7,7 @@ import {
 	ROOTLESS_PROVISION_STEP_LABELS,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
+import { OS_RELEASE_COMMAND, parseOsRelease, readSandboxing } from "./facts"
 import { mccReleaseForMachine } from "./mcc-release"
 import {
 	type HostProfile,
@@ -39,18 +40,6 @@ export type ProvisionResult = {
 	osName: string | null
 }
 
-export const OS_RELEASE_COMMAND =
-	'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"'
-
-export const parseOsRelease = (output: string): { osId: string | null; osName: string | null } => {
-	const [id = "", name = ""] = output.split("\n")
-	const clean = (value: string): string | null => {
-		const trimmed = value.trim().replace(/^"|"$/g, "")
-		return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null
-	}
-	return { osId: clean(id), osName: clean(name) }
-}
-
 export type ProvisionProgress = {
 	step: ProvisionStep
 	index: number
@@ -66,18 +55,6 @@ export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
 export const CLIENT_PROBE_TIMEOUT_MS = 30_000
 
 export const CLIENT_BANNER = "Minecraft Console Client"
-
-export const SANDBOX_PROBE_MARKER = "/tmp/.open-mcc-sandbox-probe"
-
-export const SANDBOX_PROBE_UNIT = "open-mcc-sandbox-probe"
-
-export const sandboxProbeCommand = (marker: string = SANDBOX_PROBE_MARKER): string => {
-	const quoted = shellQuote(marker)
-	const run = `systemd-run --user --wait --collect --quiet --unit=${SANDBOX_PROBE_UNIT} --property=PrivateTmp=yes /bin/sh -c ${shellQuote(`touch ${marker}`)}`
-	return `rm -f ${quoted}; ${run} >/dev/null 2>&1; if [ -e ${quoted} ]; then rm -f ${quoted}; printf ignored; else printf enforced; fi`
-}
-
-export const readsAsEnforced = (output: string): boolean => output.trim() === "enforced"
 
 export const explainClientFailure = (output: string): string => {
 	if (/ICU/i.test(output)) {
@@ -215,8 +192,7 @@ export const provisionHost = async (
 	let sandboxed = true
 	if (profile.mode === "rootless") {
 		advance()
-		const probe = await transport.exec(sandboxProbeCommand(), PROVISION_STEP_TIMEOUT_MS)
-		sandboxed = readsAsEnforced(probe.stdout)
+		sandboxed = await readSandboxing(transport, profile)
 	}
 
 	const templates = renderUnitTemplates(profile)

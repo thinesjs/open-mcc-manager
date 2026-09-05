@@ -12,7 +12,7 @@ export const SetupCommand = ({ command, summary }: SetupCommandProps) => (
 			<div className="min-w-0">
 				<p className="text-sm font-medium text-foreground">Setup command</p>
 				<p className="mt-0.5 text-xs text-muted-foreground">
-					One paste, run once. Drop the leading sudo if you are already root.
+					Run once on the host. Omit the leading sudo when already root.
 				</p>
 			</div>
 			<CopyButton value={command} label="Setup command" />
@@ -33,7 +33,7 @@ export const SetupCommand = ({ command, summary }: SetupCommandProps) => (
 					className="size-3.5 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"
 					aria-hidden
 				/>
-				Show what it runs
+				Review the script
 			</summary>
 			<pre className="mt-2 max-h-64 overflow-auto rounded-[var(--radius)] border border-border bg-muted/40 p-3">
 				<code className="font-mono text-xs leading-relaxed text-foreground">{command}</code>

@@ -3,10 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
 	explainClientFailure,
 	PROVISION_STEPS,
-	parseOsRelease,
 	provisionHost,
-	readsAsEnforced,
-	sandboxProbeCommand,
 	validateInstancesRoot,
 } from "./provision"
 
@@ -243,92 +240,5 @@ describe("checking the client can actually run", () => {
 
 		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/libicu/)
 		expect(transport.commands.some((command) => command.includes("daemon-reload"))).toBe(false)
-	})
-})
-
-describe("checking whether instances are actually confined", () => {
-	it("runs the probe as one command, not as arguments to the cleanup", () => {
-		const command = sandboxProbeCommand("/tmp/marker")
-
-		expect(command).toMatch(/rm -f '\/tmp\/marker';\s*systemd-run/)
-	})
-
-	it("asks the user manager, since that is the manager a rootless instance runs under", () => {
-		expect(sandboxProbeCommand()).toContain("systemd-run --user")
-	})
-
-	it("treats a leaked file as sandboxing that was silently ignored", () => {
-		expect(readsAsEnforced("ignored")).toBe(false)
-		expect(readsAsEnforced("enforced")).toBe(true)
-		expect(readsAsEnforced("")).toBe(false)
-	})
-
-	it("reports a host whose systemd drops the hardening, rather than assuming it took", async () => {
-		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
-			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			'printf %s "$HOME"': { stdout: "/home/mccuser", stderr: "", exitCode: 0 },
-			'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no': {
-				stdout: "yes",
-				stderr: "",
-				exitCode: 0,
-			},
-			"'/home/mccuser/.local/share/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
-				stdout: "Minecraft Console Client v26.2",
-				stderr: "",
-				exitCode: 0,
-			},
-			[sandboxProbeCommand()]: { stdout: "ignored", stderr: "", exitCode: 0 },
-		})
-		await transport.connect({
-			hostname: "h",
-			port: 22,
-			username: "u",
-			privateKey: "k",
-			expectedFingerprint: "f",
-			timeoutMs: 1000,
-		})
-
-		const result = await provisionHost(transport, { mode: "rootless" })
-
-		expect(result.sandboxed).toBe(false)
-	})
-
-	it("does not probe a root-owned host, whose system manager always enforces it", async () => {
-		const transport = createFakeTransport(CLIENT_PROBE_OK)
-		await transport.connect({
-			hostname: "h",
-			port: 22,
-			username: "u",
-			privateKey: "k",
-			expectedFingerprint: "f",
-			timeoutMs: 1000,
-		})
-
-		const result = await provisionHost(transport, { mode: "system" })
-
-		expect(result.sandboxed).toBe(true)
-		expect(transport.commands.some((command) => command.includes("systemd-run"))).toBe(false)
-	})
-})
-
-describe("recognising which distribution a host runs", () => {
-	it("reads the identifier and the human name from the host's own os-release", () => {
-		expect(parseOsRelease("debian\nDebian GNU/Linux 12 (bookworm)")).toEqual({
-			osId: "debian",
-			osName: "Debian GNU/Linux 12 (bookworm)",
-		})
-	})
-
-	it("reports nothing rather than guessing when the host has no os-release", () => {
-		expect(parseOsRelease("\n")).toEqual({ osId: null, osName: null })
-	})
-
-	it("strips the quotes some distributions write around their values", () => {
-		expect(parseOsRelease('"ubuntu"\n"Ubuntu 24.04.1 LTS"').osId).toBe("ubuntu")
-	})
-
-	it("refuses an absurdly long value rather than storing whatever the host sent", () => {
-		expect(parseOsRelease(`${"x".repeat(200)}\nname`).osId).toBe(null)
 	})
 })

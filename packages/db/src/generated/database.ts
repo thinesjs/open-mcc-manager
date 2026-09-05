@@ -57,6 +57,7 @@ export interface Host {
 	capacityLimit: number | null
 	cpuCount: number | null
 	createdAt: Generated<Timestamp>
+	failedUnits: number | null
 	hostKeyAlgorithm: string | null
 	hostKeyFingerprint: string | null
 	hostKeyTrustedAt: Timestamp | null

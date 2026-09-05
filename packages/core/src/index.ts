@@ -7,6 +7,12 @@ export {
 	KNOWN_INSECURE_KEY_ID,
 	usesKnownInsecureKey,
 } from "./crypto/sealed-box"
+export type { HostFacts } from "./host/facts"
+export { readHostFacts, readSandboxing } from "./host/facts"
+export type { HealthInput, HostHealth } from "./host/health"
+export { failedUnitsCommand, HOST_HEALTH, healthFor, observeHost } from "./host/health"
+export type { HealthPollerDeps, HealthPollerHandle, HealthPollRun } from "./host/health-poller"
+export { isPollable, runHealthPoll, startHealthPoller } from "./host/health-poller"
 export type {
 	ActorContext,
 	HostController,
@@ -16,6 +22,7 @@ export type {
 	WithTransaction,
 } from "./host/host.controller"
 export {
+	CONNECT_TIMEOUT_MS,
 	createHostController,
 	createHostControllerTransaction,
 	FingerprintMismatchError,

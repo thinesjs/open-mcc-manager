@@ -4,6 +4,7 @@ import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { EnrollHostSteps } from "~/components/enroll-host-steps"
+import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { OsIcon } from "~/components/os-icon"
 import { Alert } from "~/components/ui/alert"
@@ -55,7 +56,7 @@ function HostListPage() {
 				<EmptyState
 					icon={Server}
 					title="No hosts enrolled"
-					description="Enroll a VPS to run Minecraft Console Client instances on it. You will need its SSH host key fingerprint."
+					description="Enroll a server to run Minecraft Console Client instances. Requires systemd, SSH access, and the host key fingerprint."
 					action={
 						<Button size="sm" onClick={() => setEnrolling(true)}>
 							<Plus className="size-4" />
@@ -89,9 +90,10 @@ function HostListPage() {
 								<p className="truncate text-sm text-muted-foreground">
 									{host.username}@{host.hostname}:{host.port}
 								</p>
-								<p className="truncate text-xs text-muted-foreground">
-									{host.osName ?? "Operating system not yet known"}
-								</p>
+								<HostHealthBadge host={host} />
+								{host.osName ? (
+									<p className="truncate text-xs text-muted-foreground">{host.osName}</p>
+								) : null}
 							</Link>
 						))}
 					</div>
@@ -118,6 +120,7 @@ function HostListPage() {
 									</div>
 								</div>
 								<div className="flex shrink-0 items-center gap-3">
+									<HostHealthBadge host={host} />
 									<HostStatusBadge status={host.status} />
 									<ChevronRight className="size-4 text-muted-foreground" />
 								</div>
@@ -130,7 +133,7 @@ function HostListPage() {
 			<Modal
 				open={enrolling}
 				title="Enroll a host"
-				description="Pick a key, say where the host is, run one command on it, then confirm its identity."
+				description="Select a key, provide the address, run the setup command, then verify the host key."
 				onClose={() => setEnrolling(false)}
 			>
 				<EnrollHostSteps

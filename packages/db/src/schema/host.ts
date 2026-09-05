@@ -17,6 +17,7 @@ export type HostTable = Omit<
 	| "mode"
 	| "instancesRoot"
 	| "osId"
+	| "failedUnits"
 	| "osName"
 	| "sandboxed"
 	| "unitDir"
@@ -37,6 +38,7 @@ export type HostTable = Omit<
 	mode: Generated<HostMode>
 	instancesRoot: Generated<DB["host"]["instancesRoot"]>
 	osId: Generated<DB["host"]["osId"]>
+	failedUnits: Generated<DB["host"]["failedUnits"]>
 	osName: Generated<DB["host"]["osName"]>
 	sandboxed: Generated<DB["host"]["sandboxed"]>
 	unitDir: Generated<DB["host"]["unitDir"]>

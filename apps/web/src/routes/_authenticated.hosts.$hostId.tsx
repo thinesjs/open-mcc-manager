@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { useState } from "react"
 import { HostDrift } from "~/components/host-drift"
+import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { ProvisionProgress } from "~/components/provision-progress"
@@ -127,6 +128,12 @@ function HostDetailPage() {
 					<div>
 						<p className="text-muted-foreground">Host key algorithm</p>
 						<p className="text-foreground">{host.hostKeyAlgorithm ?? "Unknown"}</p>
+					</div>
+					<div>
+						<p className="text-muted-foreground">Reachability</p>
+						<p className="text-foreground">
+							<HostHealthBadge host={host} />
+						</p>
 					</div>
 					<div>
 						<p className="text-muted-foreground">Privilege</p>

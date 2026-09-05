@@ -44,6 +44,8 @@ const hosts: HostRepository = {
 	lockHost: vi.fn(async () => undefined),
 	claimForProvisioning: vi.fn(async () => undefined),
 	finalizeProvisioning: vi.fn(async () => undefined),
+	listPollableAcrossOrganizations: vi.fn(async () => []),
+	recordSeen: vi.fn(async () => undefined),
 	updateHostKeyTrust: vi.fn(async () => undefined),
 }
 

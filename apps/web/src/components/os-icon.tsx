@@ -32,8 +32,10 @@ const MARKS: Record<string, Mark> = {
 	ubuntu: siUbuntu,
 }
 
-export const markFor = (osId: string | null): Mark =>
-	(osId ? MARKS[osId.trim().toLowerCase()] : undefined) ?? siLinux
+export const markFor = (osId: string | null): Mark | undefined => {
+	if (!osId) return undefined
+	return MARKS[osId.trim().toLowerCase()] ?? siLinux
+}
 
 export type OsIconProps = {
 	osId: string | null
@@ -43,6 +45,7 @@ export type OsIconProps = {
 
 export const OsIcon = ({ osId, osName, className }: OsIconProps) => {
 	const mark = markFor(osId)
+	if (!mark) return null
 	const label = osName ?? mark.title
 	return (
 		<svg

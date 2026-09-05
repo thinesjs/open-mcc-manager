@@ -62,6 +62,7 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	sandboxed: true,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
+	failedUnits: null,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,
@@ -181,6 +182,8 @@ const deps = (
 					osRelease: patch.osRelease ?? null,
 				}),
 		),
+		listPollableAcrossOrganizations: vi.fn(async () => []),
+		recordSeen: vi.fn(async () => undefined),
 		updateHostKeyTrust: vi.fn(async (_scope: OrgScope, id: string, trust: HostKeyTrustUpdate) =>
 			makeHostRow({ id, ...trust }),
 		),
@@ -369,6 +372,8 @@ describe("host controller provisioning", () => {
 				lockHost: vi.fn(async () => undefined),
 				claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 				finalizeProvisioning: vi.fn(async () => makeHostRow()),
+				listPollableAcrossOrganizations: vi.fn(async () => []),
+				recordSeen: vi.fn(async () => undefined),
 				updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 			},
 		})
@@ -422,6 +427,8 @@ describe("host controller provisioning", () => {
 						osRelease: patch.osRelease ?? null,
 					}),
 			),
+			listPollableAcrossOrganizations: vi.fn(async () => []),
+			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 		}
 		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
@@ -457,6 +464,8 @@ describe("host controller provisioning", () => {
 					lockHost: vi.fn(async () => undefined),
 					claimForProvisioning,
 					finalizeProvisioning: vi.fn(async () => makeHostRow()),
+					listPollableAcrossOrganizations: vi.fn(async () => []),
+					recordSeen: vi.fn(async () => undefined),
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: {
@@ -504,6 +513,8 @@ describe("host controller provisioning", () => {
 						}),
 					),
 					finalizeProvisioning,
+					listPollableAcrossOrganizations: vi.fn(async () => []),
+					recordSeen: vi.fn(async () => undefined),
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: { record: auditRecord },
@@ -699,6 +710,8 @@ describe("host controller removal", () => {
 			lockHost: vi.fn(async () => undefined),
 			claimForProvisioning: vi.fn(async () => makeHostRow({ status: "provisioning" })),
 			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			listPollableAcrossOrganizations: vi.fn(async () => []),
+			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 		}
 		const auditRecord = vi.fn(async (_scope: OrgScope, entry: AuditEntry) =>
@@ -820,6 +833,8 @@ describe("what provisioning tells the operator when it fails", () => {
 				}),
 			),
 			finalizeProvisioning: vi.fn(async () => makeHostRow()),
+			listPollableAcrossOrganizations: vi.fn(async () => []),
+			recordSeen: vi.fn(async () => undefined),
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 		}
 		const withTransaction: WithTransaction = async (fn) =>

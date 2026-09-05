@@ -72,6 +72,7 @@ const hostRow: HostRow = {
 	sandboxed: true,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
+	failedUnits: null,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: "SHA256:trusted",

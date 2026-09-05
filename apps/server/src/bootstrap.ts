@@ -1,6 +1,7 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
+	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
 	createHostController,
 	createHostControllerTransaction,
@@ -14,8 +15,10 @@ import {
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
 	generateSshKeyPair,
+	type HealthPollerHandle,
 	redactError,
 	type SchedulerHandle,
+	startHealthPoller,
 	startScheduler,
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
@@ -37,6 +40,7 @@ export type ServerHandle = {
 	lock: SingletonLock
 	db: Db
 	scheduler: SchedulerHandle
+	healthPoller: HealthPollerHandle
 }
 
 export type Serve = typeof serve
@@ -139,5 +143,32 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		},
 	})
 
-	return { app, server, lock, db, scheduler }
+	const healthPoller = startHealthPoller({
+		pollableHosts: () => hosts.listPollableAcrossOrganizations(),
+		connect: async (host) => {
+			if (!host.sshKeyId || !host.hostKeyFingerprint) {
+				throw new Error(`Host ${host.id} is not ready to be polled`)
+			}
+			const key = await sshKeys.findById({ organizationId: host.organizationId }, host.sshKeyId)
+			if (!key) throw new Error(`Ssh key missing for host ${host.id}`)
+			const transport = createSshTransport()
+			await transport.connect({
+				hostname: host.hostname,
+				port: host.port,
+				username: host.username,
+				privateKey: secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
+				expectedFingerprint: host.hostKeyFingerprint,
+				timeoutMs: CONNECT_TIMEOUT_MS,
+			})
+			return transport
+		},
+		recordSeen: (host, seenAt, observed) =>
+			hosts.recordSeen(host.id, host.organizationId, seenAt, observed),
+		now: () => new Date(),
+		onError: (message, error) => {
+			console.error(message, error instanceof Error ? redactError(error) : message)
+		},
+	})
+
+	return { app, server, lock, db, scheduler, healthPoller }
 }

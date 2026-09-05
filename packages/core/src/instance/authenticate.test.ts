@@ -357,3 +357,38 @@ describe("completeAuthentication", () => {
 		expect(transport.commands).toEqual([])
 	})
 })
+
+describe("orphaned authentication clients", () => {
+	const killCommand = "pkill -u 'mcc-abc123' || true"
+
+	it("kills any client left by an earlier attempt before starting a new one", async () => {
+		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		const killAt = transport.commands.indexOf(killCommand)
+		const launchAt = transport.commands.findIndex((each) => each.includes("nohup"))
+		expect(killAt).toBeGreaterThanOrEqual(0)
+		expect(killAt).toBeLessThan(launchAt)
+	})
+
+	it("does not leave a detached client running when no device code ever appears", async () => {
+		const { deps, transport } = makeDeps("nothing resembling a device code")
+
+		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
+			/device code/i,
+		)
+
+		const kills = transport.commands.filter((each) => each === killCommand)
+		expect(kills.length).toBeGreaterThanOrEqual(2)
+	})
+
+	it("kills the client on the way out even though the claim is also released", async () => {
+		const { deps, transport, instances } = makeDeps("no code")
+
+		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow()
+
+		expect(transport.commands).toContain(killCommand)
+		expect(instances.releaseAuthClaim).toHaveBeenCalled()
+	})
+})

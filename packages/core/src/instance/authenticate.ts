@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { AuthenticationState, DeviceCodeChallenge } from "@open-mcc/contracts"
+import type { HostTransport } from "@open-mcc/transport"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -41,6 +42,16 @@ const extractChallenge = (output: string): DeviceCodeChallenge | undefined => {
 export type AuthPolling = {
 	attempts: number
 	intervalMs: number
+}
+
+const killInstanceProcesses = async (
+	transport: HostTransport,
+	instanceId: string,
+): Promise<void> => {
+	await transport.exec(
+		`pkill -u ${shellQuote(instanceUser(instanceId))} || true`,
+		AUTH_SESSION_TIMEOUT_MS,
+	)
 }
 
 export const beginAuthentication = async (
@@ -95,6 +106,8 @@ export const beginAuthentication = async (
 		const dir = instanceDir(deps.instancesRoot, instance.id)
 		const log = `${dir}/auth.log`
 
+		await killInstanceProcesses(transport, instance.id)
+
 		await transport.exec(
 			`rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instance.id))} -- sh -c ${shellQuote(
 				`umask 077 && cd ${dir} && nohup ${deps.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
@@ -131,6 +144,7 @@ export const beginAuthentication = async (
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {
+		await killInstanceProcesses(transport, instance.id).catch(() => undefined)
 		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
 		throw error
 	} finally {
@@ -176,10 +190,7 @@ export const completeAuthentication = async (
 		)
 		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
 
-		await transport.exec(
-			`pkill -u ${shellQuote(instanceUser(instance.id))} || true`,
-			AUTH_SESSION_TIMEOUT_MS,
-		)
+		await killInstanceProcesses(transport, instance.id)
 		await transport.exec(`rm -f ${shellQuote(`${dir}/auth.log`)}`, AUTH_SESSION_TIMEOUT_MS)
 	} finally {
 		await transport.close().catch(() => undefined)

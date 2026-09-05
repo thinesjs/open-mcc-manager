@@ -20,6 +20,21 @@ style, zinc base, `cssVariables: true`, lucide icons, `~/` alias — see
 orchestrated by turbo.
 
 
+### Why the scheduler needs no actor context
+
+`runScheduledCommand` takes an `InstanceCommandRow` and no `ActorContext`. It
+derives its scope from `row.organizationId` alone. That is safe because of a
+database constraint, not because of the code: `instanceCommand` and
+`instanceSchedule` both carry a composite foreign key
+`(organizationId, instanceId) → instance(organizationId, id)`, so a row's
+organization and instance are guaranteed to belong together. A row cannot point
+at another organization's instance even if something managed to write one.
+
+Do not drop those constraints to "simplify" the schema. Without them the
+scheduler would need a real actor to scope against, and the alternative —
+fabricating a synthetic owner context — puts a privileged identity in a
+background loop.
+
 ### Exit codes, as observed rather than assumed
 
 Verified against build 511 with a FIFO on stdin, the way the unit runs it:

@@ -23,8 +23,11 @@ export const STUCK_MARKERS = [
 	"Failed to parse the settings file",
 	"Not connected to any server",
 	"press Enter to exit Minecraft Console Client",
-	"Server version:",
 ] as const
+
+export const SERVER_INFO_MARKER = "Server version:"
+
+export const JOINED_MARKER = "Server was successfully joined"
 
 export const STUCK_SCAN_LINES = 20
 
@@ -33,8 +36,10 @@ export const PLAYER_NAME_PATTERN = /Cached session is still valid for ([A-Za-z0-
 export const playerNameFrom = (journal: string): string | undefined =>
 	PLAYER_NAME_PATTERN.exec(journal)?.[1]
 
-export const looksStuck = (journal: string): boolean =>
-	STUCK_MARKERS.some((marker) => journal.includes(marker))
+export const looksStuck = (journal: string): boolean => {
+	if (STUCK_MARKERS.some((marker) => journal.includes(marker))) return true
+	return journal.includes(SERVER_INFO_MARKER) && !journal.includes(JOINED_MARKER)
+}
 
 export const parseObservedState = (output: string): ObservedState => {
 	const value = output.trim()

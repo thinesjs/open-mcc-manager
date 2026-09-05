@@ -12,6 +12,7 @@ import {
 	playerNameFrom,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
+	STUCK_MARKERS,
 } from "./reconcile"
 
 const PROFILE = systemProfile()
@@ -406,5 +407,42 @@ describe("noticing which account an instance is signed in as", () => {
 		expect(playerNameFrom("Cached session is still valid for a.")).toBeUndefined()
 		expect(playerNameFrom("Cached session is still valid for has space.")).toBeUndefined()
 		expect(playerNameFrom("Cached session is still valid for Player_123.")).toBe("Player_123")
+	})
+})
+
+describe("recognising a client that is stuck", () => {
+	const connected = [
+		"[MCC] Version is supported.",
+		"Logging in...",
+		"Retrieving Server Info...",
+		"Server version: Paper 26.2 (protocol v776)",
+		"[MCC] Server is in offline mode.",
+		"[MCC] Server was successfully joined.",
+		"Type '/quit' to leave the server.",
+		"OpenMccBot joined the game",
+	].join("\n")
+
+	it("does not call a connected client stuck just because it printed the server version", () => {
+		expect(looksStuck(connected)).toBe(false)
+	})
+
+	it("calls a client stuck when it read the server version but never joined", () => {
+		const halted = [
+			"Retrieving Server Info...",
+			"Server version: Paper 26.2 (protocol v776)",
+			"Logging in...",
+		].join("\n")
+
+		expect(looksStuck(halted)).toBe(true)
+	})
+
+	it("calls a client stuck on each marker that means it gave up", () => {
+		for (const marker of STUCK_MARKERS) {
+			expect(looksStuck(`some output\n${marker}\nmore output`)).toBe(true)
+		}
+	})
+
+	it("says nothing about a journal that has scrolled past both markers", () => {
+		expect(looksStuck("OpenMccBot joined the game\n<someone> hello")).toBe(false)
 	})
 })

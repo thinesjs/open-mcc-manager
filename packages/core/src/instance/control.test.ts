@@ -154,4 +154,12 @@ describe("instance control channel", () => {
 		expect(transport.commands).toEqual([])
 		expect(transport.stdins).toEqual([])
 	})
+
+	it("refuses to reconnect an instance as a different account", () => {
+		expect(() => controlLine("!reco AccountNikename2")).toThrow(DisallowedInternalCommandError)
+	})
+
+	it("still reconnects an instance as itself", () => {
+		expect(controlLine("!reco")).toBe("/reco")
+	})
 })

@@ -45,6 +45,10 @@ export const INTERNAL_COMMANDS = [
 
 const INTERNAL_COMMAND_SET: ReadonlySet<string> = new Set(INTERNAL_COMMANDS)
 
+export const ARGUMENT_FREE_COMMANDS = ["reco"] as const
+
+const ARGUMENT_FREE_SET: ReadonlySet<string> = new Set(ARGUMENT_FREE_COMMANDS)
+
 export const INTERNAL_COMMAND_PREFIX = "!"
 
 const hasControlCharacter = (value: string): boolean => {
@@ -68,7 +72,13 @@ export const controlLine = (input: string): string => {
 			`The client command '${name}' is not one this manager will run`,
 		)
 	}
-	return `/${[name, ...words.slice(1)].join(" ")}`
+	const args = words.slice(1)
+	if (args.length > 0 && ARGUMENT_FREE_SET.has(name)) {
+		throw new DisallowedInternalCommandError(
+			`The client command '${name}' does not take an argument here`,
+		)
+	}
+	return `/${[name, ...args].join(" ")}`
 }
 
 export const sendCommand = async (

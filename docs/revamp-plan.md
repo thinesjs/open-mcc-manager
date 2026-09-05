@@ -106,6 +106,16 @@ defaults to `slash` and governs how a line arriving on stdin is parsed. If an op
 to the FIFO changes meaning — chat becomes commands, or commands become chat. The
 send path is only sound while we own this key. *(Landed.)*
 
+**And a second, which the first draft of this plan missed while explicitly asking whether
+there was one:** `Main.General.Method`, the `{ mcc, browser }` switch at the client.
+the client branches on it and the client gates the device-code flow
+on `mcc`. Drifted to `browser`, MCC tries to open a system browser for OAuth on a headless
+server, and the device-code scraping in `authenticate.ts` has nothing to read. In practice
+MCC only writes this field through an interactive prompt reached when both `Login` and
+`Password` are blank, which never happens for a manager-created
+instance — so this is defence in depth against a hand edit, not a live drift path.
+*(Landed.)*
+
 ## Stage 2 — One live connection per host
 
 **Ships:** nothing an operator sees. This is the transport every later stage rides
@@ -137,9 +147,42 @@ channels.
 **The trap to design around:** `sshd`'s `MaxSessions` does not count port
 forwardings, but it *does* count our `exec` channels, and it defaults to 10. A
 pooled connection shared with reconciliation can exhaust `MaxSessions` while the
-tunnels sit unaffected — and it presents as host failure, not as a limit. Keep the
-tunnel connection separate from the exec connection, or bound exec concurrency well
-below `MaxSessions`.
+tunnels sit unaffected — and it presents as host failure, not as a limit.
+
+Both mitigations are needed, not either: keep the tunnel connection separate from the exec
+connection **and** bound exec concurrency well below `MaxSessions`. Separating them only
+stops tunnels and execs competing; it does nothing to raise the per-connection exec ceiling,
+and at 20 instances per host a future decision to reconcile a host's instances in parallel
+would breach 10 on its own. Today every `exec` caller is strictly sequential, so there is no
+live bug — only an uneforced invariant.
+
+There is also no way to ask the server what `MaxSessions` is. The ceiling is discovered only
+when a channel-open fails, and that failure is currently indistinguishable from any other
+exec failure — which is precisely the "presents as host failure" problem above. Whatever
+bounds concurrency must also name this failure when it happens.
+
+**New keys this stage must add, and it is not optional.** Stage 1 owns the config file
+outright and overwrites it with only what it renders. So every key the live channel needs
+must be rendered here, or the channel deletes itself:
+
+| Key | Class | MCC default |
+| --- | --- | --- |
+| `ChatBot.McpServer.Enabled` | `MANAGED` | `false` |
+| `ChatBot.McpServer.Transport.RequireAuthToken` | `FIXED` | `false` — no initializer |
+| `ChatBot.McpServer.Transport.BindHost` | `FIXED` | `"127.0.0.1"` |
+| `ChatBot.McpServer.Transport.Port` | `MANAGED` | `33333` |
+| `ChatBot.McpServer.Transport.Route` | `FIXED` | `"/mcp"` |
+| `ChatBot.McpServer.Transport.AuthTokenEnvVar` | `FIXED` | `"MCC_MCP_AUTH_TOKEN"` |
+
+Miss them and the failure is not a security gap but a **total outage of the transport every
+later stage rides on**, triggered by routine unrelated work: an operator adjusts an
+auto-relog retry count, the save rewrites the file without the McpServer block, MCC restores
+`Enabled = false` on next load, and live control is silently gone with no error anywhere.
+This plan drew exactly that inference for Stage 4's gating keys and failed to apply it to
+Stage 2, which comes first and has the identical exposure.
+
+`RequireAuthToken` defaulting to `false` is the second reason it is `FIXED`: unset, the port
+answers anyone who reaches it.
 
 **Restart semantics:** the channel breaks, the SSH connection survives. MCP's port
 exists only between `AfterGameJoined` and disconnect, so connection-refused means
@@ -160,6 +203,19 @@ UID means siblings can already signal each other, read each other's
 `ProtectProc=invisible` does not help, because it hides processes owned by *other*
 users and rootless siblings share one.
 
+`ProtectProc=ptraceable` is a real possibility the earlier draft wrongly dismissed by
+claiming no directive could isolate same-UID siblings. It hides processes that cannot be
+`ptrace()`d rather than processes owned by other users, and `PTRACE_MODE_ATTACH` *is* gated
+by Yama — so where `kernel.yama.ptrace_scope` is `1`, which several distributions default
+to, non-ancestor siblings cannot attach to each other and the whole `/proc/<pid>` entry,
+`environ` included, becomes invisible. Two caveats keep it out of the standing constraints
+for now: the manager does not control that sysctl, and `ProtectProc=` is implemented through
+filesystem namespacing, so a systemd *user* manager that cannot set up a mount namespace
+discards it silently — the same failure this repo already measures for `ProtectHome` and
+`PrivateTmp`. It must therefore go through the existing provisioning probe and be *measured*
+before `SECURITY.md` describes it as a control. Note that plain same-UID access alone is
+enough to read `environ`: `PTRACE_MODE_READ` is not restricted by Yama at all.
+
 A listening loopback port therefore does not widen the rootless threat model — an
 attacker who controls one rootless instance already controls them all. Real
 per-instance separation is what `system` mode provides, through per-instance OS
@@ -168,12 +224,23 @@ implying instances are isolated from one another.
 
 ## Stage 3 — Live chat and commands
 
-**Ships:** the feature as specified — read public chat, system messages and whispers
-in real time; send chat and commands from the browser.
+**Ships:** read public chat, system messages and whispers as they arrive; send server and
+client commands from the browser. **Plain chat send is not in this stage's deliverable** —
+it is blocked upstream on modern servers (below), and bundling it in would promise something
+most operators cannot have.
 
-The send half already works through the FIFO. It must respect
-`Main.Advanced.MessageCooldown` (default `1.0` seconds, the minimum interval between
-messages to the server), or a burst is silently dropped. This stage replaces the polled
+**The read half is a poll loop, not a subscription.** MCP exposes `mcc_recent_events`
+(cursor, count, type filter) and `mcc_chat_history` as request/response tools; there is no
+push or subscribe primitive. Polling a cursor over an already-open tunnel is far lower
+latency than snapshotting `journalctl`, and it is what "as they arrive" means here — nobody
+implementing this should go looking for a streaming API that does not exist.
+
+The send half already works through the FIFO. `Main.Advanced.MessageCooldown` (default
+`1.0` seconds) sets the minimum interval between messages reaching the server; a burst sent
+faster than that is **queued and delayed, not dropped** — `chatQueue` is an unbounded
+`Queue<string>` that every send path enqueues onto, `TrySendMessageToServer` dequeues one per tick, and nothing ever clears it. The UI therefore
+has to show latency, not loss: a message may sit for seconds before it is sent, and the
+operator should be able to see that rather than assume it vanished. This stage replaces the polled
 `journalctl` snapshot with a live event stream over the Stage 2 channel, and adds
 the read half's structure: chat arrives as typed events rather than as journal text,
 so whispers can be distinguished from public chat and system messages.
@@ -227,18 +294,25 @@ Tab containers land here, when there is enough on the instance page to warrant t
 
 ## Stage 5 — Autonomy
 
-**Ships:** anti-AFK, auto-rejoin, push notifications.
+**Ships:** push notifications.
 
-`Main.Advanced.AutoRespawn` defaults to `false`, which is why a client that dies simply
-stays dead — observed live on a sandbox server, where a bot was killed by a spider and sat
-there until sent an explicit respawn. It becomes a `MANAGED` key here.
+Anti-AFK, auto-rejoin and respawn-after-dying are **already shipped** and were before this
+plan was written: `ChatBot.AntiAFK.*` and `ChatBot.AutoRelog.*` are rendered, contracted and
+exposed in the instance settings form, and `Main.Advanced.AutoRespawn` joined them as a
+`MANAGED` key with its own toggle. `AutoRespawn` defaults to `false` upstream, which is why
+a client that dies simply stays dead — observed live on a sandbox server twice, where a bot
+was killed by a spider, then by a skeleton, and sat there until sent an explicit respawn.
+
+What remains for this stage is therefore push notifications, plus folding those three
+existing features into Stage 1's drift taxonomy once it exists. Neither touches the Stage 2
+channel, so nothing here is genuinely gated behind Stages 2 to 4 — this stage is last by
+value, not by dependency.
+
+Push notifications need a delivery channel chosen before the stage starts.
 
 MCC has its own `ScriptScheduler`, which duplicates the scheduler this repo already
 has. Use ours: it is already audited, organization-scoped and visible in the UI,
 and MCC's would be a second source of truth for the same behaviour.
-
-Push notifications need a delivery channel decided before this stage starts; that
-decision is not made here.
 
 ## Deferred, with the reason
 

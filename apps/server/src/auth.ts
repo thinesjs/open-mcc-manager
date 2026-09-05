@@ -45,6 +45,22 @@ export const createAuth = (
 			},
 		},
 		rateLimit: { enabled: !options.disableRateLimit, window: 60, max: 10 },
+		databaseHooks: {
+			session: {
+				create: {
+					before: async (session) => {
+						const membership = await db
+							.selectFrom("member")
+							.select("organizationId")
+							.where("userId", "=", session.userId)
+							.orderBy("createdAt", "asc")
+							.executeTakeFirst()
+						if (!membership) return
+						return { data: { ...session, activeOrganizationId: membership.organizationId } }
+					},
+				},
+			},
+		},
 		plugins: [
 			organization({
 				creatorRole: "owner",

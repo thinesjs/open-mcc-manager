@@ -86,7 +86,7 @@ function HostListPage() {
 			<Modal
 				open={enrolling}
 				title="Enroll a host"
-				description="Three steps: pick the key, give the address, verify the host key."
+				description="Pick a key, say where the host is, run one command on it, then confirm its identity."
 				onClose={() => setEnrolling(false)}
 			>
 				<EnrollHostSteps

@@ -13,7 +13,7 @@ function EnrollHostPage() {
 			<div>
 				<h1 className="text-lg font-semibold text-foreground">Enroll a host</h1>
 				<p className="text-sm text-muted-foreground">
-					Three steps: pick the key, give the address, verify the host key.
+					Pick a key, say where the host is, run one command on it, then confirm its identity.
 				</p>
 			</div>
 			<EnrollHostSteps

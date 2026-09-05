@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, Info } from "lucide-react"
 import { useState } from "react"
+import { CommandBlock } from "~/components/command-block"
 import { CopyButton } from "~/components/copy-button"
+import { SetupCommand } from "~/components/setup-command"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import type { ChoiceOption } from "~/components/ui/choice"
@@ -19,10 +21,16 @@ import {
 } from "~/components/ui/select"
 import { StepIndicator, Steps } from "~/components/ui/steps"
 import { getErrorMessage } from "~/lib/errors"
+import {
+	fingerprintCommand,
+	hostSetupScript,
+	requiresRootAccount,
+	setupSummary,
+} from "~/lib/host-setup"
 import { clampStep, directionBetween, isLastStep } from "~/lib/steps"
 import { useTRPC } from "~/lib/trpc"
 
-export const ENROLL_STEPS = ["Access", "Address", "Verification"] as const
+export const ENROLL_STEPS = ["Access", "Address", "Prepare", "Verify"] as const
 
 export const HOST_MODE_OPTIONS = [
 	{
@@ -214,11 +222,38 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				{step === 2 ? (
 					<div className="space-y-4 pb-1">
 						<div>
-							<h3 className="text-sm font-medium text-foreground">Verify the host key</h3>
+							<h3 className="text-sm font-medium text-foreground">Prepare the host</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Obtain this from your provider's console or an existing known_hosts entry. Do not
-								take it from this dashboard. The control plane refuses enrolment on any mismatch
-								without disclosing what the host presented.
+								Run this once on {hostname || "the host"}. It authorises this deployment's key for{" "}
+								{username}, installs what the client needs, and prints the fingerprint for the next
+								step. Running it again is safe.
+							</p>
+						</div>
+
+						{requiresRootAccount(mode, username) ? (
+							<Alert variant="error" icon={<CircleAlert />}>
+								This host is set to use root, but {username} is not root. Either connect as root or
+								go back and choose "Without root".
+							</Alert>
+						) : null}
+
+						{selectedKey ? (
+							<SetupCommand
+								command={hostSetupScript(mode, username, selectedKey.publicKey)}
+								summary={setupSummary(mode, username)}
+							/>
+						) : null}
+					</div>
+				) : null}
+
+				{step === 3 ? (
+					<div className="space-y-4 pb-1">
+						<div>
+							<h3 className="text-sm font-medium text-foreground">Confirm the host's identity</h3>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Every SSH server has its own key, and its fingerprint is how the control plane
+								recognises {hostname || "this host"} on every later connection. The setup command
+								printed it as its last line. Paste that here.
 							</p>
 						</div>
 
@@ -231,6 +266,12 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								onChange={(event) => setExpectedFingerprint(event.target.value)}
 							/>
 						</div>
+
+						<CommandBlock
+							label="If you no longer have that output"
+							command={fingerprintCommand()}
+							caption="Run it on the host. Read it from the host itself, not from anything this dashboard shows you: if the two ever disagree, the dashboard is the side that could be wrong."
+						/>
 
 						<dl className="grid gap-x-6 gap-y-2 rounded-[var(--radius)] border border-border p-3 text-sm sm:grid-cols-2">
 							<div>

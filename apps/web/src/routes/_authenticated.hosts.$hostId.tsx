@@ -155,6 +155,7 @@ function HostDetailPage() {
 							total={host.provisioningStepTotal}
 							failure={host.provisioningError}
 							running={host.status === "provisioning"}
+							mode={host.mode}
 						/>
 					</CardContent>
 				</Card>

@@ -1,3 +1,4 @@
+import type { HostMode } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, Info } from "lucide-react"
@@ -5,6 +6,8 @@ import { useState } from "react"
 import { CopyButton } from "~/components/copy-button"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
+import type { ChoiceOption } from "~/components/ui/choice"
+import { Choice } from "~/components/ui/choice"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import {
@@ -20,6 +23,21 @@ import { clampStep, directionBetween, isLastStep } from "~/lib/steps"
 import { useTRPC } from "~/lib/trpc"
 
 export const ENROLL_STEPS = ["Access", "Address", "Verification"] as const
+
+export const HOST_MODE_OPTIONS = [
+	{
+		value: "rootless",
+		label: "Without root",
+		description:
+			"Everything lives in the account's own home directory and runs under its user manager. Nothing on the host needs root.",
+	},
+	{
+		value: "system",
+		label: "With root",
+		description:
+			"System-wide units, and a separate locked account per instance so one instance cannot read another's session.",
+	},
+] as const satisfies readonly ChoiceOption<HostMode>[]
 
 export type EnrollHostStepsProps = {
 	onEnrolled: (hostId: string) => void
@@ -37,7 +55,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const [name, setName] = useState("")
 	const [hostname, setHostname] = useState("")
 	const [port, setPort] = useState("22")
-	const [username, setUsername] = useState("root")
+	const [username, setUsername] = useState("mcc")
+	const [mode, setMode] = useState<HostMode>("rootless")
 	const [expectedFingerprint, setExpectedFingerprint] = useState("")
 
 	const keys = sshKeysQuery.data ?? []
@@ -59,6 +78,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				hostname,
 				port: Number.parseInt(port, 10),
 				username,
+				mode,
 				sshKeyId,
 				expectedFingerprint,
 			},
@@ -172,6 +192,21 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								value={username}
 								onChange={(event) => setUsername(event.target.value)}
 							/>
+						</div>
+
+						<div className="space-y-2">
+							<Label>Privilege</Label>
+							<Choice
+								label="Privilege"
+								value={mode}
+								onChange={setMode}
+								options={HOST_MODE_OPTIONS}
+							/>
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								{mode === "rootless"
+									? "Run 'sudo loginctl enable-linger <user>' on the host first, or provisioning will stop and tell you to."
+									: "This account needs to be root, or reach root without a password prompt."}
+							</p>
 						</div>
 					</div>
 				) : null}

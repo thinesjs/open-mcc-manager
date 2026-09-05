@@ -1,4 +1,4 @@
-import { PROVISION_STEP_LABELS } from "@open-mcc/contracts"
+import { type HostMode, provisionStepLabels } from "@open-mcc/contracts"
 import { Check, CircleX, Loader } from "lucide-react"
 
 export type ProvisionProgressProps = {
@@ -7,6 +7,7 @@ export type ProvisionProgressProps = {
 	total: number | null
 	failure?: string | null
 	running: boolean
+	mode: HostMode
 }
 
 type StepState = "done" | "running" | "failed" | "waiting"
@@ -23,8 +24,10 @@ export const ProvisionProgress = ({
 	total,
 	failure,
 	running,
+	mode,
 }: ProvisionProgressProps) => {
-	const labels = total && total > 0 ? PROVISION_STEP_LABELS.slice(0, total) : PROVISION_STEP_LABELS
+	const all = provisionStepLabels(mode)
+	const labels = total && total > 0 ? all.slice(0, total) : all
 	const current = index ?? 0
 
 	return (

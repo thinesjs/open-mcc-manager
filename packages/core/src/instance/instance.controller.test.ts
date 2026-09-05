@@ -165,6 +165,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		listForInstance: vi.fn(async () => []),
 		listEnabledAcrossOrganizations: vi.fn(async () => []),
 		delete: vi.fn(async () => true),
+		claimRun: vi.fn(async () => true),
 		recordRun: vi.fn(async () => undefined),
 	}
 	const hosts: Pick<HostRepository, "findById"> = {
@@ -496,5 +497,20 @@ describe("scheduled commands", () => {
 				timezone: "UTC",
 			}),
 		).rejects.toThrow(ForbiddenError)
+	})
+})
+
+describe("removing an instance", () => {
+	it("takes its sleep timers with it, which would otherwise fire forever", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.remove(owner, "abc123")
+
+		const joined = transport.commands.join("\n")
+		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-stop@abc123.timer'")
+		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
+		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-start@abc123.timer'")
 	})
 })

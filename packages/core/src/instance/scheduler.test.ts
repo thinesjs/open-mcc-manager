@@ -1,5 +1,6 @@
 import type { InstanceCommandRow } from "@open-mcc/db"
 import { describe, expect, it, vi } from "vitest"
+import { isDue } from "./due"
 import { runSchedulerTick, startScheduler } from "./scheduler"
 
 const row = (overrides: Partial<InstanceCommandRow> = {}): InstanceCommandRow => ({
@@ -20,10 +21,15 @@ const row = (overrides: Partial<InstanceCommandRow> = {}): InstanceCommandRow =>
 
 const monday9am = new Date("2026-08-31T09:00:00Z")
 
-const deps = (rows: InstanceCommandRow[], send = vi.fn(async () => undefined)) => {
+const deps = (
+	rows: InstanceCommandRow[],
+	send = vi.fn(async () => undefined),
+	claimRun = vi.fn(async () => true),
+) => {
 	const recordRun = vi.fn(async () => undefined)
 	return {
 		send,
+		claimRun,
 		recordRun,
 		dueCommands: async () => rows,
 		now: () => monday9am,
@@ -37,7 +43,7 @@ describe("scheduler tick", () => {
 
 		expect(result.fired).toEqual(["cmd-1"])
 		expect(base.send).toHaveBeenCalledTimes(1)
-		expect(base.recordRun).toHaveBeenCalledWith("cmd-1", monday9am, null)
+		expect(base.claimRun).toHaveBeenCalled()
 	})
 
 	it("leaves a command that is not due alone", async () => {
@@ -104,6 +110,7 @@ describe("scheduler loop", () => {
 					return []
 				},
 				send: async () => undefined,
+				claimRun: async () => true,
 				recordRun: async () => undefined,
 				now: () => monday9am,
 			},
@@ -124,6 +131,7 @@ describe("scheduler loop", () => {
 			{
 				dueCommands,
 				send: async () => undefined,
+				claimRun: async () => true,
 				recordRun: async () => undefined,
 				now: () => monday9am,
 			},
@@ -137,5 +145,89 @@ describe("scheduler loop", () => {
 
 		expect(dueCommands.mock.calls.length).toBe(before)
 		expect(before).toBeGreaterThan(0)
+	})
+})
+
+describe("claiming a run before sending it", () => {
+	it("claims before it sends, so a lost record cannot become a resend", async () => {
+		const order: string[] = []
+		const claimRun = vi.fn(async () => {
+			order.push("claim")
+			return true
+		})
+		const send = vi.fn(async () => {
+			order.push("send")
+		})
+		const base = deps([row()], send, claimRun)
+
+		await runSchedulerTick(base)
+
+		expect(order).toEqual(["claim", "send"])
+	})
+
+	it("does not send when another worker already claimed the run", async () => {
+		const claimRun = vi.fn(async () => false)
+		const base = deps(
+			[row()],
+			vi.fn(async () => undefined),
+			claimRun,
+		)
+
+		const result = await runSchedulerTick(base)
+
+		expect(base.send).not.toHaveBeenCalled()
+		expect(result.unclaimed).toBe(1)
+		expect(result.fired).toEqual([])
+	})
+
+	it("misses a run rather than repeating it when the database is unreachable", async () => {
+		const claimRun = vi.fn(async () => {
+			throw new Error("Connection terminated")
+		})
+		const base = deps(
+			[row()],
+			vi.fn(async () => undefined),
+			claimRun,
+		)
+
+		const result = await runSchedulerTick(base)
+
+		expect(base.send).not.toHaveBeenCalled()
+		expect(result.failed).toEqual([{ id: "cmd-1", reason: "Connection terminated" }])
+	})
+
+	it("claims against the start of the schedule's own local day", async () => {
+		const seen: Date[] = []
+		const claimRun = vi.fn(async (_id: string, _at: Date, notRunSince: Date) => {
+			seen.push(notRunSince)
+			return true
+		})
+		const base = deps(
+			[row()],
+			vi.fn(async () => undefined),
+			claimRun,
+		)
+
+		await runSchedulerTick(base)
+
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.getTime()).toBeLessThan(monday9am.getTime())
+	})
+})
+
+describe("editing a schedule", () => {
+	it("does not judge a run against a timezone the schedule no longer uses", () => {
+		const ranAt = new Date("2026-08-31T23:00:00Z")
+		const inKualaLumpur = {
+			daysOfWeek: ["Mon"] as const,
+			minuteOfDay: 7 * 60,
+			timezone: "Asia/Kuala_Lumpur",
+			enabled: true,
+			lastRunAt: ranAt,
+		}
+		const movedToUtc = { ...inKualaLumpur, timezone: "UTC" }
+
+		expect(isDue(inKualaLumpur, new Date("2026-08-31T23:10:00Z"))).toBe(false)
+		expect(isDue({ ...movedToUtc, lastRunAt: null }, new Date("2026-08-31T23:10:00Z"))).toBe(false)
 	})
 })

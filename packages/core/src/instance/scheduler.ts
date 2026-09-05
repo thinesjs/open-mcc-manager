@@ -1,5 +1,5 @@
 import type { InstanceCommandRow } from "@open-mcc/db"
-import { isDue } from "./due"
+import { isDue, startOfLocalDay } from "./due"
 import { parseDaysOfWeek } from "./schedule"
 
 export const SCHEDULER_TICK_MS = 30_000
@@ -11,11 +11,13 @@ export type SchedulerRun = {
 	fired: string[]
 	failed: Array<{ id: string; reason: string }>
 	skipped: number
+	unclaimed: number
 }
 
 export type SchedulerDeps = {
 	dueCommands: () => Promise<InstanceCommandRow[]>
 	send: (row: InstanceCommandRow) => Promise<void>
+	claimRun: (id: string, ranAt: Date, notRunSince: Date) => Promise<boolean>
 	recordRun: (id: string, ranAt: Date, error: string | null) => Promise<void>
 	now: () => Date
 	onError?: (message: string, error: Error | string) => void
@@ -33,7 +35,13 @@ export const runSchedulerTick = async (deps: SchedulerDeps): Promise<SchedulerRu
 	const at = deps.now()
 	const rows = await deps.dueCommands()
 
-	const run: SchedulerRun = { considered: rows.length, fired: [], failed: [], skipped: 0 }
+	const run: SchedulerRun = {
+		considered: rows.length,
+		fired: [],
+		failed: [],
+		skipped: 0,
+		unclaimed: 0,
+	}
 
 	for (const row of rows) {
 		let due = false
@@ -51,10 +59,27 @@ export const runSchedulerTick = async (deps: SchedulerDeps): Promise<SchedulerRu
 			continue
 		}
 
+		let claimed = false
+		try {
+			claimed = await deps.claimRun(row.id, at, startOfLocalDay(row, at))
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : UNKNOWN_FAILURE
+			run.failed.push({ id: row.id, reason })
+			deps.onError?.(
+				`Scheduled command ${row.id} could not be claimed`,
+				error instanceof Error ? error : reason,
+			)
+			continue
+		}
+
+		if (!claimed) {
+			run.unclaimed += 1
+			continue
+		}
+
 		try {
 			await deps.send(row)
 			run.fired.push(row.id)
-			await deps.recordRun(row.id, at, null)
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : UNKNOWN_FAILURE
 			run.failed.push({ id: row.id, reason })

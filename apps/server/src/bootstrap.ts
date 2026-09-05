@@ -136,6 +136,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	const scheduler = startScheduler({
 		dueCommands: () => commands.listEnabledAcrossOrganizations(),
 		send: (row) => instanceController.runScheduledCommand(row),
+		claimRun: (id, ranAt, notRunSince) => commands.claimRun(id, ranAt, notRunSince),
 		recordRun: (id, ranAt, error) => commands.recordRun(id, ranAt, error),
 		now: () => new Date(),
 		onError: (message, error) => {

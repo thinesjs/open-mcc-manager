@@ -171,6 +171,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 		listForInstance: vi.fn(async () => []),
 		listEnabledAcrossOrganizations: vi.fn(async () => []),
 		delete: vi.fn(async () => true),
+		claimRun: vi.fn(async () => true),
 		recordRun: vi.fn(async () => undefined),
 	}
 	const hosts: Pick<HostRepository, "findById"> = { findById: vi.fn(async () => hostRow) }

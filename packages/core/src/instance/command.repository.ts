@@ -24,6 +24,8 @@ export const createCommandRepository = (db: Executor) => ({
 					minuteOfDay: values.minuteOfDay,
 					timezone: values.timezone,
 					enabled: values.enabled,
+					lastRunAt: null,
+					lastRunError: null,
 				}),
 			)
 			.returningAll()
@@ -51,6 +53,17 @@ export const createCommandRepository = (db: Executor) => ({
 			.where("organizationId", "=", scope.organizationId)
 			.executeTakeFirst()
 		return (result.numDeletedRows ?? 0n) > 0n
+	},
+
+	claimRun: async (id: string, ranAt: Date, notRunSince: Date): Promise<boolean> => {
+		const row = await db
+			.updateTable("instanceCommand")
+			.set({ lastRunAt: ranAt, lastRunError: null })
+			.where("id", "=", id)
+			.where((eb) => eb.or([eb("lastRunAt", "is", null), eb("lastRunAt", "<", notRunSince)]))
+			.returning("id")
+			.executeTakeFirst()
+		return row !== undefined
 	},
 
 	recordRun: async (id: string, ranAt: Date, error: string | null): Promise<void> => {

@@ -74,3 +74,6 @@ export const isDue = (candidate: DueCandidate, at: Date): boolean => {
 }
 
 export const everyDay = (): DayOfWeek[] => [...DAYS_OF_WEEK]
+
+export const startOfLocalDay = (candidate: Pick<DueCandidate, "timezone">, at: Date): Date =>
+	new Date(at.getTime() - zonedMoment(at, candidate.timezone).minuteOfDay * 60_000)

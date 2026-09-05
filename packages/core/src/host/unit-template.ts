@@ -1,6 +1,8 @@
 export const UNIT_TEMPLATES: Record<string, string> = {
 	"open-mcc@.service": `[Unit]
 Description=open-mcc-manager instance %i
+StartLimitIntervalSec=600
+StartLimitBurst=5
 After=network-online.target
 Wants=network-online.target
 
@@ -19,8 +21,6 @@ TimeoutStopSec=30
 Restart=on-failure
 RestartPreventExitStatus=4
 RestartSec=30
-StartLimitIntervalSec=600
-StartLimitBurst=5
 NoNewPrivileges=yes
 UMask=0077
 ProtectSystem=strict

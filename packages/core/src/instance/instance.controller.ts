@@ -665,6 +665,17 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					`systemctl disable --now ${shellQuote(unitName(instance.id))} || true`,
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
+				for (const name of [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]) {
+					await transport.exec(
+						`systemctl disable --now ${shellQuote(name)} || true`,
+						INSTANCE_STEP_TIMEOUT_MS,
+					)
+					await transport.exec(
+						`rm -f ${shellQuote(`${SYSTEMD_UNIT_DIR}/${name}`)}`,
+						INSTANCE_STEP_TIMEOUT_MS,
+					)
+				}
+				await transport.exec("systemctl daemon-reload", INSTANCE_STEP_TIMEOUT_MS)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

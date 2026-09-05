@@ -30,6 +30,14 @@ describe("embedded systemd unit templates", () => {
 		expect(UNIT_TEMPLATE).toContain("RestartPreventExitStatus=4")
 	})
 
+	it("keeps the start rate limit in the section systemd reads it from", () => {
+		const template = UNIT_TEMPLATES["open-mcc@.service"] ?? ""
+		const unitSection = template.slice(0, template.indexOf("[Service]"))
+		expect(unitSection).toContain("StartLimitIntervalSec=600")
+		expect(unitSection).toContain("StartLimitBurst=5")
+		expect(template.slice(template.indexOf("[Service]"))).not.toContain("StartLimit")
+	})
+
 	it("drives the sleep units through systemctl on the instance's own unit", () => {
 		expect(UNIT_TEMPLATES["open-mcc-sleep-stop@.service"]).toContain(
 			"systemctl stop open-mcc@%i.service",

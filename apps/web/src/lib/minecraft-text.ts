@@ -49,7 +49,7 @@ export type MinecraftStyle = {
 	obfuscated: boolean
 }
 
-export type MinecraftSpan = MinecraftStyle & { text: string }
+export type MinecraftSpan = MinecraftStyle & { text: string; start: number }
 
 const RESET: MinecraftStyle = {
 	color: undefined,
@@ -100,11 +100,16 @@ export const parseFormattedText = (source: string): MinecraftSpan[] => {
 	const spans: MinecraftSpan[] = []
 	let style = RESET
 	let text = ""
+	let start = 0
 
-	const flush = () => {
-		if (text.length === 0) return
-		spans.push({ ...style, text })
+	const flush = (at: number) => {
+		if (text.length === 0) {
+			start = at
+			return
+		}
+		spans.push({ ...style, text, start })
 		text = ""
+		start = at
 	}
 
 	for (let index = 0; index < source.length; index += 1) {
@@ -119,16 +124,16 @@ export const parseFormattedText = (source: string): MinecraftSpan[] => {
 		}
 		const hex = readHexColor(source, index + 1)
 		if (hex !== undefined) {
-			flush()
+			flush(index + 14)
 			style = { ...RESET, color: hex }
 			index += 13
 			continue
 		}
-		flush()
+		flush(index + 2)
 		style = applyCode(style, next.toLowerCase())
 		index += 1
 	}
-	flush()
+	flush(source.length)
 	return spans
 }
 
@@ -138,3 +143,15 @@ export const stripFormatting = (source: string): string =>
 		.join("")
 
 export const hasFormatting = (source: string): boolean => source.includes(SECTION_SIGN)
+
+export type ConsoleLine = { key: number; text: string }
+
+export const consoleLines = (output: string): ConsoleLine[] => {
+	const lines: ConsoleLine[] = []
+	let offset = 0
+	for (const line of output.replace(/\n$/, "").split("\n")) {
+		lines.push({ key: offset, text: `${line}\n` })
+		offset += line.length + 1
+	}
+	return lines
+}

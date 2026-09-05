@@ -17,6 +17,7 @@ import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
+import { consoleLines } from "~/lib/minecraft-text"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/instances/$instanceId")({
@@ -270,13 +271,9 @@ function InstanceDetailPage() {
 							</Alert>
 						) : consoleQuery.data && consoleQuery.data.output.trim().length > 0 ? (
 							<pre className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground">
-								{consoleQuery.data.output
-									.replace(/\n$/, "")
-									.split("\n")
-									.map((line, index) => (
-										// biome-ignore lint/suspicious/noArrayIndexKey: journal lines are positional
-										<MinecraftText key={index} value={`${line}\n`} />
-									))}
+								{consoleLines(consoleQuery.data.output).map((line) => (
+									<MinecraftText key={line.key} value={line.text} />
+								))}
 							</pre>
 						) : (
 							<EmptyState

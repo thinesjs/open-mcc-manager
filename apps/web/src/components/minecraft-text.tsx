@@ -12,10 +12,9 @@ export const MinecraftText = ({ value, className }: MinecraftTextProps) => {
 
 	return (
 		<span className={className}>
-			{spans.map((span, index) => (
+			{spans.map((span) => (
 				<span
-					// biome-ignore lint/suspicious/noArrayIndexKey: spans are positional within one immutable line
-					key={index}
+					key={span.start}
 					className={cn(
 						span.bold && "font-bold",
 						span.italic && "italic",

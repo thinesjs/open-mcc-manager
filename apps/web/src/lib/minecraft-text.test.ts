@@ -10,6 +10,7 @@ describe("minecraft text", () => {
 	it("returns one unstyled span for plain text", () => {
 		expect(parseFormattedText("hello")).toEqual([
 			{
+				start: 0,
 				text: "hello",
 				color: undefined,
 				bold: false,
@@ -87,5 +88,12 @@ describe("minecraft text", () => {
 
 		expect(spans).toHaveLength(1)
 		expect(spans[0]?.text).toBe("text")
+	})
+
+	it("gives each span the offset it began at, so a renderer has a stable key", () => {
+		const spans = parseFormattedText("§cred§agreen")
+
+		expect(spans.map((span) => span.start)).toEqual([2, 7])
+		expect(new Set(spans.map((span) => span.start)).size).toBe(spans.length)
 	})
 })

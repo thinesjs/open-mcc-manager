@@ -1,7 +1,8 @@
+import type { HostStatus } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { HostDrift } from "~/components/host-drift"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostMetricsPanel } from "~/components/host-metrics"
@@ -13,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
+import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
 import { useTRPC } from "~/lib/trpc"
 
 export const confinementLabel = (sandboxed: boolean | null): string => {
@@ -44,6 +46,16 @@ function HostDetailPage() {
 	const removeMutation = useMutation(trpc.host.remove.mutationOptions())
 
 	const host = hostsQuery.data?.find((candidate) => candidate.id === hostId)
+
+	const previousStatus = useRef<HostStatus | undefined>(undefined)
+	const [justProvisioned, setJustProvisioned] = useState(false)
+
+	useEffect(() => {
+		if (!host) return
+		if (sawProvisioningFinish(previousStatus.current, host.status)) setJustProvisioned(true)
+		if (!stillShowingCompletion(host.status, true)) setJustProvisioned(false)
+		previousStatus.current = host.status
+	}, [host])
 
 	const handleProvision = () => {
 		provisionMutation.mutate(
@@ -185,14 +197,16 @@ function HostDetailPage() {
 			) : null}
 
 			{(host.provisioningStep || host.provisioningError) &&
-			(host.status === "provisioning" || host.status === "error") ? (
+			(host.status === "provisioning" || host.status === "error" || justProvisioned) ? (
 				<Card>
 					<CardHeader>
 						<CardTitle>Provisioning</CardTitle>
 						<p className="text-sm text-muted-foreground">
-							{host.status === "provisioning"
-								? "This continues on the server. You can leave this page and come back."
-								: "This run did not finish. Fix the cause on the host, then provision again."}
+							{justProvisioned
+								? "Every step finished. This host can now run instances."
+								: host.status === "provisioning"
+									? "This continues on the server. You can leave this page and come back."
+									: "This run did not finish. Fix the cause on the host, then provision again."}
 						</p>
 					</CardHeader>
 					<CardContent>
@@ -202,15 +216,16 @@ function HostDetailPage() {
 							total={host.provisioningStepTotal}
 							failure={host.provisioningError}
 							running={host.status === "provisioning"}
+							complete={justProvisioned}
 							mode={host.mode}
 						/>
 					</CardContent>
 				</Card>
 			) : null}
 
-			<HostMetricsPanel hostId={host.id} />
+			<HostMetricsPanel hostId={host.id} ready={host.status === "ready"} />
 
-			<HostDrift hostId={host.id} />
+			<HostDrift hostId={host.id} ready={host.status === "ready"} />
 
 			<div className="flex gap-3">
 				<Button

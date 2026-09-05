@@ -12,6 +12,7 @@ import {
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
 	InstanceHostNotFoundError,
+	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
@@ -120,6 +121,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	}
 	if (cause instanceof HostUnreachableError) {
 		return mapped("BAD_REQUEST", "HOST_UNREACHABLE", "Could not open an SSH session to this host")
+	}
+	if (cause instanceof InstanceHostNotProvisionedError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_HOST_NOT_READY",
+			"That host has not been provisioned yet",
+		)
 	}
 	if (cause instanceof InstanceHostNotFoundError) {
 		return mapped(

@@ -9,6 +9,7 @@ import { useTRPC } from "~/lib/trpc"
 
 export type HostMetricsPanelProps = {
 	hostId: string
+	ready: boolean
 }
 
 const Meter = ({ label, used, total }: { label: string; used: number; total: number }) => {
@@ -33,12 +34,13 @@ const Meter = ({ label, used, total }: { label: string; used: number; total: num
 	)
 }
 
-export const HostMetricsPanel = ({ hostId }: HostMetricsPanelProps) => {
+export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 	const trpc = useTRPC()
 	const query = useQuery({
 		...trpc.instance.hostMetrics.queryOptions({ hostId }),
-		enabled: false,
+		enabled: ready,
 		retry: false,
+		staleTime: 30_000,
 	})
 
 	const metrics = query.data
@@ -55,7 +57,7 @@ export const HostMetricsPanel = ({ hostId }: HostMetricsPanelProps) => {
 				<Button
 					size="sm"
 					variant="secondary"
-					disabled={query.isFetching}
+					disabled={query.isFetching || !ready}
 					onClick={() => {
 						void query.refetch()
 					}}
@@ -74,7 +76,9 @@ export const HostMetricsPanel = ({ hostId }: HostMetricsPanelProps) => {
 
 				{!metrics && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">
-						Not read yet. Reading opens an SSH session to this host.
+						{ready
+							? "Reading opens an SSH session to this host."
+							: "Available once this host has been provisioned."}
 					</p>
 				) : null}
 

@@ -7,15 +7,28 @@ export type ProvisionProgressProps = {
 	total: number | null
 	failure?: string | null
 	running: boolean
+	complete?: boolean
 	mode: HostMode
 }
 
 type StepState = "done" | "running" | "failed" | "waiting"
 
-export const stateForStep = (position: number, current: number, running: boolean): StepState => {
+export const stateForStep = (
+	position: number,
+	current: number,
+	running: boolean,
+	complete = false,
+): StepState => {
+	if (complete) return "done"
 	if (position < current) return "done"
 	if (position > current) return "waiting"
 	return running ? "running" : "failed"
+}
+
+export const headlineFor = (running: boolean, complete: boolean, step: string | null): string => {
+	if (complete) return "Ready to run instances"
+	if (running) return step ?? "Starting"
+	return `Stopped at ${step ?? "the first step"}`
 }
 
 export const ProvisionProgress = ({
@@ -24,6 +37,7 @@ export const ProvisionProgress = ({
 	total,
 	failure,
 	running,
+	complete = false,
 	mode,
 }: ProvisionProgressProps) => {
 	const all = provisionStepLabels(mode)
@@ -34,16 +48,18 @@ export const ProvisionProgress = ({
 		<div className="space-y-3">
 			<div className="flex items-baseline justify-between gap-4">
 				<p className="text-sm font-medium text-foreground">
-					{running ? (step ?? "Starting") : `Stopped at ${step ?? "the first step"}`}
+					{headlineFor(running, complete, step)}
 				</p>
 				<p className="shrink-0 text-xs tabular-nums text-muted-foreground">
-					Step {Math.min(current + 1, labels.length)} of {labels.length}
+					{complete
+						? `All ${labels.length} steps`
+						: `Step ${Math.min(current + 1, labels.length)} of ${labels.length}`}
 				</p>
 			</div>
 
 			<ol className="space-y-1.5">
 				{labels.map((label, position) => {
-					const state = stateForStep(position, current, running)
+					const state = stateForStep(position, current, running, complete)
 					return (
 						<li key={label} className="space-y-1">
 							<div className="flex items-center gap-2.5 text-sm">

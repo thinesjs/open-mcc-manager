@@ -9,14 +9,16 @@ import { useTRPC } from "~/lib/trpc"
 
 export type HostDriftProps = {
 	hostId: string
+	ready: boolean
 }
 
-export const HostDrift = ({ hostId }: HostDriftProps) => {
+export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	const trpc = useTRPC()
 	const query = useQuery({
 		...trpc.instance.reconcileHost.queryOptions({ hostId }),
-		enabled: false,
+		enabled: ready,
 		retry: false,
+		staleTime: 30_000,
 	})
 
 	const summary = query.data ? summariseDrift(query.data) : undefined
@@ -33,7 +35,7 @@ export const HostDrift = ({ hostId }: HostDriftProps) => {
 				<Button
 					size="sm"
 					variant="secondary"
-					disabled={query.isFetching}
+					disabled={query.isFetching || !ready}
 					onClick={() => {
 						void query.refetch()
 					}}
@@ -52,7 +54,9 @@ export const HostDrift = ({ hostId }: HostDriftProps) => {
 
 				{summary === undefined && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">
-						Not checked. Requires an SSH connection to the host.
+						{ready
+							? "Requires an SSH connection to the host."
+							: "Available once this host has been provisioned."}
 					</p>
 				) : null}
 

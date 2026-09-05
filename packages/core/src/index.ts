@@ -74,6 +74,7 @@ export {
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
 	InstanceHostNotFoundError,
+	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 } from "./instance/instance.controller"
 export type {

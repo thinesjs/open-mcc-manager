@@ -162,4 +162,8 @@ describe("instance control channel", () => {
 	it("still reconnects an instance as itself", () => {
 		expect(controlLine("!reco")).toBe("/reco")
 	})
+
+	it("refuses a command whose only use is state no operator can read", () => {
+		expect(() => controlLine("!setrnd x 1 9")).toThrow(DisallowedInternalCommandError)
+	})
 })

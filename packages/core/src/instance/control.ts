@@ -34,7 +34,6 @@ export const INTERNAL_COMMANDS = [
 	"recipebook",
 	"reco",
 	"respawn",
-	"setrnd",
 	"sneak",
 	"tab",
 	"teams",

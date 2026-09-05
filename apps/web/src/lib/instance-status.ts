@@ -50,7 +50,7 @@ export const MCC_EXIT_CODE_REASONS: Record<number, string> = {
 	1: "Exited for an unknown reason.",
 	2: "Kicked in game.",
 	3: "Lost its connection to the server.",
-	4: "Login was rejected — it will not be restarted automatically.",
+	4: "Sign-in did not complete. The supervisor will not restart it, so a wrong account or an expired token cannot hammer Microsoft — but a network fault during sign-in ends here too. Re-authenticate, or start it again once the network is healthy.",
 }
 
 export const describeExitCode = (code: number | null): string | undefined =>

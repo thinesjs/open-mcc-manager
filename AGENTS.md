@@ -20,6 +20,25 @@ style, zinc base, `cssVariables: true`, lucide icons, `~/` alias — see
 orchestrated by turbo.
 
 
+### Exit codes, as observed rather than assumed
+
+Verified against build 511 with a FIFO on stdin, the way the unit runs it:
+
+- `3` — the server could not be reached, or dropped the connection. Restartable.
+- `4` — sign-in did not complete. `RestartPreventExitStatus=4` stops the unit here.
+- `0` — clean exit.
+
+`2` (an in-game kick) is **not** verified: reproducing it needs a real server that
+kicks a joined player. The mapping is safe either way, because an unrecognised
+code is treated as restartable, which is what a kick would want.
+
+The `4` case is broader than its name suggested. It is not only a rejected
+credential — a *network* fault while contacting the auth service exits `4` too,
+and the unit then stays down until an operator acts. That is the deliberate
+trade: never hammer Microsoft auth on a bad token, at the cost of a transient
+network fault during sign-in needing a manual start. The dashboard says so
+rather than claiming the login was rejected.
+
 ### The two client settings the supervisor depends on
 
 `renderInstanceConfig` writes `Main.Advanced.ExitOnFailure = true` and

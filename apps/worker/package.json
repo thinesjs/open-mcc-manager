@@ -1,0 +1,23 @@
+{
+	"name": "@open-mcc/worker",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@open-mcc/contracts": "workspace:*",
+		"@open-mcc/core": "workspace:*",
+		"@open-mcc/db": "workspace:*",
+		"@open-mcc/transport": "workspace:*",
+		"kysely": "^0.29.5",
+		"zod": "^3.24.0"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*",
+		"tsx": "^4.23.13"
+	}
+}

@@ -21,3 +21,4 @@ docs/superpowers/
 
 .playwright-mcp/
 .claude/
+apps/web/vite.config.ts.timestamp-*.mjs

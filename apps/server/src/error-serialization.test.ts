@@ -57,7 +57,11 @@ const sshKeys: SshKeyRepository = {
 }
 
 const withTransaction: WithTransaction = (fn) =>
-	fn({ hosts, audit: { record: vi.fn(notCalled("audit.record")) } })
+	fn({
+		hosts,
+		audit: { record: vi.fn(notCalled("audit.record")) },
+		jobs: { enqueue: vi.fn(notCalled("jobs.enqueue")) },
+	})
 
 const probeHostKeyMock = vi.fn(async (): Promise<Buffer> => PRESENTED_HOST_KEY)
 
@@ -65,6 +69,7 @@ const hostControllerDeps: HostControllerDeps = {
 	hosts,
 	sshKeys: { findById: vi.fn(async () => undefined) },
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
+	newId: () => "job-1",
 	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
 	instanceIdsOnHost: vi.fn(async () => []),

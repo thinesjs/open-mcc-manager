@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
-import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
+import type { AuditEventRow, HostRow, JobRow, SshKeyRow } from "@open-mcc/db"
 import { type ConnectionState, createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
+import type { EnqueueJob } from "../job/job.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	CONNECT_TIMEOUT_MS,
@@ -24,6 +26,26 @@ import type {
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
 import { provisionHost } from "./provision"
+
+const jobsDouble = () => ({
+	enqueue: vi.fn(
+		async (job: EnqueueJob): Promise<JobRow> => ({
+			id: job.id,
+			organizationId: job.organizationId,
+			kind: job.kind,
+			payload: job.payload,
+			runAfter: new Date(),
+			attempts: 0,
+			maxAttempts: 8,
+			claimId: null,
+			claimedAt: null,
+			lastError: null,
+			completedAt: null,
+			failedAt: null,
+			createdAt: new Date(),
+		}),
+	),
+})
 
 const CLIENT_PROBE_OK = {
 	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
@@ -190,7 +212,7 @@ const deps = (
 	const audit: Pick<AuditRepository, "record"> = {
 		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => makeAuditEventRow({ ...entry })),
 	}
-	const withTransaction: WithTransaction = async (fn) => fn({ hosts, audit })
+	const withTransaction: WithTransaction = async (fn) => fn({ hosts, audit, jobs: jobsDouble() })
 
 	return {
 		hosts,
@@ -211,6 +233,7 @@ const deps = (
 			}),
 		),
 		instanceIdsOnHost: vi.fn(async () => []),
+		newId: vi.fn(() => randomUUID()),
 		withTransaction,
 		...overrides,
 	}
@@ -435,7 +458,7 @@ describe("host controller provisioning", () => {
 			makeAuditEventRow({ ...entry }),
 		)
 		const withTransaction: WithTransaction = async (fn) =>
-			fn({ hosts, audit: { record: auditRecord } })
+			fn({ hosts, audit: { record: auditRecord }, jobs: jobsDouble() })
 		const d = deps({ hosts, withTransaction })
 		const controller = createHostController(d)
 
@@ -473,6 +496,7 @@ describe("host controller provisioning", () => {
 						makeAuditEventRow({ ...entry }),
 					),
 				},
+				jobs: jobsDouble(),
 			})
 		const d = deps({ withTransaction })
 		const controller = createHostController(d)
@@ -518,6 +542,7 @@ describe("host controller provisioning", () => {
 					updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 				},
 				audit: { record: auditRecord },
+				jobs: jobsDouble(),
 			})
 		const d = deps({ withTransaction })
 		const controller = createHostController(d)
@@ -718,7 +743,7 @@ describe("host controller removal", () => {
 			makeAuditEventRow({ ...entry }),
 		)
 		const withTransaction: WithTransaction = async (fn) =>
-			fn({ hosts, audit: { record: auditRecord } })
+			fn({ hosts, audit: { record: auditRecord }, jobs: jobsDouble() })
 		const d = deps({ hosts, withTransaction })
 		const controller = createHostController(d)
 
@@ -838,7 +863,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			updateHostKeyTrust: vi.fn(async () => makeHostRow()),
 		}
 		const withTransaction: WithTransaction = async (fn) =>
-			fn({ hosts, audit: { record: vi.fn(async () => makeAuditEventRow({})) } })
+			fn({ hosts, audit: { record: vi.fn(async () => makeAuditEventRow({})) }, jobs: jobsDouble() })
 		return {
 			hosts,
 			controller: createHostController(

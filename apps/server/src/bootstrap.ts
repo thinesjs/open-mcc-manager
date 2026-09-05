@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
@@ -81,6 +82,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		secrets,
 		probeHostKey,
 		createTransport: createSshTransport,
+		newId: () => randomUUID(),
 		instanceIdsOnHost: async (scope, hostId) =>
 			(await createInstanceRepository(db).list(scope))
 				.filter((instance) => instance.hostId === hostId)

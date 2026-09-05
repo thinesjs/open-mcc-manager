@@ -10,6 +10,8 @@ import type { Db, HostRow } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
+import { HOST_TEARDOWN_KIND } from "../job/host-teardown.job"
+import { createJobRepository, type JobRepository } from "../job/job.repository"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { checkHostOverTransport, unreachableReport } from "./check"
@@ -19,9 +21,7 @@ import {
 	type HostRepository,
 	isProvisioningClaimStale,
 } from "./host.repository"
-import { profileFrom } from "./profile"
 import { type ProvisionResult, provisionHost } from "./provision"
-import { type TeardownReport, tearDownHost } from "./teardown"
 
 export type ActorContext = {
 	organizationId: string
@@ -33,6 +33,7 @@ export type ActorContext = {
 export type HostTransactionRepos = {
 	hosts: HostRepository
 	audit: Pick<AuditRepository, "record">
+	jobs: Pick<JobRepository, "enqueue">
 }
 
 export type RetrustHostKeyInput = {
@@ -44,9 +45,13 @@ export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T
 
 export const createHostControllerTransaction = (db: Db): WithTransaction => {
 	const withTransaction: WithTransaction = (fn) =>
-		db
-			.transaction()
-			.execute((tx) => fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) }))
+		db.transaction().execute((tx) =>
+			fn({
+				hosts: createHostRepository(tx),
+				audit: createAuditRepository(tx),
+				jobs: createJobRepository(tx),
+			}),
+		)
 	return withTransaction
 }
 
@@ -57,6 +62,7 @@ export type HostControllerDeps = {
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
 	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
+	newId: () => string
 	withTransaction: WithTransaction
 }
 
@@ -74,38 +80,25 @@ export class HostConcurrentlyModifiedError extends Error {}
 export class HostProvisioningInProgressError extends Error {}
 
 export const createHostController = (deps: HostControllerDeps) => {
-	const cleanHost = async (host: HostRow): Promise<TeardownReport | undefined> => {
+	const teardownPayloadFor = async (host: HostRow): Promise<Record<string, string> | undefined> => {
 		if (!host.sshKeyId || !host.hostKeyFingerprint || !host.instancesRoot || !host.unitDir) {
 			return undefined
 		}
-		const key = await deps.sshKeys.findById({ organizationId: host.organizationId }, host.sshKeyId)
-		if (!key) return undefined
-
-		const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 		const instanceIds = await deps.instanceIdsOnHost(
 			{ organizationId: host.organizationId },
 			host.id,
 		)
-		let transport: HostTransport | undefined
-		try {
-			transport = deps.createTransport()
-			await transport.connect({
-				hostname: host.hostname,
-				port: host.port,
-				username: host.username,
-				privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
-				expectedFingerprint: host.hostKeyFingerprint,
-				timeoutMs: CONNECT_TIMEOUT_MS,
-			})
-			return await tearDownHost(transport, profile, instanceIds)
-		} catch (error) {
-			console.error(
-				`host.delete: could not clean host ${host.id}`,
-				redactError(error instanceof Error ? error : String(error)),
-			)
-			return undefined
-		} finally {
-			await transport?.close().catch(() => undefined)
+		return {
+			hostId: host.id,
+			hostname: host.hostname,
+			port: String(host.port),
+			username: host.username,
+			sshKeyId: host.sshKeyId,
+			hostKeyFingerprint: host.hostKeyFingerprint,
+			mode: host.mode,
+			instancesRoot: host.instancesRoot,
+			unitDir: host.unitDir,
+			instanceIds: instanceIds.join(","),
 		}
 	}
 
@@ -406,6 +399,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const scope = { organizationId: ctx.organizationId }
 
 			const target = await deps.hosts.findById(scope, hostId)
+			const teardownPayload = target ? await teardownPayloadFor(target) : undefined
 
 			const removedHost = await deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
@@ -428,33 +422,17 @@ export const createHostController = (deps: HostControllerDeps) => {
 						subjectId: hostId,
 						detail: {},
 					})
+					if (teardownPayload) {
+						await repos.jobs.enqueue({
+							id: deps.newId(),
+							organizationId: ctx.organizationId,
+							kind: HOST_TEARDOWN_KIND,
+							payload: teardownPayload,
+						})
+					}
 				}
 				return removed
 			})
-
-			if (!removedHost || !target) return removedHost
-
-			const cleaned = await cleanHost(target)
-			await deps
-				.withTransaction(async (repos) => {
-					await repos.audit.record(scope, {
-						actorId: ctx.memberId,
-						actorLabel: ctx.actorLabel,
-						action: "host.teardown",
-						subjectType: "host",
-						subjectId: hostId,
-						detail: cleaned
-							? {
-									unitsRemoved: String(cleaned.unitsRemoved.length),
-									accountsRemoved: String(cleaned.accountsRemoved.length),
-									directoryRemoved: String(cleaned.directoryRemoved),
-									lingeringLeft: String(cleaned.lingeringLeft),
-									remaining: cleaned.remaining.join("; "),
-								}
-							: { reached: "false" },
-					})
-				})
-				.catch(() => undefined)
 
 			return removedHost
 		},

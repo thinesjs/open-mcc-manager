@@ -5,7 +5,7 @@ import {
 	reportFrom,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { OS_RELEASE_COMMAND, parseOsRelease, readsAsEnforced, sandboxProbeCommand } from "./facts"
+import { readsAsEnforced, sandboxProbeCommand } from "./facts"
 import { architectureForMachine } from "./mcc-release"
 import { explainClientFailure } from "./provision"
 

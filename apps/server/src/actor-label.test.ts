@@ -59,6 +59,7 @@ beforeAll(async () => {
 		sshKeys,
 		secrets,
 		probeHostKey: async () => HOST_KEY_BLOB,
+		newId: () => randomUUID(),
 		instanceIdsOnHost: async () => [],
 		createTransport: () =>
 			createFakeTransport({

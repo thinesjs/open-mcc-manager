@@ -52,6 +52,7 @@ beforeAll(async () => {
 		},
 		createTransport: () => createFakeTransport(),
 		instanceIdsOnHost: async () => [],
+		newId: () => "job-1",
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

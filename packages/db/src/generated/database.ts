@@ -150,6 +150,22 @@ export interface Invitation {
 	status: string
 }
 
+export interface Job {
+	attempts: Generated<number>
+	claimedAt: Timestamp | null
+	claimId: string | null
+	completedAt: Timestamp | null
+	createdAt: Generated<Timestamp>
+	failedAt: Timestamp | null
+	id: string
+	kind: string
+	lastError: string | null
+	maxAttempts: Generated<number>
+	organizationId: string
+	payload: Generated<Json>
+	runAfter: Generated<Timestamp>
+}
+
 export interface Member {
 	createdAt: Generated<Timestamp>
 	id: string
@@ -217,6 +233,7 @@ export interface DB {
 	instanceConfig: InstanceConfig
 	instanceSchedule: InstanceSchedule
 	invitation: Invitation
+	job: Job
 	member: Member
 	organization: Organization
 	session: Session

@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
+import type { JobRow } from "@open-mcc/db"
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuditRepository } from "../audit/audit.repository"
+import type { EnqueueJob } from "../job/job.repository"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	seedMember,
@@ -28,6 +31,26 @@ import {
 	type OrgScope,
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
+
+const jobsDouble = () => ({
+	enqueue: vi.fn(
+		async (job: EnqueueJob): Promise<JobRow> => ({
+			id: job.id,
+			organizationId: job.organizationId,
+			kind: job.kind,
+			payload: job.payload,
+			runAfter: new Date(),
+			attempts: 0,
+			maxAttempts: 8,
+			claimId: null,
+			claimedAt: null,
+			lastError: null,
+			completedAt: null,
+			failedAt: null,
+			createdAt: new Date(),
+		}),
+	),
+})
 
 const CLIENT_PROBE_OK = {
 	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
@@ -70,6 +93,7 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 	createTransport: vi.fn(),
 	instanceIdsOnHost: vi.fn(async () => []),
+	newId: vi.fn(() => randomUUID()),
 })
 
 describe("host controller transactional mutations", () => {
@@ -99,7 +123,9 @@ describe("host controller transactional mutations", () => {
 			withTransaction: (fn) =>
 				db
 					.transaction()
-					.execute((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
+					.execute((tx) =>
+						fn({ hosts: createHostRepository(tx), audit: throwingAudit, jobs: jobsDouble() }),
+					),
 		})
 
 		await expect(
@@ -137,7 +163,9 @@ describe("host controller transactional mutations", () => {
 			withTransaction: (fn) =>
 				db
 					.transaction()
-					.execute((tx) => fn({ hosts: createHostRepository(tx), audit: throwingAudit })),
+					.execute((tx) =>
+						fn({ hosts: createHostRepository(tx), audit: throwingAudit, jobs: jobsDouble() }),
+					),
 		})
 
 		await expect(
@@ -171,6 +199,7 @@ describe("host controller transactional mutations", () => {
 			...baseDeps(),
 			hosts,
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -279,6 +308,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -321,6 +351,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -401,6 +432,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -422,6 +454,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -467,6 +500,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -501,6 +535,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -525,6 +560,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -545,6 +581,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -659,6 +696,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(instrumentedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction,
 		})
 
@@ -676,7 +714,11 @@ describe("host controller keeps no transaction open across remote provisioning w
 		const withShortIdleTimeout: WithTransaction = (fn) =>
 			db.transaction().execute(async (tx) => {
 				await sql`set local idle_in_transaction_session_timeout = '200ms'`.execute(tx)
-				return fn({ hosts: createHostRepository(tx), audit: createAuditRepository(tx) })
+				return fn({
+					hosts: createHostRepository(tx),
+					audit: createAuditRepository(tx),
+					jobs: jobsDouble(),
+				})
 			})
 
 		const slowTransport = (): HostTransport => {
@@ -702,6 +744,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(slowTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: withShortIdleTimeout,
 		})
 
@@ -788,6 +831,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -815,6 +859,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -905,7 +950,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 						await lockHoldGate
 					},
 				}
-				return fn({ hosts: gatedHosts, audit: createAuditRepository(tx) })
+				return fn({ hosts: gatedHosts, audit: createAuditRepository(tx), jobs: jobsDouble() })
 			})
 
 		const provisionController = createHostController({
@@ -913,6 +958,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
@@ -929,6 +975,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1009,6 +1056,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -1018,6 +1066,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1088,6 +1137,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1153,6 +1203,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1206,6 +1257,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1270,6 +1322,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1327,6 +1380,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1389,6 +1443,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -1398,6 +1453,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1442,6 +1498,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				}),
 			),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		await provisionController.provision(ctx, hostId)
@@ -1454,6 +1511,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
@@ -1477,6 +1535,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
 			instanceIdsOnHost: vi.fn(async () => []),
+			newId: vi.fn(() => randomUUID()),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 		const ctx = actorFor(organizationId, memberId)

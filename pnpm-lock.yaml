@@ -155,6 +155,34 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)
 
+  apps/worker:
+    dependencies:
+      '@open-mcc/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@open-mcc/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@open-mcc/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@open-mcc/transport':
+        specifier: workspace:*
+        version: link:../../packages/transport
+      kysely:
+        specifier: ^0.29.5
+        version: 0.29.5
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@open-mcc/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+
   packages/config: {}
 
   packages/contracts:

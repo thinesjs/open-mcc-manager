@@ -104,6 +104,11 @@ export {
 	startScheduler,
 } from "./instance/scheduler"
 export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
+export { createHostTeardownHandler, HOST_TEARDOWN_KIND } from "./job/host-teardown.job"
+export type { JobRepository } from "./job/job.repository"
+export { backoffFor, createJobRepository, JOB_LEASE_MS } from "./job/job.repository"
+export type { JobHandler, JobOutcome, JobRunnerDeps, JobRunnerHandle } from "./job/job-runner"
+export { runJobTick, startJobRunner } from "./job/job-runner"
 export { assertExhaustive } from "./lib/exhaustive"
 export { redact, redactError } from "./security/redact"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"

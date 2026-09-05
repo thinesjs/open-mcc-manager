@@ -1,4 +1,10 @@
-import type { ConnectionState, ExecResult, HostTransport } from "./types"
+import { PassThrough } from "node:stream"
+import {
+	type ConnectionState,
+	type ExecResult,
+	type HostTransport,
+	LiveChannelUnavailableError,
+} from "./types"
 
 export type FakeScript = Record<string, ExecResult>
 
@@ -17,16 +23,19 @@ export const createFakeTransport = (
 	forwarding = true,
 ): HostTransport & {
 	commands: string[]
+	forwarded: number[]
 	stdins: string[]
 	timeouts: number[]
 } => {
 	let state: ConnectionState = "disconnected"
 	const commands: string[] = []
+	const forwarded: number[] = []
 	const stdins: string[] = []
 	const timeouts: number[] = []
 
 	return {
 		commands,
+		forwarded,
 		stdins,
 		timeouts,
 		state: () => state,
@@ -39,6 +48,13 @@ export const createFakeTransport = (
 			state = "ready"
 		},
 		canForward: async () => forwarding,
+
+		forward: async (port: number) => {
+			if (!forwarding) throw new LiveChannelUnavailableError(`Forwarding is refused`)
+			forwarded.push(port)
+			const socket = new PassThrough()
+			return { socket, close: () => socket.destroy() }
+		},
 
 		exec: async (command: string, timeoutMs?: number, stdin?: string) => {
 			if (state !== "ready") throw new Error("Transport is not connected")

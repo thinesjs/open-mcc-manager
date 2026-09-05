@@ -1,5 +1,12 @@
 import { Client } from "ssh2"
-import type { ConnectionState, ConnectOptions, ExecResult, HostTransport } from "../types"
+import {
+	type ConnectionState,
+	type ConnectOptions,
+	type ExecResult,
+	type ForwardedStream,
+	type HostTransport,
+	LiveChannelUnavailableError,
+} from "../types"
 import { type ExecChannel, execViaChannel } from "./exec"
 import { verifyHostKey } from "./verify"
 
@@ -115,6 +122,31 @@ export const createSshTransport = (): HostTransport => {
 					stream.on("error", () => settle(false))
 					stream.end()
 					settle(true)
+				})
+			}),
+
+		forward: (port: number, timeoutMs: number) =>
+			new Promise<ForwardedStream>((resolve, reject) => {
+				const conn = client
+				if (!conn) return reject(new Error("Transport is not connected"))
+				let settled = false
+				const timer = setTimeout(() => {
+					if (settled) return
+					settled = true
+					reject(new LiveChannelUnavailableError(`Forwarding to port ${port} timed out`))
+				}, timeoutMs)
+				conn.forwardOut("127.0.0.1", 0, "127.0.0.1", port, (error, stream) => {
+					if (settled) {
+						stream?.destroy()
+						return
+					}
+					settled = true
+					clearTimeout(timer)
+					if (error) {
+						reject(new LiveChannelUnavailableError(error.message))
+						return
+					}
+					resolve({ socket: stream, close: () => stream.destroy() })
 				})
 			}),
 

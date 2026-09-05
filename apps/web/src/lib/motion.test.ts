@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { durationFor, variantsFor } from "./motion"
+import { decorativeDuration, measuredDuration, variantsFor } from "./motion"
 
 describe("respecting a reduced-motion preference", () => {
 	it("moves and blurs when the visitor has expressed no preference", () => {
@@ -20,11 +20,19 @@ describe("respecting a reduced-motion preference", () => {
 
 	it("still fades rather than cutting, because motion off is not meaning off", () => {
 		expect(variantsFor(true).visible.opacity).toBe(1)
-		expect(durationFor(true, 0.4)).toBeGreaterThan(0)
+		expect(decorativeDuration(true, 0.4)).toBeGreaterThan(0)
 	})
 
-	it("shortens durations under reduced motion without removing them", () => {
-		expect(durationFor(true, 0.4)).toBeLessThanOrEqual(0.1)
-		expect(durationFor(false, 0.4)).toBe(0.4)
+	it("shortens decorative durations under reduced motion without removing them", () => {
+		expect(decorativeDuration(true, 0.4)).toBeLessThanOrEqual(0.1)
+		expect(decorativeDuration(false, 0.4)).toBe(0.4)
+	})
+
+	it("never shortens a duration that reports how long something takes", () => {
+		expect(measuredDuration(0.9)).toBe(0.9)
+	})
+
+	it("exits at a scale the eye reads as the same object settling", () => {
+		expect(variantsFor(false).hidden.scale).toBeGreaterThanOrEqual(0.9)
 	})
 })

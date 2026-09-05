@@ -6,6 +6,7 @@ import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { buttonVariants } from "~/components/ui/button"
 import { getErrorMessage } from "~/lib/errors"
+import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
 import { describeExitCode } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
 
@@ -15,7 +16,10 @@ export const Route = createFileRoute("/_authenticated/instances/")({
 
 function InstanceListPage() {
 	const trpc = useTRPC()
-	const instancesQuery = useQuery(trpc.instance.list.queryOptions())
+	const instancesQuery = useQuery({
+		...trpc.instance.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+	})
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 
 	const hostNameById = new Map((hostsQuery.data ?? []).map((host) => [host.id, host.name]))

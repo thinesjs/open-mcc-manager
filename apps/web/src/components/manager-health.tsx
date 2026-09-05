@@ -51,8 +51,10 @@ export const ManagerHealth = () => {
 
 			<div className="mt-3 h-1.5 overflow-hidden rounded-full bg-accent">
 				<div
-					className={heapPercent >= 90 ? "h-full bg-warning" : "h-full bg-primary"}
-					style={{ width: `${heapPercent}%` }}
+					className={`h-full w-full origin-left transition-transform duration-[var(--duration-surface)] ease-[var(--ease-settle)] motion-reduce:transition-none ${
+						heapPercent >= 90 ? "bg-warning" : "bg-primary"
+					}`}
+					style={{ transform: `scaleX(${heapPercent / 100})` }}
 				/>
 			</div>
 		</div>

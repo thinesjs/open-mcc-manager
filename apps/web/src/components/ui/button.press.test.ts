@@ -21,9 +21,9 @@ describe("press feedback", () => {
 		}
 	})
 
-	it("uses the short ease-out timing a press needs to feel immediate", () => {
-		expect(button).toContain("duration-150")
-		expect(button).toContain("ease-out")
+	it("takes its timing from the shared motion tokens rather than a loose number", () => {
+		expect(button).toContain("duration-[var(--duration-press)]")
+		expect(button).toContain("ease-[var(--ease-emphasis)]")
 	})
 
 	it("transitions transform, or the scale would snap", () => {

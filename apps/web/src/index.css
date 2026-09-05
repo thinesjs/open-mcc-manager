@@ -55,6 +55,11 @@
 
 :root {
 	--control-radius: 0.5rem;
+	--spin-duration: 650ms;
+	--duration-press: 150ms;
+	--duration-surface: 270ms;
+	--ease-emphasis: cubic-bezier(0.26, 1, 0.5, 1);
+	--ease-settle: cubic-bezier(0.65, 0, 0.35, 1);
 	--sidebar-content-inset: 0.5rem;
 	--glass-blur: 12px;
 	--glass-opacity: 80%;
@@ -178,4 +183,8 @@
 	@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
 		background: var(--popover) !important;
 	}
+}
+
+@utility animate-spin-quick {
+	animation: spin var(--spin-duration) linear infinite;
 }

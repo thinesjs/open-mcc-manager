@@ -38,7 +38,7 @@ export const HostDrift = ({ hostId }: HostDriftProps) => {
 						void query.refetch()
 					}}
 				>
-					<RefreshCw className={query.isFetching ? "size-4 animate-spin" : "size-4"} />
+					<RefreshCw className={query.isFetching ? "size-4 animate-spin-quick" : "size-4"} />
 					{query.isFetching ? "Checking…" : "Check now"}
 				</Button>
 			</CardHeader>

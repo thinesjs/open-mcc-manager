@@ -10,6 +10,7 @@ import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { getErrorMessage } from "~/lib/errors"
+import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/hosts/$hostId")({
@@ -28,7 +29,10 @@ function HostDetailPage() {
 	const queryClient = useQueryClient()
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
-	const hostsQuery = useQuery(trpc.host.list.queryOptions())
+	const hostsQuery = useQuery({
+		...trpc.host.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
+	})
 	const provisionMutation = useMutation(trpc.host.provision.mutationOptions())
 	const removeMutation = useMutation(trpc.host.remove.mutationOptions())
 

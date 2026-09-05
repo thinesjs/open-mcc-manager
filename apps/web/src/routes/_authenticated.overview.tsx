@@ -13,6 +13,11 @@ import {
 	INSTANCE_STATUS_ORDER,
 	instancesNeedingAttention,
 } from "~/lib/fleet"
+import {
+	pollIntervalFor,
+	TRANSIENT_HOST_STATUSES,
+	TRANSIENT_INSTANCE_STATUSES,
+} from "~/lib/freshness"
 import { presentHostStatus } from "~/lib/host-status"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -23,8 +28,14 @@ export const Route = createFileRoute("/_authenticated/overview")({
 
 function OverviewPage() {
 	const trpc = useTRPC()
-	const instancesQuery = useQuery(trpc.instance.list.queryOptions())
-	const hostsQuery = useQuery(trpc.host.list.queryOptions())
+	const instancesQuery = useQuery({
+		...trpc.instance.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+	})
+	const hostsQuery = useQuery({
+		...trpc.host.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
+	})
 
 	const instances = instancesQuery.data ?? []
 	const hosts = hostsQuery.data ?? []

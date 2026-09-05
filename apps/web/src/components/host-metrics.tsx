@@ -23,14 +23,10 @@ const Meter = ({ label, used, total }: { label: string; used: number; total: num
 			</div>
 			<div className="h-1.5 overflow-hidden rounded-full bg-accent">
 				<div
-					className={
-						percent >= 90
-							? "h-full rounded-full bg-error"
-							: percent >= 75
-								? "h-full rounded-full bg-warning"
-								: "h-full rounded-full bg-primary"
-					}
-					style={{ width: `${percent}%` }}
+					className={`h-full w-full origin-left rounded-full transition-transform duration-[var(--duration-surface)] ease-[var(--ease-settle)] motion-reduce:transition-none ${
+						percent >= 90 ? "bg-error" : percent >= 75 ? "bg-warning" : "bg-primary"
+					}`}
+					style={{ transform: `scaleX(${percent / 100})` }}
 				/>
 			</div>
 		</div>
@@ -64,7 +60,7 @@ export const HostMetricsPanel = ({ hostId }: HostMetricsPanelProps) => {
 						void query.refetch()
 					}}
 				>
-					<RefreshCw className={query.isFetching ? "size-4 animate-spin" : "size-4"} />
+					<RefreshCw className={query.isFetching ? "size-4 animate-spin-quick" : "size-4"} />
 					{query.isFetching ? "Reading…" : "Read now"}
 				</Button>
 			</CardHeader>

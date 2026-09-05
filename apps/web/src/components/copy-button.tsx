@@ -2,7 +2,7 @@ import { Check, Copy } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useState } from "react"
 import { Button } from "~/components/ui/button"
-import { durationFor, variantsFor } from "~/lib/motion"
+import { decorativeDuration, variantsFor } from "~/lib/motion"
 
 export type CopyButtonProps = {
 	value: string
@@ -43,7 +43,7 @@ export const CopyButton = ({ value, label }: CopyButtonProps) => {
 						initial="hidden"
 						animate="visible"
 						exit="hidden"
-						transition={{ type: "spring", duration: durationFor(reduced, 0.2), bounce: 0 }}
+						transition={{ type: "spring", duration: decorativeDuration(reduced, 0.2), bounce: 0 }}
 						className="flex"
 					>
 						<Check className="size-4 text-success" />
@@ -55,7 +55,7 @@ export const CopyButton = ({ value, label }: CopyButtonProps) => {
 						initial="hidden"
 						animate="visible"
 						exit="hidden"
-						transition={{ type: "spring", duration: durationFor(reduced, 0.2), bounce: 0 }}
+						transition={{ type: "spring", duration: decorativeDuration(reduced, 0.2), bounce: 0 }}
 						className="flex"
 					>
 						<Copy className="size-4" />

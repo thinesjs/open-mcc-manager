@@ -9,6 +9,7 @@ import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
 import { getErrorMessage } from "~/lib/errors"
+import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/hosts/")({
@@ -19,7 +20,10 @@ function HostListPage() {
 	const navigate = useNavigate()
 	const [enrolling, setEnrolling] = useState(false)
 	const trpc = useTRPC()
-	const hostsQuery = useQuery(trpc.host.list.queryOptions())
+	const hostsQuery = useQuery({
+		...trpc.host.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
+	})
 
 	return (
 		<div className="space-y-6">

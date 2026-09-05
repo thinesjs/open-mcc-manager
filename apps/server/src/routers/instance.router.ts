@@ -56,6 +56,11 @@ export const instanceRouter = router({
 		return { output }
 	}),
 
+	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.getConfig(ctx.actor, input.instanceId)
+	}),
+
 	updateConfig: protectedProcedure
 		.input(updateInstanceConfigInput)
 		.mutation(async ({ ctx, input }) => {

@@ -2,6 +2,7 @@ import {
 	type CreateInstanceInput,
 	can,
 	type InstanceConfigInput,
+	instanceConfigInput,
 	minuteOfDay,
 	needsInteractiveSignIn,
 	type Role,
@@ -452,6 +453,18 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
+		},
+
+		getConfig: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<InstanceConfigInput | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			await requireInstance(ctx, instanceId)
+			const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
+			if (!row) return undefined
+			const parsed = instanceConfigInput.safeParse(row.document)
+			return parsed.success ? parsed.data : undefined
 		},
 
 		updateConfig: async (

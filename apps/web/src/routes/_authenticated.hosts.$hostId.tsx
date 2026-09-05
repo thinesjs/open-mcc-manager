@@ -5,6 +5,7 @@ import { useState } from "react"
 import { HostDrift } from "~/components/host-drift"
 import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostStatusBadge } from "~/components/host-status-badge"
+import { ProvisionProgress } from "~/components/provision-progress"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
@@ -136,6 +137,32 @@ function HostDetailPage() {
 					</div>
 				</CardContent>
 			</Card>
+
+			{host.status === "error" && host.provisioningStep ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					Provisioning stopped at step {(host.provisioningStepIndex ?? 0) + 1} of{" "}
+					{host.provisioningStepTotal ?? 0}: {host.provisioningStep}. Fix the cause on the host,
+					then provision again.
+				</Alert>
+			) : null}
+
+			{host.status === "provisioning" ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Provisioning</CardTitle>
+						<p className="text-sm text-muted-foreground">
+							This continues on the server. You can leave this page and come back.
+						</p>
+					</CardHeader>
+					<CardContent>
+						<ProvisionProgress
+							step={host.provisioningStep}
+							index={host.provisioningStepIndex}
+							total={host.provisioningStepTotal}
+						/>
+					</CardContent>
+				</Card>
+			) : null}
 
 			<HostMetricsPanel hostId={host.id} />
 

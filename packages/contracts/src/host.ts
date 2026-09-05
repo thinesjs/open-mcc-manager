@@ -29,3 +29,17 @@ export const retrustHostKeyInput = z.object({
 })
 
 export type RetrustHostKeyInput = z.infer<typeof retrustHostKeyInput>
+
+export const PROVISION_STEP_LABELS = [
+	"Checking systemd",
+	"Creating the instances directory",
+	"Reading the host architecture",
+	"Downloading the client",
+	"Verifying the download",
+	"Installing the client",
+	"Installing the instance unit",
+	"Installing the sleep units",
+	"Reloading systemd",
+] as const
+
+export type ProvisionStepLabel = (typeof PROVISION_STEP_LABELS)[number]

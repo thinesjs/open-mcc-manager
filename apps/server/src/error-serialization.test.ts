@@ -39,6 +39,7 @@ const hosts: HostRepository = {
 	list: vi.fn(async () => []),
 	update: vi.fn(async () => undefined),
 	delete: vi.fn(async () => false),
+	recordProvisioningProgress: vi.fn(async () => undefined),
 	lockHost: vi.fn(async () => undefined),
 	claimForProvisioning: vi.fn(async () => undefined),
 	finalizeProvisioning: vi.fn(async () => undefined),

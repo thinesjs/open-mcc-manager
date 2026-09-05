@@ -193,7 +193,14 @@ export const createHostController = (deps: HostControllerDeps) => ({
 					expectedFingerprint,
 					timeoutMs: CONNECT_TIMEOUT_MS,
 				})
-				return await provisionHost(transport, { instancesRoot: deps.instancesRoot })
+				return await provisionHost(transport, {
+					instancesRoot: deps.instancesRoot,
+					onProgress: (progress) => {
+						void deps.hosts
+							.recordProvisioningProgress(scope, hostId, attemptId, progress)
+							.catch(() => undefined)
+					},
+				})
 			} finally {
 				await closeQuietly(transport)
 			}

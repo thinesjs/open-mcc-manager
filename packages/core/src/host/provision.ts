@@ -17,11 +17,34 @@ export const UNIT_TEMPLATE_INSTANCES_ROOT = "/srv/open-mcc"
 
 export type ProvisionOptions = {
 	instancesRoot: string
+	onProgress?: ProvisionReporter
 }
 
 export type ProvisionResult = {
 	osRelease: string
 }
+
+export const PROVISION_STEPS = [
+	"Checking systemd",
+	"Creating the instances directory",
+	"Reading the host architecture",
+	"Downloading the client",
+	"Verifying the download",
+	"Installing the client",
+	"Installing the instance unit",
+	"Installing the sleep units",
+	"Reloading systemd",
+] as const
+
+export type ProvisionStep = (typeof PROVISION_STEPS)[number]
+
+export type ProvisionProgress = {
+	step: ProvisionStep
+	index: number
+	total: number
+}
+
+export type ProvisionReporter = (progress: ProvisionProgress) => void
 
 export const PROVISION_STEP_TIMEOUT_MS = 15_000
 
@@ -57,35 +80,62 @@ export const provisionHost = async (
 	options: ProvisionOptions,
 ): Promise<ProvisionResult> => {
 	const instancesRoot = validateInstancesRoot(options.instancesRoot)
+	let completed = 0
+	const advance = (): void => {
+		const next = PROVISION_STEPS[completed]
+		if (next) options.onProgress?.({ step: next, index: completed, total: PROVISION_STEPS.length })
+		completed += 1
+	}
 
+	advance()
 	const osRelease = await step(
 		transport,
 		"systemctl --version | head -n 1",
 		"systemd is not available on this host",
 	)
 
+	advance()
 	await step(
 		transport,
 		`install -d -m 0711 -o root -g root ${shellQuote(`${instancesRoot}/instances`)}`,
 		"Failed to create instances directory",
 	)
 
+	advance()
 	const machine = await step(transport, "uname -m", "Failed to read the host machine architecture")
 	const release = mccReleaseForMachine(machine)
 
-	await step(
+	advance()
+	const workDir = await step(
 		transport,
-		`set -e; d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; curl -fsSL ${shellQuote(
-			release.url,
-		)} -o "$d/mcc"; printf '%s  %s' ${shellQuote(
-			release.sha256,
-		)} "$d/mcc" | sha256sum -c -; install -D -m 0755 "$d/mcc" ${shellQuote(
-			`${instancesRoot}/bin/MinecraftClient`,
-		)}`,
-		"Failed to install a verified Minecraft Console Client",
+		`d=$(mktemp -d) && curl -fsSL ${shellQuote(release.url)} -o "$d/mcc" && printf '%s' "$d"`,
+		"Failed to download the Minecraft Console Client",
 		PROVISION_DOWNLOAD_TIMEOUT_MS,
 	)
 
+	try {
+		advance()
+		await step(
+			transport,
+			`printf '%s  %s' ${shellQuote(release.sha256)} ${shellQuote(`${workDir}/mcc`)} | sha256sum -c -`,
+			"The downloaded client did not match its expected checksum",
+		)
+
+		advance()
+		await step(
+			transport,
+			`install -D -m 0755 ${shellQuote(`${workDir}/mcc`)} ${shellQuote(
+				`${instancesRoot}/bin/MinecraftClient`,
+			)}`,
+			"Failed to install the client",
+		)
+	} finally {
+		await transport
+			.exec(`rm -rf ${shellQuote(workDir)}`, PROVISION_STEP_TIMEOUT_MS)
+			.catch(() => undefined)
+	}
+
+	advance()
 	await step(
 		transport,
 		`cat > ${shellQuote(UNIT_TEMPLATE_PATH)}`,
@@ -94,6 +144,7 @@ export const provisionHost = async (
 		UNIT_TEMPLATES[INSTANCE_UNIT_NAME],
 	)
 
+	advance()
 	for (const name of SLEEP_UNIT_NAMES) {
 		await step(
 			transport,
@@ -104,6 +155,7 @@ export const provisionHost = async (
 		)
 	}
 
+	advance()
 	await step(transport, "systemctl daemon-reload", "Failed to reload systemd")
 
 	return { osRelease }

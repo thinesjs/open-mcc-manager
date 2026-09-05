@@ -2,6 +2,7 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import {
 	assertInstancesRootMatchesUnitTemplate,
+	PROVISION_STEPS,
 	provisionHost,
 	validateInstancesRoot,
 } from "./provision"
@@ -35,8 +36,8 @@ describe("provisionHost", () => {
 		expect(result.osRelease).toEqual(expect.any(String))
 	})
 
-	it("aborts before installing when the downloaded client fails its checksum", async () => {
-		const transport = createFakeTransport({}, {})
+	it("never installs a client whose checksum did not match", async () => {
+		const transport = createFakeTransport({})
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -52,12 +53,33 @@ describe("provisionHost", () => {
 				: await original(command, timeoutMs, stdin)
 
 		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
-			/verified/i,
+			/checksum/i,
 		)
+		expect(transport.commands.some((command) => command.includes("install -D"))).toBe(false)
 	})
 
-	it("verifies and installs the client in one command from a private temporary directory", async () => {
-		const transport = createFakeTransport({}, {})
+	it("removes the downloaded file even when the checksum rejects it", async () => {
+		const transport = createFakeTransport({})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+		const original = transport.exec
+		transport.exec = async (command: string, timeoutMs: number, stdin?: string) =>
+			command.includes("sha256sum")
+				? { stdout: "", stderr: "FAILED", exitCode: 1 }
+				: await original(command, timeoutMs, stdin)
+
+		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow()
+		expect(transport.commands.some((command) => command.startsWith("rm -rf"))).toBe(true)
+	})
+
+	it("downloads into a private temporary directory rather than a guessable path", async () => {
+		const transport = createFakeTransport({})
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -69,13 +91,48 @@ describe("provisionHost", () => {
 
 		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
 
-		const install = transport.commands.find((command) => command.includes("install -D"))
-		if (install === undefined) throw new Error("no install step was issued")
-
-		expect(install).toContain("set -e")
-		expect(install).toContain("mktemp -d")
-		expect(install.indexOf("sha256sum")).toBeLessThan(install.indexOf("install -D"))
+		const download = transport.commands.find((command) => command.includes("curl"))
+		expect(download).toContain("mktemp -d")
 		expect(transport.commands.some((command) => command.includes("/tmp/mcc-download"))).toBe(false)
+	})
+
+	it("verifies before it installs, as two steps an operator can tell apart", async () => {
+		const transport = createFakeTransport({})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+
+		const verifyAt = transport.commands.findIndex((command) => command.includes("sha256sum"))
+		const installAt = transport.commands.findIndex((command) => command.includes("install -D"))
+		expect(verifyAt).toBeGreaterThanOrEqual(0)
+		expect(installAt).toBeGreaterThan(verifyAt)
+	})
+
+	it("reports every step it is about to take, in order", async () => {
+		const transport = createFakeTransport({})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		const seen: string[] = []
+		await provisionHost(transport, {
+			instancesRoot: "/srv/open-mcc",
+			onProgress: (progress) => seen.push(progress.step),
+		})
+
+		expect(seen).toEqual([...PROVISION_STEPS])
 	})
 
 	it("installs the build matching the host's own architecture, not a fixed one", async () => {
@@ -93,10 +150,10 @@ describe("provisionHost", () => {
 
 		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
 
-		const install = transport.commands.find((command) => command.includes("install -D"))
-		if (install === undefined) throw new Error("no install step was issued")
-		expect(install).toContain("linux-arm64")
-		expect(install).not.toContain("linux-x64")
+		const download = transport.commands.find((command) => command.includes("curl"))
+		if (download === undefined) throw new Error("no download step was issued")
+		expect(download).toContain("linux-arm64")
+		expect(download).not.toContain("linux-x64")
 	})
 
 	it("refuses to provision a host whose architecture has no published build", async () => {
@@ -115,7 +172,7 @@ describe("provisionHost", () => {
 		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
 			/riscv64/,
 		)
-		expect(transport.commands.some((command) => command.includes("install -D"))).toBe(false)
+		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 	})
 
 	it("delivers the unit template as stdin rather than a concatenated heredoc", async () => {

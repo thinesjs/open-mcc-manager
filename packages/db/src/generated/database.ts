@@ -72,6 +72,9 @@ export interface Host {
 	port: Generated<number>
 	provisioningAttemptId: string | null
 	provisioningClaimedAt: Timestamp | null
+	provisioningStep: string | null
+	provisioningStepIndex: number | null
+	provisioningStepTotal: number | null
 	sshKeyId: string | null
 	status: Generated<string>
 	username: Generated<string>

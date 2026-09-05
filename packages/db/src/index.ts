@@ -5,4 +5,3 @@ export { CONSTRAINT_VIOLATION_KINDS, constraintViolationOf } from "./constraint-
 export type { Json, JsonObject, JsonValue } from "./generated/database"
 export { DrizzleHistoryWithoutBaselineError, migrateToLatest } from "./migrator"
 export * from "./schema/index"
-export type { JobInsert, JobRow, JobTable } from "./schema/job"

@@ -69,7 +69,6 @@ const hostControllerDeps: HostControllerDeps = {
 	hosts,
 	sshKeys: { findById: vi.fn(async () => undefined) },
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
-	newId: () => "job-1",
 	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
 	instanceIdsOnHost: vi.fn(async () => []),

@@ -4,8 +4,7 @@ import { loadWorkerEnv } from "./env"
 const main = async (): Promise<void> => {
 	const worker = await startWorker(loadWorkerEnv())
 	const stop = (): void => {
-		worker.stop()
-		process.exit(0)
+		void worker.stop().then(() => process.exit(0))
 	}
 	process.on("SIGINT", stop)
 	process.on("SIGTERM", stop)

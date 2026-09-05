@@ -1,11 +1,9 @@
-import { randomUUID } from "node:crypto"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
-import type { AuditEventRow, HostRow, JobRow, SshKeyRow } from "@open-mcc/db"
+import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
 import { type ConnectionState, createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import type { EnqueueJob } from "../job/job.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	CONNECT_TIMEOUT_MS,
@@ -27,25 +25,7 @@ import type {
 import { PROVISIONING_LEASE_MS } from "./host.repository"
 import { provisionHost } from "./provision"
 
-const jobsDouble = () => ({
-	enqueue: vi.fn(
-		async (job: EnqueueJob): Promise<JobRow> => ({
-			id: job.id,
-			organizationId: job.organizationId,
-			kind: job.kind,
-			payload: job.payload,
-			runAfter: new Date(),
-			attempts: 0,
-			maxAttempts: 8,
-			claimId: null,
-			claimedAt: null,
-			lastError: null,
-			completedAt: null,
-			failedAt: null,
-			createdAt: new Date(),
-		}),
-	),
-})
+const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
 const CLIENT_PROBE_OK = {
 	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
@@ -233,7 +213,6 @@ const deps = (
 			}),
 		),
 		instanceIdsOnHost: vi.fn(async () => []),
-		newId: vi.fn(() => randomUUID()),
 		withTransaction,
 		...overrides,
 	}

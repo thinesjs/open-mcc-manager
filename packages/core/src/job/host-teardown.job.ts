@@ -1,10 +1,7 @@
-import type { JobRow, Json, JsonObject } from "@open-mcc/db"
+import type { Json } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { profileFrom } from "../host/profile"
 import { tearDownHost } from "../host/teardown"
-import type { JobOutcome } from "./job-runner"
-
-export const HOST_TEARDOWN_KIND = "host.teardown"
 
 export type TeardownPayload = {
 	hostId: string
@@ -17,11 +14,12 @@ export type TeardownPayload = {
 	instancesRoot: string
 	unitDir: string
 	instanceIds: string
+	organizationId: string
 }
 
-export const readPayload = (payload: Json): TeardownPayload | undefined => {
-	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined
-	const record: JsonObject = payload
+export const readPayload = (payload: object): TeardownPayload | undefined => {
+	if (payload === null || Array.isArray(payload)) return undefined
+	const record: Record<string, Json | undefined> = { ...payload }
 	const required = [
 		"hostId",
 		"hostname",
@@ -32,6 +30,7 @@ export const readPayload = (payload: Json): TeardownPayload | undefined => {
 		"mode",
 		"instancesRoot",
 		"unitDir",
+		"organizationId",
 	] as const
 	for (const key of required) {
 		if (typeof record[key] !== "string") return undefined
@@ -52,6 +51,7 @@ export const readPayload = (payload: Json): TeardownPayload | undefined => {
 		instancesRoot: value("instancesRoot"),
 		unitDir: value("unitDir"),
 		instanceIds: value("instanceIds"),
+		organizationId: value("organizationId"),
 	}
 }
 
@@ -75,12 +75,12 @@ export type TeardownJobDeps = {
 
 export const createHostTeardownHandler =
 	(deps: TeardownJobDeps) =>
-	async (job: JobRow): Promise<JobOutcome> => {
-		const payload = readPayload(job.payload)
-		if (!payload) return "abandon"
+	async (data: object): Promise<void> => {
+		const payload = readPayload(data)
+		if (!payload) return
 
-		const key = await deps.openKey(job.organizationId, payload.sshKeyId)
-		if (!key) return "abandon"
+		const key = await deps.openKey(payload.organizationId, payload.sshKeyId)
+		if (!key) throw new Error(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
 
 		const profile = profileFrom(
 			payload.mode === "system" ? "system" : "rootless",
@@ -105,7 +105,9 @@ export const createHostTeardownHandler =
 				lingeringLeft: String(report.lingeringLeft),
 				remaining: report.remaining.join("; "),
 			})
-			return report.remaining.length === 0 ? "done" : "retry"
+			if (report.remaining.length > 0) {
+				throw new Error(`Host was not fully cleaned: ${report.remaining.join("; ")}`)
+			}
 		} finally {
 			await transport?.close().catch(() => undefined)
 		}

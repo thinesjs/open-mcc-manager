@@ -22,11 +22,7 @@ describe("what the worker needs to start", () => {
 		expect(() => loadWorkerEnv({ DATABASE_URL: base.DATABASE_URL })).toThrow()
 	})
 
-	it("polls on a sane interval by default", () => {
-		expect(loadWorkerEnv(base).JOB_TICK_MS).toBe(10_000)
-	})
-
-	it("refuses an interval so short it would hammer the database", () => {
-		expect(() => loadWorkerEnv({ ...base, JOB_TICK_MS: "10" })).toThrow()
+	it("ignores anything else the environment carries", () => {
+		expect(loadWorkerEnv({ ...base, PORT: "3000" }).DATABASE_URL).toBe(base.DATABASE_URL)
 	})
 })

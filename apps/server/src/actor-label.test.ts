@@ -59,7 +59,6 @@ beforeAll(async () => {
 		sshKeys,
 		secrets,
 		probeHostKey: async () => HOST_KEY_BLOB,
-		newId: () => randomUUID(),
 		instanceIdsOnHost: async () => [],
 		createTransport: () =>
 			createFakeTransport({
@@ -69,7 +68,7 @@ beforeAll(async () => {
 					exitCode: 0,
 				},
 			}),
-		withTransaction: createHostControllerTransaction(db),
+		withTransaction: createHostControllerTransaction(db, async () => null),
 	})
 	const sshKeyController = createSshKeyController({
 		sshKeys,

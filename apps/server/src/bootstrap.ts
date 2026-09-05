@@ -17,8 +17,10 @@ import {
 	createSshKeyRepository,
 	generateSshKeyPair,
 	type HealthPollerHandle,
+	HOST_TEARDOWN_QUEUE,
 	redactError,
 	type SchedulerHandle,
+	type SendJob,
 	startHealthPoller,
 	startScheduler,
 	usesKnownInsecureKey,
@@ -26,6 +28,7 @@ import {
 import { createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
 import { Hono } from "hono"
+import { PgBoss } from "pg-boss"
 import { createAuth } from "./auth"
 import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
@@ -42,12 +45,21 @@ export type ServerHandle = {
 	db: Db
 	scheduler: SchedulerHandle
 	healthPoller: HealthPollerHandle
+	boss: PgBoss
 }
 
 export type Serve = typeof serve
 
 export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandle> => {
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
+
+	const boss = new PgBoss({ connectionString: env.DATABASE_URL, supervise: false })
+	boss.on("error", (error: Error) => {
+		console.error("Job queue error", error.message)
+	})
+	await boss.start()
+	await boss.createQueue(HOST_TEARDOWN_QUEUE)
+	const sendJob: SendJob = (queue, payload, runner) => boss.send(queue, payload, { db: runner })
 
 	const db = createDb(env.DATABASE_URL)
 	const allowed = env.ALLOWED_ORIGINS.split(",")
@@ -82,12 +94,11 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		secrets,
 		probeHostKey,
 		createTransport: createSshTransport,
-		newId: () => randomUUID(),
 		instanceIdsOnHost: async (scope, hostId) =>
 			(await createInstanceRepository(db).list(scope))
 				.filter((instance) => instance.hostId === hostId)
 				.map((instance) => instance.id),
-		withTransaction: createHostControllerTransaction(db),
+		withTransaction: createHostControllerTransaction(db, sendJob),
 	})
 	const instanceController = createInstanceController({
 		instances: createInstanceRepository(db),
@@ -176,5 +187,5 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		},
 	})
 
-	return { app, server, lock, db, scheduler, healthPoller }
+	return { app, server, lock, db, scheduler, healthPoller, boss }
 }

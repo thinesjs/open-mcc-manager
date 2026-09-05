@@ -10,8 +10,7 @@ import type { Db, HostRow } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import { HOST_TEARDOWN_KIND } from "../job/host-teardown.job"
-import { createJobRepository, type JobRepository } from "../job/job.repository"
+import { createJobQueue, HOST_TEARDOWN_QUEUE, type JobQueue, type SendJob } from "../job/job.queue"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { checkHostOverTransport, unreachableReport } from "./check"
@@ -33,7 +32,7 @@ export type ActorContext = {
 export type HostTransactionRepos = {
 	hosts: HostRepository
 	audit: Pick<AuditRepository, "record">
-	jobs: Pick<JobRepository, "enqueue">
+	jobs: JobQueue
 }
 
 export type RetrustHostKeyInput = {
@@ -43,13 +42,13 @@ export type RetrustHostKeyInput = {
 
 export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T>) => Promise<T>
 
-export const createHostControllerTransaction = (db: Db): WithTransaction => {
+export const createHostControllerTransaction = (db: Db, sendJob: SendJob): WithTransaction => {
 	const withTransaction: WithTransaction = (fn) =>
 		db.transaction().execute((tx) =>
 			fn({
 				hosts: createHostRepository(tx),
 				audit: createAuditRepository(tx),
-				jobs: createJobRepository(tx),
+				jobs: createJobQueue(sendJob, tx),
 			}),
 		)
 	return withTransaction
@@ -62,7 +61,6 @@ export type HostControllerDeps = {
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
 	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
-	newId: () => string
 	withTransaction: WithTransaction
 }
 
@@ -423,11 +421,9 @@ export const createHostController = (deps: HostControllerDeps) => {
 						detail: {},
 					})
 					if (teardownPayload) {
-						await repos.jobs.enqueue({
-							id: deps.newId(),
+						await repos.jobs.enqueue(HOST_TEARDOWN_QUEUE, {
+							...teardownPayload,
 							organizationId: ctx.organizationId,
-							kind: HOST_TEARDOWN_KIND,
-							payload: teardownPayload,
 						})
 					}
 				}

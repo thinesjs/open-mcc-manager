@@ -36,9 +36,18 @@ export const PLAYER_NAME_PATTERN = /Cached session is still valid for ([A-Za-z0-
 export const playerNameFrom = (journal: string): string | undefined =>
 	PLAYER_NAME_PATTERN.exec(journal)?.[1]
 
+export const CHAT_MARKER = "\u258c"
+
+export const clientEmittedLines = (journal: string): string =>
+	journal
+		.split("\n")
+		.filter((line) => !line.includes(CHAT_MARKER))
+		.join("\n")
+
 export const looksStuck = (journal: string): boolean => {
-	if (STUCK_MARKERS.some((marker) => journal.includes(marker))) return true
-	return journal.includes(SERVER_INFO_MARKER) && !journal.includes(JOINED_MARKER)
+	const own = clientEmittedLines(journal)
+	if (STUCK_MARKERS.some((marker) => own.includes(marker))) return true
+	return own.includes(SERVER_INFO_MARKER) && !own.includes(JOINED_MARKER)
 }
 
 export const parseObservedState = (output: string): ObservedState => {

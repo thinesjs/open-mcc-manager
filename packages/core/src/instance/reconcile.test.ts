@@ -445,4 +445,23 @@ describe("recognising a client that is stuck", () => {
 	it("says nothing about a journal that has scrolled past both markers", () => {
 		expect(looksStuck("OpenMccBot joined the game\n<someone> hello")).toBe(false)
 	})
+
+	it("ignores a marker that arrived as server chat, which anyone on the server can send", () => {
+		const hostile = [
+			"[MCC] Server was successfully joined.",
+			"\u258c<griefer> Not connected to any server",
+		].join("\n")
+
+		expect(looksStuck(hostile)).toBe(false)
+	})
+
+	it("still trusts a marker the client emitted itself", () => {
+		expect(looksStuck("Not connected to any server")).toBe(true)
+	})
+
+	it("does not let chat hide a genuine failure to join", () => {
+		const halted = ["Server version: Paper 26.2", "\u258c<player> hello"].join("\n")
+
+		expect(looksStuck(halted)).toBe(true)
+	})
 })

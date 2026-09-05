@@ -61,6 +61,27 @@ in `packages/core/src/instance/config.ts`:
 | `RUNTIME` | MCC writes it, we never compare | Nothing |
 | `UNMANAGED` | MCC's several hundred other keys | Nothing |
 
+**`UNMANAGED` does not mean preserved, and the difference is destructive.** Measured on a
+live host: MCC had expanded our instance config to 620 canonical lines, and a single save
+from the settings UI replaced it with the 25 lines we render. Every key we do not write is
+gone, and MCC restores its *default* for it on next load — not the operator's previous
+value. So a hand-edited `TerrainAndMovements = true` is silently reverted by an unrelated
+change to the anti-AFK interval.
+
+Two ways to resolve it, and the plan takes the first:
+
+1. **The manager owns the file.** Say so plainly in the UI and in `SECURITY.md`: manual
+   edits to `MinecraftClient.ini` are not preserved. This is coherent for a manager whose
+   whole purpose is removing configuration drift, and it costs nothing to implement.
+2. Read-modify-write — parse the host's file, set only our keys, serialise the rest back.
+   This needs a full TOML reader *and* writer, and it must survive MCC's own rewrite, which
+   reorders and re-comments the file anyway.
+
+Choosing (1) raises the stakes on what `MANAGED` covers: anything an operator might
+reasonably want to set must become a managed key with a field, because everything else
+resets. That is a direct argument for Stage 4's gating keys landing in Stage 1's model
+rather than being discovered later.
+
 Render only `MANAGED` and `FIXED`. Do not try to emit an MCC-canonical document:
 that means reimplementing Tomlet's serialisation, MCC's comment injection and every
 `OnSettingUpdate` normalisation, and keeping it correct across MCC versions — for

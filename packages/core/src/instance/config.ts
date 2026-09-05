@@ -24,9 +24,12 @@ export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.EnableSentry",
 	"Main.Advanced.ExitOnFailure",
 	"Main.Advanced.InternalCmdChar",
+	"Main.General.Method",
 ] as const
 
 export const INTERNAL_CMD_CHAR = "slash"
+
+export const LOGIN_METHOD = "mcc"
 
 const TOML_ESCAPES: Record<string, string> = {
 	"\\": "\\\\",
@@ -96,6 +99,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 	[
 		"[Main.General]",
 		`AccountType = ${tomlString(MCC_LOGIN_TYPES[config.accountType])}`,
+		`Method = ${tomlString(LOGIN_METHOD)}`,
 		"",
 		"[Main.General.Account]",
 		`Login = ${tomlString(config.minecraftAccount)}`,

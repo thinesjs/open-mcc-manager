@@ -37,6 +37,7 @@ describe("instance config rendering", () => {
 			.map((line) => line.split(" = ")[0])
 		expect(assignments).toEqual([
 			"AccountType",
+			"Method",
 			"Login",
 			"Password",
 			"Host",
@@ -175,5 +176,13 @@ describe("instance config rendering", () => {
 		expect(renderInstanceConfig({ ...base, autoRespawnEnabled: true })).toContain(
 			"AutoRespawn = true",
 		)
+	})
+
+	it("pins sign-in to the device code, the only flow a headless host can complete", () => {
+		expect(renderInstanceConfig(base)).toContain('Method = "mcc"')
+	})
+
+	it("declares the sign-in method fixed, since a browser flow has no display to open", () => {
+		expect(FIXED_CONFIG_KEYS).toContain("Main.General.Method")
 	})
 })

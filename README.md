@@ -1,6 +1,8 @@
+<img src="docs/assets/banner.png" alt="OpenMCC" width="100%">
+
 # open-mcc-manager
 
-A centralised control plane for managing Minecraft Console Client instances across multiple VPS hosts.
+A centralised control plane for managing Minecraft Console Client instances across a fleet of servers.
 
 ## Requirements
 

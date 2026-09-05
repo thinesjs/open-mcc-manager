@@ -51,9 +51,13 @@ function AuthenticatedLayout() {
 			<aside className="flex h-full w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
 				<div>
 					<div className="flex items-center gap-2 px-5 py-4">
-						<span className="grid size-7 place-items-center rounded-[var(--control-radius)] bg-primary text-xs font-bold text-primary-foreground">
-							M
-						</span>
+						<img
+							src="/logo.png"
+							alt=""
+							width={28}
+							height={28}
+							className="size-7 shrink-0 dark:invert"
+						/>
 						<span className="text-sm font-semibold tracking-tight text-foreground">OpenMCC</span>
 					</div>
 					<nav className="flex flex-col gap-5 px-3 py-2">

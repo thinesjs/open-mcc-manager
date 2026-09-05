@@ -82,6 +82,26 @@ describe("the units a host without root runs", () => {
 })
 
 describe("the units both modes run", () => {
+	it("holds the control channel open for writing, so the client is not blocked at startup waiting for one", () => {
+		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
+			expect(template).toContain("exec 3<>")
+			expect(template).toContain("<&3")
+		}
+	})
+
+	it("does not take stdin straight from the fifo, which blocks until a writer appears", () => {
+		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
+			expect(template).not.toContain("StandardInput=file:")
+		}
+	})
+
+	it("still routes the console to journald, which is how the manager reads it", () => {
+		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
+			expect(template).toContain("StandardOutput=journal")
+			expect(template).toContain("StandardError=journal")
+		}
+	})
+
 	it("drives the sleep units through systemctl on the instance's own unit", () => {
 		expect(system["open-mcc-sleep-stop@.service"]).toContain("systemctl stop open-mcc@%i.service")
 		expect(system["open-mcc-sleep-start@.service"]).toContain("systemctl start open-mcc@%i.service")

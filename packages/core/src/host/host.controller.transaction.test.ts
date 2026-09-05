@@ -29,6 +29,14 @@ import {
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 
+const CLIENT_PROBE_OK = {
+	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+		stdout: "Minecraft Console Client v26.2",
+		stderr: "",
+		exitCode: 0,
+	},
+}
+
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
 	const length = Buffer.alloc(4)
@@ -261,6 +269,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -294,6 +303,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 
 		const createTransport = vi.fn(() =>
 			createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			}),
 		)
@@ -423,6 +433,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 
 		const gatedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -472,6 +483,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -604,6 +616,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 		const sightings: boolean[] = []
 		const instrumentedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -648,6 +661,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 
 		const slowTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -745,6 +759,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -871,6 +886,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -942,6 +958,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedFingerprint: string | undefined
 		const recordingTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1013,6 +1030,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedTarget: { hostname: string; port: number; username: string } | undefined
 		const recordingTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1090,6 +1108,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		const open = vi.fn((encrypted: string) => `private-key-of:${encrypted}`)
 		const createTransport = vi.fn(() =>
 			createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			}),
 		)
@@ -1210,6 +1229,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -1308,6 +1328,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedFingerprint: string | undefined
 		const gatedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1376,6 +1397,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
+					...CLIENT_PROBE_OK,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),

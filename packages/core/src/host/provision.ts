@@ -48,6 +48,20 @@ export const PROVISION_STEP_TIMEOUT_MS = 15_000
 
 export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
 
+export const CLIENT_PROBE_TIMEOUT_MS = 30_000
+
+export const CLIENT_BANNER = "Minecraft Console Client"
+
+export const explainClientFailure = (output: string): string => {
+	if (/ICU/i.test(output)) {
+		return "The client needs the libicu library, which this host does not have. Install it (Debian and Ubuntu: libicu; Alpine: icu-libs; RHEL and Fedora: libicu) and provision again."
+	}
+	const firstLine = output.trim().split("\n")[0] ?? ""
+	return firstLine.length > 0
+		? `The installed client could not start: ${firstLine}`
+		: "The installed client could not start, and reported nothing."
+}
+
 export const validateInstancesRoot = (instancesRoot: string): string =>
 	validateHostPath(instancesRoot, "instancesRoot")
 
@@ -156,6 +170,16 @@ export const provisionHost = async (
 		await transport
 			.exec(`rm -rf ${shellQuote(workDir)}`, PROVISION_STEP_TIMEOUT_MS)
 			.catch(() => undefined)
+	}
+
+	advance()
+	const probe = await transport.exec(
+		`${shellQuote(`${profile.instancesRoot}/bin/MinecraftClient`)} --help < /dev/null 2>&1`,
+		CLIENT_PROBE_TIMEOUT_MS,
+	)
+	const probeOutput = `${probe.stdout}\n${probe.stderr}`
+	if (!probeOutput.includes(CLIENT_BANNER)) {
+		throw new Error(explainClientFailure(probeOutput))
 	}
 
 	const templates = renderUnitTemplates(profile)

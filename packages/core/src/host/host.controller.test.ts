@@ -23,6 +23,14 @@ import type {
 import { PROVISIONING_LEASE_MS } from "./host.repository"
 import { provisionHost } from "./provision"
 
+const CLIENT_PROBE_OK = {
+	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+		stdout: "Minecraft Console Client v26.2",
+		stderr: "",
+		exitCode: 0,
+	},
+}
+
 const ctx = {
 	organizationId: "org-1",
 	memberId: "mem-1",
@@ -192,6 +200,7 @@ const deps = (
 		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
 		createTransport: vi.fn(() =>
 			createFakeTransport({
+				...CLIENT_PROBE_OK,
 				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
@@ -511,6 +520,7 @@ describe("host controller provisioning", () => {
 
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
@@ -556,6 +566,7 @@ describe("host controller provisioning", () => {
 
 	it("transitions status to error and rethrows the original error when systemd is missing, without auditing or leaking the private key", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
@@ -703,6 +714,7 @@ const provisionConnectOptions = {
 describe("provisionHost", () => {
 	it("records the systemd version and creates a setgid instances directory", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": {
 				stdout: "systemd 252 (252.22-1~deb12u1)",
 				stderr: "",
@@ -719,6 +731,7 @@ describe("provisionHost", () => {
 
 	it("fails when systemd is absent", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		await transport.connect(provisionConnectOptions)
@@ -732,6 +745,7 @@ describe("provisionHost", () => {
 
 	it("refuses a home directory carrying a shell metacharacter, so a hostile host cannot smuggle a command into every later path", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			'printf %s "$HOME"': { stdout: "/home/$(id -u)", stderr: "", exitCode: 0 },
 		})
@@ -744,6 +758,7 @@ describe("provisionHost", () => {
 
 	it("refuses a relative home directory rather than resolving it against an unknown working directory", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			'printf %s "$HOME"': { stdout: "home/mccuser", stderr: "", exitCode: 0 },
 		})
@@ -754,7 +769,7 @@ describe("provisionHost", () => {
 	})
 
 	it("finishes its worst-case remote work inside the provisioning lease, counting every step it actually runs", async () => {
-		const transport = createFakeTransport()
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect(provisionConnectOptions)
 		await provisionHost(transport, { mode: "system" })
 

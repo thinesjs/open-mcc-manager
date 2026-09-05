@@ -39,6 +39,8 @@ export type RetrustHostKeyInput = z.infer<typeof retrustHostKeyInput>
 
 export const LINGER_STEP_LABEL = "Checking that instances survive a logout"
 
+export const CLIENT_RUNS_STEP_LABEL = "Checking the client runs"
+
 export const PROVISION_STEP_LABELS = [
 	"Checking systemd",
 	"Creating the instances directory",
@@ -46,6 +48,7 @@ export const PROVISION_STEP_LABELS = [
 	"Downloading the client",
 	"Verifying the download",
 	"Installing the client",
+	CLIENT_RUNS_STEP_LABEL,
 	"Installing the instance unit",
 	"Installing the sleep units",
 	"Reloading systemd",
@@ -59,6 +62,7 @@ export const ROOTLESS_PROVISION_STEP_LABELS = [
 	"Downloading the client",
 	"Verifying the download",
 	"Installing the client",
+	CLIENT_RUNS_STEP_LABEL,
 	"Installing the instance unit",
 	"Installing the sleep units",
 	"Reloading systemd",

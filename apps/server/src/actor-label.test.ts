@@ -60,7 +60,13 @@ beforeAll(async () => {
 		secrets,
 		probeHostKey: async () => HOST_KEY_BLOB,
 		createTransport: () =>
-			createFakeTransport({ "docker --version": { stdout: "", stderr: "", exitCode: 0 } }),
+			createFakeTransport({
+				"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+					stdout: "Minecraft Console Client v26.2",
+					stderr: "",
+					exitCode: 0,
+				},
+			}),
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

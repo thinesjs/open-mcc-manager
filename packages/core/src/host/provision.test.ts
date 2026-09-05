@@ -1,6 +1,19 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { PROVISION_STEPS, provisionHost, validateInstancesRoot } from "./provision"
+import {
+	explainClientFailure,
+	PROVISION_STEPS,
+	provisionHost,
+	validateInstancesRoot,
+} from "./provision"
+
+const CLIENT_PROBE_OK = {
+	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+		stdout: "Minecraft Console Client v26.2",
+		stderr: "",
+		exitCode: 0,
+	},
+}
 
 describe("validateInstancesRoot", () => {
 	it("rejects a relative path and a path with a space", () => {
@@ -15,7 +28,7 @@ describe("validateInstancesRoot", () => {
 
 describe("provisionHost", () => {
 	it("never asks the host about docker, which it no longer needs", async () => {
-		const transport = createFakeTransport()
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -32,7 +45,7 @@ describe("provisionHost", () => {
 	})
 
 	it("never installs a client whose checksum did not match", async () => {
-		const transport = createFakeTransport({})
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -52,7 +65,7 @@ describe("provisionHost", () => {
 	})
 
 	it("removes the downloaded file even when the checksum rejects it", async () => {
-		const transport = createFakeTransport({})
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -72,7 +85,7 @@ describe("provisionHost", () => {
 	})
 
 	it("downloads into a private temporary directory rather than a guessable path", async () => {
-		const transport = createFakeTransport({})
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -90,7 +103,7 @@ describe("provisionHost", () => {
 	})
 
 	it("verifies before it installs, as two steps an operator can tell apart", async () => {
-		const transport = createFakeTransport({})
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -109,7 +122,7 @@ describe("provisionHost", () => {
 	})
 
 	it("reports every step it is about to take, in order", async () => {
-		const transport = createFakeTransport({})
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -130,6 +143,7 @@ describe("provisionHost", () => {
 
 	it("installs the build matching the host's own architecture, not a fixed one", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"uname -m": { stdout: "aarch64\n", stderr: "", exitCode: 0 },
 		})
 		await transport.connect({
@@ -151,6 +165,7 @@ describe("provisionHost", () => {
 
 	it("refuses to provision a host whose architecture has no published build", async () => {
 		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
 			"uname -m": { stdout: "riscv64", stderr: "", exitCode: 0 },
 		})
 		await transport.connect({
@@ -167,7 +182,7 @@ describe("provisionHost", () => {
 	})
 
 	it("delivers the unit template as stdin rather than a concatenated heredoc", async () => {
-		const transport = createFakeTransport()
+		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({
 			hostname: "h",
 			port: 22,
@@ -183,5 +198,47 @@ describe("provisionHost", () => {
 		expect(command).toBe("cat > '/etc/systemd/system/open-mcc@.service'")
 		expect(transport.stdins.some((each) => each.includes("RestartPreventExitStatus=4"))).toBe(true)
 		expect(transport.commands).toContain("systemctl daemon-reload")
+	})
+})
+
+describe("checking the client can actually run", () => {
+	it("names the missing library when the runtime cannot start, rather than reporting a bare failure", () => {
+		const message = explainClientFailure(
+			"Process terminated.\nCouldn't find a valid ICU package installed on the system.",
+		)
+
+		expect(message).toContain("libicu")
+		expect(message).toContain("provision again")
+	})
+
+	it("quotes what the client said when the failure is something else", () => {
+		expect(explainClientFailure("Permission denied")).toContain("Permission denied")
+	})
+
+	it("says so plainly when the client fails silently", () => {
+		expect(explainClientFailure("   \n  ")).toContain("reported nothing")
+	})
+
+	it("refuses to finish provisioning a host where the client cannot start", async () => {
+		const transport = createFakeTransport({
+			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
+			"uname -m": { stdout: "x86_64", stderr: "", exitCode: 0 },
+			"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+				stdout: "Couldn't find a valid ICU package installed on the system.",
+				stderr: "",
+				exitCode: 134,
+			},
+		})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "u",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/libicu/)
+		expect(transport.commands.some((command) => command.includes("daemon-reload"))).toBe(false)
 	})
 })

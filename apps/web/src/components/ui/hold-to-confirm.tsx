@@ -52,7 +52,7 @@ export const HoldToConfirm = ({
 			}}
 			onKeyUp={cancel}
 			onBlur={cancel}
-			className="relative isolate flex h-9 items-center justify-center overflow-hidden rounded-[var(--control-radius)] border border-destructive px-4 text-sm font-medium text-destructive-foreground transition-colors disabled:opacity-50 sm:h-8"
+			className="relative isolate flex h-9 items-center justify-center overflow-hidden rounded-[var(--control-radius)] border border-destructive px-4 text-sm font-medium text-destructive-foreground transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-50 sm:h-8"
 		>
 			<motion.span
 				aria-hidden="true"

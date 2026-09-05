@@ -47,7 +47,7 @@ export const ThemeToggle = () => {
 				setPreference(next)
 				storePreference(window.localStorage, next)
 			}}
-			className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
 		>
 			<Icon className="size-4" />
 			{LABELS[preference]}

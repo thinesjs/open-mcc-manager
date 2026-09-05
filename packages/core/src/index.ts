@@ -128,6 +128,14 @@ export {
 } from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
+export type { BuildInfo } from "./system/build-info"
+export { describeBuild, isDevelopmentBuild, readBuildInfo, sameBuild } from "./system/build-info"
+export type {
+	ControlPlaneCondition,
+	ControlPlaneStatus,
+	ProcessRecord,
+} from "./system/fleet-status"
+export { CONDITION_EXPLANATION, conditionFor, needsAttention } from "./system/fleet-status"
 export type { HostMetrics } from "./system/host-metrics"
 export {
 	HOST_METRICS_COMMAND,
@@ -136,3 +144,8 @@ export {
 } from "./system/host-metrics"
 export type { GrowthVerdict, ManagerMetrics, ProcessSample } from "./system/metrics"
 export { assessHeapGrowth, sampleManagerMetrics } from "./system/metrics"
+export type { ProcessIdentityRepository } from "./system/process-identity.repository"
+export {
+	createProcessIdentityRepository,
+	startHeartbeat,
+} from "./system/process-identity.repository"

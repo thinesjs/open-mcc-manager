@@ -7,6 +7,7 @@ import type {
 	InstanceScheduleTable,
 	InstanceTable,
 } from "./schema/instance"
+import type { ProcessIdentityTable } from "./schema/process-identity"
 import type { SshKeyTable } from "./schema/ssh-key"
 
 export type Database = Omit<
@@ -20,6 +21,7 @@ export type Database = Omit<
 	| "instanceCommand"
 > & {
 	host: HostTable
+	processIdentity: ProcessIdentityTable
 	sshKey: SshKeyTable
 	auditEvent: AuditEventTable
 	instance: InstanceTable

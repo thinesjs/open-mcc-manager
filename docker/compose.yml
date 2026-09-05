@@ -32,6 +32,9 @@ services:
     build:
       context: ..
       dockerfile: docker/server/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +61,9 @@ services:
     build:
       context: ..
       dockerfile: docker/worker/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
     depends_on:
       postgres:
         condition: service_healthy

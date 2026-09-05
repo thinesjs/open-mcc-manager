@@ -169,6 +169,15 @@ export interface Organization {
 	slug: string
 }
 
+export interface ProcessIdentity {
+	commit: string
+	role: string
+	schemaVersion: string
+	seenAt: Generated<Timestamp>
+	startedAt: Generated<Timestamp>
+	version: string
+}
+
 export interface Session {
 	activeOrganizationId: string | null
 	createdAt: Generated<Timestamp>
@@ -221,6 +230,7 @@ export interface DB {
 	invitation: Invitation
 	member: Member
 	organization: Organization
+	processIdentity: ProcessIdentity
 	session: Session
 	sshKey: SshKey
 	user: User

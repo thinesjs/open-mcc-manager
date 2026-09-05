@@ -1,5 +1,11 @@
 import { isRole } from "@open-mcc/contracts"
-import type { HostController, InstanceController, SshKeyController } from "@open-mcc/core"
+import type {
+	BuildInfo,
+	HostController,
+	InstanceController,
+	ProcessIdentityRepository,
+	SshKeyController,
+} from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import type { Auth } from "./auth"
 import type { Actor, RequestContext } from "./context"
@@ -9,6 +15,9 @@ export type AppDeps = {
 	signupAuth: Auth
 	db: Db
 	hostController: HostController
+	processIdentities: ProcessIdentityRepository
+	build: BuildInfo
+	schemaVersion: string
 	instanceController: InstanceController
 	sshKeyController: SshKeyController
 }
@@ -49,6 +58,9 @@ export const createRequestContext = (deps: AppDeps) => {
 			signupAuth: deps.signupAuth,
 			headers: opts.req.headers,
 			hostController: deps.hostController,
+			processIdentities: deps.processIdentities,
+			build: deps.build,
+			schemaVersion: deps.schemaVersion,
 			instanceController: deps.instanceController,
 			sshKeyController: deps.sshKeyController,
 			db: deps.db,

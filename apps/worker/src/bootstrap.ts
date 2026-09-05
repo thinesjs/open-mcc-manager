@@ -2,11 +2,14 @@ import {
 	createAuditRepository,
 	createHostRepository,
 	createHostTeardownHandler,
+	createProcessIdentityRepository,
 	createSecretStore,
 	createSshKeyRepository,
 	HOST_TEARDOWN_QUEUE,
+	readBuildInfo,
+	startHeartbeat,
 } from "@open-mcc/core"
-import { createDb, type Db } from "@open-mcc/db"
+import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
 import { createSshTransport } from "@open-mcc/transport"
 import type { Job } from "pg-boss"
 import { PgBoss } from "pg-boss"
@@ -26,6 +29,19 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 	const sshKeys = createSshKeyRepository(db)
 	const hosts = createHostRepository(db)
 	const audit = createAuditRepository(db)
+
+	const build = readBuildInfo(process.env)
+	const identities = createProcessIdentityRepository(db)
+	await identities.announce(
+		{
+			role: "worker",
+			version: build.version,
+			commit: build.commit,
+			schemaVersion: await appliedSchemaVersion(db),
+		},
+		new Date(),
+	)
+	const heartbeat = startHeartbeat(identities, "worker")
 
 	const boss = new PgBoss({ connectionString: env.DATABASE_URL })
 	boss.on("error", (error: Error) => {
@@ -76,6 +92,7 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 		db,
 		boss,
 		stop: async () => {
+			heartbeat.stop()
 			await boss.stop()
 			await db.destroy()
 		},

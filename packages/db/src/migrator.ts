@@ -81,3 +81,10 @@ export const migrateToLatest = async (db: Db): Promise<MigrationResultSet> => {
 	}
 	return createMigrator(db).migrateToLatest()
 }
+
+export const appliedSchemaVersion = async (db: Db): Promise<string> => {
+	const result = await sql<{ name: string }>`
+		select "name" from "kysely_migration" order by "name" desc limit 1
+	`.execute(db)
+	return result.rows[0]?.name ?? "none"
+}

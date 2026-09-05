@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
 import { Boxes, KeyRound, LayoutDashboard, LogOut, Server } from "lucide-react"
+import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
 import { authClient } from "~/lib/auth-client"
 import { decideFromSession } from "~/lib/session-guard"
@@ -60,6 +61,7 @@ function AuthenticatedLayout() {
 						/>
 						<span className="text-sm font-semibold tracking-tight text-foreground">OpenMCC</span>
 					</div>
+					<BuildBadge />
 					<nav className="flex flex-col gap-5 px-3 py-2">
 						{SECTIONS.map((section) => (
 							<div key={section.label ?? "root"} className="flex flex-col gap-1">
@@ -106,7 +108,10 @@ function AuthenticatedLayout() {
 				</div>
 			</aside>
 			<main className="h-full min-w-0 flex-1 overflow-y-auto px-8 py-6">
-				<Outlet />
+				<div className="space-y-6">
+					<ControlPlaneStatus />
+					<Outlet />
+				</div>
 			</main>
 		</div>
 	)

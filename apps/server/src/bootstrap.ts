@@ -1,6 +1,7 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
+	type BuildInfo,
 	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
 	createHostController,
@@ -9,6 +10,7 @@ import {
 	createInstanceController,
 	createInstanceControllerTransaction,
 	createInstanceRepository,
+	createProcessIdentityRepository,
 	createScheduleRepository,
 	createSecretStore,
 	createSshKeyController,
@@ -17,14 +19,16 @@ import {
 	generateSshKeyPair,
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
+	readBuildInfo,
 	redactError,
 	type SchedulerHandle,
 	type SendJob,
 	startHealthPoller,
+	startHeartbeat,
 	startScheduler,
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
-import { createDb, type Db } from "@open-mcc/db"
+import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { PgBoss } from "pg-boss"
@@ -45,6 +49,9 @@ export type ServerHandle = {
 	scheduler: SchedulerHandle
 	healthPoller: HealthPollerHandle
 	boss: PgBoss
+	heartbeat: { stop: () => void }
+	build: BuildInfo
+	schemaVersion: string
 }
 
 export type Serve = typeof serve
@@ -61,6 +68,14 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	const sendJob: SendJob = (queue, payload, runner) => boss.send(queue, payload, { db: runner })
 
 	const db = createDb(env.DATABASE_URL)
+	const build = readBuildInfo(process.env)
+	const schemaVersion = await appliedSchemaVersion(db)
+	const identities = createProcessIdentityRepository(db)
+	await identities.announce(
+		{ role: "server", version: build.version, commit: build.commit, schemaVersion },
+		new Date(),
+	)
+	const heartbeat = startHeartbeat(identities, "server")
 	const allowed = env.ALLOWED_ORIGINS.split(",")
 		.map((origin) => origin.trim())
 		.filter((origin) => origin.length > 0)
@@ -122,7 +137,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	app.use("*", strictCors(allowed))
 	app.use("*", requireSameOrigin(allowed))
 
-	app.get("/healthz", (c) => c.json({ ok: true }))
+	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
 	app.get("/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
 	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 	app.use(
@@ -134,6 +149,9 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				signupAuth,
 				db,
 				hostController,
+				processIdentities: identities,
+				build,
+				schemaVersion,
 				instanceController,
 				sshKeyController,
 			}),
@@ -187,5 +205,5 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		},
 	})
 
-	return { app, server, lock, db, scheduler, healthPoller, boss }
+	return { app, server, lock, db, scheduler, healthPoller, boss, heartbeat, build, schemaVersion }
 }

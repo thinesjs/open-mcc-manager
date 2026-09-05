@@ -1,0 +1,32 @@
+import { conditionFor } from "@open-mcc/core"
+import { protectedProcedure, router } from "../trpc"
+
+export const systemRouter = router({
+	status: protectedProcedure.query(async ({ ctx }) => {
+		const worker = await ctx.processIdentities.find("worker")
+		const server = { build: ctx.build, schemaVersion: ctx.schemaVersion }
+		return {
+			condition: conditionFor(
+				server,
+				worker
+					? {
+							role: "worker" as const,
+							version: worker.version,
+							commit: worker.commit,
+							schemaVersion: worker.schemaVersion,
+							seenAt: worker.seenAt,
+						}
+					: undefined,
+			),
+			server: { ...ctx.build, schemaVersion: ctx.schemaVersion },
+			worker: worker
+				? {
+						version: worker.version,
+						commit: worker.commit,
+						schemaVersion: worker.schemaVersion,
+						seenAt: worker.seenAt,
+					}
+				: null,
+		}
+	}),
+})

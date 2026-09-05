@@ -105,6 +105,13 @@ const ctx: RequestContext = {
 	signupAuth: auth,
 	headers: new Headers(),
 	hostController,
+	processIdentities: {
+		announce: async () => undefined,
+		heartbeat: async () => undefined,
+		find: async () => undefined,
+	},
+	build: { version: "0.0.0-test", commit: "testsha" },
+	schemaVersion: "test",
 	instanceController: await createTestInstanceController(db),
 	sshKeyController,
 	db,

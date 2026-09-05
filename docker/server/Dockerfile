@@ -21,6 +21,10 @@ RUN test -d /out/node_modules/argon2/prebuilds
 RUN node prune-deploy.mjs /out
 
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime
+ARG APP_VERSION=0.0.0-dev
+ARG GIT_SHA=unknown
+ENV APP_VERSION=$APP_VERSION
+ENV GIT_SHA=$GIT_SHA
 WORKDIR /app
 COPY --from=build --chown=nonroot:nonroot /out /app
 USER nonroot

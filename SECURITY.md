@@ -214,6 +214,19 @@ depth, not a substitute for one.
   the supervisor needs — never restart on a rejected login — cannot be expressed
   by a container restart policy. An escape from one instance's sandbox reaches
   the other instances on that host.
+- **Drift reporting discloses other organizations' instance ids on a shared
+  host.** Reconciliation enumerates the manager's unit files in
+  `/etc/systemd/system` and reports any the requesting organization does not
+  define. That listing is host-wide, while the expected set is organization-
+  scoped, so if two organizations enroll the *same* machine, each sees the
+  other's sleep timers — and therefore the other's instance ids — reported as
+  unexpected drift. The enumeration cannot distinguish another organization's
+  live timer from a leftover of one's own deleted instance, which is the case it
+  exists to catch. This is consistent with the deployment model above:
+  organizations are an administrative partition, not a customer-isolation
+  boundary. Do not enroll one host into two organizations that should not see
+  each other.
+
 - **Per-host SSH identities are an operator recommendation, not an enforced
   property.** `host.sshKeyId` is a plain nullable foreign key; the only
   uniqueness constraint on `host` is `(organizationId, name)`. Nothing today

@@ -83,6 +83,30 @@ describe("instance config rendering", () => {
 		expect(rendered.match(/^ExitOnFailure = .*$/gm)).toEqual(["ExitOnFailure = true"])
 	})
 
+	it("escapes every control character, which toml forbids raw in a basic string", () => {
+		const hostile = `play\u0000example\u0001com\u001f\u007f`
+		const rendered = renderInstanceConfig({ ...base, serverAddress: hostile })
+
+		expect(rendered).toContain("\\u0000")
+		expect(rendered).toContain("\\u0001")
+		expect(rendered).toContain("\\u001f")
+		expect(rendered).toContain("\\u007f")
+		const raw = [...rendered].filter((character) => {
+			const code = character.charCodeAt(0)
+			return (code < 0x20 && character !== "\n") || code === 0x7f
+		})
+		expect(raw).toEqual([])
+	})
+
+	it("still escapes the characters that would end the string or add a line", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			serverAddress: 'a"b\\c\nd\te',
+		})
+		const hostLines = rendered.split("\n").filter((line) => line.startsWith("Host = "))
+		expect(hostLines).toHaveLength(1)
+	})
+
 	it("never lets operator input reach a key the manager fixes", () => {
 		const rendered = renderInstanceConfig({
 			...base,

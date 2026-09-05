@@ -22,8 +22,9 @@ describe("the compose file a real deployment uses", () => {
 	})
 
 	it("takes both secrets from the environment rather than hardcoding them", () => {
-		expect(base).toContain("BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}")
-		expect(base).toContain("SEALBOX_KEYS: ${SEALBOX_KEYS}")
+		for (const name of ["BETTER_AUTH_SECRET", "SEALBOX_KEYS"]) {
+			expect(new RegExp(`${name}: \\$\\{${name}\\}`).test(base)).toBe(true)
+		}
 	})
 
 	it("names its own compose project, so it cannot adopt an unrelated stack's containers", () => {

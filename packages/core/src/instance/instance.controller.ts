@@ -528,15 +528,20 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		deleteScheduledCommand: async (ctx: ActorContext, id: string): Promise<void> => {
 			requireCapabilityFor(ctx.role, "console.write")
 			await deps.withTransaction(async (repos) => {
-				const removed = await repos.commands.delete(scopeOf(ctx), id)
+				const removed = await repos.commands.deleteReturning(scopeOf(ctx), id)
 				if (!removed) return
 				await repos.audit.record(scopeOf(ctx), {
 					actorId: ctx.memberId,
 					actorLabel: ctx.actorLabel,
 					action: "instance.schedule",
 					subjectType: "instance",
-					subjectId: id,
-					detail: { removed: "true" },
+					subjectId: removed.instanceId,
+					detail: {
+						removed: "true",
+						schedule: removed.name,
+						command: removed.command,
+						scheduleId: removed.id,
+					},
 				})
 			})
 		},

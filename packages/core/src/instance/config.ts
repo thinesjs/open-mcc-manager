@@ -15,13 +15,33 @@ export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.ExitOnFailure",
 ] as const
 
-const tomlString = (value: string): string =>
-	`"${value
-		.replace(/\\/g, "\\\\")
-		.replace(/"/g, '\\"')
-		.replace(/\n/g, "\\n")
-		.replace(/\r/g, "\\r")
-		.replace(/\t/g, "\\t")}"`
+const TOML_ESCAPES: Record<string, string> = {
+	"\\": "\\\\",
+	'"': '\\"',
+	"\n": "\\n",
+	"\r": "\\r",
+	"\t": "\\t",
+	"\b": "\\b",
+	"\f": "\\f",
+}
+
+const tomlString = (value: string): string => {
+	let rendered = '"'
+	for (const character of value) {
+		const escaped = TOML_ESCAPES[character]
+		if (escaped !== undefined) {
+			rendered += escaped
+			continue
+		}
+		const code = character.charCodeAt(0)
+		if (code < 0x20 || code === 0x7f) {
+			rendered += `\\u${code.toString(16).padStart(4, "0")}`
+			continue
+		}
+		rendered += character
+	}
+	return `${rendered}"`
+}
 
 const tomlInt = (value: number): string => {
 	if (!Number.isInteger(value)) throw new Error("Config integers must be whole numbers")

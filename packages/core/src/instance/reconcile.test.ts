@@ -180,9 +180,21 @@ describe("units the manager does not define", () => {
 
 	it("recognises only the units this manager installs", () => {
 		expect(isManagedUnit("open-mcc@abc.service")).toBe(true)
+		expect(isManagedUnit("open-mcc@.service")).toBe(true)
 		expect(isManagedUnit("open-mcc-sleep-stop@abc.timer")).toBe(true)
 		expect(isManagedUnit("nginx.service")).toBe(false)
 		expect(isManagedUnit("open-mcc-manager-backup.service")).toBe(false)
+	})
+
+	it("ignores an administrator's backup of one of our units, which we did not install", () => {
+		for (const name of [
+			"open-mcc@.service.bak",
+			"open-mcc@abc.service.dpkg-old",
+			"open-mcc@abc.service~",
+			"open-mcc@abc.socket",
+		]) {
+			expect(isManagedUnit(name)).toBe(false)
+		}
 	})
 
 	it("reports a timer left behind for an instance that no longer exists", async () => {
@@ -221,6 +233,26 @@ describe("units the manager does not define", () => {
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.unitDrift).toEqual([])
+	})
+
+	it("reports another organization's timer on a shared host, which the trust model allows", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			...listing([...expected.keys(), "open-mcc-sleep-stop@otherorg1.timer"]),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.unitDrift).toEqual([
+			{ kind: "unexpected", unit: "open-mcc-sleep-stop@otherorg1.timer" },
+		])
 	})
 
 	it("treats a failed listing as unknown rather than as a host with nothing extra", async () => {

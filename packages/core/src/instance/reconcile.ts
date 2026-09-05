@@ -63,14 +63,10 @@ export const expectedUnits = (
 	return expected
 }
 
-export const MANAGED_UNIT_PREFIXES = [
-	"open-mcc@",
-	"open-mcc-sleep-stop@",
-	"open-mcc-sleep-start@",
-] as const
+export const MANAGED_UNIT_PATTERN =
+	/^open-mcc(?:-sleep-(?:stop|start))?@[A-Za-z0-9_-]{0,64}\.(?:service|timer)$/
 
-export const isManagedUnit = (name: string): boolean =>
-	MANAGED_UNIT_PREFIXES.some((prefix) => name.startsWith(prefix))
+export const isManagedUnit = (name: string): boolean => MANAGED_UNIT_PATTERN.test(name)
 
 const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
 	const result = await transport.exec(

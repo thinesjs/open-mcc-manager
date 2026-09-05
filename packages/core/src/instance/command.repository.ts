@@ -46,6 +46,14 @@ export const createCommandRepository = (db: Executor) => ({
 	listEnabledAcrossOrganizations: async (): Promise<InstanceCommandRow[]> =>
 		db.selectFrom("instanceCommand").selectAll().where("enabled", "=", true).execute(),
 
+	deleteReturning: async (scope: OrgScope, id: string): Promise<InstanceCommandRow | undefined> =>
+		db
+			.deleteFrom("instanceCommand")
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.returningAll()
+			.executeTakeFirst(),
+
 	delete: async (scope: OrgScope, id: string): Promise<boolean> => {
 		const result = await db
 			.deleteFrom("instanceCommand")

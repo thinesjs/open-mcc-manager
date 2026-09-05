@@ -165,6 +165,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		listForInstance: vi.fn(async () => []),
 		listEnabledAcrossOrganizations: vi.fn(async () => []),
 		delete: vi.fn(async () => true),
+		deleteReturning: vi.fn(async () => commandRow()),
 		claimRun: vi.fn(async () => true),
 		recordRun: vi.fn(async () => undefined),
 	}
@@ -481,6 +482,24 @@ describe("scheduled commands", () => {
 			InstanceNotRunningError,
 		)
 		expect(transport.commands).toEqual([])
+	})
+
+	it("records which instance and which command a deletion removed", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.deleteScheduledCommand(owner, "cmd-1")
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				subjectId: "abc123",
+				detail: expect.objectContaining({
+					schedule: "morning wave",
+					command: "/say good morning",
+				}),
+			}),
+		)
 	})
 
 	it("refuses a viewer's attempt to define a scheduled command", async () => {

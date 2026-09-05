@@ -59,6 +59,7 @@ beforeAll(async () => {
 					secrets,
 					probeHostKey: async () => Buffer.alloc(0),
 					createTransport: () => createFakeTransport(),
+					instanceIdsOnHost: async () => [],
 					withTransaction: createHostControllerTransaction(db),
 				}),
 				instanceController: await createTestInstanceController(db),

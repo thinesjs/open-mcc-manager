@@ -210,6 +210,7 @@ const deps = (
 				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
+		instanceIdsOnHost: vi.fn(async () => []),
 		withTransaction,
 		...overrides,
 	}

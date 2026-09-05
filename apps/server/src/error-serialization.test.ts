@@ -67,6 +67,7 @@ const hostControllerDeps: HostControllerDeps = {
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
+	instanceIdsOnHost: vi.fn(async () => []),
 	withTransaction,
 }
 

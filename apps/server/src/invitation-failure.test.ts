@@ -50,6 +50,7 @@ beforeAll(async () => {
 		secrets,
 		probeHostKey: async () => Buffer.alloc(0),
 		createTransport: () => createFakeTransport(),
+		instanceIdsOnHost: vi.fn(async () => []),
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

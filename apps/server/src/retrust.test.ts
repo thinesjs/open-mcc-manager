@@ -51,6 +51,7 @@ beforeAll(async () => {
 			throw new Error("probeHostKey should not be called by retrustHostKey")
 		},
 		createTransport: () => createFakeTransport(),
+		instanceIdsOnHost: async () => [],
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

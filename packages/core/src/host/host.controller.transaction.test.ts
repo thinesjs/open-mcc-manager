@@ -69,6 +69,7 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 	createTransport: vi.fn(),
+	instanceIdsOnHost: vi.fn(async () => []),
 })
 
 describe("host controller transactional mutations", () => {
@@ -169,6 +170,7 @@ describe("host controller transactional mutations", () => {
 		const controller = createHostController({
 			...baseDeps(),
 			hosts,
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -276,6 +278,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -317,6 +320,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -396,6 +400,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -416,6 +421,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -460,6 +466,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -493,6 +500,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -516,6 +524,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -535,6 +544,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -648,6 +658,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(instrumentedTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction,
 		})
 
@@ -690,6 +701,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(slowTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: withShortIdleTimeout,
 		})
 
@@ -775,6 +787,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -801,6 +814,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -898,6 +912,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			hosts,
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			instanceIdsOnHost: vi.fn(async () => []),
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
@@ -913,6 +928,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -992,6 +1008,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -1000,6 +1017,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1069,6 +1087,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1133,6 +1152,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1185,6 +1205,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1248,6 +1269,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1304,6 +1326,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1365,6 +1388,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -1373,6 +1397,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1416,6 +1441,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		await provisionController.provision(ctx, hostId)
@@ -1427,6 +1453,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
@@ -1449,6 +1476,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			instanceIdsOnHost: vi.fn(async () => []),
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 		const ctx = actorFor(organizationId, memberId)

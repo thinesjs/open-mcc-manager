@@ -59,6 +59,7 @@ beforeAll(async () => {
 		sshKeys,
 		secrets,
 		probeHostKey: async () => HOST_KEY_BLOB,
+		instanceIdsOnHost: async () => [],
 		createTransport: () =>
 			createFakeTransport({
 				"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {

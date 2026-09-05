@@ -57,6 +57,7 @@ beforeAll(async () => {
 		secrets,
 		probeHostKey: async () => PRESENTED_HOST_KEY,
 		createTransport: () => createFakeTransport(),
+		instanceIdsOnHost: async () => [],
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

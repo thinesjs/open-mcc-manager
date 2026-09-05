@@ -10,7 +10,10 @@ export const ALLOWED_CONFIG_KEYS = [
 	"ChatBot.AntiAFK.Delay",
 ] as const
 
-export const FIXED_CONFIG_KEYS = ["Main.Advanced.EnableSentry"] as const
+export const FIXED_CONFIG_KEYS = [
+	"Main.Advanced.EnableSentry",
+	"Main.Advanced.ExitOnFailure",
+] as const
 
 const tomlString = (value: string): string =>
 	`"${value
@@ -45,6 +48,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"",
 		"[Main.Advanced]",
 		`EnableSentry = ${tomlBool(false)}`,
+		`ExitOnFailure = ${tomlBool(true)}`,
 		"",
 		"[ChatBot.AutoRelog]",
 		`Enabled = ${tomlBool(true)}`,

@@ -36,6 +36,7 @@ describe("instance config rendering", () => {
 			"Login",
 			"Host",
 			"EnableSentry",
+			"ExitOnFailure",
 			"Enabled",
 			"Retries",
 			"Delay",
@@ -75,6 +76,11 @@ describe("instance config rendering", () => {
 		const rendered = renderInstanceConfig(base)
 		expect(rendered).toContain("[Main.Advanced]")
 		expect(rendered.match(/^EnableSentry = .*$/gm)).toEqual(["EnableSentry = false"])
+	})
+
+	it("makes the client exit on failure, without which systemd never sees a crash", () => {
+		const rendered = renderInstanceConfig(base)
+		expect(rendered.match(/^ExitOnFailure = .*$/gm)).toEqual(["ExitOnFailure = true"])
 	})
 
 	it("never lets operator input reach a key the manager fixes", () => {

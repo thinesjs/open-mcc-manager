@@ -194,15 +194,16 @@ depth, not a substitute for one.
 ## Known limitations
 
 - **A managed host holds the Minecraft refresh token for the account running on
-  it.** The client persists its own session cache as plaintext `SessionCache.ini`
-  in its working directory — which is the instance's own `0700` directory, so the
-  cache is per-instance rather than shared — and the control plane deliberately
-  does not custody it: moving it into the database would leave it plaintext in the
-  running process anyway, while permanently diverging from upstream's cache
-  handling. The refresh token is therefore readable by anyone who can read that
-  file as root or as the instance's own user. A compromised host yields that
-  account's Microsoft refresh token, and hosts should not be shared across trust
-  boundaries an operator cares about keeping separate.
+  it.** The client persists its own session cache beside its working directory —
+  which is the instance's own `0700` directory, so the cache is per-instance
+  rather than shared. It uses one of two files, `SessionCache.db` (a serialized
+  form) or `SessionCache.ini` (plaintext, one line per account ending in the
+  refresh token); the shipped client reads both, so treat either as sensitive.
+  The control plane deliberately does not custody the token: moving it into the
+  database would leave it plaintext in the running process anyway, while
+  permanently diverging from upstream's cache handling. A compromised host yields
+  that account's Microsoft refresh token, and hosts should not be shared across
+  trust boundaries an operator cares about keeping separate.
 - **Instances sharing a host are isolated by systemd and POSIX ownership, not by
   containers.** Each runs as its own unprivileged user in its own private group
   under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`

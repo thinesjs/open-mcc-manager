@@ -15,7 +15,7 @@ import {
 	beginAuthentication,
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
-	SESSION_CACHE_FILE,
+	SESSION_CACHE_FILES,
 	VERIFICATION_URI_PATTERN,
 } from "./authenticate"
 import type { CommandRepository } from "./command.repository"
@@ -290,7 +290,7 @@ describe("completeAuthentication", () => {
 		const original = made.transport.exec
 		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
 			const result = await original(command, timeoutMs, stdin)
-			if (!command.includes(SESSION_CACHE_FILE)) return result
+			if (!command.includes("SessionCache")) return result
 			return { ...result, exitCode: sessionCacheExists ? 0 : 1 }
 		}
 		return made
@@ -331,16 +331,18 @@ describe("completeAuthentication", () => {
 		).toBe(true)
 	})
 
-	it("reads the session cache mcc actually writes, in the instance's own directory", async () => {
+	it("accepts either session cache format, since the client reads both", async () => {
 		const { deps, transport, instances } = withProbe(true)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
 
 		await completeAuthentication(deps, owner, "abc123")
 
-		expect(SESSION_CACHE_FILE).toBe("SessionCache.ini")
+		expect([...SESSION_CACHE_FILES]).toEqual(["SessionCache.db", "SessionCache.ini"])
 		expect(
 			transport.commands.some(
-				(each) => each === "test -s '/srv/open-mcc/instances/abc123/SessionCache.ini'",
+				(each) =>
+					each ===
+					"test -s '/srv/open-mcc/instances/abc123/SessionCache.db' || test -s '/srv/open-mcc/instances/abc123/SessionCache.ini'",
 			),
 		).toBe(true)
 	})

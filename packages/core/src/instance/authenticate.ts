@@ -21,7 +21,7 @@ export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
 
 export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
 
-export const SESSION_CACHE_FILE = "SessionCache.ini"
+export const SESSION_CACHE_FILES = ["SessionCache.db", "SessionCache.ini"] as const
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -171,7 +171,7 @@ export const completeAuthentication = async (
 		})
 
 		const probe = await transport.exec(
-			`test -s ${shellQuote(`${dir}/${SESSION_CACHE_FILE}`)}`,
+			SESSION_CACHE_FILES.map((name) => `test -s ${shellQuote(`${dir}/${name}`)}`).join(" || "),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
 		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }

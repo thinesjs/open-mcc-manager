@@ -19,6 +19,27 @@ style, zinc base, `cssVariables: true`, lucide icons, `~/` alias — see
 `apps/web/components.json` and `apps/web/src/index.css`). pnpm workspaces,
 orchestrated by turbo.
 
+
+### The two client settings the supervisor depends on
+
+`renderInstanceConfig` writes `Main.Advanced.ExitOnFailure = true` and
+`Main.Advanced.EnableSentry = false` as fixed literals, not operator choices.
+
+`ExitOnFailure` is load-bearing for the whole supervision design. Left at its
+default of `false`, the client does not exit when it cannot reach a server — it
+prints a prompt and waits on stdin. Under the unit that stdin is the control
+FIFO, which never reaches end-of-file, so the process sits there forever. systemd
+reports the unit `active`, `Restart=on-failure` never fires, and reconciliation
+compares a desired `running` against an observed `active` and reports no drift,
+while the instance does nothing at all. Verified against build 511: with
+`ExitOnFailure = true` and a FIFO on stdin, an unreachable server exits `3`, which
+is the code `RestartPreventExitStatus=4` and the exit-code policy are written
+against.
+
+`EnableSentry` defaults to `true` and sends client errors to a third party. A
+self-hosted deployment should not phone home, and the key is not in
+`ALLOWED_CONFIG_KEYS`, so an operator could not have turned it off.
+
 ## Prohibitions
 
 - No Next.js, in any form, ever.

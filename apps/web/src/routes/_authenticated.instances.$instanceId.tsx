@@ -5,6 +5,7 @@ import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "luci
 import { useState } from "react"
 import { ConsoleComposer } from "~/components/console-composer"
 import { EmptyState } from "~/components/empty-state"
+import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { MinecraftText } from "~/components/minecraft-text"
 import { ScheduledCommands } from "~/components/scheduled-commands"
@@ -12,6 +13,7 @@ import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
+import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
@@ -28,9 +30,11 @@ function InstanceDetailPage() {
 	const queryClient = useQueryClient()
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
+	const [editingSettings, setEditingSettings] = useState(false)
 
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
+	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
 	const consoleQuery = useQuery({
 		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
 		retry: false,
@@ -203,6 +207,57 @@ function InstanceDetailPage() {
 						</div>
 					</dl>
 
+					<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<h2 className="text-sm font-semibold text-foreground">Settings</h2>
+								<p className="text-xs text-muted-foreground">
+									What this client connects to, and how it behaves while it is there.
+								</p>
+							</div>
+							<Button
+								size="sm"
+								variant="secondary"
+								disabled={configQuery.data === undefined}
+								onClick={() => setEditingSettings(true)}
+							>
+								Edit
+							</Button>
+						</div>
+						{configQuery.isPending ? (
+							<Spinner label="Loading settings" />
+						) : configQuery.data === undefined ? (
+							<p className="text-sm text-muted-foreground">No saved settings for this instance.</p>
+						) : (
+							<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+								<div className="flex justify-between gap-4">
+									<dt className="text-sm text-muted-foreground">Server</dt>
+									<dd className="text-sm text-foreground">{configQuery.data.serverAddress}</dd>
+								</div>
+								<div className="flex justify-between gap-4">
+									<dt className="text-sm text-muted-foreground">Rejoin attempts</dt>
+									<dd className="text-sm tabular-nums text-foreground">
+										{configQuery.data.autoRelogRetries}
+									</dd>
+								</div>
+								<div className="flex justify-between gap-4">
+									<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
+									<dd className="text-sm text-foreground">
+										{configQuery.data.autoRespawnEnabled ? "On" : "Off"}
+									</dd>
+								</div>
+								<div className="flex justify-between gap-4">
+									<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
+									<dd className="text-sm text-foreground">
+										{configQuery.data.antiAfkEnabled
+											? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
+											: "Off"}
+									</dd>
+								</div>
+							</dl>
+						)}
+					</section>
+
 					<SleepWindow instanceId={instanceId} />
 
 					<ScheduledCommands instanceId={instanceId} />
@@ -251,6 +306,25 @@ function InstanceDetailPage() {
 					</div>
 				</>
 			) : null}
+
+			{configQuery.data === undefined ? null : (
+				<Modal
+					open={editingSettings}
+					title="Instance settings"
+					description="Changes are written to the client's config file on the host."
+					onClose={() => setEditingSettings(false)}
+				>
+					<InstanceSettingsForm
+						instanceId={instanceId}
+						config={configQuery.data}
+						onSaved={async () => {
+							setEditingSettings(false)
+							await configQuery.refetch()
+						}}
+						onCancel={() => setEditingSettings(false)}
+					/>
+				</Modal>
+			)}
 
 			<ConfirmDialog
 				open={confirmingRemove}

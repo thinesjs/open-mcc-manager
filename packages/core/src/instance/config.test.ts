@@ -9,6 +9,7 @@ const base = {
 	autoRelogDelaySeconds: 10,
 	antiAfkEnabled: true,
 	antiAfkIntervalSeconds: 60,
+	autoRespawnEnabled: false,
 } as const
 
 describe("instance config rendering", () => {
@@ -42,6 +43,7 @@ describe("instance config rendering", () => {
 			"EnableSentry",
 			"ExitOnFailure",
 			"InternalCmdChar",
+			"AutoRespawn",
 			"Enabled",
 			"Retries",
 			"Delay",
@@ -163,5 +165,15 @@ describe("instance config rendering", () => {
 
 	it("declares that character fixed, because the send path's meaning depends on it", () => {
 		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.InternalCmdChar")
+	})
+
+	it("leaves a client dead by default, because respawning into a lethal spawn loops", () => {
+		expect(renderInstanceConfig(base)).toContain("AutoRespawn = false")
+	})
+
+	it("respawns the client when the operator asks for it", () => {
+		expect(renderInstanceConfig({ ...base, autoRespawnEnabled: true })).toContain(
+			"AutoRespawn = true",
+		)
 	})
 })

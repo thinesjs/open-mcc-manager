@@ -64,6 +64,7 @@ export const instanceConfigInput = z
 		autoRelogDelaySeconds: z.number().int().min(1).max(3600),
 		antiAfkEnabled: z.boolean(),
 		antiAfkIntervalSeconds: z.number().int().min(1).max(3600),
+		autoRespawnEnabled: z.boolean().default(false),
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>

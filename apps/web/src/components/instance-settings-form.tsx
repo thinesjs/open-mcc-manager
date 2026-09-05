@@ -1,0 +1,173 @@
+import type { InstanceConfigInput } from "@open-mcc/contracts"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { CircleAlert } from "lucide-react"
+import { type FormEvent, useState } from "react"
+import { Alert } from "~/components/ui/alert"
+import { Button } from "~/components/ui/button"
+import { Choice } from "~/components/ui/choice"
+import { Input } from "~/components/ui/input"
+import { Label } from "~/components/ui/label"
+import { Spinner } from "~/components/ui/spinner"
+import { getErrorMessage } from "~/lib/errors"
+import { useTRPC } from "~/lib/trpc"
+
+export type InstanceSettingsFormProps = {
+	instanceId: string
+	config: InstanceConfigInput
+	onSaved: () => Promise<void>
+	onCancel: () => void
+}
+
+const ON_OFF = [
+	{ value: "on", label: "On", description: "" },
+	{ value: "off", label: "Off", description: "" },
+] as const
+
+const boundedInt = (raw: string, fallback: number): number => {
+	const parsed = Number.parseInt(raw, 10)
+	return Number.isFinite(parsed) ? parsed : fallback
+}
+
+export const InstanceSettingsForm = ({
+	instanceId,
+	config,
+	onSaved,
+	onCancel,
+}: InstanceSettingsFormProps) => {
+	const trpc = useTRPC()
+	const queryClient = useQueryClient()
+	const saveMutation = useMutation(trpc.instance.updateConfig.mutationOptions())
+	const [draft, setDraft] = useState<InstanceConfigInput>(config)
+
+	const submit = (event: FormEvent) => {
+		event.preventDefault()
+		saveMutation.mutate(
+			{ instanceId, config: draft },
+			{
+				onSuccess: async () => {
+					await queryClient.invalidateQueries()
+					await onSaved()
+				},
+			},
+		)
+	}
+
+	return (
+		<form onSubmit={submit} className="space-y-4">
+			{saveMutation.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(saveMutation.error)}
+				</Alert>
+			) : null}
+
+			<div className="space-y-1.5">
+				<Label htmlFor="settings-server">Server address</Label>
+				<Input
+					id="settings-server"
+					required
+					maxLength={253}
+					value={draft.serverAddress}
+					onChange={(event) => setDraft({ ...draft, serverAddress: event.target.value })}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Takes effect the next time this instance starts.
+				</p>
+			</div>
+
+			<div className="space-y-1.5">
+				<Label>Rejoin after a disconnect</Label>
+				<div className="grid gap-3 sm:grid-cols-2">
+					<div className="space-y-1.5">
+						<Label htmlFor="settings-retries" className="text-xs font-normal">
+							Attempts
+						</Label>
+						<Input
+							id="settings-retries"
+							inputMode="numeric"
+							value={String(draft.autoRelogRetries)}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									autoRelogRetries: boundedInt(event.target.value, draft.autoRelogRetries),
+								})
+							}
+						/>
+					</div>
+					<div className="space-y-1.5">
+						<Label htmlFor="settings-delay" className="text-xs font-normal">
+							Wait between attempts (seconds)
+						</Label>
+						<Input
+							id="settings-delay"
+							inputMode="numeric"
+							value={String(draft.autoRelogDelaySeconds)}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									autoRelogDelaySeconds: boundedInt(
+										event.target.value,
+										draft.autoRelogDelaySeconds,
+									),
+								})
+							}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div className="space-y-1.5">
+				<Label>Respawn after dying</Label>
+				<Choice
+					label="Respawn after dying"
+					value={draft.autoRespawnEnabled ? "on" : "off"}
+					options={ON_OFF}
+					onChange={(value) => setDraft({ ...draft, autoRespawnEnabled: value === "on" })}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Leave this off unless the spawn point is safe. A lethal spawn turns respawning into a
+					loop.
+				</p>
+			</div>
+
+			<div className="space-y-1.5">
+				<Label>Anti-AFK</Label>
+				<Choice
+					label="Anti-AFK"
+					value={draft.antiAfkEnabled ? "on" : "off"}
+					options={ON_OFF}
+					onChange={(value) => setDraft({ ...draft, antiAfkEnabled: value === "on" })}
+				/>
+				{draft.antiAfkEnabled ? (
+					<div className="space-y-1.5 pt-1">
+						<Label htmlFor="settings-afk" className="text-xs font-normal">
+							Act every (seconds)
+						</Label>
+						<Input
+							id="settings-afk"
+							inputMode="numeric"
+							value={String(draft.antiAfkIntervalSeconds)}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									antiAfkIntervalSeconds: boundedInt(
+										event.target.value,
+										draft.antiAfkIntervalSeconds,
+									),
+								})
+							}
+						/>
+					</div>
+				) : null}
+			</div>
+
+			<div className="flex justify-end gap-2">
+				<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
+					Cancel
+				</Button>
+				<Button type="submit" size="sm" disabled={saveMutation.isPending}>
+					{saveMutation.isPending ? <Spinner label="Saving" /> : "Save settings"}
+				</Button>
+			</div>
+		</form>
+	)
+}

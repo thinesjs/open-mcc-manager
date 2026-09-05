@@ -12,6 +12,7 @@ export const ALLOWED_CONFIG_KEYS = [
 	"Main.General.Account.Login",
 	"Main.General.Account.Password",
 	"Main.General.Server.Host",
+	"Main.Advanced.AutoRespawn",
 	"ChatBot.AutoRelog.Enabled",
 	"ChatBot.AutoRelog.Retries",
 	"ChatBot.AutoRelog.Delay",
@@ -88,6 +89,7 @@ export const defaultInstanceConfig = (values: {
 	autoRelogDelaySeconds: DEFAULT_AUTO_RELOG_DELAY_SECONDS,
 	antiAfkEnabled: false,
 	antiAfkIntervalSeconds: DEFAULT_ANTI_AFK_INTERVAL_SECONDS,
+	autoRespawnEnabled: false,
 })
 
 export const renderInstanceConfig = (config: InstanceConfigInput): string =>
@@ -106,6 +108,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`EnableSentry = ${tomlBool(false)}`,
 		`ExitOnFailure = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
+		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
 		"",
 		"[ChatBot.AutoRelog]",
 		`Enabled = ${tomlBool(true)}`,

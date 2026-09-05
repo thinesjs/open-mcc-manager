@@ -135,6 +135,15 @@ export const stateDriftSchema = z.object({
 })
 export type StateDrift = z.infer<typeof stateDriftSchema>
 
+export const configDriftSchema = z.object({
+	instanceId: z.string(),
+	kind: z.enum(["managed", "fixed", "section", "unreadable"]),
+	key: z.string(),
+	expected: z.string().nullable(),
+	actual: z.string().nullable(),
+})
+export type ConfigDriftPublic = z.infer<typeof configDriftSchema>
+
 export const hostReconciliationSchema = z.union([
 	z.object({ hostId: z.string(), reachable: z.literal(false), reason: z.string() }),
 	z.object({
@@ -142,6 +151,7 @@ export const hostReconciliationSchema = z.union([
 		reachable: z.literal(true),
 		unitDrift: z.array(unitDriftSchema),
 		stateDrift: z.array(stateDriftSchema),
+		configDrift: z.array(configDriftSchema),
 	}),
 ])
 export type HostReconciliation = z.infer<typeof hostReconciliationSchema>

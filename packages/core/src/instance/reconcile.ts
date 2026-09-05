@@ -1,12 +1,19 @@
-import type { HostReconciliation, ObservedState, StateDrift, UnitDrift } from "@open-mcc/contracts"
+import type {
+	ConfigDriftPublic,
+	HostReconciliation,
+	ObservedState,
+	StateDrift,
+	UnitDrift,
+} from "@open-mcc/contracts"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl, systemctl } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
+import { CONFIG_PATH_NAME, compareInstanceConfig } from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
-import { unitName } from "./unit"
+import { instanceDir, unitName } from "./unit"
 
-export type { HostReconciliation, ObservedState, StateDrift, UnitDrift }
+export type { ConfigDriftPublic, HostReconciliation, ObservedState, StateDrift, UnitDrift }
 
 export const RECONCILE_STEP_TIMEOUT_MS = 15_000
 
@@ -123,12 +130,92 @@ export type HostObservation = {
 	seenPlayers: ReadonlyMap<string, string>
 }
 
+const readInstanceConfig = async (
+	transport: HostTransport,
+	profile: HostProfile,
+	instanceId: string,
+): Promise<string | undefined> => {
+	const path = `${instanceDir(profile.instancesRoot, instanceId)}/${CONFIG_PATH_NAME}`
+	const result = await transport.exec(
+		`cat ${shellQuote(path)} 2>/dev/null || true`,
+		RECONCILE_STEP_TIMEOUT_MS,
+	)
+	const text = result.stdout
+	return text.trim().length === 0 ? undefined : text
+}
+
+const configDriftFor = async (
+	transport: HostTransport,
+	profile: HostProfile,
+	instances: readonly InstanceRow[],
+	expectedConfigs: ReadonlyMap<string, string>,
+): Promise<ConfigDriftPublic[]> => {
+	const drift: ConfigDriftPublic[] = []
+	for (const instance of instances) {
+		const want = expectedConfigs.get(instance.id)
+		if (want === undefined) continue
+		const actual = await readInstanceConfig(transport, profile, instance.id)
+		if (actual === undefined) {
+			drift.push({
+				instanceId: instance.id,
+				kind: "managed",
+				key: CONFIG_PATH_NAME,
+				expected: "a config file",
+				actual: null,
+			})
+			continue
+		}
+		let found: ReturnType<typeof compareInstanceConfig>
+		try {
+			found = compareInstanceConfig(want, actual)
+		} catch {
+			drift.push({
+				instanceId: instance.id,
+				kind: "unreadable",
+				key: CONFIG_PATH_NAME,
+				expected: null,
+				actual: null,
+			})
+			continue
+		}
+		for (const entry of found) {
+			drift.push(
+				entry.kind === "section"
+					? {
+							instanceId: instance.id,
+							kind: "section",
+							key: entry.section,
+							expected: "empty",
+							actual: String(entry.entries),
+						}
+					: entry.kind === "unreadable"
+						? {
+								instanceId: instance.id,
+								kind: "unreadable",
+								key: entry.key,
+								expected: null,
+								actual: null,
+							}
+						: {
+								instanceId: instance.id,
+								kind: entry.kind,
+								key: entry.key,
+								expected: String(entry.expected),
+								actual: entry.actual === undefined ? null : String(entry.actual),
+							},
+			)
+		}
+	}
+	return drift
+}
+
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
 	profile: HostProfile,
 	hostId: string,
 	instances: readonly InstanceRow[],
 	expected: Map<string, string>,
+	expectedConfigs: ReadonlyMap<string, string> = new Map(),
 ): Promise<HostObservation> => {
 	const unitDrift: UnitDrift[] = []
 	for (const [name, contents] of expected) {
@@ -163,8 +250,10 @@ export const reconcileHostOverTransport = async (
 		}
 	}
 
+	const configDrift = await configDriftFor(transport, profile, instances, expectedConfigs)
+
 	return {
-		reconciliation: { hostId, reachable: true, unitDrift, stateDrift },
+		reconciliation: { hostId, reachable: true, unitDrift, stateDrift, configDrift },
 		seenPlayers,
 	}
 }

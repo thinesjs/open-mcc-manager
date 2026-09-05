@@ -21,7 +21,13 @@ describe("drift summary", () => {
 
 	it("only reports converged for a host it actually inspected", () => {
 		expect(
-			summariseDrift({ hostId: "h", reachable: true, unitDrift: [], stateDrift: [] }).verdict,
+			summariseDrift({
+				hostId: "h",
+				reachable: true,
+				unitDrift: [],
+				stateDrift: [],
+				configDrift: [],
+			}).verdict,
 		).toBe("converged")
 	})
 
@@ -31,6 +37,7 @@ describe("drift summary", () => {
 			reachable: true,
 			unitDrift: [{ kind: "missing", unit: "open-mcc@.service" }],
 			stateDrift: [{ instanceId: "abc", desired: "running", observed: "failed" }],
+			configDrift: [],
 		})
 		if (summary.verdict !== "drifted") throw new Error("expected drift")
 		expect(summary.total).toBe(2)

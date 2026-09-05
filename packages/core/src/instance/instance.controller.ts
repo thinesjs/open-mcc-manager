@@ -546,6 +546,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			const { transport, profile } = connection
 			const expected = expectedUnits(profile, instances, schedules, renderScheduleUnits)
+			const expectedConfigs = new Map<string, string>()
+			for (const instance of instances) {
+				const saved = await deps.instances.latestConfig(scope, instance.id)
+				if (!saved) continue
+				const parsed = instanceConfigInput.safeParse(saved.document)
+				if (parsed.success) expectedConfigs.set(instance.id, renderInstanceConfig(parsed.data))
+			}
 
 			try {
 				const observed = await reconcileHostOverTransport(
@@ -554,6 +561,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					hostId,
 					instances,
 					expected,
+					expectedConfigs,
 				)
 				for (const [id, player] of observed.seenPlayers) {
 					const known = instances.find((each) => each.id === id)

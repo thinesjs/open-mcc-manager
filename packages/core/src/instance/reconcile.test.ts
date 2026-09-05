@@ -3,6 +3,7 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { systemProfile } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
+import { renderInstanceConfig } from "./config"
 import {
 	desiredStateIsSatisfied,
 	expectedUnits,
@@ -136,7 +137,13 @@ describe("reconciling a host", () => {
 			expected,
 		)
 
-		expect(result).toEqual({ hostId: "host-1", reachable: true, unitDrift: [], stateDrift: [] })
+		expect(result).toEqual({
+			hostId: "host-1",
+			reachable: true,
+			unitDrift: [],
+			stateDrift: [],
+			configDrift: [],
+		})
 	})
 
 	it("distinguishes a unit that is absent from one whose content has changed", async () => {
@@ -411,7 +418,7 @@ describe("noticing which account an instance is signed in as", () => {
 })
 
 describe("recognising a client that is stuck", () => {
-	const connected = [
+	const joinedJournal = [
 		"[MCC] Version is supported.",
 		"Logging in...",
 		"Retrieving Server Info...",
@@ -423,7 +430,7 @@ describe("recognising a client that is stuck", () => {
 	].join("\n")
 
 	it("does not call a connected client stuck just because it printed the server version", () => {
-		expect(looksStuck(connected)).toBe(false)
+		expect(looksStuck(joinedJournal)).toBe(false)
 	})
 
 	it("calls a client stuck when it read the server version but never joined", () => {
@@ -463,5 +470,79 @@ describe("recognising a client that is stuck", () => {
 		const halted = ["Server version: Paper 26.2", "\u258c<player> hello"].join("\n")
 
 		expect(looksStuck(halted)).toBe(true)
+	})
+})
+
+describe("comparing a host's client config", () => {
+	it("reads each instance's config off the host and names a key that drifted", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogDelaySeconds: 10,
+			antiAfkEnabled: false,
+			antiAfkIntervalSeconds: 60,
+			autoRespawnEnabled: false,
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace('Host = "play.example.net"', 'Host = "elsewhere.example"'),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toEqual([
+			{
+				instanceId: "abc123",
+				kind: "managed",
+				key: "Main.General.Server.Host",
+				expected: "play.example.net",
+				actual: "elsewhere.example",
+			},
+		])
+	})
+
+	it("says the config is missing rather than reporting every key as drifted", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", '[Main.General]\nAccountType = "microsoft"\n']]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toHaveLength(1)
+		expect(reconciliation.configDrift[0]?.actual).toBeNull()
 	})
 })

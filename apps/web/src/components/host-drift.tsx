@@ -4,7 +4,13 @@ import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
-import { describeStateDrift, describeUnitDrift, summariseDrift } from "~/lib/drift"
+import {
+	configDriftDefeatsSafety,
+	describeConfigDrift,
+	describeStateDrift,
+	describeUnitDrift,
+	summariseDrift,
+} from "~/lib/drift"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -15,6 +21,7 @@ export type HostDriftProps = {
 
 export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	const trpc = useTRPC()
+	const instancesQuery = useQuery(trpc.instance.list.queryOptions())
 	const query = useQuery({
 		...trpc.instance.reconcileHost.queryOptions({ hostId }),
 		enabled: ready,
@@ -23,6 +30,8 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	})
 
 	const summary = query.data ? summariseDrift(query.data) : undefined
+	const nameFor = (instanceId: string): string =>
+		instancesQuery.data?.find((instance) => instance.id === instanceId)?.name ?? instanceId
 
 	return (
 		<Card>
@@ -30,7 +39,8 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 				<div>
 					<CardTitle>Configuration drift</CardTitle>
 					<p className="text-sm text-muted-foreground">
-						Compares installed units and runtime state against the expected configuration.
+						Compares installed units, runtime state and each client's config against what this
+						manager expects.
 					</p>
 				</div>
 				<Button
@@ -95,9 +105,23 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 							{summary.stateDrift.map((drift) => (
 								<li key={drift.instanceId} className="px-3 py-2 text-sm">
 									<span className="font-mono text-xs text-muted-foreground">
-										{drift.instanceId}
+										{nameFor(drift.instanceId)}
 									</span>
 									<span className="block text-foreground">{describeStateDrift(drift)}</span>
+								</li>
+							))}
+							{summary.configDrift.map((drift) => (
+								<li key={`${drift.instanceId}:${drift.key}`} className="px-3 py-2 text-sm">
+									<span className="font-mono text-xs text-muted-foreground">
+										{nameFor(drift.instanceId)} · {drift.key}
+									</span>
+									<span className="block text-foreground">{describeConfigDrift(drift)}</span>
+									{configDriftDefeatsSafety(drift) ? (
+										<span className="block text-xs text-destructive">
+											This setting is not an operator choice. Re-save the instance settings to
+											restore it.
+										</span>
+									) : null}
 								</li>
 							))}
 						</ul>

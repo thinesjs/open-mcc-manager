@@ -12,6 +12,7 @@ export const ALLOWED_CONFIG_KEYS = [
 	"Main.General.Account.Login",
 	"Main.General.Account.Password",
 	"Main.General.Server.Host",
+	"Main.General.Server.Port",
 	"Main.Advanced.AutoRespawn",
 	"ChatBot.AutoRelog.Enabled",
 	"ChatBot.AutoRelog.Retries",
@@ -71,6 +72,13 @@ const tomlInt = (value: number): string => {
 
 const tomlBool = (value: boolean): string => (value ? "true" : "false")
 
+const serverLines = (address: string): string[] => {
+	const { host, port } = splitServerAddress(address)
+	return port === undefined
+		? [`Host = ${tomlString(host)}`]
+		: [`Host = ${tomlString(host)}`, `Port = ${tomlInt(port)}`]
+}
+
 const tomlSecondsRange = (seconds: number): string => {
 	if (!Number.isFinite(seconds) || seconds < 0) {
 		throw new Error("Config delays must be a non-negative number of seconds")
@@ -100,6 +108,16 @@ export const defaultInstanceConfig = (values: {
 	autoRespawnEnabled: false,
 })
 
+export type ServerAddress = { host: string; port: number | undefined }
+
+export const splitServerAddress = (value: string): ServerAddress => {
+	const separator = value.lastIndexOf(":")
+	if (separator <= 0 || value.includes("]")) return { host: value, port: undefined }
+	const port = Number(value.slice(separator + 1))
+	if (!Number.isInteger(port) || port < 1 || port > 65535) return { host: value, port: undefined }
+	return { host: value.slice(0, separator), port }
+}
+
 export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 	[
 		"[Main.General]",
@@ -111,7 +129,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`Password = ${tomlString(isOfflineAccount(config.accountType) ? OFFLINE_PASSWORD : "")}`,
 		"",
 		"[Main.General.Server]",
-		`Host = ${tomlString(config.serverAddress)}`,
+		...serverLines(config.serverAddress),
 		"",
 		"[Main.Advanced]",
 		`EnableSentry = ${tomlBool(false)}`,

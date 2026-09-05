@@ -4,12 +4,13 @@ import {
 	EMPTIED_CONFIG_SECTIONS,
 	FIXED_CONFIG_KEYS,
 	renderInstanceConfig,
+	splitServerAddress,
 } from "./config"
 
 const base = {
 	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
-	serverAddress: "play.example.com",
+	serverAddress: "play.example.com:25566",
 	autoRelogRetries: 3,
 	autoRelogDelaySeconds: 10,
 	antiAfkEnabled: true,
@@ -212,5 +213,34 @@ describe("instance config rendering", () => {
 		for (const section of EMPTIED_CONFIG_SECTIONS) {
 			expect(emptied).toContain(section)
 		}
+	})
+
+	it("splits a port off the address, because the client stores them separately", () => {
+		const rendered = renderInstanceConfig({ ...base, serverAddress: "play.example.net:25566" })
+
+		expect(rendered).toContain('Host = "play.example.net"')
+		expect(rendered).toContain("Port = 25566")
+	})
+
+	it("writes no port when the address carries none, letting the client resolve it", () => {
+		const rendered = renderInstanceConfig({ ...base, serverAddress: "play.example.net" })
+
+		expect(rendered).toContain('Host = "play.example.net"')
+		expect(rendered).not.toContain("Port = ")
+	})
+
+	it("leaves an address alone when what follows the colon is not a port", () => {
+		expect(splitServerAddress("play.example.net:notaport")).toEqual({
+			host: "play.example.net:notaport",
+			port: undefined,
+		})
+		expect(splitServerAddress("play.example.net:99999")).toEqual({
+			host: "play.example.net:99999",
+			port: undefined,
+		})
+	})
+
+	it("does not try to split a bracketed address", () => {
+		expect(splitServerAddress("[::1]:25565")).toEqual({ host: "[::1]:25565", port: undefined })
 	})
 })

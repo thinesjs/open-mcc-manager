@@ -5,16 +5,24 @@ type RefinementOf<Narrowed extends Base, Base> = Narrowed
 
 export type InstanceStatus = "created" | "needs_auth" | "stopped" | "running" | "error"
 
+export type AccountType = "microsoft" | "offline"
+
 type _InstanceStatusRefinesGeneratedColumn = RefinementOf<
 	InstanceStatus,
 	SelectType<DB["instance"]["status"]>
 >
 
+type _AccountTypeRefinesGeneratedColumn = RefinementOf<
+	AccountType,
+	SelectType<DB["instance"]["accountType"]>
+>
+
 export type InstanceTable = Omit<
 	DB["instance"],
-	"status" | "lastExitCode" | "authClaimId" | "authClaimedAt" | "minecraftUsername"
+	"status" | "accountType" | "lastExitCode" | "authClaimId" | "authClaimedAt" | "minecraftUsername"
 > & {
 	status: Generated<InstanceStatus>
+	accountType: Generated<AccountType>
 	lastExitCode: Generated<DB["instance"]["lastExitCode"]>
 	authClaimId: Generated<DB["instance"]["authClaimId"]>
 	authClaimedAt: Generated<DB["instance"]["authClaimedAt"]>

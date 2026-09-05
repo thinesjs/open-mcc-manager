@@ -1,7 +1,16 @@
-import type { InstanceConfigInput } from "@open-mcc/contracts"
+import { type AccountType, type InstanceConfigInput, isOfflineAccount } from "@open-mcc/contracts"
+
+export const OFFLINE_PASSWORD = "-"
+
+export const MCC_LOGIN_TYPES: Record<AccountType, string> = {
+	microsoft: "microsoft",
+	offline: "microsoft",
+}
 
 export const ALLOWED_CONFIG_KEYS = [
+	"Main.General.AccountType",
 	"Main.General.Account.Login",
+	"Main.General.Account.Password",
 	"Main.General.Server.Host",
 	"ChatBot.AutoRelog.Enabled",
 	"ChatBot.AutoRelog.Retries",
@@ -58,10 +67,34 @@ const tomlSecondsRange = (seconds: number): string => {
 	return `{ min = ${asFloat}, max = ${asFloat} }`
 }
 
+export const DEFAULT_AUTO_RELOG_RETRIES = 3
+
+export const DEFAULT_AUTO_RELOG_DELAY_SECONDS = 10
+
+export const DEFAULT_ANTI_AFK_INTERVAL_SECONDS = 60
+
+export const defaultInstanceConfig = (values: {
+	accountType: AccountType
+	minecraftAccount: string
+	serverAddress: string
+}): InstanceConfigInput => ({
+	accountType: values.accountType,
+	minecraftAccount: values.minecraftAccount,
+	serverAddress: values.serverAddress,
+	autoRelogRetries: DEFAULT_AUTO_RELOG_RETRIES,
+	autoRelogDelaySeconds: DEFAULT_AUTO_RELOG_DELAY_SECONDS,
+	antiAfkEnabled: false,
+	antiAfkIntervalSeconds: DEFAULT_ANTI_AFK_INTERVAL_SECONDS,
+})
+
 export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 	[
+		"[Main.General]",
+		`AccountType = ${tomlString(MCC_LOGIN_TYPES[config.accountType])}`,
+		"",
 		"[Main.General.Account]",
 		`Login = ${tomlString(config.minecraftAccount)}`,
+		`Password = ${tomlString(isOfflineAccount(config.accountType) ? OFFLINE_PASSWORD : "")}`,
 		"",
 		"[Main.General.Server]",
 		`Host = ${tomlString(config.serverAddress)}`,

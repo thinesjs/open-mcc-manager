@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto"
-import type { AuthenticationState, DeviceCodeChallenge } from "@open-mcc/contracts"
+import {
+	type AuthenticationState,
+	type DeviceCodeChallenge,
+	needsInteractiveSignIn,
+} from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, profileFrom, systemctl } from "../host/profile"
 import {
 	type ActorContext,
+	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
 	InstanceHostNotFoundError,
@@ -96,6 +101,11 @@ export const beginAuthentication = async (
 
 	const instance = await deps.instances.findById(scope, instanceId)
 	if (!instance) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+	if (!needsInteractiveSignIn(instance.accountType)) {
+		throw new InstanceAccountNotInteractiveError(
+			`Instance ${instanceId} uses a ${instance.accountType} account, which signs in without a device code`,
+		)
+	}
 
 	const attemptId = randomUUID()
 	const claimed = await deps.instances.claimForAuth(scope, instanceId, attemptId)

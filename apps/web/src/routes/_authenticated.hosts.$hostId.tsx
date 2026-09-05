@@ -273,7 +273,7 @@ function HostDetailPage() {
 			<Modal
 				open={creatingInstance}
 				title="New instance"
-				description={`One Minecraft Console Client on ${host.name}, signed in to one Microsoft account.`}
+				description={`One Minecraft Console Client on ${host.name}, signed in to one Minecraft account.`}
 				onClose={() => setCreatingInstance(false)}
 			>
 				<CreateInstanceForm

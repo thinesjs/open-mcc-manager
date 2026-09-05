@@ -71,6 +71,7 @@ export {
 	createInstanceController,
 	createInstanceControllerTransaction,
 	HostUnreachableError,
+	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
 	InstanceHostNotFoundError,

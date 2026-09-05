@@ -42,6 +42,7 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	organizationId: "org-1",
 	hostId: "host-1",
 	name: "afk-1",
+	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
 	minecraftUsername: null,
 	status: "stopped",
@@ -222,6 +223,7 @@ describe("instance controller authorization", () => {
 			controller.create(operator, {
 				hostId: "host-1",
 				name: "n",
+				accountType: "microsoft",
 				minecraftAccount: "a@b.com",
 				serverAddress: "play.example.com",
 			}),
@@ -300,6 +302,7 @@ describe("instance creation prepares the host", () => {
 		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
+			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
 		})
@@ -318,6 +321,7 @@ describe("instance creation prepares the host", () => {
 		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
+			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
 		})
@@ -342,6 +346,7 @@ describe("instance creation prepares the host", () => {
 		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
+			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
 		})

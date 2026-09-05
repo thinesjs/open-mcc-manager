@@ -135,7 +135,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							<Label htmlFor="enroll-key">SSH key</Label>
 							<Select value={sshKeyId} onValueChange={(value) => setSshKeyId(value ?? "")}>
 								<SelectTrigger id="enroll-key">
-									<SelectValue placeholder="Select a key" />
+									<SelectValue placeholder="Select a key">
+										{() => keys.find((key) => key.id === sshKeyId)?.name}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{keys.map((key) => (

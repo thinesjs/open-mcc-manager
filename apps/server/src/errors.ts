@@ -9,6 +9,7 @@ import {
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostUnreachableError,
+	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
 	InstanceHostNotFoundError,
@@ -134,6 +135,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_HOST_NOT_READY",
 			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof InstanceAccountNotInteractiveError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_ACCOUNT_NOT_INTERACTIVE",
+			"This instance's account signs in without a device code",
 		)
 	}
 	if (cause instanceof InstanceAuthInProgressError) {

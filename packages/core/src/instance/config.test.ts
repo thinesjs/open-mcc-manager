@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ALLOWED_CONFIG_KEYS, FIXED_CONFIG_KEYS, renderInstanceConfig } from "./config"
 
 const base = {
+	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
 	serverAddress: "play.example.com",
 	autoRelogRetries: 3,
@@ -17,6 +18,7 @@ describe("instance config rendering", () => {
 
 		const sections = rendered.split("\n").filter((line) => line.startsWith("["))
 		expect(sections).toEqual([
+			"[Main.General]",
 			"[Main.General.Account]",
 			"[Main.General.Server]",
 			"[Main.Advanced]",
@@ -33,7 +35,9 @@ describe("instance config rendering", () => {
 			.filter((line) => /^[A-Za-z_][A-Za-z0-9_]* = /.test(line))
 			.map((line) => line.split(" = ")[0])
 		expect(assignments).toEqual([
+			"AccountType",
 			"Login",
+			"Password",
 			"Host",
 			"EnableSentry",
 			"ExitOnFailure",
@@ -114,5 +118,41 @@ describe("instance config rendering", () => {
 			serverAddress: "EnableSentry = true",
 		})
 		expect(rendered.match(/^EnableSentry = .*$/gm)).toEqual(["EnableSentry = false"])
+	})
+
+	it("marks an offline account with the sentinel password MCC short-circuits login on", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			accountType: "offline",
+			minecraftAccount: "Steve",
+		})
+
+		expect(rendered).toContain('Password = "-"')
+		expect(rendered).toContain('Login = "Steve"')
+	})
+
+	it("leaves the password empty for every account type that authenticates", () => {
+		expect(renderInstanceConfig({ ...base, accountType: "microsoft" })).toContain('Password = ""')
+	})
+
+	it("maps an offline account onto a login type MCC's enum accepts", () => {
+		const rendered = renderInstanceConfig({ ...base, accountType: "offline" })
+
+		expect(rendered).toContain('AccountType = "microsoft"')
+	})
+
+	it("names an authenticating account type as MCC spells it", () => {
+		expect(renderInstanceConfig({ ...base, accountType: "microsoft" })).toContain(
+			'AccountType = "microsoft"',
+		)
+	})
+
+	it("declares the general scalar before the account sub-table so TOML nests neither inside the other", () => {
+		const lines = renderInstanceConfig(base).split("\n")
+
+		expect(lines.indexOf("[Main.General]")).toBeLessThan(lines.indexOf("[Main.General.Account]"))
+		expect(lines.findIndex((line) => line.startsWith("AccountType = "))).toBeLessThan(
+			lines.indexOf("[Main.General.Account]"),
+		)
 	})
 })

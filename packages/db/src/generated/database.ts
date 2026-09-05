@@ -90,6 +90,7 @@ export interface Host {
 }
 
 export interface Instance {
+	accountType: Generated<string>
 	authClaimedAt: Timestamp | null
 	authClaimId: string | null
 	createdAt: Generated<Timestamp>

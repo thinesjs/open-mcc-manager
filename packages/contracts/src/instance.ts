@@ -5,12 +5,51 @@ export type InstanceStatus = z.infer<typeof instanceStatusSchema>
 
 export const INSTANCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
-export const createInstanceInput = z.object({
-	hostId: z.string().min(1),
-	name: z.string().min(1).max(64),
-	minecraftAccount: z.string().email(),
-	serverAddress: z.string().min(1).max(253),
-})
+export const ACCOUNT_TYPES = ["microsoft", "offline"] as const
+
+export const accountTypeSchema = z.enum(ACCOUNT_TYPES)
+
+export type AccountType = z.infer<typeof accountTypeSchema>
+
+export const MINECRAFT_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/
+
+export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
+	microsoft: "Microsoft",
+	offline: "Offline",
+}
+
+export const isOfflineAccount = (accountType: AccountType): boolean => accountType === "offline"
+
+export const needsInteractiveSignIn = (accountType: AccountType): boolean =>
+	accountType === "microsoft"
+
+export const accountIdentifier = (accountType: AccountType) =>
+	isOfflineAccount(accountType)
+		? z
+				.string()
+				.regex(
+					MINECRAFT_USERNAME_PATTERN,
+					"An offline account is a Minecraft username: 3 to 16 letters, digits or underscores",
+				)
+		: z.string().email("This login method signs in with an email address")
+
+export const createInstanceInput = z
+	.object({
+		hostId: z.string().min(1),
+		name: z.string().min(1).max(64),
+		accountType: accountTypeSchema.default("microsoft"),
+		minecraftAccount: z.string().min(1).max(255),
+		serverAddress: z.string().min(1).max(253),
+	})
+	.superRefine((value, ctx) => {
+		const result = accountIdentifier(value.accountType).safeParse(value.minecraftAccount)
+		if (result.success) return
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			path: ["minecraftAccount"],
+			message: result.error.issues[0]?.message ?? "Invalid account",
+		})
+	})
 export type CreateInstanceInput = z.infer<typeof createInstanceInput>
 
 export const instanceIdInput = z.object({ instanceId: z.string().min(1) })
@@ -18,7 +57,8 @@ export type InstanceIdInput = z.infer<typeof instanceIdInput>
 
 export const instanceConfigInput = z
 	.object({
-		minecraftAccount: z.string().email(),
+		accountType: accountTypeSchema,
+		minecraftAccount: z.string().min(1).max(255),
 		serverAddress: z.string().min(1).max(253),
 		autoRelogRetries: z.number().int().min(0).max(1000),
 		autoRelogDelaySeconds: z.number().int().min(1).max(3600),
@@ -50,6 +90,7 @@ export const instancePublic = z.object({
 	id: z.string(),
 	hostId: z.string(),
 	name: z.string(),
+	accountType: accountTypeSchema,
 	minecraftAccount: z.string(),
 	status: instanceStatusSchema,
 	lastExitCode: z.number().int().nullable(),

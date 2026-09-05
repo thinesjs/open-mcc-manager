@@ -21,6 +21,7 @@ const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	organizationId: "org-1",
 	hostId: "host-1",
 	name: "afk-1",
+	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
 	minecraftUsername: null,
 	status: "running",

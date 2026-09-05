@@ -3,6 +3,7 @@ import {
 	can,
 	type InstanceConfigInput,
 	minuteOfDay,
+	needsInteractiveSignIn,
 	type Role,
 	type ScheduledCommandInput,
 	type ScheduledCommandPublic,
@@ -20,7 +21,7 @@ import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
-import { renderInstanceConfig } from "./config"
+import { defaultInstanceConfig, renderInstanceConfig } from "./config"
 import { readConsole, sendCommand } from "./control"
 import {
 	createInstanceRepository,
@@ -102,6 +103,7 @@ type HostConnection = {
 	profile: HostProfile
 }
 export class InstanceAuthInProgressError extends Error {}
+export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
 
 const requireCapabilityFor = (role: Role, capability: Parameters<typeof can>[1]): void => {
@@ -265,20 +267,33 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
 
+			const initialConfig = defaultInstanceConfig({
+				accountType: input.accountType,
+				minecraftAccount: input.minecraftAccount,
+				serverAddress: input.serverAddress,
+			})
+
 			const created = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.insert(scopeOf(ctx), {
 					hostId: input.hostId,
 					name: input.name,
+					accountType: input.accountType,
 					minecraftAccount: input.minecraftAccount,
-					status: "needs_auth",
+					status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
 				})
+				await repos.instances.insertConfigVersion(
+					scopeOf(ctx),
+					row.id,
+					JSON.stringify(initialConfig),
+					{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
+				)
 				await repos.audit.record(scopeOf(ctx), {
 					actorId: ctx.memberId,
 					actorLabel: ctx.actorLabel,
 					action: "instance.create",
 					subjectType: "instance",
 					subjectId: row.id,
-					detail: { hostId: input.hostId, name: input.name },
+					detail: { hostId: input.hostId, name: input.name, accountType: input.accountType },
 				})
 				return row
 			})
@@ -324,6 +339,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						serverAddress: input.serverAddress,
 						minecraftAccount: input.minecraftAccount,
 					}),
+				])
+				steps.push([
+					`(umask 077; cat > ${shellQuote(`${dir}/MinecraftClient.ini`)})${own(
+						`${dir}/MinecraftClient.ini`,
+					)}`,
+					"Failed to write the instance config",
+					renderInstanceConfig(initialConfig),
 				])
 				for (const [command, failure, stdin] of steps) {
 					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS, stdin)

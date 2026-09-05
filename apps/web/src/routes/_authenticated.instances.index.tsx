@@ -66,8 +66,8 @@ function InstanceListPage() {
 					title="No instances"
 					description={
 						readyHosts.length === 0
-							? "An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account. Enroll and provision a host before creating one."
-							: "An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account."
+							? "An instance is one Minecraft Console Client running on a host, signed in to one Minecraft account. Enroll and provision a host before creating one."
+							: "An instance is one Minecraft Console Client running on a host, signed in to one Minecraft account."
 					}
 					action={
 						readyHosts.length === 0 ? (
@@ -173,7 +173,7 @@ function InstanceListPage() {
 			<Modal
 				open={creating}
 				title="New instance"
-				description="One Minecraft Console Client on a provisioned host, signed in to one Microsoft account."
+				description="One Minecraft Console Client on a provisioned host, signed in to one Minecraft account."
 				onClose={() => setCreating(false)}
 			>
 				<CreateInstanceForm

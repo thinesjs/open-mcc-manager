@@ -1,3 +1,9 @@
+import {
+	ACCOUNT_TYPE_LABELS,
+	ACCOUNT_TYPES,
+	type AccountType,
+	isOfflineAccount,
+} from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -31,13 +37,16 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 	const readyHosts = (hostsQuery.data ?? []).filter((host) => host.status === "ready")
 	const [selectedHost, setSelectedHost] = useState(hostId ?? "")
 	const [name, setName] = useState("")
+	const [accountType, setAccountType] = useState<AccountType>("microsoft")
 	const [minecraftAccount, setMinecraftAccount] = useState("")
 	const [serverAddress, setServerAddress] = useState("")
+
+	const isOffline = isOfflineAccount(accountType)
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
 		createMutation.mutate(
-			{ hostId: selectedHost, name, minecraftAccount, serverAddress },
+			{ hostId: selectedHost, name, accountType, minecraftAccount, serverAddress },
 			{
 				onSuccess: (instance) => {
 					queryClient.invalidateQueries({ queryKey: trpc.instance.list.queryKey() })
@@ -75,7 +84,9 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 					<Label htmlFor="instance-host">Host</Label>
 					<Select value={selectedHost} onValueChange={(value) => setSelectedHost(value ?? "")}>
 						<SelectTrigger id="instance-host">
-							<SelectValue placeholder="Select a host" />
+							<SelectValue placeholder="Select a host">
+								{() => readyHosts.find((host) => host.id === selectedHost)?.name}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							{readyHosts.map((host) => (
@@ -104,17 +115,49 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 			</div>
 
 			<div className="space-y-1.5">
-				<Label htmlFor="instance-account">Microsoft account</Label>
+				<Label htmlFor="instance-account-type">Account</Label>
+				<Select
+					value={accountType}
+					onValueChange={(value) => {
+						const next = ACCOUNT_TYPES.find((candidate) => candidate === value)
+						if (!next) return
+						setAccountType(next)
+						setMinecraftAccount("")
+					}}
+				>
+					<SelectTrigger id="instance-account-type">
+						<SelectValue>{() => ACCOUNT_TYPE_LABELS[accountType]}</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						{ACCOUNT_TYPES.map((option) => (
+							<SelectItem key={option} value={option}>
+								{ACCOUNT_TYPE_LABELS[option]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-xs text-muted-foreground">
+					{isOffline
+						? "Offline accounts skip Mojang's session servers. The server must run with online-mode=false."
+						: "You complete the sign-in after the instance is created."}
+				</p>
+			</div>
+
+			<div className="space-y-1.5">
+				<Label htmlFor="instance-account">{isOffline ? "Username" : "Email address"}</Label>
 				<Input
 					id="instance-account"
-					type="email"
+					type={isOffline ? "text" : "email"}
 					required
-					placeholder="player@example.com"
+					maxLength={isOffline ? 16 : 255}
+					placeholder={isOffline ? "Steve" : "player@example.com"}
 					value={minecraftAccount}
 					onChange={(event) => setMinecraftAccount(event.target.value)}
 				/>
 				<p className="text-xs text-muted-foreground">
-					The account this instance signs in as. You complete the sign-in after it is created.
+					{isOffline
+						? "The in-game name this instance joins as: 3 to 16 letters, digits or underscores."
+						: `The ${ACCOUNT_TYPE_LABELS[accountType]} account this instance signs in as.`}
 				</p>
 			</div>
 

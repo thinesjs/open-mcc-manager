@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { createInstanceInput, INSTANCE_ID_PATTERN, instanceConfigInput } from "./instance"
+import {
+	ACCOUNT_TYPE_LABELS,
+	ACCOUNT_TYPES,
+	createInstanceInput,
+	INSTANCE_ID_PATTERN,
+	instanceConfigInput,
+	isOfflineAccount,
+	needsInteractiveSignIn,
+} from "./instance"
 
 describe("instance contracts", () => {
 	it("rejects an id carrying a systemd specifier or a path separator", () => {
@@ -46,5 +54,59 @@ describe("instance contracts", () => {
 				serverAddress: "play.example.com",
 			}).success,
 		).toBe(false)
+	})
+})
+
+describe("account types", () => {
+	it("accepts a bare username for an offline account", () => {
+		const parsed = createInstanceInput.safeParse({
+			hostId: "h",
+			name: "n",
+			accountType: "offline",
+			minecraftAccount: "OpenMccBot",
+			serverAddress: "play.example.net",
+		})
+
+		expect(parsed.success).toBe(true)
+	})
+
+	it("rejects an email for an offline account, which joins under an in-game name", () => {
+		const parsed = createInstanceInput.safeParse({
+			hostId: "h",
+			name: "n",
+			accountType: "offline",
+			minecraftAccount: "player@example.com",
+			serverAddress: "play.example.net",
+		})
+
+		expect(parsed.success).toBe(false)
+	})
+
+	it("requires an email for a Microsoft account", () => {
+		const parsed = createInstanceInput.safeParse({
+			hostId: "h",
+			name: "n",
+			accountType: "microsoft",
+			minecraftAccount: "OpenMccBot",
+			serverAddress: "play.example.net",
+		})
+
+		expect(parsed.success).toBe(false)
+	})
+
+	it("offers only account types whose sign-in the manager can carry out", () => {
+		expect([...ACCOUNT_TYPES]).toEqual(["microsoft", "offline"])
+	})
+
+	it("separates being offline from skipping the device code, so neither stands in for the other", () => {
+		for (const accountType of ACCOUNT_TYPES) {
+			expect(isOfflineAccount(accountType)).toBe(!needsInteractiveSignIn(accountType))
+		}
+	})
+
+	it("names every offered account type", () => {
+		for (const accountType of ACCOUNT_TYPES) {
+			expect(ACCOUNT_TYPE_LABELS[accountType].length).toBeGreaterThan(0)
+		}
 	})
 })

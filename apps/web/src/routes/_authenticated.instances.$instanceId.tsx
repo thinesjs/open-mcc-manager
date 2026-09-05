@@ -1,3 +1,4 @@
+import { ACCOUNT_TYPE_LABELS, needsInteractiveSignIn } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "lucide-react"
@@ -27,6 +28,7 @@ function InstanceDetailPage() {
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
+	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const consoleQuery = useQuery({
 		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
 		retry: false,
@@ -53,6 +55,7 @@ function InstanceDetailPage() {
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
 	const instance = instanceQuery.data
+	const interactive = instance ? needsInteractiveSignIn(instance.accountType) : false
 	const challenge = authenticateMutation.data
 	const busy =
 		startMutation.isPending ||
@@ -93,7 +96,7 @@ function InstanceDetailPage() {
 							</p>
 						</div>
 						<div className="flex flex-wrap gap-2">
-							{instance.status === "needs_auth" ? (
+							{!interactive ? null : instance.status === "needs_auth" ? (
 								<Button
 									size="sm"
 									disabled={busy}
@@ -164,6 +167,9 @@ function InstanceDetailPage() {
 						<div>
 							<dt className="text-xs uppercase tracking-wider text-muted-foreground">Account</dt>
 							<dd className="text-sm text-foreground">{instance.minecraftAccount}</dd>
+							<dd className="text-xs text-muted-foreground">
+								{ACCOUNT_TYPE_LABELS[instance.accountType]}
+							</dd>
 						</div>
 						<div>
 							<dt className="text-xs uppercase tracking-wider text-muted-foreground">Host</dt>
@@ -173,7 +179,8 @@ function InstanceDetailPage() {
 									params={{ hostId: instance.hostId }}
 									className="text-primary underline-offset-4 hover:underline"
 								>
-									{instance.hostId}
+									{hostsQuery.data?.find((host) => host.id === instance.hostId)?.name ??
+										instance.hostId}
 								</Link>
 							</dd>
 						</div>

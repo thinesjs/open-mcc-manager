@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
-import { Boxes, ChevronRight, CircleAlert } from "lucide-react"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { Boxes, ChevronRight, CircleAlert, Plus } from "lucide-react"
+import { useState } from "react"
+import { CreateInstanceForm } from "~/components/create-instance-form"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { PlayerAvatar } from "~/components/player-avatar"
 import { Alert } from "~/components/ui/alert"
-import { buttonVariants } from "~/components/ui/button"
+import { Button, buttonVariants } from "~/components/ui/button"
+import { Modal } from "~/components/ui/modal"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
@@ -17,8 +20,10 @@ export const Route = createFileRoute("/_authenticated/instances/")({
 })
 
 function InstanceListPage() {
+	const navigate = useNavigate()
 	const trpc = useTRPC()
 	const [view, setView] = useViewMode("open-mcc.view.instances")
+	const [creating, setCreating] = useState(false)
 	const instancesQuery = useQuery({
 		...trpc.instance.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
@@ -26,6 +31,7 @@ function InstanceListPage() {
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 
 	const hostNameById = new Map((hostsQuery.data ?? []).map((host) => [host.id, host.name]))
+	const readyHosts = (hostsQuery.data ?? []).filter((host) => host.status === "ready")
 
 	return (
 		<div className="space-y-6">
@@ -36,7 +42,13 @@ function InstanceListPage() {
 						Every Minecraft Console Client this organization supervises.
 					</p>
 				</div>
-				<ViewToggle mode={view} onChange={setView} label="Instance layout" />
+				<div className="flex items-center gap-2">
+					<ViewToggle mode={view} onChange={setView} label="Instance layout" />
+					<Button size="sm" disabled={readyHosts.length === 0} onClick={() => setCreating(true)}>
+						<Plus className="size-4" />
+						New instance
+					</Button>
+				</div>
 			</div>
 
 			{instancesQuery.isPending ? (
@@ -53,11 +65,22 @@ function InstanceListPage() {
 				<EmptyState
 					icon={Boxes}
 					title="No instances"
-					description="An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account. Enroll a host first, then create an instance on it."
+					description={
+						readyHosts.length === 0
+							? "An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account. Enroll and provision a host before creating one."
+							: "An instance is one Minecraft Console Client running on a host, signed in to one Microsoft account."
+					}
 					action={
-						<Link to="/hosts" className={buttonVariants({ size: "sm" })}>
-							Go to hosts
-						</Link>
+						readyHosts.length === 0 ? (
+							<Link to="/hosts" className={buttonVariants({ size: "sm" })}>
+								Go to hosts
+							</Link>
+						) : (
+							<Button size="sm" onClick={() => setCreating(true)}>
+								<Plus className="size-4" />
+								New instance
+							</Button>
+						)
 					}
 				/>
 			) : null}
@@ -145,6 +168,20 @@ function InstanceListPage() {
 					</div>
 				)
 			) : null}
+			<Modal
+				open={creating}
+				title="New instance"
+				description="One Minecraft Console Client on a provisioned host, signed in to one Microsoft account."
+				onClose={() => setCreating(false)}
+			>
+				<CreateInstanceForm
+					onCancel={() => setCreating(false)}
+					onCreated={(instanceId) => {
+						setCreating(false)
+						navigate({ to: "/instances/$instanceId", params: { instanceId } })
+					}}
+				/>
+			</Modal>
 		</div>
 	)
 }

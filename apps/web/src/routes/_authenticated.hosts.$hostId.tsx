@@ -1,8 +1,9 @@
 import type { HostStatus } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { CircleAlert } from "lucide-react"
+import { CircleAlert, Plus } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { CreateInstanceForm } from "~/components/create-instance-form"
 import { HostDrift } from "~/components/host-drift"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostMetricsPanel } from "~/components/host-metrics"
@@ -12,6 +13,7 @@ import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
+import { Modal } from "~/components/ui/modal"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
@@ -49,6 +51,7 @@ function HostDetailPage() {
 
 	const previousStatus = useRef<HostStatus | undefined>(undefined)
 	const [justProvisioned, setJustProvisioned] = useState(false)
+	const [creatingInstance, setCreatingInstance] = useState(false)
 
 	useEffect(() => {
 		if (!host) return
@@ -228,6 +231,12 @@ function HostDetailPage() {
 			<HostDrift hostId={host.id} ready={host.status === "ready"} />
 
 			<div className="flex gap-3">
+				{host.status === "ready" ? (
+					<Button onClick={() => setCreatingInstance(true)}>
+						<Plus className="size-4" />
+						New instance
+					</Button>
+				) : null}
 				<Button
 					onClick={handleProvision}
 					disabled={
@@ -260,6 +269,21 @@ function HostDetailPage() {
 				onConfirm={handleRemove}
 				onCancel={() => setConfirmingRemove(false)}
 			/>
+			<Modal
+				open={creatingInstance}
+				title="New instance"
+				description={`One Minecraft Console Client on ${host.name}, signed in to one Microsoft account.`}
+				onClose={() => setCreatingInstance(false)}
+			>
+				<CreateInstanceForm
+					hostId={host.id}
+					onCancel={() => setCreatingInstance(false)}
+					onCreated={(instanceId) => {
+						setCreatingInstance(false)
+						navigate({ to: "/instances/$instanceId", params: { instanceId } })
+					}}
+				/>
+			</Modal>
 		</div>
 	)
 }

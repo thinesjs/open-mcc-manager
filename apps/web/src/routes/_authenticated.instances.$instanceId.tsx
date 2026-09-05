@@ -248,6 +248,14 @@ function InstanceDetailPage() {
 									</dd>
 								</div>
 								<div className="flex justify-between gap-4">
+									<dt className="text-sm text-muted-foreground">Live control</dt>
+									<dd className="text-sm text-foreground">
+										{configQuery.data.liveControlEnabled
+											? `On, port ${configQuery.data.liveControlPort}`
+											: "Off"}
+									</dd>
+								</div>
+								<div className="flex justify-between gap-4">
 									<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
 									<dd className="text-sm text-foreground">
 										{configQuery.data.antiAfkEnabled

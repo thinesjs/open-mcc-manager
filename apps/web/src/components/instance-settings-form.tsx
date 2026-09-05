@@ -160,6 +160,21 @@ export const InstanceSettingsForm = ({
 				) : null}
 			</div>
 
+			<div className="space-y-1.5">
+				<Label>Live control</Label>
+				<Choice
+					label="Live control"
+					value={draft.liveControlEnabled ? "on" : "off"}
+					options={ON_OFF}
+					onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Lets the manager read this client's chat and state directly. The endpoint listens on the
+					host's loopback only, needs a token, and is read-only — commands still go through the
+					console. Port {draft.liveControlPort}.
+				</p>
+			</div>
+
 			<div className="flex justify-end gap-2">
 				<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
 					Cancel

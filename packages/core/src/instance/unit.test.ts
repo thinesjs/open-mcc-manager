@@ -19,18 +19,26 @@ describe("instance id validation", () => {
 
 describe("environment file rendering", () => {
 	it("refuses a newline, which would define a second variable", () => {
-		expect(() =>
-			renderEnvironmentFile({ serverAddress: "a\nMCC_EVIL=1", minecraftAccount: "a@b.com" }),
-		).toThrow(/newline/i)
+		expect(() => renderEnvironmentFile({ liveControlToken: "a\nMCC_EVIL=1" })).toThrow(/newline/i)
 	})
 
-	it("quotes and escapes both values", () => {
-		const rendered = renderEnvironmentFile({
-			serverAddress: 'play"x',
-			minecraftAccount: "afk@example.com",
-		})
-		expect(rendered).toContain('MCC_SERVER="play\\"x"')
-		expect(rendered).toContain('MCC_ACCOUNT="afk@example.com"')
+	it("quotes and escapes the token", () => {
+		expect(renderEnvironmentFile({ liveControlToken: 'tok"x' })).toContain(
+			'MCC_MCP_AUTH_TOKEN="tok\\"x"',
+		)
+	})
+
+	it("carries the token under the name the client reads it from", () => {
+		expect(renderEnvironmentFile({ liveControlToken: "abc123" })).toBe(
+			'MCC_MCP_AUTH_TOKEN="abc123"\n',
+		)
+	})
+
+	it("never writes the account or server, which the client ignores anyway", () => {
+		const rendered = renderEnvironmentFile({ liveControlToken: "abc123" })
+
+		expect(rendered).not.toContain("MCC_SERVER")
+		expect(rendered).not.toContain("MCC_ACCOUNT")
 	})
 })
 

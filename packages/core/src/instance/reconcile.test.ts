@@ -24,6 +24,8 @@ const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	hostId: "host-1",
 	name: "afk-1",
 	accountType: "microsoft",
+	liveControlTokenEncrypted: null,
+	liveControlTokenKeyId: null,
 	minecraftAccount: "afk@example.com",
 	minecraftUsername: null,
 	status: "running",

@@ -112,6 +112,20 @@ export const DEFAULT_ANTI_AFK_INTERVAL_SECONDS = 60
 
 export const DEFAULT_LIVE_CONTROL_PORT = 33333
 
+export const LIVE_CONTROL_PORT_LIMIT = 33832
+
+export class LiveControlPortsExhaustedError extends Error {}
+
+export const allocateLiveControlPort = (taken: Iterable<number>): number => {
+	const used = new Set(taken)
+	for (let port = DEFAULT_LIVE_CONTROL_PORT; port <= LIVE_CONTROL_PORT_LIMIT; port += 1) {
+		if (!used.has(port)) return port
+	}
+	throw new LiveControlPortsExhaustedError(
+		`No live control port is free between ${DEFAULT_LIVE_CONTROL_PORT} and ${LIVE_CONTROL_PORT_LIMIT}`,
+	)
+}
+
 export const defaultInstanceConfig = (values: {
 	accountType: AccountType
 	minecraftAccount: string

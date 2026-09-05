@@ -97,6 +97,8 @@ export interface Instance {
 	hostId: string
 	id: string
 	lastExitCode: number | null
+	liveControlTokenEncrypted: string | null
+	liveControlTokenKeyId: string | null
 	minecraftAccount: string
 	minecraftUsername: string | null
 	name: string

@@ -19,11 +19,20 @@ type _AccountTypeRefinesGeneratedColumn = RefinementOf<
 
 export type InstanceTable = Omit<
 	DB["instance"],
-	"status" | "accountType" | "lastExitCode" | "authClaimId" | "authClaimedAt" | "minecraftUsername"
+	| "status"
+	| "accountType"
+	| "lastExitCode"
+	| "liveControlTokenEncrypted"
+	| "liveControlTokenKeyId"
+	| "authClaimId"
+	| "authClaimedAt"
+	| "minecraftUsername"
 > & {
 	status: Generated<InstanceStatus>
 	accountType: Generated<AccountType>
 	lastExitCode: Generated<DB["instance"]["lastExitCode"]>
+	liveControlTokenEncrypted: Generated<DB["instance"]["liveControlTokenEncrypted"]>
+	liveControlTokenKeyId: Generated<DB["instance"]["liveControlTokenKeyId"]>
 	authClaimId: Generated<DB["instance"]["authClaimId"]>
 	authClaimedAt: Generated<DB["instance"]["authClaimedAt"]>
 	minecraftUsername: Generated<DB["instance"]["minecraftUsername"]>

@@ -1,8 +1,7 @@
 import { INSTANCE_ID_PATTERN } from "@open-mcc/contracts"
 
 export type EnvironmentValues = {
-	serverAddress: string
-	minecraftAccount: string
+	liveControlToken: string
 }
 
 export const validateInstanceId = (id: string): string => {
@@ -20,12 +19,10 @@ const environmentValue = (value: string): string => {
 	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 }
 
+export const LIVE_CONTROL_TOKEN_ENV = "MCC_MCP_AUTH_TOKEN"
+
 export const renderEnvironmentFile = (values: EnvironmentValues): string =>
-	[
-		`MCC_SERVER=${environmentValue(values.serverAddress)}`,
-		`MCC_ACCOUNT=${environmentValue(values.minecraftAccount)}`,
-		"",
-	].join("\n")
+	[`${LIVE_CONTROL_TOKEN_ENV}=${environmentValue(values.liveControlToken)}`, ""].join("\n")
 
 export const unitName = (instanceId: string): string => `open-mcc@${validateInstanceId(instanceId)}`
 

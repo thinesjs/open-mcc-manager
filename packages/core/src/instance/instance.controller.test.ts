@@ -43,6 +43,8 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	hostId: "host-1",
 	name: "afk-1",
 	accountType: "microsoft",
+	liveControlTokenEncrypted: null,
+	liveControlTokenKeyId: null,
 	minecraftAccount: "afk@example.com",
 	minecraftUsername: null,
 	status: "stopped",
@@ -161,7 +163,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const instances: InstanceRepository = {
 		findById: vi.fn(async () => instanceRow()),
 		list: vi.fn(async () => [instanceRow()]),
-		insert: vi.fn(async () => instanceRow()),
+		insert: vi.fn(async (_scope, values) => instanceRow(values)),
 		update: vi.fn(async () => instanceRow({ status: "running" })),
 		delete: vi.fn(async () => true),
 		claimForAuth: vi.fn(async () => instanceRow()),
@@ -311,7 +313,38 @@ describe("instance creation prepares the host", () => {
 		expect(joined).toContain("useradd -r -U")
 		expect(joined).toContain("mkfifo -m 0600")
 		expect(joined).toContain("/srv/open-mcc/instances/abc123/env")
-		expect(transport.stdins.some((each) => each.includes("MCC_SERVER="))).toBe(true)
+		expect(transport.stdins.some((each) => each.includes("MCC_MCP_AUTH_TOKEN="))).toBe(true)
+	})
+
+	it("seals the live control token rather than storing it in the clear", async () => {
+		const { deps } = makeDeps()
+		const controller = createInstanceController(deps)
+		const created = await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		expect(created.liveControlTokenKeyId).not.toBeNull()
+		expect(created.liveControlTokenEncrypted).not.toBeNull()
+	})
+
+	it("never writes the token into the config file the client rewrites", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		const written = transport.stdins.find((each) => each.includes("[ChatBot.McpServer]"))
+		expect(written).toBeDefined()
+		expect(written).not.toContain("MCC_MCP_AUTH_TOKEN=")
 	})
 
 	it("gives the instance a private group and no group-readable state, so co-tenants cannot reach it", async () => {
@@ -564,5 +597,52 @@ describe("running several instances on one host", () => {
 
 	it("keeps each instance's account separate where the host has per-instance accounts", () => {
 		expect(instanceUser("alpha")).not.toBe(instanceUser("beta"))
+	})
+
+	it("moves an instance off a port a sibling already holds", async () => {
+		const { deps } = makeDeps()
+		const documents: string[] = []
+		deps.instances.insertConfigVersion = async (_scope, _id, document) => {
+			documents.push(document)
+			return configRow()
+		}
+		deps.instances.list = vi.fn(async () => [
+			instanceRow({ id: "abc123" }),
+			instanceRow({ id: "sibling", name: "other" }),
+		])
+		deps.instances.latestConfig = vi.fn(async (_scope, id) =>
+			id === "sibling"
+				? configRow({
+						document: {
+							accountType: "microsoft",
+							minecraftAccount: "a@b.com",
+							serverAddress: "play.example.net",
+							autoRelogRetries: 3,
+							autoRelogDelaySeconds: 10,
+							antiAfkEnabled: false,
+							antiAfkIntervalSeconds: 60,
+							autoRespawnEnabled: false,
+							liveControlEnabled: true,
+							liveControlPort: 33333,
+						},
+					})
+				: undefined,
+		)
+		const controller = createInstanceController(deps)
+		await controller.updateConfig(owner, "abc123", {
+			accountType: "microsoft",
+			minecraftAccount: "a@b.com",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogDelaySeconds: 10,
+			antiAfkEnabled: false,
+			antiAfkIntervalSeconds: 60,
+			autoRespawnEnabled: false,
+			liveControlEnabled: true,
+			liveControlPort: 33333,
+		})
+
+		expect(documents).toHaveLength(1)
+		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33334)
 	})
 })

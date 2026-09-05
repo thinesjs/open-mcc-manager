@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import {
 	type CreateInstanceInput,
 	can,
@@ -22,7 +23,7 @@ import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
-import { defaultInstanceConfig, renderInstanceConfig } from "./config"
+import { allocateLiveControlPort, defaultInstanceConfig, renderInstanceConfig } from "./config"
 import { readConsole, sendCommand } from "./control"
 import {
 	createInstanceRepository,
@@ -151,6 +152,27 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return { transport, profile }
 	}
 
+	const freeLiveControlPort = async (
+		ctx: ActorContext,
+		instance: InstanceRow,
+		config: InstanceConfigInput,
+	): Promise<number> => {
+		const scope = scopeOf(ctx)
+		const siblings = (await deps.instances.list(scope)).filter(
+			(each) => each.hostId === instance.hostId && each.id !== instance.id,
+		)
+		const taken: number[] = []
+		for (const sibling of siblings) {
+			const saved = await deps.instances.latestConfig(scope, sibling.id)
+			if (!saved) continue
+			const parsed = instanceConfigInput.safeParse(saved.document)
+			if (parsed.success) taken.push(parsed.data.liveControlPort)
+		}
+		return taken.includes(config.liveControlPort)
+			? allocateLiveControlPort(taken)
+			: config.liveControlPort
+	}
+
 	const requireInstance = async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
 		const found = await deps.instances.findById(scopeOf(ctx), instanceId)
 		if (!found) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
@@ -268,11 +290,26 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
 
-			const initialConfig = defaultInstanceConfig({
-				accountType: input.accountType,
-				minecraftAccount: input.minecraftAccount,
-				serverAddress: input.serverAddress,
-			})
+			const onHost = (await deps.instances.list(scopeOf(ctx))).filter(
+				(instance) => instance.hostId === input.hostId,
+			)
+			const takenPorts: number[] = []
+			for (const instance of onHost) {
+				const saved = await deps.instances.latestConfig(scopeOf(ctx), instance.id)
+				if (!saved) continue
+				const parsed = instanceConfigInput.safeParse(saved.document)
+				if (parsed.success) takenPorts.push(parsed.data.liveControlPort)
+			}
+			const initialConfig = {
+				...defaultInstanceConfig({
+					accountType: input.accountType,
+					minecraftAccount: input.minecraftAccount,
+					serverAddress: input.serverAddress,
+				}),
+				liveControlPort: allocateLiveControlPort(takenPorts),
+			}
+			const liveControlToken = randomUUID().replaceAll("-", "")
+			const sealedToken = deps.secrets.seal(liveControlToken)
 
 			const created = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.insert(scopeOf(ctx), {
@@ -281,6 +318,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					accountType: input.accountType,
 					minecraftAccount: input.minecraftAccount,
 					status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
+					liveControlTokenEncrypted: sealedToken.ciphertext,
+					liveControlTokenKeyId: sealedToken.keyId,
 				})
 				await repos.instances.insertConfigVersion(
 					scopeOf(ctx),
@@ -336,10 +375,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				steps.push([
 					`(umask 077; cat > ${shellQuote(`${dir}/env`)})${own(`${dir}/env`)}`,
 					"Failed to write the instance environment",
-					renderEnvironmentFile({
-						serverAddress: input.serverAddress,
-						minecraftAccount: input.minecraftAccount,
-					}),
+					renderEnvironmentFile({ liveControlToken }),
 				])
 				steps.push([
 					`(umask 077; cat > ${shellQuote(`${dir}/MinecraftClient.ini`)})${own(
@@ -474,7 +510,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const instance = await requireInstance(ctx, instanceId)
-			const document = renderInstanceConfig(config)
+			const settled = {
+				...config,
+				liveControlPort: await freeLiveControlPort(ctx, instance, config),
+			}
+			const document = renderInstanceConfig(settled)
 
 			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
@@ -499,7 +539,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				const version = await repos.instances.insertConfigVersion(
 					scopeOf(ctx),
 					instanceId,
-					JSON.stringify(config),
+					JSON.stringify(settled),
 					{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
 				)
 				await repos.audit.record(scopeOf(ctx), {

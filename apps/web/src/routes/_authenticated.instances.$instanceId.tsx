@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "lucide-react"
 import { useState } from "react"
+import { ConsoleComposer } from "~/components/console-composer"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { ScheduledCommands } from "~/components/scheduled-commands"
@@ -32,6 +33,7 @@ function InstanceDetailPage() {
 	const consoleQuery = useQuery({
 		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
 		retry: false,
+		refetchInterval: instanceQuery.data?.status === "running" ? 3000 : false,
 	})
 
 	const invalidate = async () => {
@@ -222,6 +224,13 @@ function InstanceDetailPage() {
 								description="Output appears once the instance has run."
 							/>
 						)}
+						<ConsoleComposer
+							instanceId={instanceId}
+							running={instance?.status === "running"}
+							onSent={async () => {
+								await consoleQuery.refetch()
+							}}
+						/>
 					</section>
 
 					<div className="flex gap-3">

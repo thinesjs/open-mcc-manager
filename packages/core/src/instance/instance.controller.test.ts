@@ -235,7 +235,7 @@ describe("instance controller authorization", () => {
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
 		const controller = createInstanceController(deps)
 		await controller.sendCommand(operator, "abc123", "/say hi")
-		expect(transport.stdins).toContain("/say hi\n")
+		expect(transport.stdins).toContain("//say hi\n")
 	})
 
 	it("refuses a command to an instance that is not running, whose fifo has no reader", async () => {
@@ -485,7 +485,7 @@ describe("scheduled commands", () => {
 
 		await controller.runScheduledCommand(commandRow())
 
-		expect(transport.stdins).toContain("/say good morning\n")
+		expect(transport.stdins).toContain("//say good morning\n")
 		expect(audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
 			expect.objectContaining({ actorId: null, actorLabel: "scheduler" }),

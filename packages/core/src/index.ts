@@ -63,7 +63,15 @@ export {
 export type { CommandRepository, ScheduledCommandValues } from "./instance/command.repository"
 export { createCommandRepository } from "./instance/command.repository"
 export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
-export { CONTROL_TIMEOUT_MS, readConsole, sendCommand } from "./instance/control"
+export {
+	CONTROL_TIMEOUT_MS,
+	controlLine,
+	DisallowedInternalCommandError,
+	INTERNAL_COMMAND_PREFIX,
+	INTERNAL_COMMANDS,
+	readConsole,
+	sendCommand,
+} from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"
 export { interpretExitCode, shouldRestartOn } from "./instance/exit-code"
 export type { InstanceController } from "./instance/instance.controller"

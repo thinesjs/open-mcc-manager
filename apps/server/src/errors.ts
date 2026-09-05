@@ -1,5 +1,6 @@
 import type { ErrorCode } from "@open-mcc/contracts"
 import {
+	DisallowedInternalCommandError,
 	FingerprintMismatchError,
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
@@ -135,6 +136,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_HOST_NOT_READY",
 			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof DisallowedInternalCommandError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_COMMAND_NOT_ALLOWED",
+			"That client command is not one this manager will run",
 		)
 	}
 	if (cause instanceof InstanceAccountNotInteractiveError) {

@@ -1,7 +1,13 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { rootlessProfile, systemProfile } from "../host/profile"
-import { readConsole, sendCommand } from "./control"
+import {
+	controlLine,
+	DisallowedInternalCommandError,
+	INTERNAL_COMMANDS,
+	readConsole,
+	sendCommand,
+} from "./control"
 
 const connected = async () => {
 	const transport = createFakeTransport()
@@ -33,9 +39,55 @@ describe("instance control channel", () => {
 
 	it("writes exactly one newline-terminated line to that instance's fifo", async () => {
 		const transport = await connected()
-		await sendCommand(transport, "abc", "/say hi", "/srv/open-mcc")
+		await sendCommand(transport, "abc", "hi", "/srv/open-mcc")
 		expect(transport.commands[0]).toBe("cat > '/srv/open-mcc/instances/abc/control'")
-		expect(transport.stdins[0]).toBe("/say hi\n")
+		expect(transport.stdins[0]).toBe("hi\n")
+	})
+
+	it("keeps a slash-prefixed line out of the client's own command handler", async () => {
+		const transport = await connected()
+		await sendCommand(transport, "abc", "/say hi", "/srv/open-mcc")
+		expect(transport.stdins[0]).toBe("//say hi\n")
+	})
+
+	it("denies console.write a path to running code on the host", () => {
+		for (const escalation of [
+			"!script pwn",
+			"!upgrade",
+			"!connect evil.example.net",
+			"!tryout tui",
+		]) {
+			expect(() => controlLine(escalation)).toThrow(DisallowedInternalCommandError)
+		}
+	})
+
+	it("refuses a denied client command whatever its casing or spacing", () => {
+		for (const spelling of ["!SCRIPT pwn", "!  Script pwn", "!sCrIpT"]) {
+			expect(() => controlLine(spelling)).toThrow(DisallowedInternalCommandError)
+		}
+	})
+
+	it("keeps every escalating command out of the allowed set", () => {
+		for (const denied of ["script", "upgrade", "connect", "tryout", "set", "reload", "bots"]) {
+			expect(INTERNAL_COMMANDS.some((allowed) => allowed === denied)).toBe(false)
+		}
+	})
+
+	it("sends chat text through untouched", () => {
+		expect(controlLine("hello world")).toBe("hello world")
+	})
+
+	it("routes a slash line to the server rather than the client's own handler", () => {
+		expect(controlLine("/home")).toBe("//home")
+	})
+
+	it("preserves a doubled slash so plugin commands still reach the server", () => {
+		expect(controlLine("//set stone")).toBe("///set stone")
+	})
+
+	it("runs an allowed client command, which a slash line could never reach", () => {
+		expect(controlLine("!respawn")).toBe("/respawn")
+		expect(controlLine("!list")).toBe("/list")
 	})
 
 	it("bounds the journal read rather than streaming the whole unit history", async () => {

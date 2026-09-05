@@ -8,6 +8,7 @@ import {
 	sleepWindowInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
+import { sampleManagerMetrics } from "@open-mcc/core"
 import { z } from "zod"
 import { protectedProcedure, requireCapability, router } from "../trpc"
 
@@ -92,6 +93,20 @@ export const instanceRouter = router({
 			await ctx.instanceController.deleteScheduledCommand(ctx.actor, input.id)
 			return { deleted: true }
 		}),
+
+	hostMetrics: protectedProcedure.input(hostIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.hostMetrics(ctx.actor, input.hostId)
+	}),
+
+	managerMetrics: protectedProcedure.query(({ ctx }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return sampleManagerMetrics({
+			memoryUsage: () => process.memoryUsage(),
+			uptime: () => process.uptime(),
+			now: () => new Date(),
+		})
+	}),
 
 	reconcileHost: protectedProcedure.input(hostIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")

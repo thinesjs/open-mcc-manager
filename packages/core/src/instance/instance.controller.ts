@@ -17,6 +17,7 @@ import type { SecretStore } from "../crypto/sealed-box"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { SYSTEMD_UNIT_DIR } from "../host/provision"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
 import { readConsole, sendCommand } from "./control"
@@ -446,6 +447,16 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: { version: String(version.version) },
 				})
 			})
+		},
+
+		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const transport = await connectToHost(scopeOf(ctx), hostId)
+			try {
+				return await readHostMetrics(transport, deps.instancesRoot)
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
 		},
 
 		reconcileHost: async (ctx: ActorContext, hostId: string): Promise<HostReconciliation> => {

@@ -103,3 +103,24 @@ export const hostReconciliationSchema = z.union([
 	}),
 ])
 export type HostReconciliation = z.infer<typeof hostReconciliationSchema>
+
+export const managerMetricsSchema = z.object({
+	rssBytes: z.number(),
+	heapUsedBytes: z.number(),
+	heapTotalBytes: z.number(),
+	externalBytes: z.number(),
+	arrayBuffersBytes: z.number(),
+	uptimeSeconds: z.number(),
+	sampledAt: z.date(),
+})
+export type ManagerMetrics = z.infer<typeof managerMetricsSchema>
+
+export const hostMetricsSchema = z.object({
+	loadAverage1m: z.number(),
+	memoryUsedMb: z.number(),
+	memoryTotalMb: z.number(),
+	diskUsedMb: z.number(),
+	diskTotalMb: z.number(),
+	uptimeSeconds: z.number(),
+})
+export type HostMetrics = z.infer<typeof hostMetricsSchema>

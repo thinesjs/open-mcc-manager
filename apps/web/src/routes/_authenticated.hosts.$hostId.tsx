@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { HostDrift } from "~/components/host-drift"
+import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -128,6 +129,8 @@ function HostDetailPage() {
 					</div>
 				</CardContent>
 			</Card>
+
+			<HostMetricsPanel hostId={host.id} />
 
 			<HostDrift hostId={host.id} />
 

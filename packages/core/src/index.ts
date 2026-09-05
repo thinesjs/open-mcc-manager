@@ -113,3 +113,11 @@ export {
 } from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
+export type { HostMetrics } from "./system/host-metrics"
+export {
+	HOST_METRICS_COMMAND,
+	parseHostMetrics,
+	readHostMetrics,
+} from "./system/host-metrics"
+export type { GrowthVerdict, ManagerMetrics, ProcessSample } from "./system/metrics"
+export { assessHeapGrowth, sampleManagerMetrics } from "./system/metrics"

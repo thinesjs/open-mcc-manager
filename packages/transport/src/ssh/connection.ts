@@ -65,6 +65,13 @@ export const createSshTransport = (): HostTransport => {
 					reject(new Error(`Connection to ${options.hostname} timed out`))
 				}, options.timeoutMs)
 
+				const fail = (error: Error) => {
+					clearTimeout(timer)
+					state = "failed"
+					conn.destroy()
+					reject(error)
+				}
+
 				conn
 					.on("ready", () => {
 						clearTimeout(timer)
@@ -72,12 +79,10 @@ export const createSshTransport = (): HostTransport => {
 						state = "ready"
 						resolve()
 					})
-					.on("error", (error: Error) => {
-						clearTimeout(timer)
-						state = "failed"
-						reject(error)
-					})
-					.connect({
+					.on("error", fail)
+
+				try {
+					conn.connect({
 						host: options.hostname,
 						port: options.port,
 						username: options.username,
@@ -88,6 +93,9 @@ export const createSshTransport = (): HostTransport => {
 							return result.ok
 						},
 					})
+				} catch (error) {
+					fail(error instanceof Error ? error : new Error("Connection failed"))
+				}
 			}),
 
 		exec: (command: string, timeoutMs: number, stdin?: string) => {

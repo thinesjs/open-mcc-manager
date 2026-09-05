@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { CircleAlert, TriangleAlert } from "lucide-react"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { ManagerHealth } from "~/components/manager-health"
 import { Alert } from "~/components/ui/alert"
 import { getErrorMessage } from "~/lib/errors"
 import {
@@ -91,6 +92,8 @@ function OverviewPage() {
 					</dl>
 				</div>
 			</section>
+
+			<ManagerHealth />
 
 			<section className="space-y-3">
 				<h2 className="text-sm font-semibold text-foreground">Needs attention</h2>

@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from "motion/react"
+import { motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 export type HoldToConfirmProps = {
@@ -20,7 +20,6 @@ export const HoldToConfirm = ({
 }: HoldToConfirmProps) => {
 	const [holding, setHolding] = useState(false)
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-	const reduced = useReducedMotion() ?? false
 
 	const cancel = useCallback(() => {
 		if (timer.current !== undefined) clearTimeout(timer.current)
@@ -59,11 +58,7 @@ export const HoldToConfirm = ({
 				className="absolute inset-y-0 left-0 -z-10 bg-destructive/24"
 				initial={{ width: "0%" }}
 				animate={{ width: holding ? "100%" : "0%" }}
-				transition={
-					holding
-						? { duration: reduced ? 0.1 : durationMs / 1000, ease: "linear" }
-						: { duration: 0.15 }
-				}
+				transition={holding ? { duration: durationMs / 1000, ease: "linear" } : { duration: 0.15 }}
 			/>
 			{holding ? holdingLabel : label}
 		</button>

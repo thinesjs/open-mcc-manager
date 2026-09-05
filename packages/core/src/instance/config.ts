@@ -25,6 +25,14 @@ const tomlInt = (value: number): string => {
 
 const tomlBool = (value: boolean): string => (value ? "true" : "false")
 
+const tomlSecondsRange = (seconds: number): string => {
+	if (!Number.isFinite(seconds) || seconds < 0) {
+		throw new Error("Config delays must be a non-negative number of seconds")
+	}
+	const asFloat = seconds.toFixed(1)
+	return `{ min = ${asFloat}, max = ${asFloat} }`
+}
+
 export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 	[
 		"[Main.General.Account]",
@@ -36,10 +44,10 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[ChatBot.AutoRelog]",
 		`Enabled = ${tomlBool(true)}`,
 		`Retries = ${tomlInt(config.autoRelogRetries)}`,
-		`Delay = ${tomlInt(config.autoRelogDelaySeconds)}`,
+		`Delay = ${tomlSecondsRange(config.autoRelogDelaySeconds)}`,
 		"",
 		"[ChatBot.AntiAFK]",
 		`Enabled = ${tomlBool(config.antiAfkEnabled)}`,
-		`Delay = ${tomlInt(config.antiAfkIntervalSeconds)}`,
+		`Delay = ${tomlSecondsRange(config.antiAfkIntervalSeconds)}`,
 		"",
 	].join("\n")

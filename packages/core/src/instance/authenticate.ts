@@ -9,7 +9,7 @@ import {
 } from "./instance.controller"
 import { instanceDir, instanceUser, unitName } from "./unit"
 
-export const DEVICE_CODE_PATTERN = /\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/
+export const DEVICE_CODE_PATTERN = /enter the code:?\s*([A-Z0-9]{4,6}-?[A-Z0-9]{4,6})\b/i
 
 export const VERIFICATION_URI_PATTERN = /(https:\/\/[A-Za-z0-9.\-/]*microsoft\.com\/link)/
 

@@ -46,7 +46,12 @@ export {
 	UNIT_TEMPLATE_INSTANCES_ROOT,
 	validateInstancesRoot,
 } from "./host/provision"
-export { beginAuthentication, DEVICE_CODE_TTL_MS } from "./instance/authenticate"
+export {
+	beginAuthentication,
+	DEVICE_CODE_PATTERN,
+	DEVICE_CODE_TTL_MS,
+	VERIFICATION_URI_PATTERN,
+} from "./instance/authenticate"
 export type { CommandRepository, ScheduledCommandValues } from "./instance/command.repository"
 export { createCommandRepository } from "./instance/command.repository"
 export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"

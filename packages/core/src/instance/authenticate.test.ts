@@ -16,6 +16,7 @@ import {
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
 	SESSION_CACHE_FILE,
+	VERIFICATION_URI_PATTERN,
 } from "./authenticate"
 import type { CommandRepository } from "./command.repository"
 import {
@@ -50,9 +51,11 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 })
 
 const DEVICE_CODE_OUTPUT = [
-	"Please sign in to your Microsoft account.",
-	"To sign in, use a web browser to open the page https://www.microsoft.com/link",
-	"and enter the code ABCD-EFGH to authenticate.",
+	"Minecraft Console Client v26.2 - for MC 1.4.6 to 26.2 - Github.com/MCCTeam",
+	"Connecting to Microsoft...",
+	"To sign in, open https://www.microsoft.com/link in your browser and enter the code: FJDPTLX8",
+	"Cannot open browser",
+	"Waiting for authentication to complete...",
 ].join("\n")
 
 const hostRow: HostRow = {
@@ -194,9 +197,27 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 }
 
 describe("device code pattern", () => {
-	it("matches a pairing code and not a token", () => {
-		expect(DEVICE_CODE_PATTERN.test("ABCD-EFGH")).toBe(true)
+	it("matches the code in the line mcc 26.2 actually prints", () => {
+		const match = DEVICE_CODE_PATTERN.exec(DEVICE_CODE_OUTPUT)
+		expect(match?.[1]).toBe("FJDPTLX8")
+	})
+
+	it("matches an unhyphenated eight-character code, which is the form observed", () => {
+		expect(DEVICE_CODE_PATTERN.exec("and enter the code: 3VZL6XLW")?.[1]).toBe("3VZL6XLW")
+	})
+
+	it("still matches a hyphenated code, in case the format varies", () => {
+		expect(DEVICE_CODE_PATTERN.exec("enter the code: ABCD-EFGH")?.[1]).toBe("ABCD-EFGH")
+	})
+
+	it("does not mistake a bearer token for a pairing code", () => {
 		expect(DEVICE_CODE_PATTERN.test("eyJhbGciOiJSUzI1NiIs")).toBe(false)
+	})
+
+	it("finds the verification uri mcc prints", () => {
+		expect(VERIFICATION_URI_PATTERN.exec(DEVICE_CODE_OUTPUT)?.[1]).toBe(
+			"https://www.microsoft.com/link",
+		)
 	})
 })
 
@@ -222,7 +243,7 @@ describe("beginAuthentication", () => {
 		const withToken = `${DEVICE_CODE_OUTPUT}\nrefresh_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9`
 		const { deps } = makeDeps(withToken)
 		const result = await beginAuthentication(deps, owner, "abc123", FAST_POLL)
-		expect(result.userCode).toBe("ABCD-EFGH")
+		expect(result.userCode).toBe("FJDPTLX8")
 		expect(result.verificationUri).toBe("https://www.microsoft.com/link")
 		expect(JSON.stringify(result)).not.toContain("eyJ")
 	})

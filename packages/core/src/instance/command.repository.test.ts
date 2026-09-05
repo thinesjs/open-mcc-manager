@@ -33,6 +33,7 @@ beforeAll(async () => {
 			hostId,
 			name: "afk",
 			minecraftAccount: "a@b.com",
+			minecraftUsername: null,
 		})
 		.returningAll()
 		.executeTakeFirstOrThrow()

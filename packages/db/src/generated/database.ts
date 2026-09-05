@@ -70,6 +70,8 @@ export interface Host {
 	mode: Generated<string>
 	name: string
 	organizationId: string
+	osId: string | null
+	osName: string | null
 	osRelease: string | null
 	port: Generated<number>
 	provisioningAttemptId: string | null
@@ -93,6 +95,7 @@ export interface Instance {
 	id: string
 	lastExitCode: number | null
 	minecraftAccount: string
+	minecraftUsername: string | null
 	name: string
 	organizationId: string
 	status: Generated<string>

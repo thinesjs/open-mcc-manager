@@ -35,6 +35,20 @@ export type ProvisionResult = {
 	osRelease: string
 	profile: HostProfile
 	sandboxed: boolean
+	osId: string | null
+	osName: string | null
+}
+
+export const OS_RELEASE_COMMAND =
+	'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "${ID:-}" "${PRETTY_NAME:-}"'
+
+export const parseOsRelease = (output: string): { osId: string | null; osName: string | null } => {
+	const [id = "", name = ""] = output.split("\n")
+	const clean = (value: string): string | null => {
+		const trimmed = value.trim().replace(/^"|"$/g, "")
+		return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null
+	}
+	return { osId: clean(id), osName: clean(name) }
 }
 
 export type ProvisionProgress = {
@@ -136,6 +150,9 @@ export const provisionHost = async (
 		"systemd is not available on this host",
 	)
 
+	const osRead = await transport.exec(OS_RELEASE_COMMAND, PROVISION_STEP_TIMEOUT_MS)
+	const { osId, osName } = parseOsRelease(osRead.stdout)
+
 	const profile = await resolveProfile(transport, options.mode)
 
 	if (profile.mode === "rootless") {
@@ -229,7 +246,7 @@ export const provisionHost = async (
 	advance()
 	await step(transport, systemctl(profile, "daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease, profile, sandboxed }
+	return { osRelease, profile, sandboxed, osId, osName }
 }
 
 export { LINGER_STEP_LABEL }

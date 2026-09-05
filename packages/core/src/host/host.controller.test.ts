@@ -60,6 +60,8 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	instancesRoot: "/srv/open-mcc",
 	unitDir: "/etc/systemd/system",
 	sandboxed: true,
+	osId: "debian",
+	osName: "Debian GNU/Linux 12 (bookworm)",
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,
@@ -523,6 +525,11 @@ describe("host controller provisioning", () => {
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
 			...CLIENT_PROBE_OK,
+			['. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "${ID:-}" "${PRETTY_NAME:-}"']: {
+				stdout: "debian\nDebian GNU/Linux 12 (bookworm)",
+				stderr: "",
+				exitCode: 0,
+			},
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
@@ -554,6 +561,8 @@ describe("host controller provisioning", () => {
 				instancesRoot: "/srv/open-mcc",
 				unitDir: "/etc/systemd/system",
 				sandboxed: true,
+				osId: "debian",
+				osName: "Debian GNU/Linux 12 (bookworm)",
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)

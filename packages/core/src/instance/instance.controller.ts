@@ -519,7 +519,22 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const expected = expectedUnits(profile, instances, schedules, renderScheduleUnits)
 
 			try {
-				return await reconcileHostOverTransport(transport, profile, hostId, instances, expected)
+				const observed = await reconcileHostOverTransport(
+					transport,
+					profile,
+					hostId,
+					instances,
+					expected,
+				)
+				for (const [id, player] of observed.seenPlayers) {
+					const known = instances.find((each) => each.id === id)
+					if (known && known.minecraftUsername !== player) {
+						await deps.instances
+							.update(scope, id, { minecraftUsername: player })
+							.catch(() => undefined)
+					}
+				}
+				return observed.reconciliation
 			} catch (error) {
 				return {
 					hostId,

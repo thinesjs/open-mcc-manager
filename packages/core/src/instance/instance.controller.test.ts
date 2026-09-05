@@ -25,6 +25,7 @@ import {
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
+import { instanceDir, instanceUser, unitName } from "./unit"
 
 const owner: ActorContext = {
 	organizationId: "org-1",
@@ -42,6 +43,7 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	hostId: "host-1",
 	name: "afk-1",
 	minecraftAccount: "afk@example.com",
+	minecraftUsername: null,
 	status: "stopped",
 	lastExitCode: null,
 	authClaimId: null,
@@ -61,6 +63,8 @@ const hostRow: HostRow = {
 	instancesRoot: "/srv/open-mcc",
 	unitDir: "/etc/systemd/system",
 	sandboxed: true,
+	osId: "debian",
+	osName: "Debian GNU/Linux 12 (bookworm)",
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: "SHA256:trusted",
@@ -539,5 +543,19 @@ describe("removing an instance", () => {
 		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
 		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
 		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-start@abc123.timer'")
+	})
+})
+
+describe("running several instances on one host", () => {
+	it("gives each its own directory and its own unit, so they do not collide", () => {
+		const root = "/srv/open-mcc"
+
+		expect(instanceDir(root, "alpha")).not.toBe(instanceDir(root, "beta"))
+		expect(unitName("alpha")).toBe("open-mcc@alpha")
+		expect(unitName("beta")).toBe("open-mcc@beta")
+	})
+
+	it("keeps each instance's account separate where the host has per-instance accounts", () => {
+		expect(instanceUser("alpha")).not.toBe(instanceUser("beta"))
 	})
 })

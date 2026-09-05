@@ -37,6 +37,7 @@ const seedInstance = async (organizationId: string, hostId: string) => {
 			hostId,
 			name: `inst-${Math.random().toString(36).slice(2, 10)}`,
 			minecraftAccount: "a@b.com",
+			minecraftUsername: null,
 		},
 	)
 	trackInstanceId(row.id)

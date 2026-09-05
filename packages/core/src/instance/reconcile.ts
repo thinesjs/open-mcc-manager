@@ -28,6 +28,11 @@ export const STUCK_MARKERS = [
 
 export const STUCK_SCAN_LINES = 20
 
+export const PLAYER_NAME_PATTERN = /Cached session is still valid for ([A-Za-z0-9_]{3,16})\./
+
+export const playerNameFrom = (journal: string): string | undefined =>
+	PLAYER_NAME_PATTERN.exec(journal)?.[1]
+
 export const looksStuck = (journal: string): boolean =>
 	STUCK_MARKERS.some((marker) => journal.includes(marker))
 
@@ -99,13 +104,18 @@ const listManagedUnits = async (
 		.filter((line) => line.length > 0 && isManagedUnit(line))
 }
 
+export type HostObservation = {
+	reconciliation: HostReconciliation
+	seenPlayers: ReadonlyMap<string, string>
+}
+
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
 	profile: HostProfile,
 	hostId: string,
 	instances: readonly InstanceRow[],
 	expected: Map<string, string>,
-): Promise<HostReconciliation> => {
+): Promise<HostObservation> => {
 	const unitDrift: UnitDrift[] = []
 	for (const [name, contents] of expected) {
 		const actual = await readFile(transport, `${profile.unitDir}/${name}`)
@@ -118,6 +128,7 @@ export const reconcileHostOverTransport = async (
 	}
 
 	const stateDrift: StateDrift[] = []
+	const seenPlayers = new Map<string, string>()
 	for (const instance of instances) {
 		const result = await transport.exec(
 			`${systemctl(profile, `is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
@@ -130,13 +141,18 @@ export const reconcileHostOverTransport = async (
 				RECONCILE_STEP_TIMEOUT_MS,
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"
+			const player = playerNameFrom(journal.stdout)
+			if (player) seenPlayers.set(instance.id, player)
 		}
 		if (!desiredStateIsSatisfied(instance.status, observed)) {
 			stateDrift.push({ instanceId: instance.id, desired: instance.status, observed })
 		}
 	}
 
-	return { hostId, reachable: true, unitDrift, stateDrift }
+	return {
+		reconciliation: { hostId, reachable: true, unitDrift, stateDrift },
+		seenPlayers,
+	}
 }
 
 export const renderScheduleUnits = (schedule: InstanceScheduleRow): Record<string, string> =>

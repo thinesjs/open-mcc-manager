@@ -7,7 +7,7 @@ export type InstanceCreateValues = Omit<
 	"id" | "organizationId" | "createdAt" | "authClaimId" | "authClaimedAt"
 >
 
-const MUTABLE_INSTANCE_COLUMNS = ["name", "status", "lastExitCode"] as const
+const MUTABLE_INSTANCE_COLUMNS = ["name", "status", "lastExitCode", "minecraftUsername"] as const
 
 export type InstanceUpdateValues = Partial<
 	Pick<InstanceRow, (typeof MUTABLE_INSTANCE_COLUMNS)[number]>
@@ -21,6 +21,7 @@ export const isAuthClaimStale = (claimedAt: Date | null, now: Date = new Date())
 const whitelistInstanceUpdate = (patch: InstanceUpdateValues): InstanceUpdateValues => ({
 	...(patch.name !== undefined && { name: patch.name }),
 	...(patch.status !== undefined && { status: patch.status }),
+	...(patch.minecraftUsername !== undefined && { minecraftUsername: patch.minecraftUsername }),
 	...(patch.lastExitCode !== undefined && { lastExitCode: patch.lastExitCode }),
 })
 

@@ -22,6 +22,8 @@ const MUTABLE_HOST_COLUMNS = [
 	"instancesRoot",
 	"unitDir",
 	"sandboxed",
+	"osId",
+	"osName",
 ] as const
 
 export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
@@ -96,6 +98,8 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.instancesRoot !== undefined && { instancesRoot: patch.instancesRoot }),
 	...(patch.unitDir !== undefined && { unitDir: patch.unitDir }),
 	...(patch.sandboxed !== undefined && { sandboxed: patch.sandboxed }),
+	...(patch.osId !== undefined && { osId: patch.osId }),
+	...(patch.osName !== undefined && { osName: patch.osName }),
 })
 
 export const createHostRepository = (db: Executor) => ({
@@ -230,7 +234,7 @@ export const createHostRepository = (db: Executor) => ({
 		attemptId: string,
 		patch: Pick<
 			HostUpdateValues,
-			"status" | "osRelease" | "instancesRoot" | "unitDir" | "sandboxed"
+			"status" | "osRelease" | "instancesRoot" | "unitDir" | "sandboxed" | "osId" | "osName"
 		>,
 	): Promise<HostRow | undefined> =>
 		db

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
 	explainClientFailure,
 	PROVISION_STEPS,
+	parseOsRelease,
 	provisionHost,
 	readsAsEnforced,
 	sandboxProbeCommand,
@@ -308,5 +309,26 @@ describe("checking whether instances are actually confined", () => {
 
 		expect(result.sandboxed).toBe(true)
 		expect(transport.commands.some((command) => command.includes("systemd-run"))).toBe(false)
+	})
+})
+
+describe("recognising which distribution a host runs", () => {
+	it("reads the identifier and the human name from the host's own os-release", () => {
+		expect(parseOsRelease("debian\nDebian GNU/Linux 12 (bookworm)")).toEqual({
+			osId: "debian",
+			osName: "Debian GNU/Linux 12 (bookworm)",
+		})
+	})
+
+	it("reports nothing rather than guessing when the host has no os-release", () => {
+		expect(parseOsRelease("\n")).toEqual({ osId: null, osName: null })
+	})
+
+	it("strips the quotes some distributions write around their values", () => {
+		expect(parseOsRelease('"ubuntu"\n"Ubuntu 24.04.1 LTS"').osId).toBe("ubuntu")
+	})
+
+	it("refuses an absurdly long value rather than storing whatever the host sent", () => {
+		expect(parseOsRelease(`${"x".repeat(200)}\nname`).osId).toBe(null)
 	})
 })

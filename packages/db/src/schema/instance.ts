@@ -12,12 +12,13 @@ type _InstanceStatusRefinesGeneratedColumn = RefinementOf<
 
 export type InstanceTable = Omit<
 	DB["instance"],
-	"status" | "lastExitCode" | "authClaimId" | "authClaimedAt"
+	"status" | "lastExitCode" | "authClaimId" | "authClaimedAt" | "minecraftUsername"
 > & {
 	status: Generated<InstanceStatus>
 	lastExitCode: Generated<DB["instance"]["lastExitCode"]>
 	authClaimId: Generated<DB["instance"]["authClaimId"]>
 	authClaimedAt: Generated<DB["instance"]["authClaimedAt"]>
+	minecraftUsername: Generated<DB["instance"]["minecraftUsername"]>
 }
 
 export type InstanceRow = Selectable<InstanceTable>

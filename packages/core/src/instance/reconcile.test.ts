@@ -9,6 +9,7 @@ import {
 	isManagedUnit,
 	looksStuck,
 	parseObservedState,
+	playerNameFrom,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 } from "./reconcile"
@@ -21,6 +22,7 @@ const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	hostId: "host-1",
 	name: "afk-1",
 	minecraftAccount: "afk@example.com",
+	minecraftUsername: null,
 	status: "running",
 	lastExitCode: null,
 	authClaimId: null,
@@ -124,7 +126,7 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -157,7 +159,7 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -181,7 +183,7 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -236,7 +238,7 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -262,7 +264,7 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -286,7 +288,7 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -350,7 +352,7 @@ describe("a client that is running but not doing anything", () => {
 			...journalFor('Failed to parse the settings file, enter "/new" to generate'),
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -377,7 +379,7 @@ describe("a client that is running but not doing anything", () => {
 			...journalFor("[MCC] Server was successfully joined."),
 		})
 
-		const result = await reconcileHostOverTransport(
+		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
 			PROFILE,
 			"host-1",
@@ -387,5 +389,21 @@ describe("a client that is running but not doing anything", () => {
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.stateDrift).toEqual([])
+	})
+})
+
+describe("noticing which account an instance is signed in as", () => {
+	it("reads the name from the line the client prints when it loads a cached session", () => {
+		expect(playerNameFrom("Cached session is still valid for Notch.")).toBe("Notch")
+	})
+
+	it("reports nothing when the client has not said who it is", () => {
+		expect(playerNameFrom("MCC is running with default settings.")).toBeUndefined()
+	})
+
+	it("accepts only names Minecraft itself would allow, so nothing else is captured", () => {
+		expect(playerNameFrom("Cached session is still valid for a.")).toBeUndefined()
+		expect(playerNameFrom("Cached session is still valid for has space.")).toBeUndefined()
+		expect(playerNameFrom("Cached session is still valid for Player_123.")).toBe("Player_123")
 	})
 })

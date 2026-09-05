@@ -65,7 +65,6 @@ const hostControllerDeps: HostControllerDeps = {
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
-	instancesRoot: "/srv/open-mcc",
 	withTransaction,
 }
 

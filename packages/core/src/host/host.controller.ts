@@ -47,7 +47,6 @@ export type HostControllerDeps = {
 	secrets: SecretStore
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
-	instancesRoot: string
 	withTransaction: WithTransaction
 }
 
@@ -80,6 +79,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				hostname: input.hostname,
 				port: input.port,
 				username: input.username,
+				mode: input.mode,
 				sshKeyId: input.sshKeyId,
 				hostKeyAlgorithm: algorithm,
 				hostKeyFingerprint: verification.fingerprint,
@@ -95,7 +95,11 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				action: "host.enroll",
 				subjectType: "host",
 				subjectId: created.id,
-				detail: { hostname: input.hostname, fingerprint: verification.fingerprint },
+				detail: {
+					hostname: input.hostname,
+					fingerprint: verification.fingerprint,
+					mode: input.mode,
+				},
 			})
 
 			return created
@@ -194,7 +198,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 					timeoutMs: CONNECT_TIMEOUT_MS,
 				})
 				return await provisionHost(transport, {
-					instancesRoot: deps.instancesRoot,
+					mode: claimed.mode,
 					onProgress: (progress) => {
 						void deps.hosts
 							.recordProvisioningProgress(scope, hostId, attemptId, progress)
@@ -239,6 +243,8 @@ export const createHostController = (deps: HostControllerDeps) => ({
 			const updated = await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, {
 				status: "ready",
 				osRelease: result.osRelease,
+				instancesRoot: result.profile.instancesRoot,
+				unitDir: result.profile.unitDir,
 			})
 			if (!updated) {
 				throw new HostConcurrentlyModifiedError(
@@ -252,7 +258,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				action: "host.provision",
 				subjectType: "host",
 				subjectId: hostId,
-				detail: { osRelease: result.osRelease },
+				detail: { osRelease: result.osRelease, mode: result.profile.mode },
 			})
 
 			return updated

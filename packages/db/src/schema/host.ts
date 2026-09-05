@@ -7,9 +7,16 @@ export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | 
 
 type _HostStatusRefinesGeneratedColumn = RefinementOf<HostStatus, SelectType<DB["host"]["status"]>>
 
+export type HostMode = "rootless" | "system"
+
+type _HostModeRefinesGeneratedColumn = RefinementOf<HostMode, SelectType<DB["host"]["mode"]>>
+
 export type HostTable = Omit<
 	DB["host"],
 	| "status"
+	| "mode"
+	| "instancesRoot"
+	| "unitDir"
 	| "sshKeyId"
 	| "hostKeyAlgorithm"
 	| "hostKeyFingerprint"
@@ -24,6 +31,9 @@ export type HostTable = Omit<
 	| "provisioningClaimedAt"
 > & {
 	status: Generated<HostStatus>
+	mode: Generated<HostMode>
+	instancesRoot: Generated<DB["host"]["instancesRoot"]>
+	unitDir: Generated<DB["host"]["unitDir"]>
 	sshKeyId: Generated<DB["host"]["sshKeyId"]>
 	hostKeyAlgorithm: Generated<DB["host"]["hostKeyAlgorithm"]>
 	hostKeyFingerprint: Generated<DB["host"]["hostKeyFingerprint"]>

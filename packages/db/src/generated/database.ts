@@ -64,8 +64,10 @@ export interface Host {
 	hostKeyTrustedByLabel: Generated<string>
 	hostname: string
 	id: string
+	instancesRoot: string | null
 	lastSeenAt: Timestamp | null
 	memoryMb: number | null
+	mode: Generated<string>
 	name: string
 	organizationId: string
 	osRelease: string | null
@@ -78,7 +80,9 @@ export interface Host {
 	provisioningStepTotal: number | null
 	sshKeyId: string | null
 	status: Generated<string>
+	unitDir: string | null
 	username: Generated<string>
+	useSudo: Generated<boolean>
 }
 
 export interface Instance {

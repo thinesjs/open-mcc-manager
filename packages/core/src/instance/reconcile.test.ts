@@ -1,7 +1,8 @@
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { UNIT_TEMPLATES } from "../host/unit-template"
+import { systemProfile } from "../host/profile"
+import { renderUnitTemplates } from "../host/unit-template"
 import {
 	desiredStateIsSatisfied,
 	expectedUnits,
@@ -11,6 +12,8 @@ import {
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 } from "./reconcile"
+
+const PROFILE = systemProfile()
 
 const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
@@ -91,18 +94,19 @@ describe("observed state", () => {
 
 describe("expected units", () => {
 	it("expects every shipped template even when no schedule exists", () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
-		for (const name of Object.keys(UNIT_TEMPLATES)) expect(expected.has(name)).toBe(true)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		for (const name of Object.keys(renderUnitTemplates(PROFILE)))
+			expect(expected.has(name)).toBe(true)
 	})
 
 	it("expects a schedule's timers only for an instance that still exists", () => {
 		const orphan = schedule({ instanceId: "gone" })
-		const expected = expectedUnits([instance()], [orphan], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [orphan], renderScheduleUnits)
 		expect([...expected.keys()].some((name) => name.includes("gone"))).toBe(false)
 	})
 
 	it("expects both timers for a scheduled instance", () => {
-		const expected = expectedUnits([instance()], [schedule()], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [schedule()], renderScheduleUnits)
 		expect(expected.has("open-mcc-sleep-stop@abc123.timer")).toBe(true)
 		expect(expected.has("open-mcc-sleep-start@abc123.timer")).toBe(true)
 	})
@@ -110,7 +114,7 @@ describe("expected units", () => {
 
 describe("reconciling a host", () => {
 	it("reports no drift when every unit matches and the state agrees", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			"systemctl is-active 'open-mcc@abc123.service' || true": {
@@ -120,13 +124,19 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 
 		expect(result).toEqual({ hostId: "host-1", reachable: true, unitDrift: [], stateDrift: [] })
 	})
 
 	it("distinguishes a unit that is absent from one whose content has changed", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const replies = fileReplies(expected)
 		const names = [...expected.keys()]
 		const missing = names[0] ?? ""
@@ -147,7 +157,13 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.unitDrift).toContainEqual({ kind: "missing", unit: missing })
@@ -155,7 +171,7 @@ describe("reconciling a host", () => {
 	})
 
 	it("reports an instance the manager believes is running but the host has stopped", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			"systemctl is-active 'open-mcc@abc123.service' || true": {
@@ -165,7 +181,13 @@ describe("reconciling a host", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.stateDrift).toEqual([
@@ -203,7 +225,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("reports a timer left behind for an instance that no longer exists", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@deleted1.timer"]),
@@ -214,7 +236,13 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.unitDrift).toEqual([
@@ -223,7 +251,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("leaves unrelated units on the host alone, which are none of its business", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "nginx.service", "ssh.service", "cron.service"]),
@@ -234,14 +262,20 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.unitDrift).toEqual([])
 	})
 
 	it("reports another organization's timer on a shared host, which the trust model allows", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@otherorg1.timer"]),
@@ -252,7 +286,13 @@ describe("units the manager does not define", () => {
 			},
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.unitDrift).toEqual([
@@ -261,14 +301,14 @@ describe("units the manager does not define", () => {
 	})
 
 	it("treats a failed listing as unknown rather than as a host with nothing extra", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			"ls -1 '/etc/systemd/system'": { stdout: "", stderr: "Permission denied", exitCode: 2 },
 		})
 
 		await expect(
-			reconcileHostOverTransport(transport, "host-1", [instance()], expected),
+			reconcileHostOverTransport(transport, PROFILE, "host-1", [instance()], expected),
 		).rejects.toThrow(/Permission denied/)
 	})
 })
@@ -298,7 +338,7 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("reports drift for a unit systemd calls active whose client is wedged", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
@@ -310,7 +350,13 @@ describe("a client that is running but not doing anything", () => {
 			...journalFor('Failed to parse the settings file, enter "/new" to generate'),
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.stateDrift).toEqual([
@@ -319,7 +365,7 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("leaves a genuinely healthy instance alone", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
@@ -331,7 +377,13 @@ describe("a client that is running but not doing anything", () => {
 			...journalFor("[MCC] Server was successfully joined."),
 		})
 
-		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		const result = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+		)
 		if (!result.reachable) throw new Error("expected a reachable host")
 
 		expect(result.stateDrift).toEqual([])

@@ -61,7 +61,6 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 	createTransport: vi.fn(),
-	instancesRoot: "/var/lib/open-mcc-manager",
 })
 
 describe("host controller transactional mutations", () => {
@@ -102,6 +101,7 @@ describe("host controller transactional mutations", () => {
 					hostname: "10.0.0.50",
 					port: 22,
 					username: "mcc",
+					mode: "system",
 					sshKeyId: sshKeyRow.id,
 					expectedFingerprint: EXPECTED_FINGERPRINT,
 				},
@@ -172,6 +172,7 @@ describe("host controller transactional mutations", () => {
 					hostname: "10.0.0.52",
 					port: 22,
 					username: "mcc",
+					mode: "system",
 					sshKeyId: sshKeyRow.id,
 					expectedFingerprint: EXPECTED_FINGERPRINT,
 				},
@@ -211,6 +212,10 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				hostname: "10.0.0.90",
 				port: 22,
 				username: "mcc",
+				mode: "system",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
+				useSudo: false,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -259,7 +264,6 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -300,7 +304,6 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -342,6 +345,10 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 				hostname: "10.0.0.91",
 				port: 22,
 				username: "mcc",
+				mode: "system",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
+				useSudo: false,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -373,7 +380,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -394,7 +400,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -438,7 +443,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -471,7 +475,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -495,7 +498,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -515,7 +517,6 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 
@@ -553,6 +554,10 @@ describe("host controller keeps no transaction open across remote provisioning w
 				hostname: "10.0.0.92",
 				port: 22,
 				username: "mcc",
+				mode: "system",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
+				useSudo: false,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -621,7 +626,6 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(instrumentedTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction,
 		})
 
@@ -663,7 +667,6 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(slowTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: withShortIdleTimeout,
 		})
 
@@ -703,6 +706,10 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 				hostname: "10.0.0.93",
 				port: 22,
 				username: "mcc",
+				mode: "system",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
+				useSudo: false,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -741,7 +748,6 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -768,7 +774,6 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -808,6 +813,10 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				hostname: "10.0.0.94",
 				port: 22,
 				username: "mcc",
+				mode: "system",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
+				useSudo: false,
 				sshKeyId: sshKeyRow.id,
 				hostKeyAlgorithm: "ssh-ed25519",
 				hostKeyFingerprint: EXPECTED_FINGERPRINT,
@@ -865,7 +874,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: gatedWithTransaction,
 		})
 		const retrustController = createHostController({
@@ -874,7 +882,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -953,7 +960,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -962,7 +968,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1031,7 +1036,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1095,7 +1099,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1148,7 +1151,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1211,7 +1213,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1268,7 +1269,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1329,7 +1329,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrustController = createHostController({
@@ -1338,7 +1337,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 
@@ -1381,7 +1379,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 		await provisionController.provision(ctx, hostId)
@@ -1393,7 +1390,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(db),
 		})
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
@@ -1416,7 +1412,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
-			instancesRoot: "/var/lib/open-mcc-manager",
 			withTransaction: createHostControllerTransaction(testDb()),
 		})
 		const ctx = actorFor(organizationId, memberId)

@@ -1,5 +1,28 @@
-export const UNIT_TEMPLATES: Record<string, string> = {
-	"open-mcc@.service": `[Unit]
+import { type HostProfile, installTarget, usesPerInstanceUsers } from "./profile"
+
+export const INSTANCE_UNIT_NAME = "open-mcc@.service"
+
+export const SLEEP_STOP_UNIT_NAME = "open-mcc-sleep-stop@.service"
+
+export const SLEEP_START_UNIT_NAME = "open-mcc-sleep-start@.service"
+
+export const SLEEP_UNIT_NAMES = [SLEEP_STOP_UNIT_NAME, SLEEP_START_UNIT_NAME] as const
+
+const identity = (profile: HostProfile): string =>
+	usesPerInstanceUsers(profile) ? "User=mcc-%i\nGroup=mcc-%i\n" : ""
+
+const homeProtection = (profile: HostProfile): string =>
+	usesPerInstanceUsers(profile) ? "ProtectHome=yes\n" : ""
+
+const sleepExec = (profile: HostProfile, verb: string): string =>
+	profile.mode === "rootless"
+		? `/usr/bin/systemctl --user ${verb} open-mcc@%i.service`
+		: `/usr/bin/systemctl ${verb} open-mcc@%i.service`
+
+export const renderUnitTemplates = (profile: HostProfile): Record<string, string> => {
+	const dir = `${profile.instancesRoot}/instances/%i`
+	return {
+		[INSTANCE_UNIT_NAME]: `[Unit]
 Description=open-mcc-manager instance %i
 StartLimitIntervalSec=600
 StartLimitBurst=5
@@ -8,13 +31,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=mcc-%i
-Group=mcc-%i
-WorkingDirectory=/srv/open-mcc/instances/%i
-EnvironmentFile=/srv/open-mcc/instances/%i/env
-ExecStart=/srv/open-mcc/bin/MinecraftClient BasicIO-NoColor
-ExecStop=/bin/sh -c 'printf "/quit\\n" > /srv/open-mcc/instances/%i/control'
-StandardInput=file:/srv/open-mcc/instances/%i/control
+${identity(profile)}WorkingDirectory=${dir}
+EnvironmentFile=${dir}/env
+ExecStart=${profile.instancesRoot}/bin/MinecraftClient BasicIO-NoColor
+ExecStop=/bin/sh -c 'printf "/quit\\n" > ${dir}/control'
+StandardInput=file:${dir}/control
 StandardOutput=journal
 StandardError=journal
 TimeoutStopSec=30
@@ -24,27 +45,25 @@ RestartSec=30
 NoNewPrivileges=yes
 UMask=0077
 ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/srv/open-mcc/instances/%i
+${homeProtection(profile)}PrivateTmp=yes
+ReadWritePaths=${dir}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${installTarget(profile)}
 `,
-	"open-mcc-sleep-stop@.service": `[Unit]
+		[SLEEP_STOP_UNIT_NAME]: `[Unit]
 Description=Stop open-mcc instance %i for its sleep window
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl stop open-mcc@%i.service
+ExecStart=${sleepExec(profile, "stop")}
 `,
-	"open-mcc-sleep-start@.service": `[Unit]
+		[SLEEP_START_UNIT_NAME]: `[Unit]
 Description=Start open-mcc instance %i after its sleep window
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl start open-mcc@%i.service
+ExecStart=${sleepExec(profile, "start")}
 `,
+	}
 }
-
-export const UNIT_TEMPLATE = UNIT_TEMPLATES["open-mcc@.service"] ?? ""

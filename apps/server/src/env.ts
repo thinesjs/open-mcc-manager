@@ -7,7 +7,6 @@ const envSchema = z.object({
 	BETTER_AUTH_URL: z.string().url().default("http://localhost:3000"),
 	SEALBOX_KEYS: z.string().min(1),
 	ALLOWED_ORIGINS: z.string().min(1),
-	INSTANCES_ROOT: z.string().min(1).default("/srv/open-mcc"),
 })
 
 export type Env = z.infer<typeof envSchema>

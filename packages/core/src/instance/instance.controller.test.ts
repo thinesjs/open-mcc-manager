@@ -57,6 +57,10 @@ const hostRow: HostRow = {
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "root",
+	mode: "system",
+	instancesRoot: "/srv/open-mcc",
+	unitDir: "/etc/systemd/system",
+	useSudo: false,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: "SHA256:trusted",
@@ -191,7 +195,6 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 			activeKeyId: "k1",
 		},
 		createTransport: () => transport,
-		instancesRoot: "/srv/open-mcc",
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
 		...overrides,
 	}

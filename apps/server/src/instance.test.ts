@@ -59,7 +59,6 @@ beforeAll(async () => {
 					secrets,
 					probeHostKey: async () => Buffer.alloc(0),
 					createTransport: () => createFakeTransport(),
-					instancesRoot: "/srv/open-mcc",
 					withTransaction: createHostControllerTransaction(db),
 				}),
 				instanceController: await createTestInstanceController(db),

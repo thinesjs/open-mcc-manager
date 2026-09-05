@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { AuthenticationState, DeviceCodeChallenge } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
+import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
 import {
 	type ActorContext,
 	InstanceAuthInProgressError,
@@ -44,14 +45,49 @@ export type AuthPolling = {
 	intervalMs: number
 }
 
+export const authClientPath = (profile: HostProfile, instanceId: string): string =>
+	`${instanceDir(profile.instancesRoot, instanceId)}/client`
+
+export const killCommand = (profile: HostProfile, instanceId: string): string =>
+	usesPerInstanceUsers(profile)
+		? `pkill -u ${shellQuote(instanceUser(instanceId))} || true`
+		: `pkill -f ${shellQuote(authClientPath(profile, instanceId))} || true`
+
+export const launchCommand = (profile: HostProfile, instanceId: string): string => {
+	const dir = instanceDir(profile.instancesRoot, instanceId)
+	const log = `${dir}/auth.log`
+	if (usesPerInstanceUsers(profile)) {
+		return `rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instanceId))} -- sh -c ${shellQuote(
+			`umask 077 && cd ${dir} && nohup ${profile.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
+		)}`
+	}
+	const client = authClientPath(profile, instanceId)
+	return `rm -f ${shellQuote(log)} && ln -sf ${shellQuote(
+		`${profile.instancesRoot}/bin/MinecraftClient`,
+	)} ${shellQuote(client)} && sh -c ${shellQuote(
+		`umask 077 && cd ${dir} && nohup ${client} BasicIO-NoColor > ${log} 2>&1 &`,
+	)}`
+}
+
+const requireProfile = (host: {
+	mode: HostProfile["mode"]
+	instancesRoot: string | null
+	unitDir: string | null
+}): HostProfile => {
+	if (!host.instancesRoot || !host.unitDir) {
+		throw new InstanceHostNotFoundError(
+			"Host has not finished provisioning, so its layout is unknown",
+		)
+	}
+	return profileFrom(host.mode, host.instancesRoot, host.unitDir)
+}
+
 const killInstanceProcesses = async (
 	transport: HostTransport,
+	profile: HostProfile,
 	instanceId: string,
 ): Promise<void> => {
-	await transport.exec(
-		`pkill -u ${shellQuote(instanceUser(instanceId))} || true`,
-		AUTH_SESSION_TIMEOUT_MS,
-	)
+	await transport.exec(killCommand(profile, instanceId), AUTH_SESSION_TIMEOUT_MS)
 }
 
 export const beginAuthentication = async (
@@ -87,6 +123,7 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 	}
 
+	const profile = requireProfile(host)
 	const transport = deps.createTransport()
 	try {
 		await transport.connect({
@@ -99,21 +136,16 @@ export const beginAuthentication = async (
 		})
 
 		await transport.exec(
-			`systemctl stop ${shellQuote(unitName(instance.id))} || true`,
+			`${systemctl(profile, `stop ${shellQuote(unitName(instance.id))}`)} || true`,
 			AUTH_SESSION_TIMEOUT_MS,
 		)
 
-		const dir = instanceDir(deps.instancesRoot, instance.id)
+		const dir = instanceDir(profile.instancesRoot, instance.id)
 		const log = `${dir}/auth.log`
 
-		await killInstanceProcesses(transport, instance.id)
+		await killInstanceProcesses(transport, profile, instance.id)
 
-		await transport.exec(
-			`rm -f ${shellQuote(log)} && runuser -u ${shellQuote(instanceUser(instance.id))} -- sh -c ${shellQuote(
-				`umask 077 && cd ${dir} && nohup ${deps.instancesRoot}/bin/MinecraftClient BasicIO-NoColor > ${log} 2>&1 &`,
-			)}`,
-			AUTH_SESSION_TIMEOUT_MS,
-		)
+		await transport.exec(launchCommand(profile, instance.id), AUTH_SESSION_TIMEOUT_MS)
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
 			const read = await transport.exec(
@@ -144,7 +176,7 @@ export const beginAuthentication = async (
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {
-		await killInstanceProcesses(transport, instance.id).catch(() => undefined)
+		await killInstanceProcesses(transport, profile, instance.id).catch(() => undefined)
 		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
 		throw error
 	} finally {
@@ -172,7 +204,8 @@ export const completeAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	const dir = instanceDir(deps.instancesRoot, instance.id)
+	const profile = requireProfile(host)
+	const dir = instanceDir(profile.instancesRoot, instance.id)
 	const transport = deps.createTransport()
 	try {
 		await transport.connect({
@@ -190,7 +223,7 @@ export const completeAuthentication = async (
 		)
 		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
 
-		await killInstanceProcesses(transport, instance.id)
+		await killInstanceProcesses(transport, profile, instance.id)
 		await transport.exec(`rm -f ${shellQuote(`${dir}/auth.log`)}`, AUTH_SESSION_TIMEOUT_MS)
 	} finally {
 		await transport.close().catch(() => undefined)

@@ -35,7 +35,6 @@ const startWithAllowedOrigins = async (allowedOrigins: string): Promise<ServerHa
 		BETTER_AUTH_URL: "http://localhost:3000",
 		SEALBOX_KEYS: await generateKeyPair("k1"),
 		ALLOWED_ORIGINS: allowedOrigins,
-		INSTANCES_ROOT: "/srv/open-mcc",
 	}
 	handle = await startServer(env, vi.fn())
 	return handle

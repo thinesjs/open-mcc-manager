@@ -1,42 +1,40 @@
+import {
+	type HostMode,
+	LINGER_STEP_LABEL,
+	PROVISION_STEP_LABELS,
+	type ProvisionStepLabel,
+	provisionStepLabels,
+	ROOTLESS_PROVISION_STEP_LABELS,
+} from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
 import { mccReleaseForMachine } from "./mcc-release"
-import { UNIT_TEMPLATES } from "./unit-template"
+import {
+	type HostProfile,
+	rootlessProfile,
+	systemctl,
+	systemProfile,
+	usesPerInstanceUsers,
+	validateHostPath,
+} from "./profile"
+import { INSTANCE_UNIT_NAME, renderUnitTemplates, SLEEP_UNIT_NAMES } from "./unit-template"
 
-export const SYSTEMD_UNIT_DIR = "/etc/systemd/system"
+export { INSTANCE_UNIT_NAME, SLEEP_UNIT_NAMES }
 
-export const INSTANCE_UNIT_NAME = "open-mcc@.service"
+export const PROVISION_STEPS = PROVISION_STEP_LABELS
 
-export const SLEEP_UNIT_NAMES = [
-	"open-mcc-sleep-stop@.service",
-	"open-mcc-sleep-start@.service",
-] as const
+export const ROOTLESS_PROVISION_STEPS = ROOTLESS_PROVISION_STEP_LABELS
 
-export const UNIT_TEMPLATE_PATH = `${SYSTEMD_UNIT_DIR}/${INSTANCE_UNIT_NAME}`
-
-export const UNIT_TEMPLATE_INSTANCES_ROOT = "/srv/open-mcc"
+export type ProvisionStep = ProvisionStepLabel
 
 export type ProvisionOptions = {
-	instancesRoot: string
+	mode: HostMode
 	onProgress?: ProvisionReporter
 }
 
 export type ProvisionResult = {
 	osRelease: string
+	profile: HostProfile
 }
-
-export const PROVISION_STEPS = [
-	"Checking systemd",
-	"Creating the instances directory",
-	"Reading the host architecture",
-	"Downloading the client",
-	"Verifying the download",
-	"Installing the client",
-	"Installing the instance unit",
-	"Installing the sleep units",
-	"Reloading systemd",
-] as const
-
-export type ProvisionStep = (typeof PROVISION_STEPS)[number]
 
 export type ProvisionProgress = {
 	step: ProvisionStep
@@ -50,16 +48,8 @@ export const PROVISION_STEP_TIMEOUT_MS = 15_000
 
 export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
 
-const INSTANCES_ROOT_PATTERN = /^\/[A-Za-z0-9._\-/]*$/
-
-export const validateInstancesRoot = (instancesRoot: string): string => {
-	if (!INSTANCES_ROOT_PATTERN.test(instancesRoot)) {
-		throw new Error(
-			"instancesRoot must be an absolute path containing only letters, digits, '.', '_', '-', and '/'",
-		)
-	}
-	return instancesRoot
-}
+export const validateInstancesRoot = (instancesRoot: string): string =>
+	validateHostPath(instancesRoot, "instancesRoot")
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -75,15 +65,40 @@ const step = async (
 	return result.stdout.trim()
 }
 
+const resolveProfile = async (transport: HostTransport, mode: HostMode): Promise<HostProfile> => {
+	if (mode === "system") return systemProfile()
+	const home = await step(
+		transport,
+		'printf %s "$HOME"',
+		"Failed to read the home directory of the connecting user",
+	)
+	return rootlessProfile(home)
+}
+
+const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
+	const result = await transport.exec(
+		'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no',
+		PROVISION_STEP_TIMEOUT_MS,
+	)
+	if (result.stdout.trim() === "yes") return
+	const user = await transport
+		.exec("id -un", PROVISION_STEP_TIMEOUT_MS)
+		.then((r) => r.stdout.trim())
+		.catch(() => "<user>")
+	throw new Error(
+		`Instances would stop when this session ends because lingering is off for ${user}. Run 'sudo loginctl enable-linger ${user}' on the host, then provision again.`,
+	)
+}
+
 export const provisionHost = async (
 	transport: HostTransport,
 	options: ProvisionOptions,
 ): Promise<ProvisionResult> => {
-	const instancesRoot = validateInstancesRoot(options.instancesRoot)
+	const steps = provisionStepLabels(options.mode)
 	let completed = 0
 	const advance = (): void => {
-		const next = PROVISION_STEPS[completed]
-		if (next) options.onProgress?.({ step: next, index: completed, total: PROVISION_STEPS.length })
+		const next = steps[completed]
+		if (next) options.onProgress?.({ step: next, index: completed, total: steps.length })
 		completed += 1
 	}
 
@@ -94,10 +109,18 @@ export const provisionHost = async (
 		"systemd is not available on this host",
 	)
 
+	const profile = await resolveProfile(transport, options.mode)
+
+	if (profile.mode === "rootless") {
+		advance()
+		await assertLingerEnabled(transport)
+	}
+
 	advance()
+	const ownership = usesPerInstanceUsers(profile) ? "-o root -g root " : ""
 	await step(
 		transport,
-		`install -d -m 0711 -o root -g root ${shellQuote(`${instancesRoot}/instances`)}`,
+		`install -d -m 0711 ${ownership}${shellQuote(`${profile.instancesRoot}/instances`)}`,
 		"Failed to create instances directory",
 	)
 
@@ -125,7 +148,7 @@ export const provisionHost = async (
 		await step(
 			transport,
 			`install -D -m 0755 ${shellQuote(`${workDir}/mcc`)} ${shellQuote(
-				`${instancesRoot}/bin/MinecraftClient`,
+				`${profile.instancesRoot}/bin/MinecraftClient`,
 			)}`,
 			"Failed to install the client",
 		)
@@ -135,37 +158,34 @@ export const provisionHost = async (
 			.catch(() => undefined)
 	}
 
+	const templates = renderUnitTemplates(profile)
+
 	advance()
 	await step(
 		transport,
-		`cat > ${shellQuote(UNIT_TEMPLATE_PATH)}`,
+		`${profile.mode === "rootless" ? `mkdir -p ${shellQuote(profile.unitDir)} && ` : ""}cat > ${shellQuote(
+			`${profile.unitDir}/${INSTANCE_UNIT_NAME}`,
+		)}`,
 		"Failed to install the instance unit template",
 		PROVISION_STEP_TIMEOUT_MS,
-		UNIT_TEMPLATES[INSTANCE_UNIT_NAME],
+		templates[INSTANCE_UNIT_NAME],
 	)
 
 	advance()
 	for (const name of SLEEP_UNIT_NAMES) {
 		await step(
 			transport,
-			`cat > ${shellQuote(`${SYSTEMD_UNIT_DIR}/${name}`)}`,
+			`cat > ${shellQuote(`${profile.unitDir}/${name}`)}`,
 			`Failed to install the ${name} unit template`,
 			PROVISION_STEP_TIMEOUT_MS,
-			UNIT_TEMPLATES[name],
+			templates[name],
 		)
 	}
 
 	advance()
-	await step(transport, "systemctl daemon-reload", "Failed to reload systemd")
+	await step(transport, systemctl(profile, "daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease }
+	return { osRelease, profile }
 }
 
-export const assertInstancesRootMatchesUnitTemplate = (instancesRoot: string): string => {
-	if (instancesRoot !== UNIT_TEMPLATE_INSTANCES_ROOT) {
-		throw new Error(
-			`INSTANCES_ROOT is ${instancesRoot} but the systemd unit template is fixed at ${UNIT_TEMPLATE_INSTANCES_ROOT}; the template is deliberately static, so these cannot differ`,
-		)
-	}
-	return instancesRoot
-}
+export { LINGER_STEP_LABEL }

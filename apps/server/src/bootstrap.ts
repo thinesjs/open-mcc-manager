@@ -1,7 +1,6 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
-	assertInstancesRootMatchesUnitTemplate,
 	createCommandRepository,
 	createHostController,
 	createHostControllerTransaction,
@@ -19,7 +18,6 @@ import {
 	type SchedulerHandle,
 	startScheduler,
 	usesKnownInsecureKey,
-	validateInstancesRoot,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
@@ -43,9 +41,6 @@ export type ServerHandle = {
 export type Serve = typeof serve
 
 export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandle> => {
-	const instancesRoot = assertInstancesRootMatchesUnitTemplate(
-		validateInstancesRoot(env.INSTANCES_ROOT),
-	)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 
 	const db = createDb(env.DATABASE_URL)
@@ -81,7 +76,6 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		secrets,
 		probeHostKey,
 		createTransport: createSshTransport,
-		instancesRoot,
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const instanceController = createInstanceController({
@@ -92,7 +86,6 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		sshKeys,
 		secrets,
 		createTransport: createSshTransport,
-		instancesRoot,
 		withTransaction: createInstanceControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

@@ -61,7 +61,6 @@ beforeAll(async () => {
 		probeHostKey: async () => HOST_KEY_BLOB,
 		createTransport: () =>
 			createFakeTransport({ "docker --version": { stdout: "", stderr: "", exitCode: 0 } }),
-		instancesRoot: "/srv/open-mcc",
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({
@@ -195,6 +194,7 @@ describe("actor label derivation gate", () => {
 			body: JSON.stringify({
 				name: "vps-1",
 				hostname: "10.0.0.9",
+				mode: "system",
 				port: 22,
 				username: "root",
 				sshKeyId: sshKeyRow.id,

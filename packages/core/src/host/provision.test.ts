@@ -1,11 +1,6 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import {
-	assertInstancesRootMatchesUnitTemplate,
-	PROVISION_STEPS,
-	provisionHost,
-	validateInstancesRoot,
-} from "./provision"
+import { PROVISION_STEPS, provisionHost, validateInstancesRoot } from "./provision"
 
 describe("validateInstancesRoot", () => {
 	it("rejects a relative path and a path with a space", () => {
@@ -30,7 +25,7 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		const result = await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+		const result = await provisionHost(transport, { mode: "system" })
 
 		expect(transport.commands.some((command) => command.startsWith("docker"))).toBe(false)
 		expect(result.osRelease).toEqual(expect.any(String))
@@ -52,9 +47,7 @@ describe("provisionHost", () => {
 				? { stdout: "", stderr: "FAILED", exitCode: 1 }
 				: await original(command, timeoutMs, stdin)
 
-		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
-			/checksum/i,
-		)
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/checksum/i)
 		expect(transport.commands.some((command) => command.includes("install -D"))).toBe(false)
 	})
 
@@ -74,7 +67,7 @@ describe("provisionHost", () => {
 				? { stdout: "", stderr: "FAILED", exitCode: 1 }
 				: await original(command, timeoutMs, stdin)
 
-		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow()
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow()
 		expect(transport.commands.some((command) => command.startsWith("rm -rf"))).toBe(true)
 	})
 
@@ -89,7 +82,7 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+		await provisionHost(transport, { mode: "system" })
 
 		const download = transport.commands.find((command) => command.includes("curl"))
 		expect(download).toContain("mktemp -d")
@@ -107,7 +100,7 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+		await provisionHost(transport, { mode: "system" })
 
 		const verifyAt = transport.commands.findIndex((command) => command.includes("sha256sum"))
 		const installAt = transport.commands.findIndex((command) => command.includes("install -D"))
@@ -128,7 +121,7 @@ describe("provisionHost", () => {
 
 		const seen: string[] = []
 		await provisionHost(transport, {
-			instancesRoot: "/srv/open-mcc",
+			mode: "system",
 			onProgress: (progress) => seen.push(progress.step),
 		})
 
@@ -148,7 +141,7 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+		await provisionHost(transport, { mode: "system" })
 
 		const download = transport.commands.find((command) => command.includes("curl"))
 		if (download === undefined) throw new Error("no download step was issued")
@@ -169,9 +162,7 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		await expect(provisionHost(transport, { instancesRoot: "/srv/open-mcc" })).rejects.toThrow(
-			/riscv64/,
-		)
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/riscv64/)
 		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 	})
 
@@ -186,23 +177,11 @@ describe("provisionHost", () => {
 			timeoutMs: 1000,
 		})
 
-		await provisionHost(transport, { instancesRoot: "/srv/open-mcc" })
+		await provisionHost(transport, { mode: "system" })
 
 		const command = transport.commands.find((each) => each.includes("open-mcc@.service"))
 		expect(command).toBe("cat > '/etc/systemd/system/open-mcc@.service'")
 		expect(transport.stdins.some((each) => each.includes("RestartPreventExitStatus=4"))).toBe(true)
 		expect(transport.commands).toContain("systemctl daemon-reload")
-	})
-})
-
-describe("assertInstancesRootMatchesUnitTemplate", () => {
-	it("refuses a root the static unit template cannot reference", () => {
-		expect(() => assertInstancesRootMatchesUnitTemplate("/opt/elsewhere")).toThrow(
-			/deliberately static/,
-		)
-	})
-
-	it("accepts the root the template is fixed at", () => {
-		expect(assertInstancesRootMatchesUnitTemplate("/srv/open-mcc")).toBe("/srv/open-mcc")
 	})
 })

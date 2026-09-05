@@ -46,6 +46,10 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
+	mode: "system",
+	instancesRoot: "/srv/open-mcc",
+	unitDir: "/etc/systemd/system",
+	useSudo: false,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,
@@ -191,7 +195,6 @@ const deps = (
 				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
-		instancesRoot: "/var/lib/open-mcc-manager",
 		withTransaction,
 		...overrides,
 	}
@@ -209,6 +212,7 @@ describe("host controller enrollment", () => {
 					hostname: "10.0.0.1",
 					port: 22,
 					username: "mcc",
+					mode: "system",
 					sshKeyId: "key-1",
 					expectedFingerprint: "SHA256:x",
 				},
@@ -227,6 +231,7 @@ describe("host controller enrollment", () => {
 				hostname: "10.0.0.1",
 				port: 22,
 				username: "mcc",
+				mode: "system",
 				sshKeyId: "key-1",
 				expectedFingerprint: "SHA256:wrong",
 			}),
@@ -246,6 +251,7 @@ describe("host controller enrollment", () => {
 				hostname: "10.0.0.1",
 				port: 22,
 				username: "mcc",
+				mode: "system",
 				sshKeyId: "key-1",
 				expectedFingerprint: "SHA256:wrong",
 			})
@@ -267,6 +273,7 @@ describe("host controller enrollment", () => {
 			hostname: "10.0.0.1",
 			port: 22,
 			username: "mcc",
+			mode: "system",
 			sshKeyId: "key-1",
 			expectedFingerprint: expected,
 		})
@@ -304,6 +311,7 @@ describe("host controller enrollment", () => {
 			hostname: "10.0.0.1",
 			port: 22,
 			username: "mcc",
+			mode: "system",
 			sshKeyId: "key-1",
 			expectedFingerprint: expected,
 		})
@@ -513,7 +521,7 @@ describe("host controller provisioning", () => {
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
 		expect(transport.commands).toContain("systemctl --version | head -n 1")
 		expect(transport.commands).toContain(
-			"install -d -m 0711 -o root -g root '/var/lib/open-mcc-manager/instances'",
+			"install -d -m 0711 -o root -g root '/srv/open-mcc/instances'",
 		)
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.osRelease).toBe("systemd 252")
@@ -531,6 +539,8 @@ describe("host controller provisioning", () => {
 			{
 				status: "ready",
 				osRelease: "systemd 252",
+				instancesRoot: "/srv/open-mcc",
+				unitDir: "/etc/systemd/system",
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
@@ -700,10 +710,10 @@ describe("provisionHost", () => {
 			},
 		})
 		await transport.connect(provisionConnectOptions)
-		const result = await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
+		const result = await provisionHost(transport, { mode: "system" })
 		expect(result.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
 		expect(transport.commands).toContain(
-			"install -d -m 0711 -o root -g root '/var/lib/open-mcc-manager/instances'",
+			"install -d -m 0711 -o root -g root '/srv/open-mcc/instances'",
 		)
 	})
 
@@ -712,44 +722,41 @@ describe("provisionHost", () => {
 			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		await transport.connect(provisionConnectOptions)
-		await expect(
-			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
-		).rejects.toThrow(/systemd/i)
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/systemd/i)
 	})
 
 	it("propagates when exec() rejects mid-command rather than resolving as if disconnected", async () => {
 		const transport = createRejectingTransport("exec")
-		await expect(
-			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" }),
-		).rejects.toThrow(/connection reset/i)
+		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/connection reset/i)
 	})
 
-	it("rejects an instancesRoot containing a shell metacharacter without running any command", async () => {
+	it("refuses a home directory carrying a shell metacharacter, so a hostile host cannot smuggle a command into every later path", async () => {
 		const transport = createFakeTransport({
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
+			'printf %s "$HOME"': { stdout: "/home/$(id -u)", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
-		await expect(
-			provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager; rm -rf /" }),
-		).rejects.toThrow(/absolute path/i)
-		expect(transport.commands).toEqual([])
+
+		await expect(provisionHost(transport, { mode: "rootless" })).rejects.toThrow(/absolute path/i)
+		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
+		expect(transport.commands.some((command) => command.includes("install -d"))).toBe(false)
 	})
 
-	it("rejects an instancesRoot that is not an absolute path", async () => {
+	it("refuses a relative home directory rather than resolving it against an unknown working directory", async () => {
 		const transport = createFakeTransport({
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
+			'printf %s "$HOME"': { stdout: "home/mccuser", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
-		await expect(
-			provisionHost(transport, { instancesRoot: "var/lib/open-mcc-manager" }),
-		).rejects.toThrow(/absolute path/i)
-		expect(transport.commands).toEqual([])
+
+		await expect(provisionHost(transport, { mode: "rootless" })).rejects.toThrow(/absolute path/i)
+		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 	})
 
 	it("finishes its worst-case remote work inside the provisioning lease, counting every step it actually runs", async () => {
 		const transport = createFakeTransport()
 		await transport.connect(provisionConnectOptions)
-		await provisionHost(transport, { instancesRoot: "/var/lib/open-mcc-manager" })
+		await provisionHost(transport, { mode: "system" })
 
 		const remoteBudgetMs = transport.timeouts.reduce((total, each) => total + each, 0)
 		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs

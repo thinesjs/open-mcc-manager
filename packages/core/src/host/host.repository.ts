@@ -19,6 +19,8 @@ const MUTABLE_HOST_COLUMNS = [
 	"memoryMb",
 	"capacityLimit",
 	"lastSeenAt",
+	"instancesRoot",
+	"unitDir",
 ] as const
 
 export type HostUpdateValues = Partial<Pick<HostRow, (typeof MUTABLE_HOST_COLUMNS)[number]>>
@@ -90,6 +92,8 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.memoryMb !== undefined && { memoryMb: patch.memoryMb }),
 	...(patch.capacityLimit !== undefined && { capacityLimit: patch.capacityLimit }),
 	...(patch.lastSeenAt !== undefined && { lastSeenAt: patch.lastSeenAt }),
+	...(patch.instancesRoot !== undefined && { instancesRoot: patch.instancesRoot }),
+	...(patch.unitDir !== undefined && { unitDir: patch.unitDir }),
 })
 
 export const createHostRepository = (db: Executor) => ({
@@ -222,12 +226,12 @@ export const createHostRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		attemptId: string,
-		patch: Pick<HostUpdateValues, "status" | "osRelease">,
+		patch: Pick<HostUpdateValues, "status" | "osRelease" | "instancesRoot" | "unitDir">,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")
 			.set({
-				...patch,
+				...whitelistHostUpdate(patch),
 				provisioningAttemptId: null,
 				provisioningClaimedAt: null,
 				organizationId: scope.organizationId,

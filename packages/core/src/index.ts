@@ -40,11 +40,9 @@ export {
 } from "./host/host.repository"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
-	assertInstancesRootMatchesUnitTemplate,
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
-	UNIT_TEMPLATE_INSTANCES_ROOT,
 	validateInstancesRoot,
 } from "./host/provision"
 export {

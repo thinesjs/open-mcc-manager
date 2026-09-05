@@ -10,7 +10,6 @@ const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	BETTER_AUTH_URL: "http://localhost:3000",
 	SEALBOX_KEYS: "",
 	ALLOWED_ORIGINS: "http://localhost:5173",
-	INSTANCES_ROOT: "/srv/open-mcc",
 	...overrides,
 })
 
@@ -38,38 +37,6 @@ describe("startServer secret store gate", () => {
 		const serveFn = vi.fn()
 
 		await expect(startServer(env, serveFn)).rejects.toThrow(/at least one key/i)
-		expect(serveFn).not.toHaveBeenCalled()
-	})
-})
-
-describe("startServer instances root gate", () => {
-	it("fails startup on an instances root that is not an absolute path, never calling serve", async () => {
-		const env = baseEnv({
-			SEALBOX_KEYS: await generateKeyPair("k1"),
-			INSTANCES_ROOT: "srv/open-mcc",
-		})
-		const serveFn = vi.fn()
-
-		await expect(startServer(env, serveFn)).rejects.toThrow(/absolute path/i)
-		expect(serveFn).not.toHaveBeenCalled()
-	})
-
-	it("fails startup on an instances root carrying a shell metacharacter, never calling serve", async () => {
-		const env = baseEnv({
-			SEALBOX_KEYS: await generateKeyPair("k1"),
-			INSTANCES_ROOT: "/srv/open-mcc; rm -rf /",
-		})
-		const serveFn = vi.fn()
-
-		await expect(startServer(env, serveFn)).rejects.toThrow(/absolute path/i)
-		expect(serveFn).not.toHaveBeenCalled()
-	})
-
-	it("rejects the instances root before building the secret store, so the cheapest gate runs first", async () => {
-		const env = baseEnv({ SEALBOX_KEYS: "", INSTANCES_ROOT: "srv/open-mcc" })
-		const serveFn = vi.fn()
-
-		await expect(startServer(env, serveFn)).rejects.toThrow(/absolute path/i)
 		expect(serveFn).not.toHaveBeenCalled()
 	})
 })

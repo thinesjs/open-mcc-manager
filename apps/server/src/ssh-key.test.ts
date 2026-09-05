@@ -57,7 +57,6 @@ beforeAll(async () => {
 		secrets,
 		probeHostKey: async () => PRESENTED_HOST_KEY,
 		createTransport: () => createFakeTransport(),
-		instancesRoot: "/srv/open-mcc",
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

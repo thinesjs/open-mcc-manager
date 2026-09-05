@@ -21,6 +21,5 @@ export const createTestInstanceController = async (db: Db) =>
 		sshKeys: createSshKeyRepository(db),
 		secrets: await createSecretStore(await generateKeyPair("k1")),
 		createTransport: () => createFakeTransport(),
-		instancesRoot: "/srv/open-mcc",
 		withTransaction: createInstanceControllerTransaction(db),
 	})

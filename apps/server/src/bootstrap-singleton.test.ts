@@ -30,7 +30,6 @@ const baseEnv = async (): Promise<Env> => ({
 	BETTER_AUTH_URL: "http://localhost:3000",
 	SEALBOX_KEYS: await generateKeyPair("k1"),
 	ALLOWED_ORIGINS: "http://localhost:5173",
-	INSTANCES_ROOT: "/srv/open-mcc",
 })
 
 afterEach(async () => {

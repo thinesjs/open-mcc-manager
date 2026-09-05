@@ -51,7 +51,6 @@ beforeAll(async () => {
 			throw new Error("probeHostKey should not be called by retrustHostKey")
 		},
 		createTransport: () => createFakeTransport(),
-		instancesRoot: "/srv/open-mcc",
 		withTransaction: createHostControllerTransaction(db),
 	})
 	const sshKeyController = createSshKeyController({

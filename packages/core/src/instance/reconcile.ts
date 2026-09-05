@@ -1,8 +1,8 @@
 import type { HostReconciliation, ObservedState, StateDrift, UnitDrift } from "@open-mcc/contracts"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { SYSTEMD_UNIT_DIR } from "../host/provision"
-import { UNIT_TEMPLATES } from "../host/unit-template"
+import { type HostProfile, journalctl, systemctl } from "../host/profile"
+import { renderUnitTemplates } from "../host/unit-template"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import { unitName } from "./unit"
 
@@ -58,12 +58,13 @@ const readFile = async (transport: HostTransport, path: string): Promise<string 
 }
 
 export const expectedUnits = (
+	profile: HostProfile,
 	instances: readonly InstanceRow[],
 	schedules: readonly InstanceScheduleRow[],
 	renderWindow: (schedule: InstanceScheduleRow) => Record<string, string>,
 ): Map<string, string> => {
 	const expected = new Map<string, string>()
-	for (const [name, contents] of Object.entries(UNIT_TEMPLATES)) {
+	for (const [name, contents] of Object.entries(renderUnitTemplates(profile))) {
 		expected.set(name, contents)
 	}
 	const known = new Set(instances.map((instance) => instance.id))
@@ -81,13 +82,16 @@ export const MANAGED_UNIT_PATTERN =
 
 export const isManagedUnit = (name: string): boolean => MANAGED_UNIT_PATTERN.test(name)
 
-const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
+const listManagedUnits = async (
+	transport: HostTransport,
+	profile: HostProfile,
+): Promise<string[]> => {
 	const result = await transport.exec(
-		`ls -1 ${shellQuote(SYSTEMD_UNIT_DIR)}`,
+		`ls -1 ${shellQuote(profile.unitDir)}`,
 		RECONCILE_STEP_TIMEOUT_MS,
 	)
 	if (result.exitCode !== 0) {
-		throw new Error(`Could not list ${SYSTEMD_UNIT_DIR}: ${result.stderr.trim()}`)
+		throw new Error(`Could not list ${profile.unitDir}: ${result.stderr.trim()}`)
 	}
 	return result.stdout
 		.split("\n")
@@ -97,31 +101,32 @@ const listManagedUnits = async (transport: HostTransport): Promise<string[]> => 
 
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
+	profile: HostProfile,
 	hostId: string,
 	instances: readonly InstanceRow[],
 	expected: Map<string, string>,
 ): Promise<HostReconciliation> => {
 	const unitDrift: UnitDrift[] = []
 	for (const [name, contents] of expected) {
-		const actual = await readFile(transport, `${SYSTEMD_UNIT_DIR}/${name}`)
+		const actual = await readFile(transport, `${profile.unitDir}/${name}`)
 		if (actual === undefined) unitDrift.push({ kind: "missing", unit: name })
 		else if (actual !== contents) unitDrift.push({ kind: "differs", unit: name })
 	}
 
-	for (const name of await listManagedUnits(transport)) {
+	for (const name of await listManagedUnits(transport, profile)) {
 		if (!expected.has(name)) unitDrift.push({ kind: "unexpected", unit: name })
 	}
 
 	const stateDrift: StateDrift[] = []
 	for (const instance of instances) {
 		const result = await transport.exec(
-			`systemctl is-active ${shellQuote(`${unitName(instance.id)}.service`)} || true`,
+			`${systemctl(profile, `is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
 			RECONCILE_STEP_TIMEOUT_MS,
 		)
 		let observed = parseObservedState(result.stdout)
 		if (observed === "active" && instance.status === "running") {
 			const journal = await transport.exec(
-				`journalctl -u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat 2>/dev/null || true`,
+				`${journalctl(profile, `-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`,
 				RECONCILE_STEP_TIMEOUT_MS,
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"

@@ -2,7 +2,8 @@ import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { UNIT_TEMPLATE, UNIT_TEMPLATES } from "./unit-template"
+import { rootlessProfile, systemProfile } from "./profile"
+import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "./unit-template"
 
 const SYSTEMD_DIR = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -14,36 +15,75 @@ const SYSTEMD_DIR = join(
 	"systemd",
 )
 
-describe("embedded systemd unit templates", () => {
-	it("embeds every unit file the repository ships, so none is silently left behind", () => {
-		expect(Object.keys(UNIT_TEMPLATES).sort()).toEqual(readdirSync(SYSTEMD_DIR).sort())
+const system = renderUnitTemplates(systemProfile())
+const rootless = renderUnitTemplates(rootlessProfile("/home/mccuser"))
+
+describe("the units a root-owned host runs", () => {
+	it("covers every unit file the repository ships, so none is silently left behind", () => {
+		expect(Object.keys(system).sort()).toEqual(readdirSync(SYSTEMD_DIR).sort())
 	})
 
-	it("is byte-identical to each unit file, so the two cannot drift", () => {
-		for (const [name, embedded] of Object.entries(UNIT_TEMPLATES)) {
-			expect(embedded).toBe(readFileSync(join(SYSTEMD_DIR, name), "utf8"))
+	it("is byte-identical to each shipped unit file, so the two cannot drift", () => {
+		for (const [name, rendered] of Object.entries(system)) {
+			expect(rendered).toBe(readFileSync(join(SYSTEMD_DIR, name), "utf8"))
 		}
 	})
 
-	it("is embedded rather than read at runtime, so a bundled server has no file dependency", () => {
-		expect(UNIT_TEMPLATE).toContain("User=mcc-%i")
-		expect(UNIT_TEMPLATE).toContain("RestartPreventExitStatus=4")
-	})
-
 	it("keeps the start rate limit in the section systemd reads it from", () => {
-		const template = UNIT_TEMPLATES["open-mcc@.service"] ?? ""
+		const template = system[INSTANCE_UNIT_NAME] ?? ""
 		const unitSection = template.slice(0, template.indexOf("[Service]"))
 		expect(unitSection).toContain("StartLimitIntervalSec=600")
 		expect(unitSection).toContain("StartLimitBurst=5")
 		expect(template.slice(template.indexOf("[Service]"))).not.toContain("StartLimit")
 	})
+})
 
+describe("the units a host without root runs", () => {
+	it("names no user, because the manager cannot create one", () => {
+		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
+		expect(template).not.toContain("User=")
+		expect(template).not.toContain("Group=")
+	})
+
+	it("does not shut itself out of the home directory its files live in", () => {
+		expect(rootless[INSTANCE_UNIT_NAME]).not.toContain("ProtectHome")
+		expect(system[INSTANCE_UNIT_NAME]).toContain("ProtectHome=yes")
+	})
+
+	it("keeps the watchdog policy that stops a doomed client from restarting forever", () => {
+		expect(rootless[INSTANCE_UNIT_NAME]).toContain("RestartPreventExitStatus=4")
+	})
+
+	it("keeps the hardening that does not require privilege", () => {
+		for (const directive of ["NoNewPrivileges=yes", "UMask=0077", "ProtectSystem=strict"]) {
+			expect(rootless[INSTANCE_UNIT_NAME]).toContain(directive)
+		}
+	})
+
+	it("enables against a target the user manager actually has", () => {
+		expect(rootless[INSTANCE_UNIT_NAME]).toContain("WantedBy=default.target")
+		expect(system[INSTANCE_UNIT_NAME]).toContain("WantedBy=multi-user.target")
+	})
+
+	it("keeps every path inside the user's own home", () => {
+		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
+		expect(template).not.toContain("/srv/open-mcc")
+		expect(template).toContain("/home/mccuser/.local/share/open-mcc/instances/%i")
+	})
+
+	it("drives its sleep units through the user manager", () => {
+		expect(rootless["open-mcc-sleep-stop@.service"]).toContain(
+			"systemctl --user stop open-mcc@%i.service",
+		)
+		expect(rootless["open-mcc-sleep-start@.service"]).toContain(
+			"systemctl --user start open-mcc@%i.service",
+		)
+	})
+})
+
+describe("the units both modes run", () => {
 	it("drives the sleep units through systemctl on the instance's own unit", () => {
-		expect(UNIT_TEMPLATES["open-mcc-sleep-stop@.service"]).toContain(
-			"systemctl stop open-mcc@%i.service",
-		)
-		expect(UNIT_TEMPLATES["open-mcc-sleep-start@.service"]).toContain(
-			"systemctl start open-mcc@%i.service",
-		)
+		expect(system["open-mcc-sleep-stop@.service"]).toContain("systemctl stop open-mcc@%i.service")
+		expect(system["open-mcc-sleep-start@.service"]).toContain("systemctl start open-mcc@%i.service")
 	})
 })

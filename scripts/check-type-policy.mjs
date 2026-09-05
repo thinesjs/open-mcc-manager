@@ -4,7 +4,16 @@ import ts from "typescript"
 
 const UNKNOWN_ALLOWED = join("packages", "contracts", "src", "boundary")
 const NEVER_ALLOWED = join("packages", "core", "src", "lib", "exhaustive.ts")
-const SKIP = new Set(["node_modules", "dist", "build", "coverage", ".git", ".turbo"])
+const SKIP = new Set([
+	"node_modules",
+	"dist",
+	"build",
+	"coverage",
+	".git",
+	".turbo",
+	".claude",
+	".superpowers",
+])
 
 const GENERATED_FILES = new Set([join("apps", "web", "src", "routeTree.gen.ts")])
 const COMMENT_ALLOWED_FILES = new Set([join("packages", "db", "src", "generated", "database.ts")])

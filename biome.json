@@ -8,7 +8,9 @@
 			"!apps/web/src/routeTree.gen.ts",
 			"!**/.turbo",
 			"!**/coverage",
-			"!**/build"
+			"!**/build",
+			"!**/.claude",
+			"!**/.superpowers"
 		]
 	},
 	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },

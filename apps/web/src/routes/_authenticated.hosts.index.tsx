@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
+import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
+import { EnrollHostSteps } from "~/components/enroll-host-steps"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { Alert } from "~/components/ui/alert"
-import { buttonVariants } from "~/components/ui/button"
+import { Button } from "~/components/ui/button"
+import { Modal } from "~/components/ui/modal"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -13,6 +16,8 @@ export const Route = createFileRoute("/_authenticated/hosts/")({
 })
 
 function HostListPage() {
+	const navigate = useNavigate()
+	const [enrolling, setEnrolling] = useState(false)
 	const trpc = useTRPC()
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 
@@ -20,10 +25,10 @@ function HostListPage() {
 		<div className="space-y-6">
 			<div className="flex items-center justify-between">
 				<h1 className="text-lg font-semibold text-foreground">Hosts</h1>
-				<Link to="/hosts/new" className={buttonVariants({ size: "sm" })}>
+				<Button size="sm" onClick={() => setEnrolling(true)}>
 					<Plus className="size-4" />
 					Enroll host
-				</Link>
+				</Button>
 			</div>
 
 			{hostsQuery.isPending ? (
@@ -42,10 +47,10 @@ function HostListPage() {
 					title="No hosts enrolled"
 					description="Enroll a VPS to run Minecraft Console Client instances on it. You will need its SSH host key fingerprint."
 					action={
-						<Link to="/hosts/new" className={buttonVariants({ size: "sm" })}>
+						<Button size="sm" onClick={() => setEnrolling(true)}>
 							<Plus className="size-4" />
 							Enroll host
-						</Link>
+						</Button>
 					}
 				/>
 			) : null}
@@ -73,6 +78,20 @@ function HostListPage() {
 					))}
 				</div>
 			) : null}
+
+			<Modal
+				open={enrolling}
+				title="Enroll a host"
+				description="Three steps: pick the key, give the address, verify the host key."
+				onClose={() => setEnrolling(false)}
+			>
+				<EnrollHostSteps
+					onEnrolled={(hostId) => {
+						setEnrolling(false)
+						navigate({ to: "/hosts/$hostId", params: { hostId } })
+					}}
+				/>
+			</Modal>
 		</div>
 	)
 }

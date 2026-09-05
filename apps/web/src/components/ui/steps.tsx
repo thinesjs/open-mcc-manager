@@ -19,7 +19,7 @@ export const Steps = ({ step, direction, children }: StepsProps) => {
 		<motion.div
 			animate={{ height: bounds.height > 0 ? bounds.height : "auto" }}
 			transition={{ type: "spring", duration: reduced ? 0.1 : 0.32, bounce: 0 }}
-			className="relative overflow-hidden"
+			className="relative -mx-2 overflow-hidden"
 		>
 			<AnimatePresence mode="popLayout" initial={false} custom={direction}>
 				<motion.div
@@ -30,7 +30,9 @@ export const Steps = ({ step, direction, children }: StepsProps) => {
 					exit={{ opacity: 0, x: direction * -travel }}
 					transition={{ type: "spring", duration: reduced ? 0.1 : 0.32, bounce: 0 }}
 				>
-					<div ref={ref}>{children}</div>
+					<div ref={ref} className="px-2">
+						{children}
+					</div>
 				</motion.div>
 			</AnimatePresence>
 		</motion.div>

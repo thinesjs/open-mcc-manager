@@ -5,6 +5,7 @@ const defaultRun = (command, args) => spawnSync(command, args, { encoding: "utf8
 const CHECKS = [
 	{ name: "biome", command: "pnpm", args: ["exec", "biome", "check", "."] },
 	{ name: "type-policy", command: "node", args: ["scripts/check-type-policy.mjs"] },
+	{ name: "control-sizing", command: "node", args: ["scripts/check-control-sizing.mjs"] },
 ]
 
 export const runCheck = (check, run = defaultRun) => {

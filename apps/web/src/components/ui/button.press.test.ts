@@ -10,7 +10,6 @@ const shell = readFileSync(join(here, "..", "..", "routes", "_authenticated.tsx"
 
 const PRESSABLE = [
 	["button", button],
-	["hold-to-confirm", hold],
 	["sidebar", shell],
 ] as const
 
@@ -35,5 +34,10 @@ describe("press feedback", () => {
 			expect(source, name).toContain("motion-reduce:transition-none")
 			expect(source, name).toMatch(/motion-reduce:[^"]*scale-100/)
 		}
+	})
+
+	it("gives the hold control its size and feedback from the shared variants, not its own classes", () => {
+		expect(hold).toContain("buttonVariants(")
+		expect(hold).not.toMatch(/className="[^"]*\bh-\d/)
 	})
 })

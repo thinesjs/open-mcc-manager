@@ -64,6 +64,7 @@ export const scheduledCommandInput = z
 		daysOfWeek: z.array(dayOfWeekSchema).min(1).max(7),
 		runAt: timeOfDaySchema,
 		timezone: z.string().min(1).max(64).regex(TIMEZONE_PATTERN, "Expected an IANA timezone name"),
+		enabled: z.boolean().default(true),
 	})
 	.strict()
 export type ScheduledCommandInput = z.infer<typeof scheduledCommandInput>

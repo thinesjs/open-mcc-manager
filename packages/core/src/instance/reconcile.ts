@@ -19,6 +19,18 @@ const OBSERVED_STATES: readonly ObservedState[] = [
 	"activating",
 ] as const
 
+export const STUCK_MARKERS = [
+	"Failed to parse the settings file",
+	"Not connected to any server",
+	"press Enter to exit Minecraft Console Client",
+	"Server version:",
+] as const
+
+export const STUCK_SCAN_LINES = 20
+
+export const looksStuck = (journal: string): boolean =>
+	STUCK_MARKERS.some((marker) => journal.includes(marker))
+
 export const parseObservedState = (output: string): ObservedState => {
 	const value = output.trim()
 	const known = OBSERVED_STATES.find((state) => state === value)
@@ -30,6 +42,7 @@ export const desiredStateIsSatisfied = (
 	observed: ObservedState,
 ): boolean => {
 	if (desired === "running") return observed === "active" || observed === "activating"
+	if (observed === "stuck") return false
 	if (desired === "stopped") return observed === "inactive"
 	return true
 }
@@ -105,7 +118,14 @@ export const reconcileHostOverTransport = async (
 			`systemctl is-active ${shellQuote(`${unitName(instance.id)}.service`)} || true`,
 			RECONCILE_STEP_TIMEOUT_MS,
 		)
-		const observed = parseObservedState(result.stdout)
+		let observed = parseObservedState(result.stdout)
+		if (observed === "active" && instance.status === "running") {
+			const journal = await transport.exec(
+				`journalctl -u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat 2>/dev/null || true`,
+				RECONCILE_STEP_TIMEOUT_MS,
+			)
+			if (looksStuck(journal.stdout)) observed = "stuck"
+		}
 		if (!desiredStateIsSatisfied(instance.status, observed)) {
 			stateDrift.push({ instanceId: instance.id, desired: instance.status, observed })
 		}

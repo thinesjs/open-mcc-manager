@@ -70,9 +70,12 @@ a real one:
 pnpm --filter @open-mcc/server keys:generate k1
 ```
 
-The compose stack ships a working key under the id
-`dev-insecure-publicly-known` so `docker compose up` starts a usable server.
-That key is in this repository and is therefore public. Its id is deliberately
+`docker/compose.dev.yml` — which only `pnpm dev:up` layers in — carries a working
+key under the id `dev-insecure-publicly-known` so development starts a usable
+server without generating anything. It is deliberately **not** in
+`docker/compose.yml`, so no real deployment can pick it up, and the server logs a
+warning if it ever starts with it. That key is in this repository and is
+therefore public. Its id is deliberately
 unmistakable and is stored with every row it encrypts, so
 `select count(*) from "sshKey" where "privateKeyKeyId" = 'dev-insecure-publicly-known'`
 tells you whether a database was ever written with it.

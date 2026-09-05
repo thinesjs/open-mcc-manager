@@ -43,6 +43,12 @@ describe("drift summary", () => {
 		expect(differs).toContain("changed outside the manager")
 	})
 
+	it("says a wedged client is wedged, not that systemd disagrees", () => {
+		const described = describeStateDrift({ instanceId: "a", desired: "running", observed: "stuck" })
+		expect(described).toContain("wedged")
+		expect(described).not.toContain("stuck")
+	})
+
 	it("names both the recorded and observed state so the mismatch is legible", () => {
 		expect(describeStateDrift({ instanceId: "a", desired: "running", observed: "inactive" })).toBe(
 			"Recorded as running, but systemd reports inactive.",

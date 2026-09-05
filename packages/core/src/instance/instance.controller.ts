@@ -509,7 +509,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					daysOfWeek: renderDaysOfWeek(input.daysOfWeek),
 					minuteOfDay: minuteOfDay(input.runAt),
 					timezone: input.timezone,
-					enabled: true,
+					enabled: input.enabled,
 				})
 				await repos.audit.record(scopeOf(ctx), {
 					actorId: ctx.memberId,

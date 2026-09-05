@@ -1,6 +1,6 @@
 import { DAYS_OF_WEEK, type DayOfWeek } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Plus, Terminal, Trash2, TriangleAlert } from "lucide-react"
+import { CircleAlert, Pause, Play, Plus, Terminal, Trash2, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -117,6 +117,25 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 										</span>
 										<button
 											type="button"
+											aria-label={`${row.enabled ? "Pause" : "Resume"} ${row.name}`}
+											disabled={save.isPending}
+											onClick={() =>
+												save.mutate({
+													instanceId,
+													name: row.name,
+													command: row.command,
+													daysOfWeek: [...row.daysOfWeek],
+													runAt: row.runAt,
+													timezone: row.timezone,
+													enabled: !row.enabled,
+												})
+											}
+											className="text-muted-foreground hover:text-foreground"
+										>
+											{row.enabled ? <Pause className="size-4" /> : <Play className="size-4" />}
+										</button>
+										<button
+											type="button"
 											aria-label={`Delete ${row.name}`}
 											disabled={remove.isPending}
 											onClick={() => remove.mutate({ id: row.id })}
@@ -127,6 +146,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 									</div>
 								</div>
 								<p className="text-xs text-muted-foreground">
+									{row.enabled ? "" : "Paused · "}
 									{row.daysOfWeek.length === 7 ? "Every day" : row.daysOfWeek.join(", ")}
 									{row.lastRunAt
 										? ` · last ran ${new Date(row.lastRunAt).toLocaleString()}`
@@ -216,6 +236,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 										daysOfWeek: days,
 										runAt: parseTime(runAt),
 										timezone,
+										enabled: true,
 									})
 								}
 							>

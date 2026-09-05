@@ -514,6 +514,7 @@ describe("scheduled commands", () => {
 				daysOfWeek: ["Mon"],
 				runAt: { hour: 9, minute: 0 },
 				timezone: "UTC",
+				enabled: true,
 			}),
 		).rejects.toThrow(ForbiddenError)
 	})

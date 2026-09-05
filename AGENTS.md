@@ -20,6 +20,28 @@ style, zinc base, `cssVariables: true`, lucide icons, `~/` alias — see
 orchestrated by turbo.
 
 
+### is-active is not health
+
+systemd reporting a unit `active` means the process exists. It does not mean the
+client is connected to anything. The client can be wedged — an unparseable
+config, a server it cannot reach, an interactive prompt it is waiting on — and
+sit there indefinitely without exiting, because `ExitOnFailure` lives in the file
+that failed to parse and because the control FIFO never reaches end-of-file.
+
+Before this was handled, every signal agreed the instance was fine: `is-active`
+said `active`, the reconciler compared desired `running` against observed
+`active` and found no drift, the unit file was byte-correct so there was no unit
+drift, and the dashboard said "Connected and supervised by systemd". Worse, a
+scheduled command still reported success: systemd holds the FIFO open, so a write
+lands in the pipe buffer and returns 0 whether or not anything reads it. Verified
+directly — two writes to a FIFO whose holder never reads both exit 0.
+
+Reconciliation therefore reads the journal for any instance systemd calls
+`active` while the database says `running`, and reports `stuck` when it finds a
+line the wedged client prints. The markers in `STUCK_MARKERS` were observed from
+build 511, not guessed. If you add a supervision feature, assume a live process
+proves nothing and find a signal that distinguishes working from present.
+
 ### Why the scheduler needs no actor context
 
 `runScheduledCommand` takes an `InstanceCommandRow` and no `ActorContext`. It

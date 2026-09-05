@@ -70,7 +70,14 @@ export const authenticationState = z.object({
 })
 export type AuthenticationState = z.infer<typeof authenticationState>
 
-export const observedStateSchema = z.enum(["active", "inactive", "failed", "activating", "unknown"])
+export const observedStateSchema = z.enum([
+	"active",
+	"stuck",
+	"inactive",
+	"failed",
+	"activating",
+	"unknown",
+])
 export type ObservedState = z.infer<typeof observedStateSchema>
 
 export const unitDriftSchema = z.object({

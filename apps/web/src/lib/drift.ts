@@ -26,4 +26,6 @@ export const describeUnitDrift = (drift: UnitDrift): string => {
 }
 
 export const describeStateDrift = (drift: StateDrift): string =>
-	`Recorded as ${drift.desired}, but systemd reports ${drift.observed}.`
+	drift.observed === "stuck"
+		? "The unit is running, but the client is wedged and is not connected to any server."
+		: `Recorded as ${drift.desired}, but systemd reports ${drift.observed}.`

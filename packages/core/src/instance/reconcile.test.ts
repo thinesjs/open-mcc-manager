@@ -6,6 +6,7 @@ import {
 	desiredStateIsSatisfied,
 	expectedUnits,
 	isManagedUnit,
+	looksStuck,
 	parseObservedState,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
@@ -52,6 +53,10 @@ const connected = async (
 	})
 	return transport
 }
+
+const listingOf = (names: string[]) => ({
+	"ls -1 '/etc/systemd/system'": { stdout: names.join("\n"), stderr: "", exitCode: 0 },
+})
 
 const fileReplies = (units: Map<string, string>) =>
 	Object.fromEntries(
@@ -265,5 +270,70 @@ describe("units the manager does not define", () => {
 		await expect(
 			reconcileHostOverTransport(transport, "host-1", [instance()], expected),
 		).rejects.toThrow(/Permission denied/)
+	})
+})
+
+describe("a client that is running but not doing anything", () => {
+	const journalFor = (text: string) => ({
+		"journalctl -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true":
+			{ stdout: text, stderr: "", exitCode: 0 },
+	})
+
+	it("recognises the lines the real client prints when it is stuck", () => {
+		expect(looksStuck('Failed to parse the settings file, enter "/new" to generate')).toBe(true)
+		expect(looksStuck("[MCC] Not connected to any server. Use '/help' for help.")).toBe(true)
+		expect(looksStuck("Or press Enter to exit Minecraft Console Client.")).toBe(true)
+		expect(looksStuck("Server version:")).toBe(true)
+	})
+
+	it("does not call a healthy journal stuck", () => {
+		expect(looksStuck("[MCC] Server was successfully joined.\n<player> hello")).toBe(false)
+		expect(looksStuck("")).toBe(false)
+	})
+
+	it("never treats stuck as satisfying any desired state", () => {
+		expect(desiredStateIsSatisfied("running", "stuck")).toBe(false)
+		expect(desiredStateIsSatisfied("stopped", "stuck")).toBe(false)
+		expect(desiredStateIsSatisfied("needs_auth", "stuck")).toBe(false)
+	})
+
+	it("reports drift for a unit systemd calls active whose client is wedged", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			...listingOf([...expected.keys()]),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			...journalFor('Failed to parse the settings file, enter "/new" to generate'),
+		})
+
+		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.stateDrift).toEqual([
+			{ instanceId: "abc123", desired: "running", observed: "stuck" },
+		])
+	})
+
+	it("leaves a genuinely healthy instance alone", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const transport = await connected({
+			...fileReplies(expected),
+			...listingOf([...expected.keys()]),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			...journalFor("[MCC] Server was successfully joined."),
+		})
+
+		const result = await reconcileHostOverTransport(transport, "host-1", [instance()], expected)
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.stateDrift).toEqual([])
 	})
 })

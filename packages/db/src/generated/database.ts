@@ -78,6 +78,7 @@ export interface Host {
 	provisioningStep: string | null
 	provisioningStepIndex: number | null
 	provisioningStepTotal: number | null
+	sandboxed: boolean | null
 	sshKeyId: string | null
 	status: Generated<string>
 	unitDir: string | null

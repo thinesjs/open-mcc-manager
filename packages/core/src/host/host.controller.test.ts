@@ -59,6 +59,7 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	mode: "system",
 	instancesRoot: "/srv/open-mcc",
 	unitDir: "/etc/systemd/system",
+	sandboxed: true,
 	sshKeyId: "key-1",
 	hostKeyAlgorithm: "ssh-ed25519",
 	hostKeyFingerprint: null,
@@ -552,6 +553,7 @@ describe("host controller provisioning", () => {
 				osRelease: "systemd 252",
 				instancesRoot: "/srv/open-mcc",
 				unitDir: "/etc/systemd/system",
+				sandboxed: true,
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)

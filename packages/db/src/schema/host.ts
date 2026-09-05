@@ -16,6 +16,7 @@ export type HostTable = Omit<
 	| "status"
 	| "mode"
 	| "instancesRoot"
+	| "sandboxed"
 	| "unitDir"
 	| "sshKeyId"
 	| "hostKeyAlgorithm"
@@ -33,6 +34,7 @@ export type HostTable = Omit<
 	status: Generated<HostStatus>
 	mode: Generated<HostMode>
 	instancesRoot: Generated<DB["host"]["instancesRoot"]>
+	sandboxed: Generated<DB["host"]["sandboxed"]>
 	unitDir: Generated<DB["host"]["unitDir"]>
 	sshKeyId: Generated<DB["host"]["sshKeyId"]>
 	hostKeyAlgorithm: Generated<DB["host"]["hostKeyAlgorithm"]>

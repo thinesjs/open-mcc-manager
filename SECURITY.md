@@ -221,13 +221,31 @@ depth, not a substitute for one.
 - **Without root, instances on one host share a user and are not isolated from
   each other.** Creating a user per instance needs root, so under **Without
   root** every instance runs as the connecting account and can read every other
-  instance's directory, including its Microsoft session cache. Instances are
-  still separated from the rest of the host by `ProtectSystem=strict`,
-  `NoNewPrivileges=yes` and a `ReadWritePaths=` scoped to their own directory,
-  and their files remain `0700`/`0600`. This is a deliberate trade: it removes
-  root from the fleet at the cost of isolation between instances that already
-  belong to the same operator. Choose **With root** where that isolation matters
-  more than the blast radius of a stolen key.
+  instance's directory, including its Microsoft session cache. Their files are
+  still `0700`/`0600`, but identical ownership makes those modes no barrier
+  between siblings. This is a deliberate trade: it removes root from the fleet
+  at the cost of isolation between instances that already belong to the same
+  operator. Choose **With root** where that isolation matters more than the
+  blast radius of a stolen key.
+- **Under Without root, systemd's filesystem hardening may be silently
+  discarded.** The instance unit asks for `ProtectSystem=strict`, `PrivateTmp`
+  and a `ReadWritePaths=` scoped to its own directory. Those directives need a
+  mount namespace, and older systemd user managers ignore them without logging
+  anything: measured directly, systemd 252 (Debian 12) drops them while systemd
+  255 (Ubuntu 24.04) enforces them. Provisioning therefore probes the host
+  rather than trusting the unit file, and the host page reports whether
+  confinement is **Enforced by systemd** or **Not enforced by this host's
+  systemd**. Where it is not enforced, an instance is confined only by POSIX
+  ownership — which, per the point above, does not separate it from its
+  siblings. `NoNewPrivileges=yes`, `UMask=0077` and the exit-code restart policy
+  need no namespace and apply in both cases. Under **With root** the system
+  manager enforces all of it.
+- **The Microsoft sign-in window is unsandboxed in both modes.** To read the
+  device code, the client is launched directly rather than through its unit, so
+  for the duration of that flow it runs without the unit's filesystem
+  restrictions. Under **With root** the instance's own account still contains
+  it. Under **Without root** there is no such boundary, so treat sign-in as a
+  moment when that instance can reach every sibling instance's files.
 - **With root, instances sharing a host are isolated by systemd and POSIX
   ownership, not by containers.** Each runs as its own unprivileged user in its own private group
   under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`

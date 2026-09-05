@@ -34,6 +34,7 @@ export type ProvisionOptions = {
 export type ProvisionResult = {
 	osRelease: string
 	profile: HostProfile
+	sandboxed: boolean
 }
 
 export type ProvisionProgress = {
@@ -51,6 +52,18 @@ export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
 export const CLIENT_PROBE_TIMEOUT_MS = 30_000
 
 export const CLIENT_BANNER = "Minecraft Console Client"
+
+export const SANDBOX_PROBE_MARKER = "/tmp/.open-mcc-sandbox-probe"
+
+export const SANDBOX_PROBE_UNIT = "open-mcc-sandbox-probe"
+
+export const sandboxProbeCommand = (marker: string = SANDBOX_PROBE_MARKER): string => {
+	const quoted = shellQuote(marker)
+	const run = `systemd-run --user --wait --collect --quiet --unit=${SANDBOX_PROBE_UNIT} --property=PrivateTmp=yes /bin/sh -c ${shellQuote(`touch ${marker}`)}`
+	return `rm -f ${quoted}; ${run} >/dev/null 2>&1; if [ -e ${quoted} ]; then rm -f ${quoted}; printf ignored; else printf enforced; fi`
+}
+
+export const readsAsEnforced = (output: string): boolean => output.trim() === "enforced"
 
 export const explainClientFailure = (output: string): string => {
 	if (/ICU/i.test(output)) {
@@ -182,6 +195,13 @@ export const provisionHost = async (
 		throw new Error(explainClientFailure(probeOutput))
 	}
 
+	let sandboxed = true
+	if (profile.mode === "rootless") {
+		advance()
+		const probe = await transport.exec(sandboxProbeCommand(), PROVISION_STEP_TIMEOUT_MS)
+		sandboxed = readsAsEnforced(probe.stdout)
+	}
+
 	const templates = renderUnitTemplates(profile)
 
 	advance()
@@ -209,7 +229,7 @@ export const provisionHost = async (
 	advance()
 	await step(transport, systemctl(profile, "daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease, profile }
+	return { osRelease, profile, sandboxed }
 }
 
 export { LINGER_STEP_LABEL }

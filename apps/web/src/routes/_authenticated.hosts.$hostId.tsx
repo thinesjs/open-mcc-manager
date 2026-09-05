@@ -14,6 +14,11 @@ import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { useTRPC } from "~/lib/trpc"
 
+export const confinementLabel = (sandboxed: boolean | null): string => {
+	if (sandboxed === null) return "Unknown until provisioned"
+	return sandboxed ? "Enforced by systemd" : "Not enforced by this host's systemd"
+}
+
 export const Route = createFileRoute("/_authenticated/hosts/$hostId")({
 	component: HostDetailPage,
 })
@@ -122,6 +127,16 @@ function HostDetailPage() {
 					<div>
 						<p className="text-muted-foreground">Host key algorithm</p>
 						<p className="text-foreground">{host.hostKeyAlgorithm ?? "Unknown"}</p>
+					</div>
+					<div>
+						<p className="text-muted-foreground">Privilege</p>
+						<p className="text-foreground">
+							{host.mode === "rootless" ? "Without root" : "With root"}
+						</p>
+					</div>
+					<div>
+						<p className="text-muted-foreground">Instance confinement</p>
+						<p className="text-foreground">{confinementLabel(host.sandboxed)}</p>
 					</div>
 					<div className="col-span-2">
 						<p className="text-muted-foreground">Trusted host key fingerprint</p>

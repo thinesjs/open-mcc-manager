@@ -41,6 +41,8 @@ export const LINGER_STEP_LABEL = "Checking that instances survive a logout"
 
 export const CLIENT_RUNS_STEP_LABEL = "Checking the client runs"
 
+export const SANDBOX_STEP_LABEL = "Checking that instances are confined"
+
 export const PROVISION_STEP_LABELS = [
 	"Checking systemd",
 	"Creating the instances directory",
@@ -63,6 +65,7 @@ export const ROOTLESS_PROVISION_STEP_LABELS = [
 	"Verifying the download",
 	"Installing the client",
 	CLIENT_RUNS_STEP_LABEL,
+	SANDBOX_STEP_LABEL,
 	"Installing the instance unit",
 	"Installing the sleep units",
 	"Reloading systemd",

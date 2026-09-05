@@ -256,6 +256,7 @@ export const createHostController = (deps: HostControllerDeps) => ({
 				osRelease: result.osRelease,
 				instancesRoot: result.profile.instancesRoot,
 				unitDir: result.profile.unitDir,
+				sandboxed: result.sandboxed,
 			})
 			if (!updated) {
 				throw new HostConcurrentlyModifiedError(

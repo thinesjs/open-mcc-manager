@@ -1,9 +1,11 @@
 import {
 	createInstanceInput,
+	dropInventoryItemInput,
 	hostIdInput,
 	instanceIdInput,
 	readInstanceConsoleInput,
 	scheduledCommandInput,
+	selectHeldItemInput,
 	sendInstanceCommandInput,
 	sleepWindowInput,
 	updateInstanceConfigInput,
@@ -93,6 +95,21 @@ export const instanceRouter = router({
 	readLiveInventory: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
 		return nullWhenAbsent(ctx.instanceController.readLiveInventory(ctx.actor, input.instanceId))
+	}),
+
+	dropInventoryItem: protectedProcedure.input(dropInventoryItemInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "console.write")
+		return ctx.instanceController.dropInventoryItem(
+			ctx.actor,
+			input.instanceId,
+			input.itemType,
+			input.count,
+		)
+	}),
+
+	selectHeldItem: protectedProcedure.input(selectHeldItemInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "console.write")
+		return ctx.instanceController.selectHeldItem(ctx.actor, input.instanceId, input.itemType)
 	}),
 
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {

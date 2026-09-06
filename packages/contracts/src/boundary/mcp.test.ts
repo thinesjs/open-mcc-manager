@@ -430,8 +430,8 @@ describe("inventory", () => {
 			title: undefined,
 			slotCount: 46,
 			slots: [
-				{ slot: 9, label: "Oak Log", count: 64 },
-				{ slot: 36, label: "Diamond Sword", count: 1 },
+				{ slot: 9, type: "OakLog", label: "Oak Log", count: 64 },
+				{ slot: 36, type: "DiamondSword", label: "Diamond Sword", count: 1 },
 			],
 			cursor: undefined,
 		})
@@ -442,7 +442,9 @@ describe("inventory", () => {
 			'{"success":true,"data":{"id":0,"slotCount":46,"slots":[' +
 			'{"slot":9,"type":"Air","count":0},{"slot":36,"type":"Stone","count":3}]}}'
 
-		expect(inventoryFrom(snapshot(body)).slots).toEqual([{ slot: 36, label: "Stone", count: 3 }])
+		expect(inventoryFrom(snapshot(body)).slots).toEqual([
+			{ slot: 36, type: "Stone", label: "Stone", count: 3 },
+		])
 	})
 
 	it("reports an item held on the cursor", () => {
@@ -486,8 +488,8 @@ describe("inventory", () => {
 
 	it("indexes slots by slot number so empty squares can be drawn", () => {
 		const byNumber = slotsBySlotNumber([
-			{ slot: 36, label: "Stone", count: 3 },
-			{ slot: 9, label: "Oak Log", count: 64 },
+			{ slot: 36, type: "Stone", label: "Stone", count: 3 },
+			{ slot: 9, type: "OakLog", label: "Oak Log", count: 64 },
 		])
 
 		expect(byNumber.get(36)?.label).toBe("Stone")
@@ -501,8 +503,8 @@ describe("inventory", () => {
 			slotCount: 46,
 			cursor: undefined,
 			slots: [
-				{ slot: 9, label: "Oak Log", count: 64 },
-				{ slot: 36, label: "Stone", count: 12 },
+				{ slot: 9, type: "OakLog", label: "Oak Log", count: 64 },
+				{ slot: 36, type: "Stone", label: "Stone", count: 12 },
 			],
 		}
 

@@ -51,6 +51,7 @@ import {
 	isAuthClaimStale,
 } from "./instance.repository"
 import {
+	dropInventoryItem as dropItemOverChannel,
 	type LiveControlTarget,
 	readChatHistory,
 	readEntities,
@@ -58,6 +59,7 @@ import {
 	readRecentEvents,
 	readSessionStatus,
 	readWorldState,
+	selectHeldItem as selectItemOverChannel,
 } from "./live-control"
 import {
 	expectedUnits,
@@ -765,6 +767,57 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			} finally {
 				await target.close()
 			}
+		},
+
+		dropInventoryItem: async (
+			ctx: ActorContext,
+			instanceId: string,
+			itemType: string,
+			count: number,
+		): Promise<void> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) throw new LiveChannelUnavailableError("Live view is not open for this instance")
+			try {
+				await dropItemOverChannel(target.target, itemType, count)
+			} finally {
+				await target.close()
+			}
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.inventory.drop",
+					subjectType: "instance",
+					subjectId: instanceId,
+					detail: { itemType, count: String(count) },
+				})
+			})
+		},
+
+		selectHeldItem: async (
+			ctx: ActorContext,
+			instanceId: string,
+			itemType: string,
+		): Promise<void> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) throw new LiveChannelUnavailableError("Live view is not open for this instance")
+			try {
+				await selectItemOverChannel(target.target, itemType)
+			} finally {
+				await target.close()
+			}
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.inventory.select",
+					subjectType: "instance",
+					subjectId: instanceId,
+					detail: { itemType },
+				})
+			})
 		},
 
 		getConfig: async (

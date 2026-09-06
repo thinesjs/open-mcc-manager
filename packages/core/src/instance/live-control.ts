@@ -5,6 +5,7 @@ import {
 	entityListFrom,
 	initializedNotification,
 	initializeRequest,
+	inventoryActionFrom,
 	inventoryFrom,
 	type JsonRpcNotification,
 	type JsonRpcRequest,
@@ -221,3 +222,24 @@ export const readInventory = (
 		{ inventoryId: PLAYER_INVENTORY_ID },
 		timeoutMs,
 	)
+
+export const dropInventoryItem = (
+	target: LiveControlTarget,
+	itemType: string,
+	count: number,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<void> =>
+	callLiveTool(
+		target,
+		"mcc_inventory_drop_item",
+		inventoryActionFrom,
+		{ itemType, count, inventoryId: PLAYER_INVENTORY_ID },
+		timeoutMs,
+	)
+
+export const selectHeldItem = (
+	target: LiveControlTarget,
+	itemType: string,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<void> =>
+	callLiveTool(target, "mcc_select_item", inventoryActionFrom, { itemType }, timeoutMs)

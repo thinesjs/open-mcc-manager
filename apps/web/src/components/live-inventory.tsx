@@ -5,7 +5,10 @@ import {
 	regionsFor,
 	slotsBySlotNumber,
 } from "@open-mcc/contracts/boundary/mcp"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "~/components/ui/context-menu"
+import { useTRPC } from "~/lib/trpc"
 
 export type LiveInventoryView = {
 	id: number
@@ -16,6 +19,8 @@ export type LiveInventoryView = {
 
 export type LiveInventoryProps = {
 	inventory: LiveInventoryView
+	instanceId: string
+	canInteract: boolean
 }
 
 const PANEL = "#c6c6c6"
@@ -58,12 +63,18 @@ const SLOT_CHROME = {
 	borderRight: `2px solid ${HIGHLIGHT}`,
 } as const
 
-const Slot = ({ item }: { item: McpInventorySlot | undefined }) => {
+export type SlotProps = {
+	item: McpInventorySlot | undefined
+	onDrop?: ((item: McpInventorySlot, count: number) => void) | undefined
+	onHold?: ((item: McpInventorySlot) => void) | undefined
+}
+
+const Slot = ({ item, onDrop, onHold }: SlotProps) => {
 	if (!item) {
 		return <div className="size-11" style={SLOT_CHROME} />
 	}
 
-	return (
+	const face = (
 		<div
 			role="img"
 			aria-label={`${item.label}, ${item.count} in slot ${item.slot}`}
@@ -98,9 +109,37 @@ const Slot = ({ item }: { item: McpInventorySlot | undefined }) => {
 			</span>
 		</div>
 	)
+
+	if (onDrop === undefined || onHold === undefined) return face
+
+	return (
+		<ContextMenu
+			items={
+				<>
+					<ContextMenuItem onClick={() => onHold(item)}>Hold this</ContextMenuItem>
+					<ContextMenuSeparator />
+					<ContextMenuItem destructive onClick={() => onDrop(item, 1)}>
+						Drop one
+					</ContextMenuItem>
+					{item.count > 1 ? (
+						<ContextMenuItem destructive onClick={() => onDrop(item, item.count)}>
+							Drop all {item.count}
+						</ContextMenuItem>
+					) : null}
+				</>
+			}
+		>
+			{face}
+		</ContextMenu>
+	)
 }
 
-export const LiveInventory = ({ inventory }: LiveInventoryProps) => {
+export const LiveInventory = ({ inventory, instanceId, canInteract }: LiveInventoryProps) => {
+	const trpc = useTRPC()
+	const queryClient = useQueryClient()
+	const refresh = { onSuccess: () => queryClient.invalidateQueries() }
+	const dropMutation = useMutation(trpc.instance.dropInventoryItem.mutationOptions(refresh))
+	const holdMutation = useMutation(trpc.instance.selectHeldItem.mutationOptions(refresh))
 	const byNumber = slotsBySlotNumber(inventory.slots)
 	const regions = regionsFor({ id: inventory.id, slotCount: inventory.slotCount })
 
@@ -131,7 +170,18 @@ export const LiveInventory = ({ inventory }: LiveInventoryProps) => {
 								style={{ gridTemplateColumns: `repeat(${region.columns}, 2.75rem)` }}
 							>
 								{region.slots.map((slot) => (
-									<Slot key={slot} item={byNumber.get(slot)} />
+									<Slot
+										key={slot}
+										item={byNumber.get(slot)}
+										{...(canInteract
+											? {
+													onDrop: (item, count) =>
+														dropMutation.mutate({ instanceId, itemType: item.type, count }),
+													onHold: (item) =>
+														holdMutation.mutate({ instanceId, itemType: item.type }),
+												}
+											: {})}
+									/>
 								))}
 							</div>
 						</div>

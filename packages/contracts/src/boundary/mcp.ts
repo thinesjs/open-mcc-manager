@@ -388,6 +388,7 @@ export type McpItemStack = {
 
 export type McpInventorySlot = {
 	slot: number
+	type: string
 	label: string
 	count: number
 }
@@ -430,6 +431,7 @@ export const inventoryFrom = (response: JsonRpcResponse): McpInventory => {
 		.filter((slot) => slot.count > 0)
 		.map((slot) => ({
 			slot: slot.slot,
+			type: slot.type,
 			label: humanizeItemType(slot.type),
 			count: slot.count,
 		}))
@@ -475,3 +477,7 @@ export const slotsBySlotNumber = (
 
 export const inventoryItemTotal = (inventory: { slots: readonly McpInventorySlot[] }): number =>
 	inventory.slots.reduce((total, slot) => total + slot.count, 0)
+
+export const inventoryActionFrom = (response: JsonRpcResponse): void => {
+	toolResultOf(response)
+}

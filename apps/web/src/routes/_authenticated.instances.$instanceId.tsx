@@ -1,7 +1,16 @@
 import { ACCOUNT_TYPE_LABELS, minecraftNameOf, needsInteractiveSignIn } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ChevronLeft, CircleAlert, KeyRound, Play, RotateCcw, Square, Terminal } from "lucide-react"
+import {
+	ChevronLeft,
+	CircleAlert,
+	KeyRound,
+	Play,
+	Radio,
+	RotateCcw,
+	Square,
+	Terminal,
+} from "lucide-react"
 import { useState } from "react"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
@@ -308,6 +317,13 @@ function InstanceDetailPage() {
 						</TabsPanel>
 
 						<TabsPanel value="live">
+							{configQuery.data && !configQuery.data.liveControlEnabled ? (
+								<EmptyState
+									icon={Radio}
+									title="Live view is off"
+									description="Turn on live view in Settings to watch this bot's chat, surroundings and inventory."
+								/>
+							) : null}
 							{configQuery.data?.liveControlEnabled ? (
 								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
 									<div>
@@ -412,7 +428,11 @@ function InstanceDetailPage() {
 											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 												Inventory
 											</h3>
-											<LiveInventory inventory={liveInventoryQuery.data} />
+											<LiveInventory
+												inventory={liveInventoryQuery.data}
+												instanceId={instanceId}
+												canInteract={configQuery.data?.inventoryDataEnabled === true}
+											/>
 										</div>
 									) : null}
 

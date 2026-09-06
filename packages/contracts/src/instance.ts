@@ -192,3 +192,16 @@ export const hostMetricsSchema = z.object({
 	uptimeSeconds: z.number(),
 })
 export type HostMetrics = z.infer<typeof hostMetricsSchema>
+
+export const MAX_DROP_COUNT = 2304
+
+export const dropInventoryItemInput = z.object({
+	instanceId: z.string().min(1),
+	itemType: z.string().min(1).max(64),
+	count: z.number().int().min(1).max(MAX_DROP_COUNT),
+})
+
+export const selectHeldItemInput = z.object({
+	instanceId: z.string().min(1),
+	itemType: z.string().min(1).max(64),
+})

@@ -54,6 +54,7 @@ function HostDetailPage() {
 	const previousStatus = useRef<HostStatus | undefined>(undefined)
 	const [justProvisioned, setJustProvisioned] = useState(false)
 	const [creatingInstance, setCreatingInstance] = useState(false)
+	const [confirmingProvision, setConfirmingProvision] = useState(false)
 
 	useEffect(() => {
 		if (!host) return
@@ -243,7 +244,7 @@ function HostDetailPage() {
 				) : null}
 				<Button
 					variant={host.status === "ready" ? "secondary" : "default"}
-					onClick={handleProvision}
+					onClick={() => setConfirmingProvision(true)}
 					disabled={
 						provisionMutation.isPending ||
 						host.status === "provisioning" ||
@@ -268,6 +269,24 @@ function HostDetailPage() {
 					{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove"}
 				</Button>
 			</div>
+
+			<ConfirmDialog
+				open={confirmingProvision}
+				title={host.status === "ready" ? "Repair setup" : "Set up this server"}
+				description={
+					host.status === "ready"
+						? "Reinstalls the bot software and background services on this server. Safe to run again: your bots keep running, nothing is deleted, and anything already correct is left alone. It takes about a minute."
+						: "Installs the bot software and background services on this server. It takes about a minute."
+				}
+				confirmLabel={host.status === "ready" ? "Repair setup" : "Set up"}
+				busy={provisionMutation.isPending}
+				error={provisionMutation.isError ? getErrorMessage(provisionMutation.error) : undefined}
+				onConfirm={() => {
+					setConfirmingProvision(false)
+					handleProvision()
+				}}
+				onCancel={() => setConfirmingProvision(false)}
+			/>
 
 			<ConfirmDialog
 				open={confirmingRemove}

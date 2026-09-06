@@ -1,15 +1,13 @@
 import { STATUS_RANGES, type StatusRange } from "@open-mcc/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { Activity, CircleAlert } from "lucide-react"
+import { CircleAlert } from "lucide-react"
 import { useState } from "react"
-import { EmptyState } from "~/components/empty-state"
 import { Alert } from "~/components/ui/alert"
 import { LoadingBlock } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
 import { getErrorMessage } from "~/lib/errors"
-import { describeStatusEvent } from "~/lib/status-events"
 import { useTRPC } from "~/lib/trpc"
 import { describeCoverage, describeUptime } from "~/lib/uptime"
 import { cn } from "~/lib/utils"
@@ -42,10 +40,6 @@ function StatusPage() {
 	const [range, setRange] = useState<StatusRange>("24h")
 	const summaryQuery = useQuery({
 		...trpc.status.summary.queryOptions({ range }),
-		refetchInterval: 60_000,
-	})
-	const eventsQuery = useQuery({
-		...trpc.status.events.queryOptions({ range, limit: 50 }),
 		refetchInterval: 60_000,
 	})
 
@@ -130,32 +124,6 @@ function StatusPage() {
 					)}
 				</section>
 			) : null}
-
-			<section className="space-y-3">
-				<h2 className="text-sm font-semibold text-foreground">Recent events</h2>
-				{eventsQuery.isPending ? <LoadingBlock label="Loading events" /> : null}
-				{eventsQuery.data && eventsQuery.data.length > 0 ? (
-					<ol className="divide-y divide-border overflow-hidden rounded-[var(--radius)] border border-border bg-card">
-						{eventsQuery.data.map((event) => (
-							<li key={event.id} className="flex items-baseline gap-3 px-4 py-2.5">
-								<span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-									{new Date(event.occurredAt).toLocaleTimeString()}
-								</span>
-								<span className="text-sm text-foreground">
-									{describeStatusEvent(event.kind, event.subjectLabel)}
-								</span>
-							</li>
-						))}
-					</ol>
-				) : eventsQuery.isPending ? null : (
-					<EmptyState
-						compact
-						icon={Activity}
-						title="Nothing to report"
-						description="Interruptions appear here as they happen."
-					/>
-				)}
-			</section>
 		</div>
 	)
 }

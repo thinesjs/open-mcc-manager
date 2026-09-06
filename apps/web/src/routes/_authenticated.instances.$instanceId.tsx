@@ -519,7 +519,7 @@ function InstanceDetailPage() {
 				<Modal
 					open={editingSettings}
 					title="Instance settings"
-					description="Changes are written to the client's config file on the host."
+					description="Changes are written to the client's config file on the host, and take effect the next time it starts."
 					onClose={() => setEditingSettings(false)}
 				>
 					<InstanceSettingsForm

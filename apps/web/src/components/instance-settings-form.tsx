@@ -69,9 +69,6 @@ export const InstanceSettingsForm = ({
 					value={draft.serverAddress}
 					onChange={(event) => setDraft({ ...draft, serverAddress: event.target.value })}
 				/>
-				<p className="text-xs text-muted-foreground">
-					Takes effect the next time this instance starts.
-				</p>
 			</div>
 
 			<div className="space-y-1.5">

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck, CircleHelp, RefreshCw, TriangleAlert } from "lucide-react"
 import { Alert } from "~/components/ui/alert"
@@ -24,6 +24,12 @@ export type HostDriftProps = {
 
 export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	const trpc = useTRPC()
+	const queryClient = useQueryClient()
+	const restartMutation = useMutation(
+		trpc.instance.restart.mutationOptions({
+			onSuccess: () => queryClient.invalidateQueries(),
+		}),
+	)
 	const instancesQuery = useQuery(trpc.instance.list.queryOptions())
 	const query = useQuery({
 		...trpc.instance.reconcileHost.queryOptions({ hostId }),
@@ -127,16 +133,30 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 											{group.entries.length === 1 ? "s" : ""}
 										</span>
 									</div>
-									<span
-										className={cn(
-											"block text-xs",
-											group.defeatsSafety || group.neverAnswered
-												? "text-destructive"
-												: "text-muted-foreground",
-										)}
-									>
-										{remedyForGroup(group)}
-									</span>
+									<div className="flex flex-wrap items-center gap-2">
+										<span
+											className={cn(
+												"text-xs",
+												group.defeatsSafety || group.neverAnswered
+													? "text-destructive"
+													: "text-muted-foreground",
+											)}
+										>
+											{remedyForGroup(group)}
+										</span>
+										<Button
+											size="sm"
+											variant="secondary"
+											disabled={restartMutation.isPending}
+											onClick={() => restartMutation.mutate({ instanceId: group.instanceId })}
+										>
+											{restartMutation.isPending ? (
+												<Spinner label="Restarting" />
+											) : (
+												"Restart to fix"
+											)}
+										</Button>
+									</div>
 									<ul className="mt-1 space-y-0.5">
 										{group.entries.map((drift) => (
 											<li key={drift.key} className="text-xs text-muted-foreground">

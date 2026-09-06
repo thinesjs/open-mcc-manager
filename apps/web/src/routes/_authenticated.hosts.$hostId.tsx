@@ -242,6 +242,7 @@ function HostDetailPage() {
 					</Button>
 				) : null}
 				<Button
+					variant={host.status === "ready" ? "secondary" : "default"}
 					onClick={handleProvision}
 					disabled={
 						provisionMutation.isPending ||
@@ -249,7 +250,13 @@ function HostDetailPage() {
 						host.status === "removing"
 					}
 				>
-					{provisionMutation.isPending ? <Spinner label="Provisioning" /> : "Provision"}
+					{provisionMutation.isPending ? (
+						<Spinner label="Setting up" />
+					) : host.status === "ready" ? (
+						"Repair setup"
+					) : (
+						"Set up"
+					)}
 				</Button>
 				<Button
 					variant="destructive-outline"

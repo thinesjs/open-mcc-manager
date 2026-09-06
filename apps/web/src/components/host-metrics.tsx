@@ -51,9 +51,7 @@ export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 			<CardHeader className="flex flex-row items-center justify-between gap-4">
 				<div>
 					<CardTitle>Server usage</CardTitle>
-					<p className="text-sm text-muted-foreground">
-						Load, memory and disk as the host reports them.
-					</p>
+					<p className="text-sm text-muted-foreground">Load, memory and disk on this server.</p>
 				</div>
 				<Button
 					size="sm"

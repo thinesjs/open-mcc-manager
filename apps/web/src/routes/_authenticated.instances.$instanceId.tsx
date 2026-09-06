@@ -146,24 +146,40 @@ function InstanceDetailPage() {
 							</p>
 						</div>
 						<div className="flex flex-wrap gap-2">
-							{!interactive ? null : instance.status === "needs_auth" ? (
-								<Button
-									size="sm"
-									disabled={busy}
-									onClick={() => completeMutation.mutate({ instanceId })}
-								>
-									<KeyRound className="size-4" />I finished signing in
-								</Button>
-							) : (
-								<Button
-									size="sm"
-									variant="secondary"
-									disabled={busy}
-									onClick={() => authenticateMutation.mutate({ instanceId })}
-								>
-									<KeyRound className="size-4" />
-									Authenticate
-								</Button>
+							{!interactive ? null : (
+								<>
+									<Button
+										size="sm"
+										variant={instance.status === "needs_auth" ? "default" : "secondary"}
+										disabled={busy}
+										onClick={() => authenticateMutation.mutate({ instanceId })}
+									>
+										{authenticateMutation.isPending ? (
+											<Spinner label="Requesting a code" />
+										) : (
+											<>
+												<KeyRound className="size-4" />
+												{instance.status === "needs_auth"
+													? "Get a sign-in code"
+													: "Re-authenticate"}
+											</>
+										)}
+									</Button>
+									{instance.status === "needs_auth" && challenge ? (
+										<Button
+											size="sm"
+											variant="secondary"
+											disabled={busy}
+											onClick={() => completeMutation.mutate({ instanceId })}
+										>
+											{completeMutation.isPending ? (
+												<Spinner label="Checking" />
+											) : (
+												"I finished signing in"
+											)}
+										</Button>
+									) : null}
+								</>
 							)}
 							{instance.status === "running" ? (
 								<Button
@@ -191,6 +207,13 @@ function InstanceDetailPage() {
 					{actionError ? (
 						<Alert variant="error" icon={<CircleAlert />}>
 							{actionError}
+						</Alert>
+					) : null}
+
+					{completeMutation.data?.authenticated === false ? (
+						<Alert variant="warning" icon={<CircleAlert />}>
+							The client has not signed in yet. Open the link above, enter the code, and choose “I
+							finished signing in” once Microsoft says it is done.
 						</Alert>
 					) : null}
 

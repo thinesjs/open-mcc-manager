@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { consoleLines } from "~/lib/minecraft-text"
+import { trackedStateSummary } from "~/lib/tracked-state"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/instances/$instanceId")({
@@ -480,6 +481,12 @@ function InstanceDetailPage() {
 												{configQuery.data.liveControlEnabled
 													? `On, port ${configQuery.data.liveControlPort}`
 													: "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Client tracks</dt>
+											<dd className="text-sm text-foreground">
+												{trackedStateSummary(configQuery.data)}
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">

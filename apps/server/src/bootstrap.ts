@@ -16,6 +16,8 @@ import {
 	createSshKeyController,
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
+	createStatusController,
+	createStatusControllerTransaction,
 	generateSshKeyPair,
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
@@ -178,6 +180,11 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		},
 	})
 
+	const statusController = createStatusController({
+		withTransaction: createStatusControllerTransaction(db),
+		now: () => new Date(),
+	})
+
 	const healthPoller = startHealthPoller({
 		pollableHosts: () => hosts.listPollableAcrossOrganizations(),
 		connect: async (host) => {
@@ -199,6 +206,11 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		},
 		recordSeen: (host, seenAt, observed) =>
 			hosts.recordSeen(host.id, host.organizationId, seenAt, observed),
+		recordReachability: (host, reached) =>
+			statusController.recordHostReachability(
+				{ organizationId: host.organizationId },
+				{ hostId: host.id, hostName: host.name, reached },
+			),
 		now: () => new Date(),
 		onError: (message, error) => {
 			console.error(message, error instanceof Error ? redactError(error) : message)

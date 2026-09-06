@@ -413,6 +413,14 @@ was given the same `trustedOrigins` production gets. A test suite configured
 more permissively than the deployment proves nothing about the deployment;
 `apps/server/src/auth-origin.test.ts` pins both halves.
 
+Never add a `NOT NULL` column to a table better-auth owns unless better-auth
+itself writes it. Migration 0005 made `account.issuer` `NOT NULL`; better-auth
+1.7.2 never writes that column, so its startup schema check fails and **every
+request returns 500**, auth included. Migration 0026 drops the constraint. The
+failure is latent rather than immediate: it only appears once the image
+installs the pinned tree, so a cached Docker layer can hide it for a long time
+and a clean build will surface it without any code having changed.
+
 ## Adding a domain end to end
 
 The `instance` domain is the reference, and it is real code rather than a
@@ -461,6 +469,51 @@ summary drifts and the files do not.
    Tests that create rows clean up in `afterEach` with tracked ids, because
    `apps/server` runs its files sequentially and some assert a table is
    globally empty.
+
+## Live control
+
+The control plane reads state from a running client over SSH. No MCC port is
+reachable from any network, and nothing here may change that.
+
+| Piece | File |
+| --- | --- |
+| `forwardOut` to the instance's loopback port | `packages/transport/src/ssh/connection.ts` |
+| HTTP over that duplex, MCP handshake, bearer auth | `packages/core/src/instance/live-control.ts` |
+| Wire parsing: SSE frames, JSON-RPC, MCC's `{success,data}` envelope | `packages/contracts/src/boundary/mcp.ts` |
+| The rendered `[ChatBot.McpServer]` block | `packages/core/src/instance/config.ts` |
+
+- The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
+  are rendered `false` as `FIXED` keys, which is what keeps
+  `mcc_run_internal_command` — MCC's entire internal command surface, `script`
+  included — out of reach. The control FIFO and its allowlist remain the only
+  write path. Never enable those two to make a feature easier.
+- `Inventory` and `EntityWorld` do grant mutation (`DropInventoryItem`,
+  `AttackEntity`) alongside the reads Stage 4 wants. Both default off, and the
+  settings UI states the cost per toggle. `mcc_world_state` is gated by
+  `SessionStatus` instead, so world data costs no write surface at all.
+- `BindHost` is rendered as the literal `127.0.0.1` and is never an operator
+  field. MCC's own validation accepts `0.0.0.0`, `+` and `*` while rejecting
+  `localhost` and `::1`, and a wildcard bind fails silently.
+- **The row owns the port.** `instance.liveControlPort` is a real column with a
+  unique constraint per host. Anything that renders an instance's expected
+  config takes the port from the row, never from the stored config document —
+  `expectedDocumentFor` exists so `writeSavedConfig` and `reconcileHost` cannot
+  disagree. Four separate bugs came from reading a port out of a stale config;
+  all four typechecked and passed tests.
+- `create` probes the host with `canForward` before claiming a port, then
+  retries on a unique violation. `canForward` answers "a forward succeeded",
+  which conflates "the host permits forwarding" with "something is listening";
+  for allocation that is the behaviour wanted.
+- The token is minted fresh on **every start**, sealed in the store, and reaches
+  MCC only through the unit's `EnvironmentFile`. It must never enter
+  `MinecraftClient.ini`, which MCC rewrites and which drift reads back.
+- MCC rewrites its config on load *and* on clean exit, so a save made while an
+  instance runs is discarded by the next stop. `start` re-renders the saved
+  config immediately before launching the unit; that ordering is load-bearing.
+- Connection-refused means "not joined yet", never failure — MCP listens only
+  between `AfterGameJoined` and disconnect. A live endpoint that never answered
+  *after* joining is reported as `unreachable` drift, because MCC swallows its
+  own bind failure.
 
 ## Dashboard (apps/web)
 

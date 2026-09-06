@@ -21,7 +21,9 @@ import {
 	generateSshKeyPair,
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
+	profileFrom,
 	readBuildInfo,
+	readConnectionChanges,
 	redactError,
 	type SchedulerHandle,
 	type SendJob,
@@ -121,6 +123,11 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		withTransaction: createStatusControllerTransaction(db),
 		hostNames: async (scope) =>
 			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
+		instanceNames: async (scope) =>
+			(await createInstanceRepository(db).list(scope)).map((row) => ({
+				id: row.id,
+				name: row.name,
+			})),
 		retentionDays: env.STATUS_RETENTION_DAYS,
 		now: () => new Date(),
 	})
@@ -215,6 +222,33 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				{ organizationId: host.organizationId },
 				{ hostId: host.id, hostName: host.name, reached },
 			),
+		observeInstances: async (host, transport) => {
+			if (!host.instancesRoot || !host.unitDir) return
+			const scope = { organizationId: host.organizationId }
+			const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
+			const onHost = (await createInstanceRepository(db).list(scope)).filter(
+				(instance) => instance.hostId === host.id && instance.status === "running",
+			)
+			for (const instance of onHost) {
+				const cursor = await statusController.connectionCursor(scope, instance.id)
+				const current = await statusController.currentConnection(scope, instance.id)
+				const reading = await readConnectionChanges(
+					transport,
+					profile,
+					instance.id,
+					current,
+					cursor,
+				)
+				await statusController.recordInstanceConnection(
+					scope,
+					{ id: instance.id, name: instance.name },
+					reading.changes,
+				)
+				if (reading.cursor !== null && reading.cursor !== cursor) {
+					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
+				}
+			}
+		},
 		now: () => new Date(),
 		onError: (message, error) => {
 			console.error(message, error instanceof Error ? redactError(error) : message)

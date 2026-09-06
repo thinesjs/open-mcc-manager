@@ -11,6 +11,7 @@ export const createTestStatusController = (db: Db) => {
 		withTransaction: createStatusControllerTransaction(db),
 		hostNames: async (scope) =>
 			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
+		instanceNames: async () => [],
 		retentionDays: 30,
 		now: () => new Date(),
 	})

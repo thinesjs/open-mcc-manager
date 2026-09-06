@@ -47,6 +47,7 @@ export {
 	isProvisioningClaimStale,
 	PROVISIONING_LEASE_MS,
 } from "./host/host.repository"
+export { profileFrom } from "./host/profile"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
 	PROVISION_STEP_TIMEOUT_MS,
@@ -150,6 +151,7 @@ export {
 } from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
+export { readConnectionChanges } from "./status/instance-observer"
 export { nextReachability } from "./status/reachability"
 export {
 	createStatusController,

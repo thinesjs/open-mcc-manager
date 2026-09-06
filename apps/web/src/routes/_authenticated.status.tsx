@@ -16,6 +16,14 @@ export const Route = createFileRoute("/_authenticated/status")({
 	component: StatusPage,
 })
 
+const CONNECTION_LABEL: Record<string, string> = {
+	joined: "On its server",
+	interrupted: "Just dropped",
+	down: "Off its server",
+	never_joined: "Running but never joined",
+	unknown: "Not measured yet",
+}
+
 const REACHABILITY_LABEL: Record<string, string> = {
 	up: "Reachable",
 	suspect: "Not answering",
@@ -113,6 +121,57 @@ function StatusPage() {
 											</span>
 											{coverage ? (
 												<Tooltip content="OpenMCC was not checking for part of this period, so that time counts as neither up nor down.">
+													<span className="text-xs text-muted-foreground">{coverage}</span>
+												</Tooltip>
+											) : null}
+										</div>
+									</li>
+								)
+							})}
+						</ul>
+					)}
+				</section>
+			) : null}
+
+			{summaryQuery.data ? (
+				<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+					<div className="flex items-baseline justify-between gap-4">
+						<h2 className="text-sm font-semibold text-foreground">Bots</h2>
+						<p className="text-sm tabular-nums text-muted-foreground">
+							{summaryQuery.data.bots.filter((bot) => bot.state === "joined").length} of{" "}
+							{summaryQuery.data.bots.length} on their server
+						</p>
+					</div>
+
+					{summaryQuery.data.bots.length === 0 ? (
+						<p className="text-sm text-muted-foreground">No bots yet.</p>
+					) : (
+						<ul className="space-y-4">
+							{summaryQuery.data.bots.map((bot) => {
+								const coverage = describeCoverage(bot.availability)
+								return (
+									<li key={bot.instanceId} className="space-y-1.5">
+										<div className="flex items-baseline justify-between gap-4">
+											<span className="text-sm font-medium text-foreground">
+												{bot.instanceName}
+											</span>
+											<span className="text-sm tabular-nums text-foreground">
+												{describeUptime(bot.availability)}
+											</span>
+										</div>
+										<UptimeBars
+											buckets={bot.buckets}
+											granularity={summaryQuery.data.granularity}
+											fromLabel={FROM_LABEL[range]}
+											goodLabel="On its server"
+											badLabel="Off its server"
+										/>
+										<div className="flex items-baseline justify-between gap-4">
+											<span className="text-xs text-muted-foreground">
+												{CONNECTION_LABEL[bot.state] ?? "Not measured yet"}
+											</span>
+											{coverage ? (
+												<Tooltip content="OpenMCC has not been watching this bot for the whole period, so that time counts as neither on nor off.">
 													<span className="text-xs text-muted-foreground">{coverage}</span>
 												</Tooltip>
 											) : null}

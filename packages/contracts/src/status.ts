@@ -193,8 +193,18 @@ export type HostUptime = {
 	buckets: BucketAvailability[]
 }
 
+export type BotUptime = {
+	instanceId: string
+	instanceName: string
+	state: StatusState
+	availability: Availability
+	buckets: BucketAvailability[]
+	lastChangeAt: Date | null
+}
+
 export type StatusSummary = {
 	hosts: HostUptime[]
+	bots: BotUptime[]
 	answering: number
 	total: number
 	granularity: "hour" | "day"

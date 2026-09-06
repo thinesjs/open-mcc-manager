@@ -5,6 +5,7 @@ import type {
 	StatusEventInsert,
 	StatusEventRow,
 	StatusIntervalRow,
+	StatusSource,
 	StatusState,
 } from "@open-mcc/db"
 import { nanoid } from "nanoid"
@@ -196,6 +197,47 @@ export const createStatusRepository = (db: Executor) => ({
 			.where((eb) => eb.or([eb("endedAt", "is", null), eb("endedAt", ">=", options.since)]))
 			.orderBy("startedAt", "asc")
 			.execute(),
+
+	readCursor: async (
+		scope: OrgScope,
+		instanceId: string,
+		source: StatusSource,
+	): Promise<string | null> => {
+		const row = await db
+			.selectFrom("statusSourceCursor")
+			.select(["cursor"])
+			.where("organizationId", "=", scope.organizationId)
+			.where("instanceId", "=", instanceId)
+			.where("source", "=", source)
+			.executeTakeFirst()
+		return row?.cursor ?? null
+	},
+
+	writeCursor: async (
+		scope: OrgScope,
+		instanceId: string,
+		source: StatusSource,
+		cursor: string,
+		observedAt: Date,
+	): Promise<void> => {
+		await db
+			.insertInto("statusSourceCursor")
+			.values({
+				id: nanoid(),
+				organizationId: scope.organizationId,
+				instanceId,
+				source,
+				generation: "1",
+				cursor,
+				lastObservedAt: observedAt,
+			})
+			.onConflict((conflict) =>
+				conflict
+					.columns(["organizationId", "instanceId", "source"])
+					.doUpdateSet({ cursor, lastObservedAt: observedAt }),
+			)
+			.execute()
+	},
 
 	listConditions: async (
 		scope: OrgScope,

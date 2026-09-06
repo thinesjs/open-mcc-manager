@@ -14,6 +14,8 @@ import {
 import type { Db } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import type { ConnectionChange, ConnectionCurrent } from "./connection"
+import { UNOBSERVED_CONNECTION } from "./connection"
 import { nextReachability, type ReachabilityCurrent, UNOBSERVED } from "./reachability"
 import { bucketStarts, rollUpWindow, SECONDS_PER_BUCKET } from "./rollup"
 import { createStatusRepository, type StatusRepository } from "./status.repository"
@@ -33,6 +35,7 @@ export const createStatusControllerTransaction = (db: Db): WithStatusTransaction
 export type StatusControllerDeps = {
 	withTransaction: WithStatusTransaction
 	hostNames: (scope: OrgScope) => Promise<{ id: string; name: string }[]>
+	instanceNames: (scope: OrgScope) => Promise<{ id: string; name: string }[]>
 	retentionDays: number
 	now: () => Date
 }
@@ -44,6 +47,8 @@ export type HostObservation = {
 }
 
 const HOST_REACHABILITY = "host.reachability" as const
+
+const INSTANCE_CONNECTION = "instance.connection" as const
 
 const availabilityOver = (
 	intervals: readonly { state: StatusState; startedAt: Date; endedAt: Date | null }[],
@@ -139,6 +144,95 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		})
 	},
 
+	recordInstanceConnection: async (
+		scope: OrgScope,
+		instance: { id: string; name: string },
+		changes: readonly ConnectionChange[],
+	): Promise<void> => {
+		if (changes.length === 0) return
+		await deps.withTransaction(async ({ status }) => {
+			const subject = { instanceId: instance.id }
+			for (const change of changes) {
+				const event =
+					change.event === undefined
+						? undefined
+						: await status.recordEvent(scope, {
+								subjectType: "instance",
+								subjectId: instance.id,
+								subjectLabel: instance.name,
+								hostId: null,
+								instanceId: instance.id,
+								kind: change.event,
+								occurredAt: change.at,
+								observedAt: deps.now(),
+								lastCorroboratedAt: deps.now(),
+								incidentId: null,
+								primarySource: "journal",
+								sources: ["journal"],
+								sourceKey: `${instance.id}:${change.at.toISOString()}:${change.event}`,
+								detail: change.reason === undefined ? {} : { reason: change.reason },
+							})
+
+				await status.closeOpenInterval(
+					scope,
+					subject,
+					INSTANCE_CONNECTION,
+					change.at,
+					event?.id ?? null,
+				)
+				await status.openInterval(
+					scope,
+					subject,
+					INSTANCE_CONNECTION,
+					change.state,
+					change.at,
+					event?.id ?? null,
+				)
+				await status.upsertCondition(
+					scope,
+					subject,
+					INSTANCE_CONNECTION,
+					{
+						state: change.state,
+						observedAt: deps.now(),
+						failureStartedAt: change.state === "joined" ? null : change.at,
+						activeIncidentId: null,
+						detail: change.reason === undefined ? {} : { reason: change.reason },
+					},
+					change.at,
+				)
+			}
+		})
+	},
+
+	connectionCursor: async (scope: OrgScope, instanceId: string): Promise<string | null> =>
+		await deps.withTransaction(({ status }) => status.readCursor(scope, instanceId, "journal")),
+
+	saveConnectionCursor: async (
+		scope: OrgScope,
+		instanceId: string,
+		cursor: string,
+	): Promise<void> => {
+		await deps.withTransaction(({ status }) =>
+			status.writeCursor(scope, instanceId, "journal", cursor, deps.now()),
+		)
+	},
+
+	currentConnection: async (scope: OrgScope, instanceId: string): Promise<ConnectionCurrent> => {
+		const condition = await deps.withTransaction(({ status }) =>
+			status.findCondition(scope, { instanceId }, INSTANCE_CONNECTION),
+		)
+		if (condition === undefined) return UNOBSERVED_CONNECTION
+		const state =
+			condition.state === "joined" ||
+			condition.state === "interrupted" ||
+			condition.state === "down" ||
+			condition.state === "never_joined"
+				? condition.state
+				: "unknown"
+		return { state, since: condition.startedAt, pid: null }
+	},
+
 	summary: async (scope: OrgScope, requested: StatusRange): Promise<StatusSummary> => {
 		const range = rangeWithinRetention(requested, deps.retentionDays)
 		const since = new Date(deps.now().getTime() - RANGE_SECONDS[range] * 1000)
@@ -174,8 +268,36 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 					})),
 				}
 			})
+			const botNames = await deps.instanceNames(scope)
+			const botConditions = await status.listConditions(scope, INSTANCE_CONNECTION)
+			const botIntervals = await status.listIntervals(scope, {
+				dimension: INSTANCE_CONNECTION,
+				since,
+			})
+			const bots = botNames.map((bot) => {
+				const condition = botConditions.find((entry) => entry.instanceId === bot.id)
+				const mine = botIntervals.filter((entry) => entry.instanceId === bot.id)
+				const clipped = mine.map((interval) => ({
+					state: interval.state,
+					startedAt: interval.startedAt,
+					endedAt: interval.endedAt ?? now,
+				}))
+				return {
+					instanceId: bot.id,
+					instanceName: bot.name,
+					state: condition?.state ?? "unknown",
+					availability: availabilityOver(mine, since, now),
+					buckets: starts.map((start) => ({
+						start: start.toISOString(),
+						availability: rollUpWindow(clipped, start, new Date(start.getTime() + step)),
+					})),
+					lastChangeAt: condition?.startedAt ?? null,
+				}
+			})
+
 			return {
 				hosts,
+				bots,
 				answering: hosts.filter((host) => host.state === "up").length,
 				total: hosts.length,
 				granularity,

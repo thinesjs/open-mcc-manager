@@ -4,6 +4,7 @@ import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { EnrollHostSteps } from "~/components/enroll-host-steps"
+import { HostContextMenu } from "~/components/host-context-menu"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { OsIcon } from "~/components/os-icon"
@@ -74,67 +75,71 @@ function HostListPage() {
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{hostsQuery.data.map((host) => (
-							<Link
-								key={host.id}
-								to="/hosts/$hostId"
-								params={{ hostId: host.id }}
-								className="group flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4 transition-colors hover:border-foreground/16 hover:bg-accent/40"
-							>
-								<div className="flex items-start justify-between gap-3">
-									<div className="flex min-w-0 items-center gap-2">
-										<OsIcon
-											osId={host.osId}
-											osName={host.osName}
-											className="size-4 text-muted-foreground"
-										/>
-										<p className="truncate font-medium text-foreground">{host.name}</p>
+							<HostContextMenu key={host.id} host={host}>
+								<Link
+									key={host.id}
+									to="/hosts/$hostId"
+									params={{ hostId: host.id }}
+									className="group flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4 transition-colors hover:border-foreground/16 hover:bg-accent/40"
+								>
+									<div className="flex items-start justify-between gap-3">
+										<div className="flex min-w-0 items-center gap-2">
+											<OsIcon
+												osId={host.osId}
+												osName={host.osName}
+												className="size-4 text-muted-foreground"
+											/>
+											<p className="truncate font-medium text-foreground">{host.name}</p>
+										</div>
+										<HostStatusBadge status={host.status} />
 									</div>
-									<HostStatusBadge status={host.status} />
-								</div>
-								<p className="truncate text-sm text-muted-foreground">
-									{host.username}@{host.hostname}:{host.port}
-								</p>
-								{host.status === "removing" ? (
-									<p className="truncate text-xs text-muted-foreground">
-										{host.teardownError ? "Could not be cleaned" : "Cleaning the host…"}
+									<p className="truncate text-sm text-muted-foreground">
+										{host.username}@{host.hostname}:{host.port}
 									</p>
-								) : (
-									<HostHealthBadge host={host} />
-								)}
-								{host.osName ? (
-									<p className="truncate text-xs text-muted-foreground">{host.osName}</p>
-								) : null}
-							</Link>
+									{host.status === "removing" ? (
+										<p className="truncate text-xs text-muted-foreground">
+											{host.teardownError ? "Could not be cleaned" : "Cleaning the host…"}
+										</p>
+									) : (
+										<HostHealthBadge host={host} />
+									)}
+									{host.osName ? (
+										<p className="truncate text-xs text-muted-foreground">{host.osName}</p>
+									) : null}
+								</Link>
+							</HostContextMenu>
 						))}
 					</div>
 				) : (
 					<div className="divide-y divide-border overflow-hidden rounded-[var(--radius)] border border-border bg-card">
 						{hostsQuery.data.map((host) => (
-							<Link
-								key={host.id}
-								to="/hosts/$hostId"
-								params={{ hostId: host.id }}
-								className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-accent"
-							>
-								<div className="flex min-w-0 items-center gap-3">
-									<OsIcon
-										osId={host.osId}
-										osName={host.osName}
-										className="size-4 text-muted-foreground"
-									/>
-									<div className="min-w-0">
-										<p className="truncate font-medium text-foreground">{host.name}</p>
-										<p className="truncate text-sm text-muted-foreground">
-											{host.username}@{host.hostname}:{host.port}
-										</p>
+							<HostContextMenu key={host.id} host={host}>
+								<Link
+									key={host.id}
+									to="/hosts/$hostId"
+									params={{ hostId: host.id }}
+									className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-accent"
+								>
+									<div className="flex min-w-0 items-center gap-3">
+										<OsIcon
+											osId={host.osId}
+											osName={host.osName}
+											className="size-4 text-muted-foreground"
+										/>
+										<div className="min-w-0">
+											<p className="truncate font-medium text-foreground">{host.name}</p>
+											<p className="truncate text-sm text-muted-foreground">
+												{host.username}@{host.hostname}:{host.port}
+											</p>
+										</div>
 									</div>
-								</div>
-								<div className="flex shrink-0 items-center gap-3">
-									<HostHealthBadge host={host} />
-									<HostStatusBadge status={host.status} />
-									<ChevronRight className="size-4 text-muted-foreground" />
-								</div>
-							</Link>
+									<div className="flex shrink-0 items-center gap-3">
+										<HostHealthBadge host={host} />
+										<HostStatusBadge status={host.status} />
+										<ChevronRight className="size-4 text-muted-foreground" />
+									</div>
+								</Link>
+							</HostContextMenu>
 						))}
 					</div>
 				)

@@ -3,6 +3,7 @@ import {
 	callToolRequest,
 	chatHistoryFrom,
 	dataFramesOf,
+	entityListFrom,
 	initializeRequest,
 	isNotableEvent,
 	McpProtocolError,
@@ -308,5 +309,65 @@ describe("mcp wire format", () => {
 		)
 
 		expect(recentEventsFrom(response)).toEqual({ latestId: 42, events: [] })
+	})
+
+	it("reads the entities a real client returned", () => {
+		const real =
+			'{"success":true,"data":{"totalTracked":161,"count":1,"entities":[' +
+			'{"id":18452,"type":"Skeleton","typeLabel":"Skeleton",' +
+			'"uuid":"c7dcbe63-11cb-4d50-b12d-bea8f452f644","distance":12.5}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: real }] },
+			}),
+		)
+
+		expect(entityListFrom(response)).toEqual({
+			totalTracked: 161,
+			entities: [{ id: 18452, label: "Skeleton", distance: 12.5, health: undefined }],
+		})
+	})
+
+	it("prefers a named entity's name over its type", () => {
+		const body =
+			'{"success":true,"data":{"totalTracked":1,"entities":[' +
+			'{"id":1,"type":"Villager","typeLabel":"Villager","name":"Bob"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(entityListFrom(response).entities[0]?.label).toBe("Bob")
+	})
+
+	it("names an entity it cannot identify rather than showing a blank row", () => {
+		const body = '{"success":true,"data":{"totalTracked":1,"entities":[{"id":7}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(entityListFrom(response).entities[0]?.label).toBe("unknown")
+	})
+
+	it("reads an empty radius without complaint", () => {
+		const body = '{"success":true,"data":{"totalTracked":0,"count":0,"entities":[]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(entityListFrom(response)).toEqual({ totalTracked: 0, entities: [] })
 	})
 })

@@ -76,6 +76,11 @@ export const instanceRouter = router({
 		return ctx.instanceController.readLiveWorld(ctx.actor, input.instanceId)
 	}),
 
+	readLiveEntities: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.readLiveEntities(ctx.actor, input.instanceId)
+	}),
+
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
 		return ctx.instanceController.getConfig(ctx.actor, input.instanceId)

@@ -51,6 +51,12 @@ function InstanceDetailPage() {
 		retry: false,
 		refetchInterval: 5000,
 	})
+	const liveEntitiesQuery = useQuery({
+		...trpc.instance.readLiveEntities.queryOptions({ instanceId }),
+		enabled: configQuery.data?.entityDataEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
 	const liveEventsQuery = useQuery({
 		...trpc.instance.readLiveEvents.queryOptions({ instanceId }),
 		enabled: configQuery.data?.liveControlEnabled === true,
@@ -326,6 +332,30 @@ function InstanceDetailPage() {
 												</dd>
 											</div>
 										</dl>
+									) : null}
+
+									{liveEntitiesQuery.data ? (
+										<div className="space-y-2">
+											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+												Nearby ({liveEntitiesQuery.data.totalTracked} tracked)
+											</h3>
+											{liveEntitiesQuery.data.entities.length === 0 ? (
+												<p className="text-sm text-muted-foreground">Nothing within {32} blocks.</p>
+											) : (
+												<ul className="grid gap-x-8 gap-y-1 text-xs sm:grid-cols-2">
+													{liveEntitiesQuery.data.entities.map((entity) => (
+														<li key={entity.id} className="flex justify-between gap-4">
+															<span className="text-foreground">{entity.label}</span>
+															<span className="tabular-nums text-muted-foreground">
+																{entity.distance === undefined
+																	? ""
+																	: `${entity.distance.toFixed(1)}m`}
+															</span>
+														</li>
+													))}
+												</ul>
+											)}
+										</div>
 									) : null}
 
 									{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (

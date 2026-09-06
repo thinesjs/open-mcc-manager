@@ -103,6 +103,7 @@ export {
 	LIVE_EVENT_MAX,
 	LiveControlUnauthorizedError,
 	readChatHistory,
+	readEntities,
 	readRecentEvents,
 	readSessionStatus,
 	readWorldState,

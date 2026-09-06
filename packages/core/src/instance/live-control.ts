@@ -2,6 +2,7 @@ import { request as httpRequest } from "node:http"
 import {
 	callToolRequest,
 	chatHistoryFrom,
+	entityListFrom,
 	initializedNotification,
 	initializeRequest,
 	type JsonRpcNotification,
@@ -9,6 +10,7 @@ import {
 	type JsonRpcResponse,
 	MCP_SESSION_HEADER,
 	type McpChatEntry,
+	type McpEntityList,
 	type McpEventPage,
 	type McpSessionStatus,
 	type McpWorldState,
@@ -169,3 +171,19 @@ export const readWorldState = (
 	target: LiveControlTarget,
 	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpWorldState> => callLiveTool(target, "mcc_world_state", worldStateFrom, {}, timeoutMs)
+
+export const LIVE_ENTITY_MAX = 25
+
+export const LIVE_ENTITY_RADIUS = 32
+
+export const readEntities = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpEntityList> =>
+	callLiveTool(
+		target,
+		"mcc_entities_list",
+		entityListFrom,
+		{ maxCount: LIVE_ENTITY_MAX, radius: LIVE_ENTITY_RADIUS },
+		timeoutMs,
+	)

@@ -310,3 +310,46 @@ export const worldStateFrom = (response: JsonRpcResponse): McpWorldState => {
 	}
 	return parsed.data
 }
+
+const mcpEntitySchema = z.object({
+	id: z.number(),
+	type: z.string().optional(),
+	typeLabel: z.string().optional(),
+	distance: z.number().optional(),
+	health: z.number().optional(),
+	name: z.string().nullable().optional(),
+})
+
+const mcpEntityListSchema = z.object({
+	totalTracked: z.number().optional(),
+	count: z.number().optional(),
+	entities: z.array(mcpEntitySchema),
+})
+
+export type McpEntity = {
+	id: number
+	label: string
+	distance: number | undefined
+	health: number | undefined
+}
+
+export type McpEntityList = {
+	totalTracked: number
+	entities: McpEntity[]
+}
+
+export const entityListFrom = (response: JsonRpcResponse): McpEntityList => {
+	const parsed = mcpEntityListSchema.safeParse(toolResultOf(response))
+	if (!parsed.success) {
+		throw new McpProtocolError("The client reported entities this manager cannot read")
+	}
+	return {
+		totalTracked: parsed.data.totalTracked ?? parsed.data.entities.length,
+		entities: parsed.data.entities.map((entity) => ({
+			id: entity.id,
+			label: entity.name ?? entity.typeLabel ?? entity.type ?? "unknown",
+			distance: entity.distance,
+			health: entity.health,
+		})),
+	}
+}

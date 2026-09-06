@@ -26,12 +26,12 @@ const PRESENTATION_BY_STATUS: Record<InstanceStatus, InstanceStatusPresentation>
 	running: {
 		label: "Running",
 		variant: "success",
-		description: "Running under systemd supervision.",
+		description: "Online. It restarts on its own if it drops.",
 	},
 	error: {
 		label: "Error",
 		variant: "error",
-		description: "Exited with a status the supervisor will not retry.",
+		description: "Stopped after a failure that is not retried automatically.",
 	},
 }
 

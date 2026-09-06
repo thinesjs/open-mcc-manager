@@ -1,5 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
-import { Boxes, KeyRound, LayoutDashboard, LogOut, Server } from "lucide-react"
+import { Boxes, KeyRound, LayoutDashboard, LogOut, Search, Server } from "lucide-react"
+import { useEffect, useState } from "react"
+import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
 import { authClient } from "~/lib/auth-client"
@@ -41,6 +43,17 @@ const SECTIONS = [
 function AuthenticatedLayout() {
 	const navigate = useNavigate()
 	const session = authClient.useSession()
+	const [paletteOpen, setPaletteOpen] = useState(false)
+
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return
+			event.preventDefault()
+			setPaletteOpen((current) => !current)
+		}
+		document.addEventListener("keydown", onKey)
+		return () => document.removeEventListener("keydown", onKey)
+	}, [])
 
 	const handleSignOut = async () => {
 		await authClient.signOut()
@@ -49,6 +62,7 @@ function AuthenticatedLayout() {
 
 	return (
 		<div className="flex h-dvh overflow-hidden">
+			<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 			<aside className="flex h-full w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
 				<div>
 					<div className="flex items-center gap-2 px-5 py-4">
@@ -62,6 +76,19 @@ function AuthenticatedLayout() {
 						<span className="text-sm font-semibold tracking-tight text-foreground">OpenMCC</span>
 					</div>
 					<BuildBadge />
+					<div className="px-3 pt-1 pb-2">
+						<button
+							type="button"
+							onClick={() => setPaletteOpen(true)}
+							className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] border border-sidebar-border px-3 py-1.5 text-sm text-sidebar-muted-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
+						>
+							<Search className="size-4 shrink-0" />
+							<span>Search</span>
+							<kbd className="ml-auto rounded border border-sidebar-border px-1.5 py-0.5 font-sans text-[0.625rem] text-sidebar-muted-foreground">
+								⌘K
+							</kbd>
+						</button>
+					</div>
 					<nav className="flex flex-col gap-5 px-3 py-2">
 						{SECTIONS.map((section) => (
 							<div key={section.label ?? "root"} className="flex flex-col gap-1">

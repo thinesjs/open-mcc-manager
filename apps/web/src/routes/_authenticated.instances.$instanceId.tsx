@@ -1,4 +1,4 @@
-import { ACCOUNT_TYPE_LABELS, needsInteractiveSignIn } from "@open-mcc/contracts"
+import { ACCOUNT_TYPE_LABELS, minecraftNameOf, needsInteractiveSignIn } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, RotateCcw, Square, Terminal } from "lucide-react"
@@ -12,6 +12,7 @@ import { LiveChat } from "~/components/live-chat"
 import { LiveEvents } from "~/components/live-events"
 import { LiveInventory } from "~/components/live-inventory"
 import { MinecraftText } from "~/components/minecraft-text"
+import { PlayerAvatar } from "~/components/player-avatar"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
@@ -99,7 +100,13 @@ function InstanceDetailPage() {
 		trpc.instance.authenticate.mutationOptions({ onSuccess, onError }),
 	)
 	const completeMutation = useMutation(
-		trpc.instance.completeAuthentication.mutationOptions({ onSuccess, onError }),
+		trpc.instance.completeAuthentication.mutationOptions({
+			onSuccess: async (result) => {
+				if (result?.authenticated === true) authenticateMutation.reset()
+				await onSuccess()
+			},
+			onError,
+		}),
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
 	const cancelAuthMutation = useMutation(
@@ -142,6 +149,7 @@ function InstanceDetailPage() {
 					<div className="flex flex-wrap items-start justify-between gap-4">
 						<div>
 							<div className="flex items-center gap-3">
+								<PlayerAvatar username={minecraftNameOf(instance)} fallback={instance.name} />
 								<h1 className="text-lg font-semibold text-foreground">{instance.name}</h1>
 								<InstanceStatusBadge status={instance.status} />
 							</div>
@@ -212,6 +220,12 @@ function InstanceDetailPage() {
 					{actionError ? (
 						<Alert variant="error" icon={<CircleAlert />}>
 							{actionError}
+						</Alert>
+					) : null}
+
+					{completeMutation.data?.authenticated === true ? (
+						<Alert variant="success" icon={<KeyRound />}>
+							Signed in. This bot can start now.
 						</Alert>
 					) : null}
 

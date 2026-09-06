@@ -18,6 +18,17 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 	offline: "Offline",
 }
 
+export const minecraftNameOf = (instance: {
+	accountType: AccountType
+	minecraftAccount: string
+	minecraftUsername: string | null
+}): string | null => {
+	if (instance.minecraftUsername !== null && instance.minecraftUsername.length > 0) {
+		return instance.minecraftUsername
+	}
+	return instance.accountType === "offline" ? instance.minecraftAccount : null
+}
+
 export const isOfflineAccount = (accountType: AccountType): boolean => accountType === "offline"
 
 export const needsInteractiveSignIn = (accountType: AccountType): boolean =>

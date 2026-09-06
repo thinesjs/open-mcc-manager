@@ -1,3 +1,4 @@
+import { minecraftNameOf } from "@open-mcc/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
@@ -97,14 +98,11 @@ function InstanceListPage() {
 								>
 									<div className="flex items-start justify-between gap-3">
 										<div className="flex min-w-0 items-center gap-2.5">
-											<PlayerAvatar
-												username={instance.minecraftUsername}
-												fallback={instance.name}
-											/>
+											<PlayerAvatar username={minecraftNameOf(instance)} fallback={instance.name} />
 											<div className="min-w-0">
 												<p className="truncate font-medium text-foreground">{instance.name}</p>
 												<p className="truncate text-xs text-muted-foreground">
-													{instance.minecraftUsername ?? instance.minecraftAccount}
+													{minecraftNameOf(instance) ?? instance.minecraftAccount}
 												</p>
 											</div>
 										</div>

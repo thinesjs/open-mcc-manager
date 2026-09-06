@@ -26,7 +26,7 @@ const PRESENTATION_BY_STATUS: Record<InstanceStatus, InstanceStatusPresentation>
 	running: {
 		label: "Running",
 		variant: "success",
-		description: "Online. Reconnects by itself if it drops.",
+		description: "Online and Healthy with auto-restart.",
 	},
 	error: {
 		label: "Error",

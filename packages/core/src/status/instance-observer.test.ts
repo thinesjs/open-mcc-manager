@@ -33,7 +33,20 @@ describe("asking the host what the client logged", () => {
 
 	it("looks back further on a first read, then resumes from where it left off", () => {
 		expect(journalSince(null)).toBe("-7d")
-		expect(journalSince("2026-09-06T06:16:10.000Z")).toBe("2026-09-06T06:16:10.000Z")
+		expect(journalSince("2026-09-06T06:16:10.000Z")).toBe("2026-09-06 06:16:10")
+	})
+
+	it("gives journalctl a timestamp it can actually parse", () => {
+		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toContain("T")
+		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toContain("Z")
+	})
+
+	it("reads the journal in UTC so the cursor and the output agree", () => {
+		expect(journalCommand(rootless, "abc123", "2026-09-06T06:16:10.000Z")).toContain("--utc")
+	})
+
+	it("falls back to the seed window if the stored cursor is unusable", () => {
+		expect(journalSince("not a date")).toBe("-7d")
 	})
 
 	it("names the right unit", () => {

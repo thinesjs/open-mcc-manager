@@ -10,8 +10,14 @@ export const JOURNAL_MAX_LINES = 2_000
 
 export const SEED_WINDOW = "-7d"
 
+export const journalTimestamp = (iso: string): string => {
+	const at = new Date(iso)
+	if (Number.isNaN(at.getTime())) return SEED_WINDOW
+	return at.toISOString().slice(0, 19).replace("T", " ")
+}
+
 export const journalSince = (cursor: string | null): string =>
-	cursor === null ? SEED_WINDOW : cursor
+	cursor === null ? SEED_WINDOW : journalTimestamp(cursor)
 
 export const journalCommand = (
 	profile: HostProfile,
@@ -20,7 +26,7 @@ export const journalCommand = (
 ): string =>
 	journalctl(
 		profile,
-		`-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} -o short-iso --no-pager -n ${JOURNAL_MAX_LINES}`,
+		`-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager -n ${JOURNAL_MAX_LINES}`,
 	)
 
 export type InstanceReading = {

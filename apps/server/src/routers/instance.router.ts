@@ -92,7 +92,7 @@ export const instanceRouter = router({
 
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
-		return ctx.instanceController.getConfig(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.getConfig(ctx.actor, input.instanceId))
 	}),
 
 	updateConfig: protectedProcedure

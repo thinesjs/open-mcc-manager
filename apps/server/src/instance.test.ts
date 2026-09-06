@@ -228,6 +228,20 @@ describe("live reads with no channel", () => {
 		const body = z.object({ result: z.object({ data: z.null() }) }).safeParse(await res.json())
 		expect(body.success).toBe(true)
 	})
+
+	it("answers getConfig with null when the instance has no saved config", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await app.request(
+			`/trpc/instance.getConfig?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+
+		expect(res.status).toBe(200)
+		const body = z.object({ result: z.object({ data: z.null() }) }).safeParse(await res.json())
+		expect(body.success).toBe(true)
+	})
 })
 
 describe("instance router capability boundaries", () => {

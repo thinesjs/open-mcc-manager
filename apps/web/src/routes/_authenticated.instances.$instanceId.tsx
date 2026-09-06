@@ -445,7 +445,7 @@ function InstanceDetailPage() {
 									<Button
 										size="sm"
 										variant="secondary"
-										disabled={configQuery.data === undefined}
+										disabled={!configQuery.data}
 										onClick={() => setEditingSettings(true)}
 									>
 										Edit
@@ -453,7 +453,7 @@ function InstanceDetailPage() {
 								</div>
 								{configQuery.isPending ? (
 									<Spinner label="Loading settings" />
-								) : configQuery.data === undefined ? (
+								) : !configQuery.data ? (
 									<p className="text-sm text-muted-foreground">
 										No saved settings for this instance.
 									</p>
@@ -515,7 +515,7 @@ function InstanceDetailPage() {
 				</>
 			) : null}
 
-			{configQuery.data === undefined ? null : (
+			{!configQuery.data ? null : (
 				<Modal
 					open={editingSettings}
 					title="Instance settings"

@@ -85,6 +85,11 @@ export const instanceRouter = router({
 		return nullWhenAbsent(ctx.instanceController.readLiveEntities(ctx.actor, input.instanceId))
 	}),
 
+	readLiveInventory: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return nullWhenAbsent(ctx.instanceController.readLiveInventory(ctx.actor, input.instanceId))
+	}),
+
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
 		return ctx.instanceController.getConfig(ctx.actor, input.instanceId)

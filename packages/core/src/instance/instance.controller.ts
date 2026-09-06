@@ -17,6 +17,7 @@ import type {
 	McpChatEntry,
 	McpEntityList,
 	McpEventPage,
+	McpInventory,
 	McpSessionStatus,
 	McpWorldState,
 } from "@open-mcc/contracts/boundary/mcp"
@@ -53,6 +54,7 @@ import {
 	type LiveControlTarget,
 	readChatHistory,
 	readEntities,
+	readInventory,
 	readRecentEvents,
 	readSessionStatus,
 	readWorldState,
@@ -707,6 +709,23 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			if (!target) return undefined
 			try {
 				return await readEntities(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLiveInventory: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpInventory | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readInventory(target.target)
 			} catch (error) {
 				if (error instanceof LiveChannelUnavailableError) return undefined
 				throw error

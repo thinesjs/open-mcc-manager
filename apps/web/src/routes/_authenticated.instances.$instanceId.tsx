@@ -9,6 +9,7 @@ import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { LiveChat } from "~/components/live-chat"
 import { LiveEvents } from "~/components/live-events"
+import { LiveInventory } from "~/components/live-inventory"
 import { MinecraftText } from "~/components/minecraft-text"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
@@ -54,6 +55,12 @@ function InstanceDetailPage() {
 	const liveEntitiesQuery = useQuery({
 		...trpc.instance.readLiveEntities.queryOptions({ instanceId }),
 		enabled: configQuery.data?.entityDataEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
+	const liveInventoryQuery = useQuery({
+		...trpc.instance.readLiveInventory.queryOptions({ instanceId }),
+		enabled: configQuery.data?.inventoryDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
@@ -355,6 +362,15 @@ function InstanceDetailPage() {
 													))}
 												</ul>
 											)}
+										</div>
+									) : null}
+
+									{liveInventoryQuery.data ? (
+										<div className="space-y-2">
+											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+												Inventory
+											</h3>
+											<LiveInventory inventory={liveInventoryQuery.data} />
 										</div>
 									) : null}
 

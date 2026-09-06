@@ -358,3 +358,113 @@ export const entityListFrom = (response: JsonRpcResponse): McpEntityList => {
 		})),
 	}
 }
+
+export const PLAYER_INVENTORY_ID = 0
+
+const mcpItemStackSchema = z.object({
+	type: z.string(),
+	count: z.number(),
+})
+
+const mcpInventorySlotSchema = z.object({
+	slot: z.number(),
+	type: z.string(),
+	count: z.number(),
+})
+
+const mcpInventorySchema = z.object({
+	id: z.number(),
+	type: z.string().optional(),
+	title: z.string().optional(),
+	slotCount: z.number().optional(),
+	slots: z.array(mcpInventorySlotSchema),
+	cursor: mcpItemStackSchema.nullable().optional(),
+})
+
+export type McpItemStack = {
+	label: string
+	count: number
+}
+
+export type McpInventorySlot = {
+	slot: number
+	label: string
+	count: number
+}
+
+export type McpInventory = {
+	id: number
+	title: string | undefined
+	slotCount: number
+	slots: McpInventorySlot[]
+	cursor: McpItemStack | undefined
+}
+
+export const humanizeItemType = (value: string): string => {
+	const spaced = value
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/_/g, " ")
+		.trim()
+	return spaced.length === 0 ? value : spaced
+}
+
+const trimmedOrUndefined = (value: string | undefined): string | undefined => {
+	if (value === undefined) return undefined
+	const trimmed = value.trim()
+	return trimmed.length === 0 ? undefined : trimmed
+}
+
+export const inventoryFrom = (response: JsonRpcResponse): McpInventory => {
+	const parsed = mcpInventorySchema.safeParse(toolResultOf(response))
+	if (!parsed.success) {
+		throw new McpProtocolError("The client reported an inventory this manager cannot read")
+	}
+	const slots = parsed.data.slots
+		.filter((slot) => slot.count > 0)
+		.map((slot) => ({
+			slot: slot.slot,
+			label: humanizeItemType(slot.type),
+			count: slot.count,
+		}))
+		.sort((left, right) => left.slot - right.slot)
+	const cursor = parsed.data.cursor
+	return {
+		id: parsed.data.id,
+		title: trimmedOrUndefined(parsed.data.title),
+		slotCount: parsed.data.slotCount ?? 0,
+		slots,
+		cursor:
+			cursor === null || cursor === undefined
+				? undefined
+				: { label: humanizeItemType(cursor.type), count: cursor.count },
+	}
+}
+
+export type McpInventorySection = {
+	name: string
+	slots: readonly McpInventorySlot[]
+}
+
+const PLAYER_INVENTORY_SECTIONS = [
+	{ name: "Hotbar", from: 36, to: 44 },
+	{ name: "Inventory", from: 9, to: 35 },
+	{ name: "Armour", from: 5, to: 8 },
+	{ name: "Offhand", from: 45, to: 45 },
+	{ name: "Crafting", from: 0, to: 4 },
+] as const
+
+export const inventorySections = (inventory: {
+	id: number
+	slots: readonly McpInventorySlot[]
+}): McpInventorySection[] => {
+	if (inventory.id !== PLAYER_INVENTORY_ID) {
+		return inventory.slots.length === 0 ? [] : [{ name: "Contents", slots: inventory.slots }]
+	}
+	return PLAYER_INVENTORY_SECTIONS.map((section) => ({
+		name: section.name,
+		slots: inventory.slots.filter((slot) => slot.slot >= section.from && slot.slot <= section.to),
+	})).filter((section) => section.slots.length > 0)
+}
+
+export const inventoryItemTotal = (inventory: { slots: readonly McpInventorySlot[] }): number =>
+	inventory.slots.reduce((total, slot) => total + slot.count, 0)

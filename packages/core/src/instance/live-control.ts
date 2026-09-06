@@ -5,6 +5,7 @@ import {
 	entityListFrom,
 	initializedNotification,
 	initializeRequest,
+	inventoryFrom,
 	type JsonRpcNotification,
 	type JsonRpcRequest,
 	type JsonRpcResponse,
@@ -12,8 +13,10 @@ import {
 	type McpChatEntry,
 	type McpEntityList,
 	type McpEventPage,
+	type McpInventory,
 	type McpSessionStatus,
 	type McpWorldState,
+	PLAYER_INVENTORY_ID,
 	recentEventsFrom,
 	responseFrom,
 	sessionStatusFrom,
@@ -204,5 +207,17 @@ export const readEntities = (
 		"mcc_entities_list",
 		entityListFrom,
 		{ maxCount: LIVE_ENTITY_MAX, radius: LIVE_ENTITY_RADIUS },
+		timeoutMs,
+	)
+
+export const readInventory = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpInventory> =>
+	callLiveTool(
+		target,
+		"mcc_inventory_snapshot",
+		inventoryFrom,
+		{ inventoryId: PLAYER_INVENTORY_ID },
 		timeoutMs,
 	)

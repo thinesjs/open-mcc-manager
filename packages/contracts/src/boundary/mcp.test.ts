@@ -4,7 +4,11 @@ import {
 	chatHistoryFrom,
 	dataFramesOf,
 	entityListFrom,
+	humanizeItemType,
 	initializeRequest,
+	inventoryFrom,
+	inventoryItemTotal,
+	inventorySections,
 	isNotableEvent,
 	McpProtocolError,
 	recentEventsFrom,
@@ -399,5 +403,127 @@ describe("mcp wire format", () => {
 		)
 
 		expect(chatHistoryFrom(response)[0]?.text).toBe("<LiveBot> hello")
+	})
+})
+
+describe("inventory", () => {
+	const snapshot = (data: string) =>
+		responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: data }] },
+			}),
+		)
+
+	it("reads a player inventory snapshot", () => {
+		const real =
+			'{"success":true,"data":{"id":0,"type":"PlayerInventory","title":"",' +
+			'"slotCount":46,"slots":[' +
+			'{"slot":36,"type":"DiamondSword","count":1},' +
+			'{"slot":9,"type":"OakLog","count":64}],"cursor":null}}'
+
+		expect(inventoryFrom(snapshot(real))).toEqual({
+			id: 0,
+			title: undefined,
+			slotCount: 46,
+			slots: [
+				{ slot: 9, label: "Oak Log", count: 64 },
+				{ slot: 36, label: "Diamond Sword", count: 1 },
+			],
+			cursor: undefined,
+		})
+	})
+
+	it("drops slots the client reported as empty", () => {
+		const body =
+			'{"success":true,"data":{"id":0,"slotCount":46,"slots":[' +
+			'{"slot":9,"type":"Air","count":0},{"slot":36,"type":"Stone","count":3}]}}'
+
+		expect(inventoryFrom(snapshot(body)).slots).toEqual([{ slot: 36, label: "Stone", count: 3 }])
+	})
+
+	it("reports an item held on the cursor", () => {
+		const body =
+			'{"success":true,"data":{"id":0,"slotCount":46,"slots":[],' +
+			'"cursor":{"type":"GoldenApple","count":2}}}'
+
+		expect(inventoryFrom(snapshot(body)).cursor).toEqual({ label: "Golden Apple", count: 2 })
+	})
+
+	it("refuses a snapshot it cannot read", () => {
+		expect(() => inventoryFrom(snapshot('{"success":true,"data":{"id":0}}'))).toThrow(
+			McpProtocolError,
+		)
+	})
+
+	it("groups player slots the way the client itself groups them", () => {
+		const inventory = {
+			id: 0,
+			title: undefined,
+			slotCount: 46,
+			cursor: undefined,
+			slots: [
+				{ slot: 3, label: "Stick", count: 1 },
+				{ slot: 5, label: "Iron Helmet", count: 1 },
+				{ slot: 9, label: "Oak Log", count: 64 },
+				{ slot: 36, label: "Diamond Sword", count: 1 },
+				{ slot: 45, label: "Shield", count: 1 },
+			],
+		}
+
+		expect(inventorySections(inventory).map((section) => section.name)).toEqual([
+			"Hotbar",
+			"Inventory",
+			"Armour",
+			"Offhand",
+			"Crafting",
+		])
+	})
+
+	it("leaves out sections that hold nothing", () => {
+		const inventory = {
+			id: 0,
+			title: undefined,
+			slotCount: 46,
+			cursor: undefined,
+			slots: [{ slot: 36, label: "Stone", count: 1 }],
+		}
+
+		expect(inventorySections(inventory).map((section) => section.name)).toEqual(["Hotbar"])
+	})
+
+	it("does not apply the player layout to a container", () => {
+		const inventory = {
+			id: 3,
+			title: "Chest",
+			slotCount: 27,
+			cursor: undefined,
+			slots: [{ slot: 0, label: "Stone", count: 1 }],
+		}
+
+		expect(inventorySections(inventory)).toEqual([
+			{ name: "Contents", slots: [{ slot: 0, label: "Stone", count: 1 }] },
+		])
+	})
+
+	it("totals the items it can see", () => {
+		const inventory = {
+			id: 0,
+			title: undefined,
+			slotCount: 46,
+			cursor: undefined,
+			slots: [
+				{ slot: 9, label: "Oak Log", count: 64 },
+				{ slot: 36, label: "Stone", count: 12 },
+			],
+		}
+
+		expect(inventoryItemTotal(inventory)).toBe(76)
+	})
+
+	it("keeps names that are already words apart", () => {
+		expect(humanizeItemType("TNT")).toBe("TNT")
+		expect(humanizeItemType("minecraft_stone")).toBe("minecraft stone")
 	})
 })

@@ -17,6 +17,7 @@ import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
+import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { consoleLines } from "~/lib/minecraft-text"
@@ -191,195 +192,221 @@ function InstanceDetailPage() {
 						</Alert>
 					) : null}
 
-					<dl className="grid gap-x-8 gap-y-3 rounded-[var(--radius)] border border-border bg-card p-4 sm:grid-cols-2">
-						<div>
-							<dt className="text-xs uppercase tracking-wider text-muted-foreground">Account</dt>
-							<dd className="text-sm text-foreground">{instance.minecraftAccount}</dd>
-							<dd className="text-xs text-muted-foreground">
-								{ACCOUNT_TYPE_LABELS[instance.accountType]}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-xs uppercase tracking-wider text-muted-foreground">Host</dt>
-							<dd className="text-sm text-foreground">
-								<Link
-									to="/hosts/$hostId"
-									params={{ hostId: instance.hostId }}
-									className="text-primary underline-offset-4 hover:underline"
-								>
-									{hostsQuery.data?.find((host) => host.id === instance.hostId)?.name ??
-										instance.hostId}
-								</Link>
-							</dd>
-						</div>
-						<div>
-							<dt className="text-xs uppercase tracking-wider text-muted-foreground">
-								Last exit code
-							</dt>
-							<dd className="text-sm tabular-nums text-foreground">
-								{instance.lastExitCode ?? "—"}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-xs uppercase tracking-wider text-muted-foreground">Created</dt>
-							<dd className="text-sm text-foreground">
-								{new Date(instance.createdAt).toLocaleString()}
-							</dd>
-						</div>
-					</dl>
+					<Tabs defaultValue="overview">
+						<TabsList>
+							<TabsTab value="overview">Overview</TabsTab>
+							<TabsTab value="live">Live</TabsTab>
+							<TabsTab value="console">Console</TabsTab>
+							<TabsTab value="schedule">Schedule</TabsTab>
+							<TabsTab value="settings">Settings</TabsTab>
+						</TabsList>
 
-					<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-						<div className="flex items-start justify-between gap-4">
-							<div>
-								<h2 className="text-sm font-semibold text-foreground">Settings</h2>
-								<p className="text-xs text-muted-foreground">
-									What this client connects to, and how it behaves while it is there.
-								</p>
-							</div>
-							<Button
-								size="sm"
-								variant="secondary"
-								disabled={configQuery.data === undefined}
-								onClick={() => setEditingSettings(true)}
-							>
-								Edit
-							</Button>
-						</div>
-						{configQuery.isPending ? (
-							<Spinner label="Loading settings" />
-						) : configQuery.data === undefined ? (
-							<p className="text-sm text-muted-foreground">No saved settings for this instance.</p>
-						) : (
-							<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-								<div className="flex justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">Server</dt>
-									<dd className="text-sm text-foreground">{configQuery.data.serverAddress}</dd>
+						<TabsPanel value="overview">
+							<dl className="grid gap-x-8 gap-y-3 rounded-[var(--radius)] border border-border bg-card p-4 sm:grid-cols-2">
+								<div>
+									<dt className="text-xs uppercase tracking-wider text-muted-foreground">
+										Account
+									</dt>
+									<dd className="text-sm text-foreground">{instance.minecraftAccount}</dd>
+									<dd className="text-xs text-muted-foreground">
+										{ACCOUNT_TYPE_LABELS[instance.accountType]}
+									</dd>
 								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">Rejoin attempts</dt>
+								<div>
+									<dt className="text-xs uppercase tracking-wider text-muted-foreground">Host</dt>
+									<dd className="text-sm text-foreground">
+										<Link
+											to="/hosts/$hostId"
+											params={{ hostId: instance.hostId }}
+											className="text-primary underline-offset-4 hover:underline"
+										>
+											{hostsQuery.data?.find((host) => host.id === instance.hostId)?.name ??
+												instance.hostId}
+										</Link>
+									</dd>
+								</div>
+								<div>
+									<dt className="text-xs uppercase tracking-wider text-muted-foreground">
+										Last exit code
+									</dt>
 									<dd className="text-sm tabular-nums text-foreground">
-										{configQuery.data.autoRelogRetries}
+										{instance.lastExitCode ?? "—"}
 									</dd>
 								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
+								<div>
+									<dt className="text-xs uppercase tracking-wider text-muted-foreground">
+										Created
+									</dt>
 									<dd className="text-sm text-foreground">
-										{configQuery.data.autoRespawnEnabled ? "On" : "Off"}
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">Live control</dt>
-									<dd className="text-sm text-foreground">
-										{configQuery.data.liveControlEnabled
-											? `On, port ${configQuery.data.liveControlPort}`
-											: "Off"}
-									</dd>
-								</div>
-								<div className="flex justify-between gap-4">
-									<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
-									<dd className="text-sm text-foreground">
-										{configQuery.data.antiAfkEnabled
-											? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
-											: "Off"}
+										{new Date(instance.createdAt).toLocaleString()}
 									</dd>
 								</div>
 							</dl>
-						)}
-					</section>
+						</TabsPanel>
 
-					{configQuery.data?.liveControlEnabled ? (
-						<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-							<div>
-								<h2 className="text-sm font-semibold text-foreground">Live state</h2>
-								<p className="text-xs text-muted-foreground">
-									Read from the client itself over the SSH tunnel, not from its log.
-								</p>
-							</div>
-							{liveStatusQuery.isPending ? (
-								<Spinner label="Reading live state" />
-							) : liveStatusQuery.data ? (
-								<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-									<div className="flex justify-between gap-4">
-										<dt className="text-sm text-muted-foreground">Signed in as</dt>
-										<dd className="text-sm text-foreground">{liveStatusQuery.data.username}</dd>
+						<TabsPanel value="live">
+							{configQuery.data?.liveControlEnabled ? (
+								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+									<div>
+										<h2 className="text-sm font-semibold text-foreground">Live state</h2>
+										<p className="text-xs text-muted-foreground">
+											Read from the client itself over the SSH tunnel, not from its log.
+										</p>
 									</div>
-									<div className="flex justify-between gap-4">
-										<dt className="text-sm text-muted-foreground">Connected to</dt>
-										<dd className="text-sm text-foreground">
-											{liveStatusQuery.data.host}:{liveStatusQuery.data.port}
-										</dd>
-									</div>
-									<div className="flex justify-between gap-4">
-										<dt className="text-sm text-muted-foreground">Protocol</dt>
-										<dd className="text-sm tabular-nums text-foreground">
-											{liveStatusQuery.data.protocolVersion}
-										</dd>
-									</div>
-									<div className="flex justify-between gap-4">
-										<dt className="text-sm text-muted-foreground">World data</dt>
-										<dd className="text-sm text-foreground">
-											{liveStatusQuery.data.terrainEnabled ? "Terrain" : "No terrain"}
-										</dd>
-									</div>
-								</dl>
-							) : (
-								<p className="text-sm text-muted-foreground">
-									Not answering yet. The client only opens this once it has joined a server.
-								</p>
-							)}
+									{liveStatusQuery.isPending ? (
+										<Spinner label="Reading live state" />
+									) : liveStatusQuery.data ? (
+										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Signed in as</dt>
+												<dd className="text-sm text-foreground">{liveStatusQuery.data.username}</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Connected to</dt>
+												<dd className="text-sm text-foreground">
+													{liveStatusQuery.data.host}:{liveStatusQuery.data.port}
+												</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Protocol</dt>
+												<dd className="text-sm tabular-nums text-foreground">
+													{liveStatusQuery.data.protocolVersion}
+												</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">World data</dt>
+												<dd className="text-sm text-foreground">
+													{liveStatusQuery.data.terrainEnabled ? "Terrain" : "No terrain"}
+												</dd>
+											</div>
+										</dl>
+									) : (
+										<p className="text-sm text-muted-foreground">
+											Not answering yet. The client only opens this once it has joined a server.
+										</p>
+									)}
 
-							{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (
-								<div className="space-y-2">
-									<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-										Events
-									</h3>
-									<LiveEvents events={liveEventsQuery.data.events} />
-								</div>
+									{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (
+										<div className="space-y-2">
+											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+												Events
+											</h3>
+											<LiveEvents events={liveEventsQuery.data.events} />
+										</div>
+									) : null}
+
+									{liveChatQuery.data && liveChatQuery.data.length > 0 ? (
+										<div className="space-y-2">
+											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+												Chat
+											</h3>
+											<LiveChat entries={liveChatQuery.data} />
+										</div>
+									) : null}
+								</section>
 							) : null}
+						</TabsPanel>
 
-							{liveChatQuery.data && liveChatQuery.data.length > 0 ? (
-								<div className="space-y-2">
-									<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-										Chat
-									</h3>
-									<LiveChat entries={liveChatQuery.data} />
+						<TabsPanel value="console">
+							<section className="space-y-3">
+								<h2 className="text-sm font-semibold text-foreground">Console</h2>
+								{consoleQuery.isError ? (
+									<Alert variant="error" icon={<CircleAlert />}>
+										{getErrorMessage(consoleQuery.error)}
+									</Alert>
+								) : consoleQuery.data && consoleQuery.data.output.trim().length > 0 ? (
+									<pre className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground">
+										{consoleLines(consoleQuery.data.output).map((line) => (
+											<MinecraftText key={line.key} value={line.text} />
+										))}
+									</pre>
+								) : (
+									<EmptyState
+										compact
+										icon={Terminal}
+										title="No console output"
+										description="Output appears once the instance has run."
+									/>
+								)}
+								<ConsoleComposer
+									instanceId={instanceId}
+									running={instance?.status === "running"}
+									onSent={async () => {
+										await consoleQuery.refetch()
+									}}
+								/>
+							</section>
+						</TabsPanel>
+
+						<TabsPanel value="schedule">
+							<SleepWindow instanceId={instanceId} />
+
+							<ScheduledCommands instanceId={instanceId} />
+						</TabsPanel>
+
+						<TabsPanel value="settings">
+							<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+								<div className="flex items-start justify-between gap-4">
+									<div>
+										<h2 className="text-sm font-semibold text-foreground">Settings</h2>
+										<p className="text-xs text-muted-foreground">
+											What this client connects to, and how it behaves while it is there.
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="secondary"
+										disabled={configQuery.data === undefined}
+										onClick={() => setEditingSettings(true)}
+									>
+										Edit
+									</Button>
 								</div>
-							) : null}
-						</section>
-					) : null}
-
-					<SleepWindow instanceId={instanceId} />
-
-					<ScheduledCommands instanceId={instanceId} />
-
-					<section className="space-y-3">
-						<h2 className="text-sm font-semibold text-foreground">Console</h2>
-						{consoleQuery.isError ? (
-							<Alert variant="error" icon={<CircleAlert />}>
-								{getErrorMessage(consoleQuery.error)}
-							</Alert>
-						) : consoleQuery.data && consoleQuery.data.output.trim().length > 0 ? (
-							<pre className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground">
-								{consoleLines(consoleQuery.data.output).map((line) => (
-									<MinecraftText key={line.key} value={line.text} />
-								))}
-							</pre>
-						) : (
-							<EmptyState
-								compact
-								icon={Terminal}
-								title="No console output"
-								description="Output appears once the instance has run."
-							/>
-						)}
-						<ConsoleComposer
-							instanceId={instanceId}
-							running={instance?.status === "running"}
-							onSent={async () => {
-								await consoleQuery.refetch()
-							}}
-						/>
-					</section>
+								{configQuery.isPending ? (
+									<Spinner label="Loading settings" />
+								) : configQuery.data === undefined ? (
+									<p className="text-sm text-muted-foreground">
+										No saved settings for this instance.
+									</p>
+								) : (
+									<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Server</dt>
+											<dd className="text-sm text-foreground">{configQuery.data.serverAddress}</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Rejoin attempts</dt>
+											<dd className="text-sm tabular-nums text-foreground">
+												{configQuery.data.autoRelogRetries}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.autoRespawnEnabled ? "On" : "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Live control</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.liveControlEnabled
+													? `On, port ${configQuery.data.liveControlPort}`
+													: "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.antiAfkEnabled
+													? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
+													: "Off"}
+											</dd>
+										</div>
+									</dl>
+								)}
+							</section>
+						</TabsPanel>
+					</Tabs>
 
 					<div className="flex gap-3">
 						<Button

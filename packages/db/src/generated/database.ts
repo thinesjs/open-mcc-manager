@@ -97,7 +97,7 @@ export interface Instance {
 	hostId: string
 	id: string
 	lastExitCode: number | null
-	liveControlPort: Generated<number>
+	liveControlPort: number
 	liveControlTokenEncrypted: string | null
 	liveControlTokenKeyId: string | null
 	minecraftAccount: string
@@ -204,6 +204,77 @@ export interface SshKey {
 	publicKey: string
 }
 
+export interface StatusCondition {
+	activeIncidentId: string | null
+	detail: Generated<Json>
+	dimension: string
+	failureStartedAt: Timestamp | null
+	hostId: string | null
+	id: string
+	instanceId: string | null
+	lastObservedAt: Timestamp
+	organizationId: string
+	startedAt: Timestamp
+	state: string
+}
+
+export interface StatusDailyRollup {
+	day: Timestamp
+	degradedSeconds: Generated<number>
+	dimension: string
+	excludedSeconds: Generated<number>
+	hostId: string | null
+	id: string
+	incidentCount: Generated<number>
+	instanceId: string | null
+	knownBadSeconds: Generated<number>
+	knownGoodSeconds: Generated<number>
+	organizationId: string
+	unknownSeconds: Generated<number>
+}
+
+export interface StatusEvent {
+	detail: Generated<Json>
+	hostId: string | null
+	id: string
+	incidentId: string | null
+	instanceId: string | null
+	kind: string
+	lastCorroboratedAt: Timestamp
+	observedAt: Timestamp
+	occurredAt: Timestamp
+	organizationId: string
+	primarySource: string
+	sourceKey: string | null
+	sources: Generated<string[]>
+	subjectId: string
+	subjectLabel: string
+	subjectType: string
+}
+
+export interface StatusInterval {
+	dimension: string
+	endedAt: Timestamp | null
+	endEventId: string | null
+	hostId: string | null
+	id: string
+	instanceId: string | null
+	organizationId: string
+	startedAt: Timestamp
+	startEventId: string | null
+	state: string
+}
+
+export interface StatusSourceCursor {
+	cursor: string
+	generation: string
+	id: string
+	instanceId: string
+	lastObservedAt: Timestamp
+	organizationId: string
+	source: string
+}
+
 export interface User {
 	createdAt: Generated<Timestamp>
 	email: string
@@ -237,6 +308,11 @@ export interface DB {
 	processIdentity: ProcessIdentity
 	session: Session
 	sshKey: SshKey
+	statusCondition: StatusCondition
+	statusDailyRollup: StatusDailyRollup
+	statusEvent: StatusEvent
+	statusInterval: StatusInterval
+	statusSourceCursor: StatusSourceCursor
 	user: User
 	verification: Verification
 }

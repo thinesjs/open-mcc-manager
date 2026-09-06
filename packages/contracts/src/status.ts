@@ -1,0 +1,173 @@
+import { z } from "zod"
+
+export const STATUS_SUBJECT_TYPES = ["organization", "host", "instance"] as const
+
+export const statusSubjectTypeSchema = z.enum(STATUS_SUBJECT_TYPES)
+
+export type StatusSubjectType = z.infer<typeof statusSubjectTypeSchema>
+
+export const STATUS_DIMENSIONS = [
+	"host.reachability",
+	"host.service_health",
+	"host.drift",
+	"instance.connection",
+	"instance.process",
+	"instance.drift",
+] as const
+
+export const statusDimensionSchema = z.enum(STATUS_DIMENSIONS)
+
+export type StatusDimension = z.infer<typeof statusDimensionSchema>
+
+export const HOST_REACHABILITY_STATES = ["up", "suspect", "down", "unknown"] as const
+
+export const INSTANCE_CONNECTION_STATES = [
+	"joined",
+	"interrupted",
+	"never_joined",
+	"down",
+	"excluded",
+	"unknown",
+] as const
+
+export const INSTANCE_PROCESS_STATES = [
+	"running",
+	"stuck",
+	"stopped_expected",
+	"stopped_unexpected",
+	"unknown",
+] as const
+
+export const STATUS_STATES = [
+	...HOST_REACHABILITY_STATES,
+	...INSTANCE_CONNECTION_STATES,
+	...INSTANCE_PROCESS_STATES,
+	"degraded",
+	"healthy",
+	"drifting",
+	"clear",
+] as const
+
+export const statusStateSchema = z.enum(STATUS_STATES)
+
+export type StatusState = z.infer<typeof statusStateSchema>
+
+export const STATUS_EVENT_KINDS = [
+	"host.check_failed",
+	"host.check_recovered",
+	"host.unreachable",
+	"host.recovered",
+	"host.degraded",
+	"host.healthy",
+	"host.drift_started",
+	"host.drift_resolved",
+	"instance.joined",
+	"instance.disconnected",
+	"instance.reconnected",
+	"instance.kicked",
+	"instance.connection_lost",
+	"instance.never_joined",
+	"instance.started",
+	"instance.stopped",
+	"instance.unexpected_stop",
+	"instance.needs_auth",
+	"instance.drift_started",
+	"instance.drift_resolved",
+	"monitoring.gap",
+] as const
+
+export const statusEventKindSchema = z.enum(STATUS_EVENT_KINDS)
+
+export type StatusEventKind = z.infer<typeof statusEventKindSchema>
+
+const NOTIFYING_EVENT_KINDS: ReadonlySet<string> = new Set<StatusEventKind>([
+	"host.unreachable",
+	"host.recovered",
+	"host.drift_started",
+	"host.drift_resolved",
+	"instance.disconnected",
+	"instance.reconnected",
+	"instance.never_joined",
+	"instance.unexpected_stop",
+	"instance.needs_auth",
+	"instance.drift_started",
+	"instance.drift_resolved",
+])
+
+export const isNotifyingEvent = (kind: StatusEventKind): boolean => NOTIFYING_EVENT_KINDS.has(kind)
+
+export const STATUS_SOURCES = ["host_probe", "journal", "live_channel", "reconcile"] as const
+
+export const statusSourceSchema = z.enum(STATUS_SOURCES)
+
+export type StatusSource = z.infer<typeof statusSourceSchema>
+
+export const STATUS_RANGES = ["24h", "7d", "30d", "90d"] as const
+
+export const statusRangeSchema = z.enum(STATUS_RANGES)
+
+export type StatusRange = z.infer<typeof statusRangeSchema>
+
+export const RANGE_SECONDS: Record<StatusRange, number> = {
+	"24h": 24 * 60 * 60,
+	"7d": 7 * 24 * 60 * 60,
+	"30d": 30 * 24 * 60 * 60,
+	"90d": 90 * 24 * 60 * 60,
+}
+
+export const statusSummaryInput = z.object({ range: statusRangeSchema.default("24h") })
+
+export const statusEventsInput = z.object({
+	range: statusRangeSchema.default("24h"),
+	hostId: z.string().min(1).optional(),
+	instanceId: z.string().min(1).optional(),
+	cursor: z.string().min(1).optional(),
+	limit: z.number().int().min(1).max(100).default(50),
+})
+
+export type StatusSummaryInput = z.infer<typeof statusSummaryInput>
+
+export type StatusEventsInput = z.infer<typeof statusEventsInput>
+
+export const STATUS_EVENT_RETENTION_DAYS = 30
+
+export const STATUS_INTERVAL_RETENTION_DAYS = 90
+
+export const STATUS_ROLLUP_RETENTION_DAYS = 760
+
+export const HOST_SUSPECT_TO_DOWN_MS = 3 * 60 * 1000
+
+export const INSTANCE_INTERRUPTED_TO_DOWN_MS = 2 * 60 * 1000
+
+export const INSTANCE_NEVER_JOINED_MS = 3 * 60 * 1000
+
+export type Availability = {
+	goodSeconds: number
+	badSeconds: number
+	degradedSeconds: number
+	unknownSeconds: number
+	excludedSeconds: number
+}
+
+export const EMPTY_AVAILABILITY: Availability = {
+	goodSeconds: 0,
+	badSeconds: 0,
+	degradedSeconds: 0,
+	unknownSeconds: 0,
+	excludedSeconds: 0,
+}
+
+export const measuredSeconds = (availability: Availability): number =>
+	availability.goodSeconds + availability.badSeconds + availability.degradedSeconds
+
+export const uptimeRatio = (availability: Availability): number | undefined => {
+	const measured = measuredSeconds(availability)
+	if (measured === 0) return undefined
+	return (availability.goodSeconds + availability.degradedSeconds) / measured
+}
+
+export const coverageRatio = (availability: Availability): number | undefined => {
+	const observable = measuredSeconds(availability) + availability.unknownSeconds
+	if (observable === 0) return undefined
+	return measuredSeconds(availability) / observable
+}

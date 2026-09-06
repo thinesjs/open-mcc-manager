@@ -11,9 +11,11 @@ import {
 	type McpChatEntry,
 	type McpEventPage,
 	type McpSessionStatus,
+	type McpWorldState,
 	recentEventsFrom,
 	responseFrom,
 	sessionStatusFrom,
+	worldStateFrom,
 } from "@open-mcc/contracts/boundary/mcp"
 import type { HostTransport } from "@open-mcc/transport"
 import { LiveChannelUnavailableError } from "@open-mcc/transport"
@@ -162,3 +164,8 @@ export const readRecentEvents = (
 	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpEventPage> =>
 	callLiveTool(target, "mcc_recent_events", recentEventsFrom, { afterId, maxCount }, timeoutMs)
+
+export const readWorldState = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpWorldState> => callLiveTool(target, "mcc_world_state", worldStateFrom, {}, timeoutMs)

@@ -13,7 +13,12 @@ import {
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
-import type { McpChatEntry, McpEventPage, McpSessionStatus } from "@open-mcc/contracts/boundary/mcp"
+import type {
+	McpChatEntry,
+	McpEventPage,
+	McpSessionStatus,
+	McpWorldState,
+} from "@open-mcc/contracts/boundary/mcp"
 import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
@@ -41,6 +46,7 @@ import {
 	readChatHistory,
 	readRecentEvents,
 	readSessionStatus,
+	readWorldState,
 } from "./live-control"
 import {
 	expectedUnits,
@@ -603,6 +609,23 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			if (!target) return undefined
 			try {
 				return await readRecentEvents(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLiveWorld: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpWorldState | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readWorldState(target.target)
 			} catch (error) {
 				if (error instanceof LiveChannelUnavailableError) return undefined
 				throw error

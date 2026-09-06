@@ -105,6 +105,7 @@ export {
 	readChatHistory,
 	readRecentEvents,
 	readSessionStatus,
+	readWorldState,
 } from "./instance/live-control"
 export {
 	calendarWeekdayPrefix,

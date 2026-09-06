@@ -287,3 +287,26 @@ export const recentEventsFrom = (response: JsonRpcResponse): McpEventPage => {
 			})),
 	}
 }
+
+export const mcpWorldStateSchema = z.object({
+	tps: z.number().optional(),
+	dimension: z.string().optional(),
+	loadedChunkCount: z.number().optional(),
+	pendingChunkCount: z.number().optional(),
+	totalChunkCount: z.number().optional(),
+	terrainEnabled: z.boolean().optional(),
+	location: z
+		.object({ x: z.number().optional(), y: z.number().optional(), z: z.number().optional() })
+		.nullable()
+		.optional(),
+})
+
+export type McpWorldState = z.infer<typeof mcpWorldStateSchema>
+
+export const worldStateFrom = (response: JsonRpcResponse): McpWorldState => {
+	const parsed = mcpWorldStateSchema.safeParse(toolResultOf(response))
+	if (!parsed.success) {
+		throw new McpProtocolError("The client reported a world state this manager cannot read")
+	}
+	return parsed.data
+}

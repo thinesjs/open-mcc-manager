@@ -45,6 +45,12 @@ function InstanceDetailPage() {
 		retry: false,
 		refetchInterval: 3000,
 	})
+	const liveWorldQuery = useQuery({
+		...trpc.instance.readLiveWorld.queryOptions({ instanceId }),
+		enabled: configQuery.data?.worldDataEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
 	const liveEventsQuery = useQuery({
 		...trpc.instance.readLiveEvents.queryOptions({ instanceId }),
 		enabled: configQuery.data?.liveControlEnabled === true,
@@ -285,6 +291,42 @@ function InstanceDetailPage() {
 											Not answering yet. The client only opens this once it has joined a server.
 										</p>
 									)}
+
+									{liveWorldQuery.data ? (
+										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Server ticks</dt>
+												<dd className="text-sm tabular-nums text-foreground">
+													{liveWorldQuery.data.tps === undefined
+														? "—"
+														: `${liveWorldQuery.data.tps.toFixed(1)} tps`}
+												</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Dimension</dt>
+												<dd className="text-sm text-foreground">
+													{liveWorldQuery.data.dimension ?? "—"}
+												</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Chunks loaded</dt>
+												<dd className="text-sm tabular-nums text-foreground">
+													{liveWorldQuery.data.loadedChunkCount ?? 0}
+													{liveWorldQuery.data.pendingChunkCount
+														? ` (${liveWorldQuery.data.pendingChunkCount} pending)`
+														: ""}
+												</dd>
+											</div>
+											<div className="flex justify-between gap-4">
+												<dt className="text-sm text-muted-foreground">Position</dt>
+												<dd className="text-sm tabular-nums text-foreground">
+													{liveWorldQuery.data.location
+														? `${Math.round(liveWorldQuery.data.location.x ?? 0)}, ${Math.round(liveWorldQuery.data.location.y ?? 0)}, ${Math.round(liveWorldQuery.data.location.z ?? 0)}`
+														: "—"}
+												</dd>
+											</div>
+										</dl>
+									) : null}
 
 									{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (
 										<div className="space-y-2">

@@ -4,6 +4,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Play, RotateCcw, Square, Terminal } from "lucide-react"
 import { useState } from "react"
 import { ConsoleComposer } from "~/components/console-composer"
+import { ConsoleOutput } from "~/components/console-output"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
@@ -429,11 +430,7 @@ function InstanceDetailPage() {
 										{getErrorMessage(consoleQuery.error)}
 									</Alert>
 								) : consoleQuery.data && consoleQuery.data.output.trim().length > 0 ? (
-									<pre className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground">
-										{consoleLines(consoleQuery.data.output).map((line) => (
-											<MinecraftText key={line.key} value={line.text} />
-										))}
-									</pre>
+									<ConsoleOutput lines={consoleLines(consoleQuery.data.output)} />
 								) : (
 									<EmptyState
 										compact

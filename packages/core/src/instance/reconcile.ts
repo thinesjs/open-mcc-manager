@@ -5,6 +5,7 @@ import type {
 	StateDrift,
 	UnitDrift,
 } from "@open-mcc/contracts"
+import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl, systemctl } from "../host/profile"
@@ -209,6 +210,36 @@ const configDriftFor = async (
 	return drift
 }
 
+const silentLiveControl = async (
+	transport: HostTransport,
+	instances: readonly InstanceRow[],
+	expectedConfigs: ReadonlyMap<string, string>,
+	joined: ReadonlySet<string>,
+): Promise<ConfigDriftPublic[]> => {
+	const drift: ConfigDriftPublic[] = []
+	for (const instance of instances) {
+		if (!joined.has(instance.id)) continue
+		const document = expectedConfigs.get(instance.id)
+		if (document === undefined) continue
+		const reading = readMccConfigKeys(document, [
+			"ChatBot.McpServer.Enabled",
+			"ChatBot.McpServer.Transport.Port",
+		])
+		if (reading.values.get("ChatBot.McpServer.Enabled") !== true) continue
+		const port = reading.values.get("ChatBot.McpServer.Transport.Port")
+		if (typeof port !== "number") continue
+		if (await transport.canForward(port, RECONCILE_STEP_TIMEOUT_MS)) continue
+		drift.push({
+			instanceId: instance.id,
+			kind: "unreachable",
+			key: "ChatBot.McpServer",
+			expected: String(port),
+			actual: null,
+		})
+	}
+	return drift
+}
+
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
 	profile: HostProfile,
@@ -229,6 +260,7 @@ export const reconcileHostOverTransport = async (
 	}
 
 	const stateDrift: StateDrift[] = []
+	const joined = new Set<string>()
 	const seenPlayers = new Map<string, string>()
 	for (const instance of instances) {
 		const result = await transport.exec(
@@ -242,6 +274,7 @@ export const reconcileHostOverTransport = async (
 				RECONCILE_STEP_TIMEOUT_MS,
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"
+			if (journal.stdout.includes(JOINED_MARKER)) joined.add(instance.id)
 			const player = playerNameFrom(journal.stdout)
 			if (player) seenPlayers.set(instance.id, player)
 		}
@@ -251,6 +284,7 @@ export const reconcileHostOverTransport = async (
 	}
 
 	const configDrift = await configDriftFor(transport, profile, instances, expectedConfigs)
+	configDrift.push(...(await silentLiveControl(transport, instances, expectedConfigs, joined)))
 
 	return {
 		reconciliation: { hostId, reachable: true, unitDrift, stateDrift, configDrift },

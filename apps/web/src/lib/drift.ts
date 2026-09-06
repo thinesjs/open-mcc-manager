@@ -52,6 +52,9 @@ export const describeConfigDrift = (drift: ConfigDriftPublic): string => {
 	if (drift.kind === "unreadable") {
 		return "Holds a value the control plane cannot read."
 	}
+	if (drift.kind === "unreachable") {
+		return `Live control is on, but nothing answers on port ${drift.expected}. The client could not claim it.`
+	}
 	if (drift.actual === null) {
 		return `Missing from the host, expected ${drift.expected}.`
 	}
@@ -60,3 +63,6 @@ export const describeConfigDrift = (drift: ConfigDriftPublic): string => {
 
 export const configDriftDefeatsSafety = (drift: ConfigDriftPublic): boolean =>
 	drift.kind === "fixed" || drift.kind === "section"
+
+export const configDriftIsSilentFailure = (drift: ConfigDriftPublic): boolean =>
+	drift.kind === "unreachable"

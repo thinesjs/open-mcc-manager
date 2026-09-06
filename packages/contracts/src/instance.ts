@@ -142,7 +142,7 @@ export type StateDrift = z.infer<typeof stateDriftSchema>
 
 export const configDriftSchema = z.object({
 	instanceId: z.string(),
-	kind: z.enum(["managed", "fixed", "section", "unreadable"]),
+	kind: z.enum(["managed", "fixed", "section", "unreadable", "unreachable"]),
 	key: z.string(),
 	expected: z.string().nullable(),
 	actual: z.string().nullable(),

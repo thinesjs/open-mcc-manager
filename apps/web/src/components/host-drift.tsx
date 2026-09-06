@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import {
 	configDriftDefeatsSafety,
+	configDriftIsSilentFailure,
 	describeConfigDrift,
 	describeStateDrift,
 	describeUnitDrift,
@@ -116,6 +117,12 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 										{nameFor(drift.instanceId)} · {drift.key}
 									</span>
 									<span className="block text-foreground">{describeConfigDrift(drift)}</span>
+									{configDriftIsSilentFailure(drift) ? (
+										<span className="block text-xs text-destructive">
+											Nothing reported this failure. Restart the instance, or turn live control off
+											if you do not need it.
+										</span>
+									) : null}
 									{configDriftDefeatsSafety(drift) ? (
 										<span className="block text-xs text-destructive">
 											This setting is not an operator choice. Re-save the instance settings to

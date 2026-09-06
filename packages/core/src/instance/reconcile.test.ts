@@ -552,4 +552,102 @@ describe("comparing a host's client config", () => {
 		expect(reconciliation.configDrift).toHaveLength(1)
 		expect(reconciliation.configDrift[0]?.actual).toBeNull()
 	})
+
+	it("reports a live control endpoint that never claimed its port", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogDelaySeconds: 10,
+			antiAfkEnabled: false,
+			antiAfkIntervalSeconds: 60,
+			autoRespawnEnabled: false,
+			liveControlEnabled: true,
+			liveControlPort: 33401,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			[`journalctl -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
+				{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document,
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toEqual([
+			{
+				instanceId: "abc123",
+				kind: "unreachable",
+				key: "ChatBot.McpServer",
+				expected: "33401",
+				actual: null,
+			},
+		])
+	})
+
+	it("says nothing about live control before the client has joined a server", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogDelaySeconds: 10,
+			antiAfkEnabled: false,
+			antiAfkIntervalSeconds: 60,
+			autoRespawnEnabled: false,
+			liveControlEnabled: true,
+			liveControlPort: 33401,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document,
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toEqual([])
+	})
 })

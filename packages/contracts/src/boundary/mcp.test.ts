@@ -370,4 +370,34 @@ describe("mcp wire format", () => {
 
 		expect(entityListFrom(response)).toEqual({ totalTracked: 0, entities: [] })
 	})
+
+	it("drops the empty sender bracket the client puts on a system message", () => {
+		const body =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":"t","kind":"system",' +
+			'"text":"<> LiveBot was slain by Phantom","json":"LiveBot was slain by Phantom"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)[0]?.text).toBe("LiveBot was slain by Phantom")
+	})
+
+	it("leaves a real sender's angle brackets alone", () => {
+		const body =
+			'{"success":true,"data":{"count":1,"entries":[{"timestampUtc":"t","kind":"chat",' +
+			'"text":"<LiveBot> hello","sender":"LiveBot","message":"hello"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(chatHistoryFrom(response)[0]?.text).toBe("<LiveBot> hello")
+	})
 })

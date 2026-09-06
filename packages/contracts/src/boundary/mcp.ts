@@ -198,6 +198,11 @@ const asChatKind = (value: string): ChatKind => {
 	return parsed.success ? parsed.data : "system"
 }
 
+const EMPTY_SENDER = "<> "
+
+const withoutEmptySender = (text: string): string =>
+	text.startsWith(EMPTY_SENDER) ? text.slice(EMPTY_SENDER.length) : text
+
 const orUndefined = (value: string | null | undefined): string | undefined =>
 	value === null || value === undefined || value.length === 0 ? undefined : value
 
@@ -209,7 +214,7 @@ export const chatHistoryFrom = (response: JsonRpcResponse): McpChatEntry[] => {
 	return parsed.data.entries.map((entry) => ({
 		timestampUtc: entry.timestampUtc,
 		kind: asChatKind(entry.kind),
-		text: entry.text,
+		text: withoutEmptySender(entry.text),
 		sender: orUndefined(entry.sender),
 		message: orUndefined(entry.message),
 		json: orUndefined(entry.json),

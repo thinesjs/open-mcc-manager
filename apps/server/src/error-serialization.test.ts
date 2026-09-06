@@ -17,6 +17,7 @@ import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestStatusController } from "./test/status-controller"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -113,6 +114,7 @@ const ctx: RequestContext = {
 	build: { version: "0.0.0-test", commit: "testsha" },
 	schemaVersion: "test",
 	instanceController: await createTestInstanceController(db),
+	statusController: createTestStatusController(db),
 	sshKeyController,
 	db,
 }

@@ -22,6 +22,7 @@ import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
 const ORIGINAL_FINGERPRINT = "SHA256:originalIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
@@ -84,6 +85,7 @@ beforeAll(async () => {
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db),
+				statusController: createTestStatusController(db),
 				sshKeyController,
 			}),
 		}),

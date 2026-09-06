@@ -171,3 +171,27 @@ export const coverageRatio = (availability: Availability): number | undefined =>
 	if (observable === 0) return undefined
 	return measuredSeconds(availability) / observable
 }
+
+export type HostUptime = {
+	hostId: string
+	hostName: string
+	state: StatusState
+	since: Date
+	lastCheckedAt: Date
+	availability: Availability
+}
+
+export type StatusSummary = {
+	hosts: HostUptime[]
+	answering: number
+	total: number
+}
+
+export type StatusEventView = {
+	id: string
+	kind: StatusEventKind
+	subjectLabel: string
+	hostId: string | null
+	instanceId: string | null
+	occurredAt: Date
+}

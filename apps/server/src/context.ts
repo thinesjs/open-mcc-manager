@@ -5,6 +5,7 @@ import type {
 	InstanceController,
 	ProcessIdentityRepository,
 	SshKeyController,
+	StatusController,
 } from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import type { Auth } from "./auth"
@@ -26,6 +27,7 @@ export type RequestContext = {
 	build: BuildInfo
 	schemaVersion: string
 	instanceController: InstanceController
+	statusController: StatusController
 	sshKeyController: SshKeyController
 	db: Db
 }

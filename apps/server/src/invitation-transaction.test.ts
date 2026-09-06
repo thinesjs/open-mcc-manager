@@ -6,6 +6,7 @@ import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestStatusController } from "./test/status-controller"
 
 const failNextAuditRecord = { current: false }
 
@@ -103,6 +104,7 @@ beforeAll(async () => {
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db),
+				statusController: createTestStatusController(db),
 				sshKeyController,
 			}),
 		}),

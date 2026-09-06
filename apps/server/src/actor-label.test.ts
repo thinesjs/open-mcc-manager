@@ -23,6 +23,7 @@ import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
@@ -100,6 +101,7 @@ beforeAll(async () => {
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db),
+				statusController: createTestStatusController(db),
 				sshKeyController,
 			}),
 		}),

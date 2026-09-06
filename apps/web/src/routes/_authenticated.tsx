@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
-import { Boxes, KeyRound, LayoutDashboard, LogOut, Search, Server } from "lucide-react"
+import { Activity, Boxes, KeyRound, LayoutDashboard, LogOut, Search, Server } from "lucide-react"
 import { useEffect, useState } from "react"
 import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
@@ -32,6 +32,7 @@ const SECTIONS = [
 		items: [
 			{ to: "/instances", icon: Boxes, label: "Instances" },
 			{ to: "/hosts", icon: Server, label: "Hosts" },
+			{ to: "/status", icon: Activity, label: "Status" },
 		],
 	},
 	{

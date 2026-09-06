@@ -117,6 +117,13 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				.map((instance) => instance.id),
 		withTransaction: createHostControllerTransaction(db, sendJob),
 	})
+	const statusController = createStatusController({
+		withTransaction: createStatusControllerTransaction(db),
+		hostNames: async (scope) =>
+			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
+		now: () => new Date(),
+	})
+
 	const instanceController = createInstanceController({
 		instances: createInstanceRepository(db),
 		schedules: createScheduleRepository(db),
@@ -155,6 +162,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				build,
 				schemaVersion,
 				instanceController,
+				statusController,
 				sshKeyController,
 			}),
 		}),
@@ -178,11 +186,6 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		onError: (message, error) => {
 			console.error(message, error instanceof Error ? redactError(error) : message)
 		},
-	})
-
-	const statusController = createStatusController({
-		withTransaction: createStatusControllerTransaction(db),
-		now: () => new Date(),
 	})
 
 	const healthPoller = startHealthPoller({

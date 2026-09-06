@@ -23,7 +23,6 @@ export default defineConfig({
 		proxy: {
 			"/trpc": process.env.SERVER_ORIGIN ?? "http://localhost:3000",
 			"/api": process.env.SERVER_ORIGIN ?? "http://localhost:3000",
-			"/avatars": process.env.SERVER_ORIGIN ?? "http://localhost:3000",
 		},
 	},
 })

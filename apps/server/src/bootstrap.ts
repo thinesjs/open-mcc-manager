@@ -155,7 +155,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	app.use("*", requireSameOrigin(allowed))
 
 	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
-	app.get("/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
+	app.get("/api/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
 	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 	app.use(
 		"/trpc/*",
@@ -246,6 +246,11 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				)
 				if (reading.cursor !== null && reading.cursor !== cursor) {
 					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
+				}
+				if (reading.playerName !== undefined && reading.playerName !== instance.minecraftUsername) {
+					await createInstanceRepository(db)
+						.update(scope, instance.id, { minecraftUsername: reading.playerName })
+						.catch(() => undefined)
 				}
 			}
 		},

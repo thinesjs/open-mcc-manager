@@ -1,6 +1,7 @@
 import { connectionSignals, parseJournal } from "@open-mcc/contracts/boundary/journal"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl } from "../host/profile"
+import { playerNameFrom } from "../instance/reconcile"
 import { unitName } from "../instance/unit"
 import { type ConnectionChange, type ConnectionCurrent, changesFromSignals } from "./connection"
 
@@ -26,6 +27,7 @@ export const journalCommand = (
 export type InstanceReading = {
 	changes: ConnectionChange[]
 	cursor: string | null
+	playerName: string | undefined
 }
 
 export const readConnectionChanges = async (
@@ -39,16 +41,17 @@ export const readConnectionChanges = async (
 		journalCommand(profile, instanceId, cursor),
 		JOURNAL_READ_TIMEOUT_MS,
 	)
-	if (result.exitCode !== 0) return { changes: [], cursor }
+	if (result.exitCode !== 0) return { changes: [], cursor, playerName: undefined }
 
 	const lines = parseJournal(result.stdout)
+	const playerName = playerNameFrom(result.stdout)
 	const signals = connectionSignals(lines)
 	const last = lines.at(-1)
 	const nextCursor = last === undefined ? cursor : last.at.toISOString()
 
 	if (cursor === null) {
 		const latest = signals.at(-1)
-		if (latest === undefined) return { changes: [], cursor: nextCursor }
+		if (latest === undefined) return { changes: [], cursor: nextCursor, playerName }
 		return {
 			changes: [
 				latest.kind === "joined"
@@ -76,8 +79,9 @@ export const readConnectionChanges = async (
 							},
 			],
 			cursor: nextCursor,
+			playerName,
 		}
 	}
 
-	return { changes: changesFromSignals(current, signals), cursor: nextCursor }
+	return { changes: changesFromSignals(current, signals), cursor: nextCursor, playerName }
 }

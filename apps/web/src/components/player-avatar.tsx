@@ -33,7 +33,7 @@ export const PlayerAvatar = ({ username, fallback, className }: PlayerAvatarProp
 	return (
 		<span className={shell}>
 			<img
-				src={`/avatars/${encodeURIComponent(username)}`}
+				src={`/api/avatars/${encodeURIComponent(username)}`}
 				alt={`${username}'s Minecraft skin`}
 				width={32}
 				height={32}

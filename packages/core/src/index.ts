@@ -100,8 +100,10 @@ export {
 	callLiveTool,
 	LIVE_CHAT_MAX_LINES,
 	LIVE_CONTROL_TIMEOUT_MS,
+	LIVE_EVENT_MAX,
 	LiveControlUnauthorizedError,
 	readChatHistory,
+	readRecentEvents,
 	readSessionStatus,
 } from "./instance/live-control"
 export {

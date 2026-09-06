@@ -215,3 +215,75 @@ export const chatHistoryFrom = (response: JsonRpcResponse): McpChatEntry[] => {
 		json: orUndefined(entry.json),
 	}))
 }
+
+export const NOISY_EVENT_TYPES = [
+	"block_break_animation",
+	"entity_animation",
+	"actionbar",
+	"title",
+	"inventory_open",
+	"inventory_close",
+] as const
+
+const noisy: ReadonlySet<string> = new Set(NOISY_EVENT_TYPES)
+
+export const isNotableEvent = (type: string): boolean => !noisy.has(type)
+
+const recentEventSchema = z.object({
+	id: z.number(),
+	timestampUtc: z.string(),
+	type: z.string(),
+	data: z.unknown().optional(),
+})
+
+const recentEventsSchema = z.object({
+	afterId: z.number(),
+	latestId: z.number(),
+	count: z.number(),
+	events: z.array(recentEventSchema),
+})
+
+export type McpEvent = {
+	id: number
+	timestampUtc: string
+	type: string
+	subject: string | undefined
+}
+
+export type McpEventPage = {
+	latestId: number
+	events: McpEvent[]
+}
+
+const eventSubject = z.object({
+	name: z.string().optional(),
+	reason: z.string().optional(),
+	level: z.number().optional(),
+})
+
+const subjectOf = (data: unknown): string | undefined => {
+	const parsed = eventSubject.safeParse(data)
+	if (!parsed.success) return undefined
+	if (parsed.data.name !== undefined) return parsed.data.name
+	if (parsed.data.reason !== undefined) return parsed.data.reason
+	if (parsed.data.level !== undefined) return String(parsed.data.level)
+	return undefined
+}
+
+export const recentEventsFrom = (response: JsonRpcResponse): McpEventPage => {
+	const parsed = recentEventsSchema.safeParse(toolResultOf(response))
+	if (!parsed.success) {
+		throw new McpProtocolError("The client reported events this manager cannot read")
+	}
+	return {
+		latestId: parsed.data.latestId,
+		events: parsed.data.events
+			.filter((event) => isNotableEvent(event.type))
+			.map((event) => ({
+				id: event.id,
+				timestampUtc: event.timestampUtc,
+				type: event.type,
+				subject: subjectOf(event.data),
+			})),
+	}
+}

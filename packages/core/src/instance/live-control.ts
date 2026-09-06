@@ -9,7 +9,9 @@ import {
 	type JsonRpcResponse,
 	MCP_SESSION_HEADER,
 	type McpChatEntry,
+	type McpEventPage,
 	type McpSessionStatus,
+	recentEventsFrom,
 	responseFrom,
 	sessionStatusFrom,
 } from "@open-mcc/contracts/boundary/mcp"
@@ -150,3 +152,13 @@ export const readChatHistory = (
 		{ maxCount, includeJson: true },
 		timeoutMs,
 	)
+
+export const LIVE_EVENT_MAX = 50
+
+export const readRecentEvents = (
+	target: LiveControlTarget,
+	afterId = 0,
+	maxCount: number = LIVE_EVENT_MAX,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpEventPage> =>
+	callLiveTool(target, "mcc_recent_events", recentEventsFrom, { afterId, maxCount }, timeoutMs)

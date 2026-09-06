@@ -8,6 +8,7 @@ import { EmptyState } from "~/components/empty-state"
 import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { LiveChat } from "~/components/live-chat"
+import { LiveEvents } from "~/components/live-events"
 import { MinecraftText } from "~/components/minecraft-text"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
@@ -42,6 +43,12 @@ function InstanceDetailPage() {
 		enabled: configQuery.data?.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 3000,
+	})
+	const liveEventsQuery = useQuery({
+		...trpc.instance.readLiveEvents.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
 	})
 	const liveStatusQuery = useQuery({
 		...trpc.instance.readLiveStatus.queryOptions({ instanceId }),
@@ -320,6 +327,15 @@ function InstanceDetailPage() {
 									Not answering yet. The client only opens this once it has joined a server.
 								</p>
 							)}
+
+							{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (
+								<div className="space-y-2">
+									<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+										Events
+									</h3>
+									<LiveEvents events={liveEventsQuery.data.events} />
+								</div>
+							) : null}
 
 							{liveChatQuery.data && liveChatQuery.data.length > 0 ? (
 								<div className="space-y-2">

@@ -4,7 +4,9 @@ import {
 	chatHistoryFrom,
 	dataFramesOf,
 	initializeRequest,
+	isNotableEvent,
 	McpProtocolError,
+	recentEventsFrom,
 	responseFrom,
 	sessionStatusFrom,
 	toolResultOf,
@@ -250,5 +252,61 @@ describe("mcp wire format", () => {
 		)
 
 		expect(chatHistoryFrom(response)).toEqual([])
+	})
+
+	it("reads the events a real client returned", () => {
+		const real =
+			'{"success":true,"data":{"afterId":0,"latestId":205,"count":2,"events":[' +
+			'{"id":1,"timestampUtc":"2026-09-05T22:46:29Z","type":"player_join",' +
+			'"data":{"uuid":"u","name":"LiveBot"}},' +
+			'{"id":2,"timestampUtc":"2026-09-05T22:46:30Z","type":"death"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: real }] },
+			}),
+		)
+		const page = recentEventsFrom(response)
+
+		expect(page.latestId).toBe(205)
+		expect(page.events).toEqual([
+			{ id: 1, timestampUtc: "2026-09-05T22:46:29Z", type: "player_join", subject: "LiveBot" },
+			{ id: 2, timestampUtc: "2026-09-05T22:46:30Z", type: "death", subject: undefined },
+		])
+	})
+
+	it("drops the animation traffic that would drown the useful events", () => {
+		const body =
+			'{"success":true,"data":{"afterId":0,"latestId":9,"count":3,"events":[' +
+			'{"id":1,"timestampUtc":"t","type":"entity_animation"},' +
+			'{"id":2,"timestampUtc":"t","type":"block_break_animation"},' +
+			'{"id":3,"timestampUtc":"t","type":"death"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(recentEventsFrom(response).events.map((event) => event.type)).toEqual(["death"])
+	})
+
+	it("keeps an event type it has never seen, so nothing new is lost", () => {
+		expect(isNotableEvent("some_future_event")).toBe(true)
+	})
+
+	it("carries the cursor forward so the next read starts where this one ended", () => {
+		const body = '{"success":true,"data":{"afterId":10,"latestId":42,"count":0,"events":[]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(recentEventsFrom(response)).toEqual({ latestId: 42, events: [] })
 	})
 })

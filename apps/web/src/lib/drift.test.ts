@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { describeStateDrift, describeUnitDrift, summariseDrift } from "./drift"
+import {
+	describeStateDrift,
+	describeUnitDrift,
+	groupConfigDrift,
+	remedyForGroup,
+	summariseDrift,
+} from "./drift"
 
 describe("drift summary", () => {
 	it("calls an unreachable host unknown, never converged", () => {
@@ -60,5 +66,57 @@ describe("drift summary", () => {
 		expect(describeStateDrift({ instanceId: "a", desired: "running", observed: "inactive" })).toBe(
 			"Expected running, systemd reports inactive.",
 		)
+	})
+})
+
+describe("grouping config drift by instance", () => {
+	const entry = (instanceId: string, key: string, kind: "managed" | "fixed" | "unreachable") => ({
+		instanceId,
+		kind,
+		key,
+		expected: "x",
+		actual: null,
+	})
+
+	it("collapses many keys on one instance into a single group", () => {
+		const groups = groupConfigDrift([
+			entry("a", "One", "managed"),
+			entry("a", "Two", "managed"),
+			entry("b", "Three", "managed"),
+		])
+
+		expect(groups).toHaveLength(2)
+		expect(groups[0]?.entries).toHaveLength(2)
+		expect(groups[1]?.instanceId).toBe("b")
+	})
+
+	it("keeps the instances in the order they were reported", () => {
+		const groups = groupConfigDrift([entry("b", "One", "managed"), entry("a", "Two", "managed")])
+
+		expect(groups.map((group) => group.instanceId)).toEqual(["b", "a"])
+	})
+
+	it("marks a group whose keys include one an operator may not choose", () => {
+		const groups = groupConfigDrift([entry("a", "One", "managed"), entry("a", "Two", "fixed")])
+
+		expect(groups[0]?.defeatsSafety).toBe(true)
+	})
+
+	it("marks a group whose live control never answered", () => {
+		const groups = groupConfigDrift([entry("a", "ChatBot.McpServer", "unreachable")])
+
+		expect(groups[0]?.neverAnswered).toBe(true)
+	})
+
+	it("tells an operator to restart, which is what actually repairs the config", () => {
+		const [ordinary] = groupConfigDrift([entry("a", "One", "managed")])
+		const [silent] = groupConfigDrift([entry("b", "ChatBot.McpServer", "unreachable")])
+
+		expect(ordinary && remedyForGroup(ordinary)).toMatch(/Restarting this instance rewrites/)
+		expect(silent && remedyForGroup(silent)).toMatch(/turn live control off/)
+	})
+
+	it("returns nothing when there is no config drift", () => {
+		expect(groupConfigDrift([])).toEqual([])
 	})
 })

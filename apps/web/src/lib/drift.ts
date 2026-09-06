@@ -66,3 +66,32 @@ export const configDriftDefeatsSafety = (drift: ConfigDriftPublic): boolean =>
 
 export const configDriftIsSilentFailure = (drift: ConfigDriftPublic): boolean =>
 	drift.kind === "unreachable"
+
+export type ConfigDriftGroup = {
+	instanceId: string
+	entries: ConfigDriftPublic[]
+	defeatsSafety: boolean
+	neverAnswered: boolean
+}
+
+export const groupConfigDrift = (entries: readonly ConfigDriftPublic[]): ConfigDriftGroup[] => {
+	const groups = new Map<string, ConfigDriftGroup>()
+	for (const entry of entries) {
+		const group = groups.get(entry.instanceId) ?? {
+			instanceId: entry.instanceId,
+			entries: [],
+			defeatsSafety: false,
+			neverAnswered: false,
+		}
+		group.entries.push(entry)
+		group.defeatsSafety = group.defeatsSafety || configDriftDefeatsSafety(entry)
+		group.neverAnswered = group.neverAnswered || configDriftIsSilentFailure(entry)
+		groups.set(entry.instanceId, group)
+	}
+	return [...groups.values()]
+}
+
+export const remedyForGroup = (group: ConfigDriftGroup): string =>
+	group.neverAnswered
+		? "Restart this instance, or turn live control off if you do not need it."
+		: "Restarting this instance rewrites its config from what the manager holds."

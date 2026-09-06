@@ -1,19 +1,21 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck, CircleHelp, RefreshCw, TriangleAlert } from "lucide-react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import {
-	configDriftDefeatsSafety,
-	configDriftIsSilentFailure,
 	describeConfigDrift,
 	describeStateDrift,
 	describeUnitDrift,
+	groupConfigDrift,
+	remedyForGroup,
 	summariseDrift,
 } from "~/lib/drift"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
+import { cn } from "~/lib/utils"
 
 export type HostDriftProps = {
 	hostId: string
@@ -111,24 +113,39 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 									<span className="block text-foreground">{describeStateDrift(drift)}</span>
 								</li>
 							))}
-							{summary.configDrift.map((drift) => (
-								<li key={`${drift.instanceId}:${drift.key}`} className="px-3 py-2 text-sm">
-									<span className="font-mono text-xs text-muted-foreground">
-										{nameFor(drift.instanceId)} · {drift.key}
+							{groupConfigDrift(summary.configDrift).map((group) => (
+								<li key={group.instanceId} className="px-3 py-2 text-sm">
+									<div className="flex flex-wrap items-baseline justify-between gap-2">
+										<Link
+											to="/instances/$instanceId"
+											params={{ instanceId: group.instanceId }}
+											className="font-medium text-foreground underline-offset-4 hover:underline"
+										>
+											{nameFor(group.instanceId)}
+										</Link>
+										<span className="text-xs text-muted-foreground">
+											{group.entries.length} setting{group.entries.length === 1 ? "" : "s"} differ
+											{group.entries.length === 1 ? "s" : ""}
+										</span>
+									</div>
+									<span
+										className={cn(
+											"block text-xs",
+											group.defeatsSafety || group.neverAnswered
+												? "text-destructive"
+												: "text-muted-foreground",
+										)}
+									>
+										{remedyForGroup(group)}
 									</span>
-									<span className="block text-foreground">{describeConfigDrift(drift)}</span>
-									{configDriftIsSilentFailure(drift) ? (
-										<span className="block text-xs text-destructive">
-											Nothing reported this failure. Restart the instance, or turn live control off
-											if you do not need it.
-										</span>
-									) : null}
-									{configDriftDefeatsSafety(drift) ? (
-										<span className="block text-xs text-destructive">
-											This setting is not an operator choice. Re-save the instance settings to
-											restore it.
-										</span>
-									) : null}
+									<ul className="mt-1 space-y-0.5">
+										{group.entries.map((drift) => (
+											<li key={drift.key} className="text-xs text-muted-foreground">
+												<span className="font-mono">{drift.key}</span> —{" "}
+												{describeConfigDrift(drift)}
+											</li>
+										))}
+									</ul>
 								</li>
 							))}
 						</ul>

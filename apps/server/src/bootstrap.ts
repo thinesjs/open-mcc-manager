@@ -230,7 +230,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 			const scope = { organizationId: host.organizationId }
 			const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 			const onHost = (await createInstanceRepository(db).list(scope)).filter(
-				(instance) => instance.hostId === host.id && instance.status === "running",
+				(instance) => instance.hostId === host.id && instance.status !== "needs_auth",
 			)
 			for (const instance of onHost) {
 				const cursor = await statusController.connectionCursor(scope, instance.id)

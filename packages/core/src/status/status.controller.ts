@@ -173,19 +173,23 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 								detail: change.reason === undefined ? {} : { reason: change.reason },
 							})
 
-				await status.closeOpenInterval(
+				const closed = await status.closeOpenInterval(
 					scope,
 					subject,
 					INSTANCE_CONNECTION,
 					change.at,
 					event?.id ?? null,
 				)
+				const startAt =
+					closed?.endedAt !== null && closed?.endedAt !== undefined && closed.endedAt > change.at
+						? closed.endedAt
+						: change.at
 				await status.openInterval(
 					scope,
 					subject,
 					INSTANCE_CONNECTION,
 					change.state,
-					change.at,
+					startAt,
 					event?.id ?? null,
 				)
 				await status.upsertCondition(

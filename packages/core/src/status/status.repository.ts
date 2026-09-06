@@ -8,6 +8,7 @@ import type {
 	StatusSource,
 	StatusState,
 } from "@open-mcc/db"
+import { sql } from "kysely"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
 
@@ -143,7 +144,10 @@ export const createStatusRepository = (db: Executor) => ({
 	): Promise<StatusIntervalRow | undefined> => {
 		let query = db
 			.updateTable("statusInterval")
-			.set({ endedAt, endEventId })
+			.set({
+				endedAt: sql<Date>`greatest(${endedAt}::timestamp, "startedAt")`,
+				endEventId,
+			})
 			.where("organizationId", "=", scope.organizationId)
 			.where("dimension", "=", dimension)
 			.where("endedAt", "is", null)

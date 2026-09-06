@@ -109,9 +109,7 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 					value={name}
 					onChange={(event) => setName(event.target.value)}
 				/>
-				<p className="text-xs text-muted-foreground">
-					Identifies this instance in the dashboard and in its systemd unit.
-				</p>
+				<p className="text-xs text-muted-foreground">The name you will see in the dashboard.</p>
 			</div>
 
 			<div className="space-y-1.5">

@@ -60,7 +60,7 @@ function HostListPage() {
 				<EmptyState
 					icon={Server}
 					title="No hosts enrolled"
-					description="Enroll a server to run Minecraft Console Client instances. Requires systemd, SSH access, and the host key fingerprint."
+					description="Add a Linux server to run your bots on. You will need SSH access to it."
 					action={
 						<Button size="sm" onClick={() => setEnrolling(true)}>
 							<Plus className="size-4" />

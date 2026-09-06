@@ -22,7 +22,7 @@ import { useTRPC } from "~/lib/trpc"
 
 export const confinementLabel = (sandboxed: boolean | null): string => {
 	if (sandboxed === null) return "Unknown until provisioned"
-	return sandboxed ? "Enforced by systemd" : "Not enforced by this host's systemd"
+	return sandboxed ? "Enforced" : "Not available on this server"
 }
 
 export const Route = createFileRoute("/_authenticated/hosts/$hostId")({
@@ -183,7 +183,7 @@ function HostDetailPage() {
 						<p className="text-sm text-muted-foreground">
 							{host.teardownError
 								? "The host could not be cleaned. It stays here until it has been, so nothing is left behind on it."
-								: "Stopping its units, removing what was installed, then deleting this record. This continues on the server."}
+								: "Removing everything installed on this server, then deleting it here."}
 						</p>
 					</CardHeader>
 					<CardContent>

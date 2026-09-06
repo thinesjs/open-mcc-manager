@@ -8,6 +8,7 @@ import { Choice } from "~/components/ui/choice"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
+import { Tooltip } from "~/components/ui/tooltip"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -166,9 +167,11 @@ export const InstanceSettingsForm = ({
 					onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
 				/>
 				<p className="text-xs text-muted-foreground">
-					Lets the manager read this client's chat and state directly. The endpoint listens on the
-					host's loopback only, needs a token, and is read-only — commands still go through the
-					console. Port {draft.liveControlPort}.
+					Lets you watch chat and see what the bot is doing.{" "}
+					<Tooltip content="Only this dashboard can reach it, and it can only read. Anything you send still goes through the console.">
+						Read-only
+					</Tooltip>
+					, on port {draft.liveControlPort}.
 				</p>
 			</div>
 

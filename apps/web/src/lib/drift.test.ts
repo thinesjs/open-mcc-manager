@@ -64,7 +64,7 @@ describe("drift summary", () => {
 
 	it("names both the recorded and observed state so the mismatch is legible", () => {
 		expect(describeStateDrift({ instanceId: "a", desired: "running", observed: "inactive" })).toBe(
-			"Expected running, systemd reports inactive.",
+			"Expected running, found inactive.",
 		)
 	})
 })

@@ -299,9 +299,7 @@ function InstanceDetailPage() {
 								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
 									<div>
 										<h2 className="text-sm font-semibold text-foreground">Live state</h2>
-										<p className="text-xs text-muted-foreground">
-											Read from the client itself over the SSH tunnel, not from its log.
-										</p>
+										<p className="text-xs text-muted-foreground">What the bot can see right now.</p>
 									</div>
 									{liveStatusQuery.isPending ? (
 										<Spinner label="Reading live state" />
@@ -550,10 +548,7 @@ function InstanceDetailPage() {
 									<div>
 										<h2 className="text-sm font-semibold text-foreground">Restart</h2>
 										<p className="text-xs text-muted-foreground">
-											Stops the client, rewrites its config on the host, then starts it again. This
-											is how a settings change takes effect. The client leaves the server for a few
-											seconds. The whole sequence runs on the server, so closing this page will not
-											leave it half-restarted.
+											Applies your saved settings. The bot leaves the server for a few seconds.
 										</p>
 									</div>
 									<Button
@@ -585,9 +580,7 @@ function InstanceDetailPage() {
 												Cancel a stuck sign-in
 											</h2>
 											<p className="text-xs text-muted-foreground">
-												A sign-in holds a claim on this instance for fifteen minutes. If it was
-												abandoned — the code expired, or the wrong account was used — this ends it
-												now instead of waiting the lease out.
+												Ends a sign-in that was started but never finished.
 											</p>
 										</div>
 										<Button
@@ -609,8 +602,7 @@ function InstanceDetailPage() {
 									<div>
 										<h2 className="text-sm font-semibold text-foreground">Remove this instance</h2>
 										<p className="text-xs text-muted-foreground">
-											Stops the client and deletes its unit, schedules and data from the host. Its
-											sign-in is discarded. This cannot be undone.
+											Deletes this bot and everything saved for it. This cannot be undone.
 										</p>
 									</div>
 									<Button
@@ -632,7 +624,7 @@ function InstanceDetailPage() {
 				<Modal
 					open={editingSettings}
 					title="Instance settings"
-					description="Changes are written to the client's config file on the host, and take effect the next time it starts."
+					description="Takes effect the next time the bot starts."
 					onClose={() => setEditingSettings(false)}
 				>
 					<InstanceSettingsForm
@@ -650,7 +642,7 @@ function InstanceDetailPage() {
 			<ConfirmDialog
 				open={confirmingRemove}
 				title="Remove instance"
-				description={`Stops ${instance?.name ?? "this instance"} and removes its unit, schedules and data from the host. Its sign-in is discarded. This cannot be undone.`}
+				description={`Deletes ${instance?.name ?? "this bot"} and everything saved for it. This cannot be undone.`}
 				confirmLabel="Remove instance"
 				destructive
 				busy={removeMutation.isPending}

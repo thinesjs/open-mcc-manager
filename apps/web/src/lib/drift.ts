@@ -43,7 +43,7 @@ export const describeUnitDrift = (drift: UnitDrift): string => {
 export const describeStateDrift = (drift: StateDrift): string =>
 	drift.observed === "stuck"
 		? "Process running but not connected to a server."
-		: `Expected ${drift.desired}, systemd reports ${drift.observed}.`
+		: `Expected ${drift.desired}, found ${drift.observed}.`
 
 export const describeConfigDrift = (drift: ConfigDriftPublic): string => {
 	if (drift.kind === "section") {

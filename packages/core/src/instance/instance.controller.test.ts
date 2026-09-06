@@ -9,6 +9,7 @@ import type {
 	SshKeyRow,
 } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
+import { DatabaseError } from "pg"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
@@ -43,6 +44,7 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	hostId: "host-1",
 	name: "afk-1",
 	accountType: "microsoft",
+	liveControlPort: 33333,
 	liveControlTokenEncrypted: null,
 	liveControlTokenKeyId: null,
 	minecraftAccount: "afk@example.com",
@@ -599,38 +601,13 @@ describe("running several instances on one host", () => {
 		expect(instanceUser("alpha")).not.toBe(instanceUser("beta"))
 	})
 
-	it("moves an instance off a port a sibling already holds", async () => {
+	it("keeps the port the row owns, whatever a config save asks for", async () => {
 		const { deps } = makeDeps()
 		const documents: string[] = []
 		deps.instances.insertConfigVersion = async (_scope, _id, document) => {
 			documents.push(document)
 			return configRow()
 		}
-		deps.instances.list = vi.fn(async () => [
-			instanceRow({ id: "abc123" }),
-			instanceRow({ id: "sibling", name: "other" }),
-		])
-		deps.instances.latestConfig = vi.fn(async (_scope, id) =>
-			id === "sibling"
-				? configRow({
-						document: {
-							accountType: "microsoft",
-							minecraftAccount: "a@b.com",
-							serverAddress: "play.example.net",
-							autoRelogRetries: 3,
-							autoRelogDelaySeconds: 10,
-							antiAfkEnabled: false,
-							antiAfkIntervalSeconds: 60,
-							autoRespawnEnabled: false,
-							liveControlEnabled: true,
-							liveControlPort: 33333,
-							worldDataEnabled: false,
-							inventoryDataEnabled: false,
-							entityDataEnabled: false,
-						},
-					})
-				: undefined,
-		)
 		const controller = createInstanceController(deps)
 		await controller.updateConfig(owner, "abc123", {
 			accountType: "microsoft",
@@ -642,14 +619,14 @@ describe("running several instances on one host", () => {
 			antiAfkIntervalSeconds: 60,
 			autoRespawnEnabled: false,
 			liveControlEnabled: true,
-			liveControlPort: 33333,
+			liveControlPort: 40000,
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 		})
 
 		expect(documents).toHaveLength(1)
-		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33334)
+		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33333)
 	})
 
 	it("rewrites the config before starting, because the client clobbers it on exit", async () => {
@@ -778,5 +755,67 @@ describe("running several instances on one host", () => {
 			}),
 		).rejects.toThrow(/port/i)
 		expect(busy.state()).not.toBe("ready")
+	})
+
+	it("tries another port when a sibling claims the one it picked first", async () => {
+		const { deps } = makeDeps()
+		const free = createFakeTransport({}, {}, true, [])
+		deps.createTransport = () => free
+		let attempts = 0
+		const claimed: number[] = []
+		deps.instances.insert = async (_scope, values) => {
+			attempts += 1
+			claimed.push(values.liveControlPort ?? 0)
+			if (attempts === 1) {
+				const raced = new Error("duplicate key value violates unique constraint")
+				Object.assign(raced, { code: "23505", constraint: "instance_live_control_port_unique" })
+				Object.setPrototypeOf(raced, DatabaseError.prototype)
+				throw raced
+			}
+			return instanceRow({ liveControlPort: values.liveControlPort ?? 0 })
+		}
+		const controller = createInstanceController(deps)
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		expect(claimed).toEqual([33334, 33335])
+	})
+
+	it("reaches live control on the port the row owns, not the one a stale config names", async () => {
+		const { deps, transport } = makeDeps()
+		deps.instances.findById = async () =>
+			instanceRow({
+				liveControlPort: 33350,
+				liveControlTokenEncrypted: "sealed(32)",
+				liveControlTokenKeyId: "k1",
+			})
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 33333,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+		await controller.readLiveStatus(owner, "abc123")
+
+		expect(transport.forwarded).toContain(33350)
+		expect(transport.forwarded).not.toContain(33333)
 	})
 })

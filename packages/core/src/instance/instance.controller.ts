@@ -20,7 +20,13 @@ import type {
 	McpSessionStatus,
 	McpWorldState,
 } from "@open-mcc/contracts/boundary/mcp"
-import type { Db, InstanceCommandRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
+import {
+	constraintViolationOf,
+	type Db,
+	type InstanceCommandRow,
+	type InstanceRow,
+	type InstanceScheduleRow,
+} from "@open-mcc/db"
 import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
@@ -112,6 +118,10 @@ export type InstanceControllerDeps = {
 
 export const LIVE_PORT_PROBE_TIMEOUT_MS = 3_000
 
+export const LIVE_PORT_CLAIM_ATTEMPTS = 5
+
+export const LIVE_PORT_CONSTRAINT = "instance_live_control_port_unique"
+
 export const INSTANCE_STEP_TIMEOUT_MS = 15_000
 const CONNECT_TIMEOUT_MS = 10_000
 
@@ -175,30 +185,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return { transport, profile }
 	}
 
-	const freeLiveControlPort = async (
-		ctx: ActorContext,
-		instance: InstanceRow,
-		config: InstanceConfigInput,
-		transport: HostTransport,
-	): Promise<number> => {
-		const scope = scopeOf(ctx)
-		const siblings = (await deps.instances.list(scope)).filter(
-			(each) => each.hostId === instance.hostId && each.id !== instance.id,
-		)
-		const taken: number[] = []
-		for (const sibling of siblings) {
-			const saved = await deps.instances.latestConfig(scope, sibling.id)
-			if (!saved) continue
-			const parsed = instanceConfigInput.safeParse(saved.document)
-			if (parsed.success) taken.push(parsed.data.liveControlPort)
-		}
-		if (taken.includes(config.liveControlPort)) return await unusedPortOnHost(transport, taken)
-		if (!config.liveControlEnabled) return config.liveControlPort
-		return (await transport.canForward(config.liveControlPort, LIVE_PORT_PROBE_TIMEOUT_MS))
-			? await unusedPortOnHost(transport, [...taken, config.liveControlPort])
-			: config.liveControlPort
-	}
-
 	const rotateLiveControlToken = async (
 		ctx: ActorContext,
 		instance: InstanceRow,
@@ -231,6 +217,20 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return updated ?? instance
 	}
 
+	const insertWithFreePort = async (attempt: () => Promise<InstanceRow>): Promise<InstanceRow> => {
+		for (let tries = 0; tries < LIVE_PORT_CLAIM_ATTEMPTS; tries += 1) {
+			try {
+				return await attempt()
+			} catch (error) {
+				const violation = error instanceof Error ? constraintViolationOf(error) : null
+				if (violation?.constraint !== LIVE_PORT_CONSTRAINT) throw error
+			}
+		}
+		throw new LiveControlPortsExhaustedError(
+			"Another instance claimed every port this one tried on that host",
+		)
+	}
+
 	const unusedPortOnHost = async (
 		transport: HostTransport,
 		taken: readonly number[],
@@ -248,7 +248,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!saved) return
 		const parsed = instanceConfigInput.safeParse(saved.document)
 		if (!parsed.success) return
-		const document = renderInstanceConfig(parsed.data)
+		const document = renderInstanceConfig({
+			...parsed.data,
+			liveControlPort: instance.liveControlPort,
+		})
 
 		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
@@ -289,7 +292,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return {
 			target: {
 				transport,
-				port: config.data.liveControlPort,
+				port: instance.liveControlPort,
 				route: LIVE_CONTROL_ROUTE,
 				token,
 			},
@@ -419,52 +422,54 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const onHost = (await deps.instances.list(scopeOf(ctx))).filter(
 				(instance) => instance.hostId === input.hostId,
 			)
-			const takenPorts: number[] = []
-			for (const instance of onHost) {
-				const saved = await deps.instances.latestConfig(scopeOf(ctx), instance.id)
-				if (!saved) continue
-				const parsed = instanceConfigInput.safeParse(saved.document)
-				if (parsed.success) takenPorts.push(parsed.data.liveControlPort)
-			}
+			const takenPorts = onHost.map((instance) => instance.liveControlPort)
 			const { transport, profile } = await connectToHost(scopeOf(ctx), input.hostId)
 			let created: InstanceRow
 			try {
-				const initialConfig = {
-					...defaultInstanceConfig({
-						accountType: input.accountType,
-						minecraftAccount: input.minecraftAccount,
-						serverAddress: input.serverAddress,
-					}),
-					liveControlPort: await unusedPortOnHost(transport, takenPorts),
-				}
 				const liveControlToken = randomUUID().replaceAll("-", "")
 				const sealedToken = deps.secrets.seal(liveControlToken)
+				const claimed: number[] = [...takenPorts]
+				let initialConfig = defaultInstanceConfig({
+					accountType: input.accountType,
+					minecraftAccount: input.minecraftAccount,
+					serverAddress: input.serverAddress,
+				})
 
-				created = await deps.withTransaction(async (repos) => {
-					const row = await repos.instances.insert(scopeOf(ctx), {
-						hostId: input.hostId,
-						name: input.name,
-						accountType: input.accountType,
-						minecraftAccount: input.minecraftAccount,
-						status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
-						liveControlTokenEncrypted: sealedToken.ciphertext,
-						liveControlTokenKeyId: sealedToken.keyId,
+				created = await insertWithFreePort(async () => {
+					const port = await unusedPortOnHost(transport, claimed)
+					claimed.push(port)
+					initialConfig = { ...initialConfig, liveControlPort: port }
+					return await deps.withTransaction(async (repos) => {
+						const row = await repos.instances.insert(scopeOf(ctx), {
+							hostId: input.hostId,
+							name: input.name,
+							accountType: input.accountType,
+							minecraftAccount: input.minecraftAccount,
+							status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
+							liveControlPort: port,
+							liveControlTokenEncrypted: sealedToken.ciphertext,
+							liveControlTokenKeyId: sealedToken.keyId,
+						})
+						await repos.instances.insertConfigVersion(
+							scopeOf(ctx),
+							row.id,
+							JSON.stringify(initialConfig),
+							{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
+						)
+						await repos.audit.record(scopeOf(ctx), {
+							actorId: ctx.memberId,
+							actorLabel: ctx.actorLabel,
+							action: "instance.create",
+							subjectType: "instance",
+							subjectId: row.id,
+							detail: {
+								hostId: input.hostId,
+								name: input.name,
+								accountType: input.accountType,
+							},
+						})
+						return row
 					})
-					await repos.instances.insertConfigVersion(
-						scopeOf(ctx),
-						row.id,
-						JSON.stringify(initialConfig),
-						{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
-					)
-					await repos.audit.record(scopeOf(ctx), {
-						actorId: ctx.memberId,
-						actorLabel: ctx.actorLabel,
-						action: "instance.create",
-						subjectType: "instance",
-						subjectId: row.id,
-						detail: { hostId: input.hostId, name: input.name, accountType: input.accountType },
-					})
-					return row
 				})
 
 				const dir = instanceDir(profile.instancesRoot, created.id)
@@ -725,10 +730,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const instance = await requireInstance(ctx, instanceId)
 			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
-			const settled = {
-				...config,
-				liveControlPort: await freeLiveControlPort(ctx, instance, config, transport),
-			}
+			const settled = { ...config, liveControlPort: instance.liveControlPort }
 			const document = renderInstanceConfig(settled)
 
 			try {

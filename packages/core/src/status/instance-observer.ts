@@ -8,7 +8,10 @@ export const JOURNAL_READ_TIMEOUT_MS = 20_000
 
 export const JOURNAL_MAX_LINES = 2_000
 
-export const journalSince = (cursor: string | null): string => (cursor === null ? "-30min" : cursor)
+export const SEED_WINDOW = "-7d"
+
+export const journalSince = (cursor: string | null): string =>
+	cursor === null ? SEED_WINDOW : cursor
 
 export const journalCommand = (
 	profile: HostProfile,
@@ -39,10 +42,34 @@ export const readConnectionChanges = async (
 	if (result.exitCode !== 0) return { changes: [], cursor }
 
 	const lines = parseJournal(result.stdout)
-	const changes = changesFromSignals(current, connectionSignals(lines))
+	const signals = connectionSignals(lines)
 	const last = lines.at(-1)
-	return {
-		changes,
-		cursor: last === undefined ? cursor : last.at.toISOString(),
+	const nextCursor = last === undefined ? cursor : last.at.toISOString()
+
+	if (cursor === null) {
+		const latest = signals.at(-1)
+		if (latest === undefined) return { changes: [], cursor: nextCursor }
+		return {
+			changes: [
+				latest.kind === "joined"
+					? {
+							state: "joined",
+							at: latest.at,
+							pid: latest.pid,
+							event: "instance.joined",
+							reason: undefined,
+						}
+					: {
+							state: "interrupted",
+							at: latest.at,
+							pid: latest.pid,
+							event: "instance.connection_lost",
+							reason: latest.reason,
+						},
+			],
+			cursor: nextCursor,
+		}
 	}
+
+	return { changes: changesFromSignals(current, signals), cursor: nextCursor }
 }

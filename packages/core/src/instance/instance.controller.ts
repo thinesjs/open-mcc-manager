@@ -720,11 +720,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<InstanceConfigInput | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			await requireInstance(ctx, instanceId)
+			const instance = await requireInstance(ctx, instanceId)
 			const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
 			if (!row) return undefined
 			const parsed = instanceConfigInput.safeParse(row.document)
-			return parsed.success ? parsed.data : undefined
+			if (!parsed.success) return undefined
+			return { ...parsed.data, liveControlPort: instance.liveControlPort }
 		},
 
 		updateConfig: async (

@@ -688,6 +688,33 @@ describe("running several instances on one host", () => {
 		expect(startedAt).toBeGreaterThan(wroteAt)
 	})
 
+	it("reports the port the row owns, not the one the saved config remembers", async () => {
+		const { deps } = makeDeps()
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 40000,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+
+		const config = await controller.getConfig(owner, "abc123")
+
+		expect(config?.liveControlPort).toBe(33333)
+	})
+
 	it("mints a new live control token on every start, so a leaked one expires", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.latestConfig = async () => configRow()

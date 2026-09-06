@@ -57,6 +57,14 @@ describe("turning log lines into connection changes", () => {
 		expect(signal).toMatchObject({ kind: "disconnected", reason: undefined })
 	})
 
+	it("sees the client being stopped, which is also a reason it is not on its server", () => {
+		const raw =
+			"2026-09-06T10:46:22+0800 tjsx100 systemd[1525547]: Stopped open-mcc@abc.service - open-mcc-manager instance abc."
+		const [signal] = connectionSignals(parseJournal(raw))
+
+		expect(signal).toMatchObject({ kind: "stopped" })
+	})
+
 	it("reports the changes in the order they happened", () => {
 		const signals = connectionSignals(parseJournal(REAL))
 

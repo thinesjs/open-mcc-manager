@@ -83,6 +83,37 @@ describe("deciding when a bot is on its server", () => {
 	})
 })
 
+describe("a bot whose client was stopped", () => {
+	it("is off its server, and says so as a stop rather than a lost connection", () => {
+		const [change] = changesFromSignals(current({ state: "joined" }), [
+			{ kind: "stopped", at: at(5), pid: "1" },
+		])
+
+		expect(change).toMatchObject({ state: "down", event: "instance.stopped" })
+	})
+
+	it("is not reported twice while it stays stopped", () => {
+		const changes = changesFromSignals(current({ state: "joined" }), [
+			{ kind: "stopped", at: at(5), pid: "1" },
+			{ kind: "stopped", at: at(6), pid: "1" },
+		])
+
+		expect(changes).toHaveLength(1)
+	})
+
+	it("counts as on its server again once it rejoins", () => {
+		const changes = changesFromSignals(current({ state: "joined" }), [
+			{ kind: "stopped", at: at(5), pid: "1" },
+			{ kind: "joined", at: at(9), pid: "2" },
+		])
+
+		expect(changes.map((change) => change.event)).toEqual([
+			"instance.stopped",
+			"instance.reconnected",
+		])
+	})
+})
+
 describe("escalating a bot that has not come back", () => {
 	it("waits before calling a brief interruption a disconnection", () => {
 		expect(

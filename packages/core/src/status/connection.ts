@@ -52,6 +52,19 @@ export const changesFromSignals = (
 			continue
 		}
 
+		if (signal.kind === "stopped") {
+			if (state === "down") continue
+			changes.push({
+				state: "down",
+				at: signal.at,
+				pid: signal.pid,
+				event: "instance.stopped",
+				reason: undefined,
+			})
+			state = "down"
+			continue
+		}
+
 		if (state === "interrupted" || state === "down") continue
 		changes.push({
 			state: "interrupted",

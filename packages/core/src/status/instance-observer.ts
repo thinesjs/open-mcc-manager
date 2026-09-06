@@ -59,13 +59,21 @@ export const readConnectionChanges = async (
 							event: "instance.joined",
 							reason: undefined,
 						}
-					: {
-							state: "interrupted",
-							at: latest.at,
-							pid: latest.pid,
-							event: "instance.connection_lost",
-							reason: latest.reason,
-						},
+					: latest.kind === "stopped"
+						? {
+								state: "down",
+								at: latest.at,
+								pid: latest.pid,
+								event: "instance.stopped",
+								reason: undefined,
+							}
+						: {
+								state: "interrupted",
+								at: latest.at,
+								pid: latest.pid,
+								event: "instance.connection_lost",
+								reason: latest.reason,
+							},
 			],
 			cursor: nextCursor,
 		}

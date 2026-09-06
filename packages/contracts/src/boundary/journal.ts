@@ -34,9 +34,12 @@ export const JOINED_MARKER = "Server was successfully joined"
 
 export const DISCONNECTED_MARKER = "Disconnected by Server"
 
+export const STOPPED_MARKER = "Stopped open-mcc@"
+
 export type ConnectionSignal =
 	| { kind: "joined"; at: Date; pid: string }
 	| { kind: "disconnected"; at: Date; pid: string; reason: string | undefined }
+	| { kind: "stopped"; at: Date; pid: string }
 
 const MCC_PREFIX = "[MCC]"
 
@@ -47,6 +50,10 @@ export const connectionSignals = (lines: readonly JournalLine[]): ConnectionSign
 	const signals: ConnectionSignal[] = []
 	lines.forEach((line, index) => {
 		const message = withoutPrefix(line.message)
+		if (message.includes(STOPPED_MARKER)) {
+			signals.push({ kind: "stopped", at: line.at, pid: line.pid })
+			return
+		}
 		if (message.includes(JOINED_MARKER)) {
 			signals.push({ kind: "joined", at: line.at, pid: line.pid })
 			return

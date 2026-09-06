@@ -119,11 +119,15 @@ export const LIVE_CONTROL_PORT_LIMIT = 33832
 
 export class LiveControlPortsExhaustedError extends Error {}
 
-export const allocateLiveControlPort = (taken: Iterable<number>): number => {
+export const freeLiveControlPorts = function* (taken: Iterable<number>): Generator<number> {
 	const used = new Set(taken)
 	for (let port = DEFAULT_LIVE_CONTROL_PORT; port <= LIVE_CONTROL_PORT_LIMIT; port += 1) {
-		if (!used.has(port)) return port
+		if (!used.has(port)) yield port
 	}
+}
+
+export const allocateLiveControlPort = (taken: Iterable<number>): number => {
+	for (const port of freeLiveControlPorts(taken)) return port
 	throw new LiveControlPortsExhaustedError(
 		`No live control port is free between ${DEFAULT_LIVE_CONTROL_PORT} and ${LIVE_CONTROL_PORT_LIMIT}`,
 	)

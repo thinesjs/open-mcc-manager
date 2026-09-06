@@ -28,6 +28,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_NOT_FOUND: "That instance no longer exists. Refresh the list.",
 	INSTANCE_HOST_NOT_READY:
 		"That instance's host is not ready yet. Enroll and provision the host first.",
+	INSTANCE_LIVE_CONTROL_UNREADABLE:
+		"This instance's live channel answered with something the manager could not read.",
 	HOST_CHANNEL_LIMIT:
 		"The host would not open another SSH session. It has reached its session limit; wait a moment and retry.",
 	INSTANCE_LIVE_CONTROL_REJECTED:

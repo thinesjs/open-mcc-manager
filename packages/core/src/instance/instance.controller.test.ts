@@ -200,7 +200,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		sshKeys,
 		secrets: {
 			open: () => "PRIVATE KEY",
-			seal: () => ({ ciphertext: "", keyId: "k1" }),
+			seal: (plaintext: string) => ({ ciphertext: `sealed(${plaintext.length})`, keyId: "k1" }),
 			activeKeyId: "k1",
 		},
 		createTransport: () => transport,
@@ -709,5 +709,33 @@ describe("running several instances on one host", () => {
 		const startedAt = transport.commands.findIndex((command) => command.includes("systemctl"))
 		expect(wroteAt).toBeGreaterThanOrEqual(0)
 		expect(startedAt).toBeGreaterThan(wroteAt)
+	})
+
+	it("mints a new live control token on every start, so a leaked one expires", async () => {
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () => configRow()
+		const controller = createInstanceController(deps)
+		await controller.start(owner, "abc123")
+
+		const wroteEnv = transport.stdins.filter((each) => each.includes("MCC_MCP_AUTH_TOKEN="))
+		expect(wroteEnv).toHaveLength(1)
+		expect(wroteEnv[0]).toMatch(/MCC_MCP_AUTH_TOKEN="[0-9a-f]{32}"/)
+	})
+
+	it("seals the rotated token rather than writing it to the database in the clear", async () => {
+		const { deps } = makeDeps()
+		deps.instances.latestConfig = async () => configRow()
+		const sealedTokens: string[] = []
+		deps.instances.update = vi.fn(async (_scope, _id, patch) => {
+			if (patch.liveControlTokenEncrypted !== undefined) {
+				sealedTokens.push(patch.liveControlTokenEncrypted)
+			}
+			return instanceRow({ status: "running" })
+		})
+		const controller = createInstanceController(deps)
+		await controller.start(owner, "abc123")
+
+		expect(sealedTokens).toHaveLength(1)
+		expect(sealedTokens[0]).not.toMatch(/^[0-9a-f]{32}$/)
 	})
 })

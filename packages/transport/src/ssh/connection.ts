@@ -183,7 +183,11 @@ export const createSshTransport = (): HostTransport => {
 					settled = true
 					clearTimeout(timer)
 					if (error) {
-						reject(new LiveChannelUnavailableError(error.message))
+						reject(
+							new LiveChannelUnavailableError(
+								namedChannelError(error, `forward to ${port}`).message,
+							),
+						)
 						return
 					}
 					resolve({ socket: stream, close: () => stream.destroy() })

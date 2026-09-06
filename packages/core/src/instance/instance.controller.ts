@@ -33,7 +33,9 @@ import { type CommandRepository, createCommandRepository } from "./command.repos
 import {
 	allocateLiveControlPort,
 	defaultInstanceConfig,
+	freeLiveControlPorts,
 	LIVE_CONTROL_ROUTE,
+	LiveControlPortsExhaustedError,
 	renderInstanceConfig,
 } from "./config"
 import { readConsole, sendCommand } from "./control"
@@ -108,6 +110,8 @@ export type InstanceControllerDeps = {
 	createTransport: () => HostTransport
 	withTransaction: WithInstanceTransaction
 }
+
+export const LIVE_PORT_PROBE_TIMEOUT_MS = 3_000
 
 export const INSTANCE_STEP_TIMEOUT_MS = 15_000
 const CONNECT_TIMEOUT_MS = 10_000
@@ -191,6 +195,50 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return taken.includes(config.liveControlPort)
 			? allocateLiveControlPort(taken)
 			: config.liveControlPort
+	}
+
+	const rotateLiveControlToken = async (
+		ctx: ActorContext,
+		instance: InstanceRow,
+	): Promise<InstanceRow> => {
+		const token = randomUUID().replaceAll("-", "")
+		const sealed = deps.secrets.seal(token)
+		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		try {
+			const dir = instanceDir(profile.instancesRoot, instance.id)
+			const owner = instanceUser(instance.id)
+			const claim = usesPerInstanceUsers(profile)
+				? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(`${dir}/env`)}`
+				: ""
+			const result = await transport.exec(
+				`(umask 077; cat > ${shellQuote(`${dir}/env`)})${claim}`,
+				INSTANCE_STEP_TIMEOUT_MS,
+				renderEnvironmentFile({ liveControlToken: token }),
+			)
+			if (result.exitCode !== 0) {
+				throw new Error(`Failed to write the instance environment: ${result.stderr.trim()}`)
+			}
+		} finally {
+			await transport.close().catch(() => undefined)
+		}
+
+		const updated = await deps.instances.update(scopeOf(ctx), instance.id, {
+			liveControlTokenEncrypted: sealed.ciphertext,
+			liveControlTokenKeyId: sealed.keyId,
+		})
+		return updated ?? instance
+	}
+
+	const unusedPortOnHost = async (
+		transport: HostTransport,
+		taken: readonly number[],
+	): Promise<number> => {
+		for (const port of freeLiveControlPorts(taken)) {
+			if (!(await transport.canForward(port, LIVE_PORT_PROBE_TIMEOUT_MS))) return port
+		}
+		throw new LiveControlPortsExhaustedError(
+			"No live control port on this host is both unrecorded and unused",
+		)
 	}
 
 	const writeSavedConfig = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
@@ -480,8 +528,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			await writeSavedConfig(ctx, instance)
-			await unitCommand(ctx, instance, "start")
+			const rotated = await rotateLiveControlToken(ctx, instance)
+			await writeSavedConfig(ctx, rotated)
+			await unitCommand(ctx, rotated, "start")
 
 			const updated = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })

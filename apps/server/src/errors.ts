@@ -1,4 +1,5 @@
 import type { ErrorCode } from "@open-mcc/contracts"
+import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
 import {
 	DisallowedInternalCommandError,
 	FingerprintMismatchError,
@@ -17,6 +18,7 @@ import {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	LiveControlUnauthorizedError,
+	LiveResponseTooLargeError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -138,6 +140,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_HOST_NOT_READY",
 			"That instance's host is not ready; enroll and provision it first",
+		)
+	}
+	if (cause instanceof McpProtocolError || cause instanceof LiveResponseTooLargeError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_LIVE_CONTROL_UNREADABLE",
+			"The client answered in a way this manager could not read",
 		)
 	}
 	if (cause instanceof ChannelLimitReachedError) {

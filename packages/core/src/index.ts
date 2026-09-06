@@ -102,6 +102,7 @@ export {
 	LIVE_CONTROL_TIMEOUT_MS,
 	LIVE_EVENT_MAX,
 	LiveControlUnauthorizedError,
+	LiveResponseTooLargeError,
 	readChatHistory,
 	readEntities,
 	readRecentEvents,

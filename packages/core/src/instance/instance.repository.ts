@@ -7,7 +7,14 @@ export type InstanceCreateValues = Omit<
 	"id" | "organizationId" | "createdAt" | "authClaimId" | "authClaimedAt"
 >
 
-const MUTABLE_INSTANCE_COLUMNS = ["name", "status", "lastExitCode", "minecraftUsername"] as const
+const MUTABLE_INSTANCE_COLUMNS = [
+	"name",
+	"status",
+	"lastExitCode",
+	"minecraftUsername",
+	"liveControlTokenEncrypted",
+	"liveControlTokenKeyId",
+] as const
 
 export type InstanceUpdateValues = Partial<
 	Pick<InstanceRow, (typeof MUTABLE_INSTANCE_COLUMNS)[number]>
@@ -23,6 +30,12 @@ const whitelistInstanceUpdate = (patch: InstanceUpdateValues): InstanceUpdateVal
 	...(patch.status !== undefined && { status: patch.status }),
 	...(patch.minecraftUsername !== undefined && { minecraftUsername: patch.minecraftUsername }),
 	...(patch.lastExitCode !== undefined && { lastExitCode: patch.lastExitCode }),
+	...(patch.liveControlTokenEncrypted !== undefined && {
+		liveControlTokenEncrypted: patch.liveControlTokenEncrypted,
+	}),
+	...(patch.liveControlTokenKeyId !== undefined && {
+		liveControlTokenKeyId: patch.liveControlTokenKeyId,
+	}),
 })
 
 export const createInstanceRepository = (db: Executor) => ({

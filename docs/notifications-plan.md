@@ -7,33 +7,21 @@ channels: **Web Push**, **outbound webhook**, **Telegram**. Delivery must be
 **queued and retried**, because the whole point is the message arriving when the
 operator is not looking at the screen.
 
-## What a deployment tool does, and what is worth taking
+## Shape borrowed from prior art
 
-Read at `another checkout deployment tool`,
-`packages/server/src/utils/notifications/` and `db/schema/notification.ts`.
+A survey of an existing self-hosted deployment tool settled three decisions:
 
-Worth taking:
-
-- One row per configured destination, with **per-event boolean columns** on that
-  row (`appBuildError`, `databaseBackup`, …). Subscribing is a property of the
-  destination, not a separate join table. Simple, and it reads well in a form.
+- One row per configured destination, with the events it subscribes to attached to
+  that row rather than to a separate join table. It reads well in a form.
 - A separate table per provider holding that provider's own fields, related back
   to the destination row.
 - A **"test connection"** endpoint per provider. An operator who cannot tell
   whether a webhook is wired up will assume the feature is broken.
 
-Not worth taking, and the reason this plan exists:
-
-- **Its notification subsystem has no queue and no retry.** `build-error.ts:41`
-  loads the destination list and `await`s each provider call inline;
-  `application.ts:238` awaits delivery in the middle of a deployment. Telegram
-  failures are logged and dropped (`utils.ts:104`). If a webhook is down for ten
-  seconds that notification is gone, with nothing recording the attempt. Note the
-  narrower claim: a deployment tool *does* use BullMQ elsewhere (`apps/schedules`), just not
-  for notifications.
-- `notificationType` is a `pgEnum`. This repo does not use Postgres enums.
-- Its provider tables carry no `organizationId` and store tokens and URLs in
-  plaintext. Copy the shape, never the columns.
+And one decision in the opposite direction, which is the reason this plan exists:
+**that tool sends notifications inline, with no queue and no retry.** A destination
+that is down for ten seconds loses the notification entirely, with nothing recording
+that an attempt was ever made. Delivery here is queued, and every attempt is recorded.
 
 ## The design
 

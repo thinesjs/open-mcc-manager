@@ -10,6 +10,10 @@ import {
 } from "@open-mcc/contracts"
 import { sampleManagerMetrics } from "@open-mcc/core"
 import { z } from "zod"
+
+const nullWhenAbsent = async <T>(value: Promise<T | undefined>): Promise<T | null> =>
+	(await value) ?? null
+
 import { protectedProcedure, requireCapability, router } from "../trpc"
 
 export const instanceRouter = router({
@@ -58,27 +62,27 @@ export const instanceRouter = router({
 
 	readLiveStatus: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
-		return ctx.instanceController.readLiveStatus(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.readLiveStatus(ctx.actor, input.instanceId))
 	}),
 
 	readLiveChat: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "console.read")
-		return ctx.instanceController.readLiveChat(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.readLiveChat(ctx.actor, input.instanceId))
 	}),
 
 	readLiveEvents: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "console.read")
-		return ctx.instanceController.readLiveEvents(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.readLiveEvents(ctx.actor, input.instanceId))
 	}),
 
 	readLiveWorld: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
-		return ctx.instanceController.readLiveWorld(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.readLiveWorld(ctx.actor, input.instanceId))
 	}),
 
 	readLiveEntities: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
-		return ctx.instanceController.readLiveEntities(ctx.actor, input.instanceId)
+		return nullWhenAbsent(ctx.instanceController.readLiveEntities(ctx.actor, input.instanceId))
 	}),
 
 	getConfig: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {

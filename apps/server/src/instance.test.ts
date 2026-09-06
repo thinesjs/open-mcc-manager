@@ -214,6 +214,22 @@ const call = async (
 		body: JSON.stringify(input),
 	})
 
+describe("live reads with no channel", () => {
+	it("answers with null rather than nothing, so the browser can cache the absence", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await app.request(
+			`/trpc/instance.readLiveWorld?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+
+		expect(res.status).toBe(200)
+		const body = z.object({ result: z.object({ data: z.null() }) }).safeParse(await res.json())
+		expect(body.success).toBe(true)
+	})
+})
+
 describe("instance router capability boundaries", () => {
 	it("refuses a viewer's attempt to start an instance, leaving its status unchanged", async () => {
 		const { cookie, orgId } = await signUpAndActivate()

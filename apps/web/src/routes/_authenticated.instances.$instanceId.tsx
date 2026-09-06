@@ -12,6 +12,7 @@ import {
 	Terminal,
 } from "lucide-react"
 import { useState } from "react"
+import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
 import { EmptyState } from "~/components/empty-state"
@@ -314,6 +315,10 @@ function InstanceDetailPage() {
 									</dd>
 								</div>
 							</dl>
+
+							<div className="mt-4">
+								<BotReliability instanceId={instanceId} />
+							</div>
 						</TabsPanel>
 
 						<TabsPanel value="live">

@@ -113,6 +113,11 @@ export const instanceRouter = router({
 		return ctx.instanceController.authenticate(ctx.actor, input.instanceId)
 	}),
 
+	cancelAuthentication: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.authenticate")
+		return ctx.instanceController.cancelAuthentication(ctx.actor, input.instanceId)
+	}),
+
 	completeAuthentication: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.authenticate")
 		return ctx.instanceController.completeAuthentication(ctx.actor, input.instanceId)

@@ -102,6 +102,9 @@ function InstanceDetailPage() {
 		trpc.instance.completeAuthentication.mutationOptions({ onSuccess, onError }),
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
+	const cancelAuthMutation = useMutation(
+		trpc.instance.cancelAuthentication.mutationOptions({ onSuccess, onError }),
+	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
 	const instance = instanceQuery.data
@@ -111,6 +114,7 @@ function InstanceDetailPage() {
 		startMutation.isPending ||
 		stopMutation.isPending ||
 		restartMutation.isPending ||
+		cancelAuthMutation.isPending ||
 		authenticateMutation.isPending ||
 		completeMutation.isPending ||
 		removeMutation.isPending
@@ -573,6 +577,33 @@ function InstanceDetailPage() {
 										</p>
 									) : null}
 								</section>
+
+								{interactive ? (
+									<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+										<div>
+											<h2 className="text-sm font-semibold text-foreground">
+												Cancel a stuck sign-in
+											</h2>
+											<p className="text-xs text-muted-foreground">
+												A sign-in holds a claim on this instance for fifteen minutes. If it was
+												abandoned — the code expired, or the wrong account was used — this ends it
+												now instead of waiting the lease out.
+											</p>
+										</div>
+										<Button
+											size="sm"
+											variant="secondary"
+											disabled={busy}
+											onClick={() => cancelAuthMutation.mutate({ instanceId })}
+										>
+											{cancelAuthMutation.isPending ? (
+												<Spinner label="Cancelling" />
+											) : (
+												"Cancel sign-in"
+											)}
+										</Button>
+									</section>
+								) : null}
 
 								<section className="space-y-3 rounded-[var(--radius)] border border-destructive/40 bg-card p-4">
 									<div>

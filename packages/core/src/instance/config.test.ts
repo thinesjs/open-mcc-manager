@@ -20,6 +20,9 @@ const base = {
 	autoRespawnEnabled: false,
 	liveControlEnabled: false,
 	liveControlPort: 33333,
+	worldDataEnabled: false,
+	inventoryDataEnabled: false,
+	entityDataEnabled: false,
 } as const
 
 describe("instance config rendering", () => {
@@ -60,6 +63,9 @@ describe("instance config rendering", () => {
 			"ExitOnFailure",
 			"InternalCmdChar",
 			"AutoRespawn",
+			"TerrainAndMovements",
+			"InventoryHandling",
+			"EntityHandling",
 			"Enabled",
 			"Retries",
 			"Delay",
@@ -318,5 +324,59 @@ describe("instance config rendering", () => {
 		const everyPort = Array.from({ length: 500 }, (_, index) => 33333 + index)
 
 		expect(() => allocateLiveControlPort(everyPort)).toThrow(LiveControlPortsExhaustedError)
+	})
+
+	it("leaves the costly handlers off, since they are what makes the client heavy", () => {
+		const rendered = renderInstanceConfig(base)
+
+		expect(rendered).toContain("TerrainAndMovements = false")
+		expect(rendered).toContain("InventoryHandling = false")
+		expect(rendered).toContain("EntityHandling = false")
+	})
+
+	it("turns on terrain handling without granting the live channel any write", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			liveControlEnabled: true,
+			worldDataEnabled: true,
+		})
+
+		expect(rendered).toContain("TerrainAndMovements = true")
+		expect(rendered).toContain("Inventory = false")
+		expect(rendered).toContain("EntityWorld = false")
+	})
+
+	it("opens the inventory capability only alongside the handler that fills it", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			liveControlEnabled: true,
+			inventoryDataEnabled: true,
+		})
+
+		expect(rendered).toContain("InventoryHandling = true")
+		expect(rendered).toContain("Inventory = true")
+	})
+
+	it("opens the entity capability only alongside the handler that fills it", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			liveControlEnabled: true,
+			entityDataEnabled: true,
+		})
+
+		expect(rendered).toContain("EntityHandling = true")
+		expect(rendered).toContain("EntityWorld = true")
+	})
+
+	it("keeps a capability shut while live control is off, whatever the data toggles say", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			liveControlEnabled: false,
+			inventoryDataEnabled: true,
+			entityDataEnabled: true,
+		})
+
+		expect(rendered).toContain("Inventory = false")
+		expect(rendered).toContain("EntityWorld = false")
 	})
 })

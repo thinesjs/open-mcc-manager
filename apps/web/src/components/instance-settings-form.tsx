@@ -175,6 +175,59 @@ export const InstanceSettingsForm = ({
 				</p>
 			</div>
 
+			{draft.liveControlEnabled ? (
+				<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
+					<div>
+						<Label>What the client keeps track of</Label>
+						<p className="text-xs text-muted-foreground">
+							Each of these makes the client hold more state, which costs memory, CPU and bandwidth
+							on the host. Leave them off unless something reads them.
+						</p>
+					</div>
+
+					<div className="space-y-1.5">
+						<Label>World and position</Label>
+						<Choice
+							label="World and position"
+							value={draft.worldDataEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Grants no write of any kind. This is the only one that does not.
+						</p>
+					</div>
+
+					<div className="space-y-1.5">
+						<Label>Inventory</Label>
+						<Choice
+							label="Inventory"
+							value={draft.inventoryDataEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Reading the inventory also lets the live channel move and drop items. The client
+							offers no way to have one without the other.
+						</p>
+					</div>
+
+					<div className="space-y-1.5">
+						<Label>Nearby entities</Label>
+						<Choice
+							label="Nearby entities"
+							value={draft.entityDataEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Reading entities also lets the live channel attack and interact with them, for the
+							same reason.
+						</p>
+					</div>
+				</div>
+			) : null}
+
 			<div className="flex justify-end gap-2">
 				<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
 					Cancel

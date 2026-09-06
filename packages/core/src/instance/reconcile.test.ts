@@ -489,6 +489,9 @@ describe("comparing a host's client config", () => {
 			autoRespawnEnabled: false,
 			liveControlEnabled: false,
 			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
 		})
 		const transport = await connected({
 			...fileReplies(expected),

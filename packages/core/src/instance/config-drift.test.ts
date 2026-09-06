@@ -15,6 +15,9 @@ const base = {
 	autoRespawnEnabled: false,
 	liveControlEnabled: false,
 	liveControlPort: 33333,
+	worldDataEnabled: false,
+	inventoryDataEnabled: false,
+	entityDataEnabled: false,
 } as const
 
 const realConfig = readFileSync(

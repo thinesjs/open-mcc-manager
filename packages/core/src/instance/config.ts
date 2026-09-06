@@ -16,6 +16,9 @@ export const ALLOWED_CONFIG_KEYS = [
 	"Main.Advanced.AutoRespawn",
 	"ChatBot.McpServer.Enabled",
 	"ChatBot.McpServer.Transport.Port",
+	"Main.Advanced.TerrainAndMovements",
+	"Main.Advanced.InventoryHandling",
+	"Main.Advanced.EntityHandling",
 	"ChatBot.McpServer.Capabilities.SessionStatus",
 	"ChatBot.McpServer.Capabilities.Inventory",
 	"ChatBot.McpServer.Capabilities.EntityWorld",
@@ -141,6 +144,9 @@ export const defaultInstanceConfig = (values: {
 	autoRespawnEnabled: false,
 	liveControlEnabled: false,
 	liveControlPort: DEFAULT_LIVE_CONTROL_PORT,
+	worldDataEnabled: false,
+	inventoryDataEnabled: false,
+	entityDataEnabled: false,
 })
 
 export type ServerAddress = { host: string; port: number | undefined }
@@ -171,6 +177,9 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`ExitOnFailure = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
+		`TerrainAndMovements = ${tomlBool(config.worldDataEnabled)}`,
+		`InventoryHandling = ${tomlBool(config.inventoryDataEnabled)}`,
+		`EntityHandling = ${tomlBool(config.entityDataEnabled)}`,
 		"",
 		"[Main.Advanced.AccountList]",
 		"",
@@ -199,7 +208,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`SessionStatus = ${tomlBool(config.liveControlEnabled)}`,
 		`ChatAndCommands = ${tomlBool(false)}`,
 		`Movement = ${tomlBool(false)}`,
-		`Inventory = ${tomlBool(false)}`,
-		`EntityWorld = ${tomlBool(false)}`,
+		`Inventory = ${tomlBool(config.liveControlEnabled && config.inventoryDataEnabled)}`,
+		`EntityWorld = ${tomlBool(config.liveControlEnabled && config.entityDataEnabled)}`,
 		"",
 	].join("\n")

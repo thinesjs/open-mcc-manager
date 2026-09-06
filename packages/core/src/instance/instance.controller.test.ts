@@ -624,6 +624,9 @@ describe("running several instances on one host", () => {
 							autoRespawnEnabled: false,
 							liveControlEnabled: true,
 							liveControlPort: 33333,
+							worldDataEnabled: false,
+							inventoryDataEnabled: false,
+							entityDataEnabled: false,
 						},
 					})
 				: undefined,
@@ -640,6 +643,9 @@ describe("running several instances on one host", () => {
 			autoRespawnEnabled: false,
 			liveControlEnabled: true,
 			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
 		})
 
 		expect(documents).toHaveLength(1)

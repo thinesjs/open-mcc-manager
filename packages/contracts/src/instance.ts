@@ -67,6 +67,9 @@ export const instanceConfigInput = z
 		autoRespawnEnabled: z.boolean().default(false),
 		liveControlEnabled: z.boolean().default(false),
 		liveControlPort: z.number().int().min(1024).max(65535).default(33333),
+		worldDataEnabled: z.boolean().default(false),
+		inventoryDataEnabled: z.boolean().default(false),
+		entityDataEnabled: z.boolean().default(false),
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>

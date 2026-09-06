@@ -440,31 +440,31 @@ export const inventoryFrom = (response: JsonRpcResponse): McpInventory => {
 	}
 }
 
-export type McpInventorySection = {
+export type McpInventoryRegion = {
 	name: string
-	slots: readonly McpInventorySlot[]
+	slots: number[]
+	columns: number
 }
 
-const PLAYER_INVENTORY_SECTIONS = [
-	{ name: "Hotbar", from: 36, to: 44 },
-	{ name: "Inventory", from: 9, to: 35 },
-	{ name: "Armour", from: 5, to: 8 },
-	{ name: "Offhand", from: 45, to: 45 },
-	{ name: "Crafting", from: 0, to: 4 },
-] as const
+const slotRange = (from: number, to: number): number[] =>
+	Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
-export const inventorySections = (inventory: {
-	id: number
-	slots: readonly McpInventorySlot[]
-}): McpInventorySection[] => {
-	if (inventory.id !== PLAYER_INVENTORY_ID) {
-		return inventory.slots.length === 0 ? [] : [{ name: "Contents", slots: inventory.slots }]
-	}
-	return PLAYER_INVENTORY_SECTIONS.map((section) => ({
-		name: section.name,
-		slots: inventory.slots.filter((slot) => slot.slot >= section.from && slot.slot <= section.to),
-	})).filter((section) => section.slots.length > 0)
-}
+export const PLAYER_INVENTORY_REGIONS: McpInventoryRegion[] = [
+	{ name: "Armour", slots: slotRange(5, 8), columns: 4 },
+	{ name: "Offhand", slots: [45], columns: 1 },
+	{ name: "Crafting", slots: slotRange(1, 4), columns: 2 },
+	{ name: "Inventory", slots: slotRange(9, 35), columns: 9 },
+	{ name: "Hotbar", slots: slotRange(36, 44), columns: 9 },
+]
+
+export const regionsFor = (inventory: { id: number; slotCount: number }): McpInventoryRegion[] =>
+	inventory.id === PLAYER_INVENTORY_ID
+		? PLAYER_INVENTORY_REGIONS
+		: [{ name: "Contents", slots: slotRange(0, inventory.slotCount - 1), columns: 9 }]
+
+export const slotsBySlotNumber = (
+	slots: readonly McpInventorySlot[],
+): Map<number, McpInventorySlot> => new Map(slots.map((slot) => [slot.slot, slot]))
 
 export const inventoryItemTotal = (inventory: { slots: readonly McpInventorySlot[] }): number =>
 	inventory.slots.reduce((total, slot) => total + slot.count, 0)

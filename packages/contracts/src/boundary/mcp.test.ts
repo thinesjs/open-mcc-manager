@@ -8,12 +8,13 @@ import {
 	initializeRequest,
 	inventoryFrom,
 	inventoryItemTotal,
-	inventorySections,
 	isNotableEvent,
 	McpProtocolError,
 	recentEventsFrom,
+	regionsFor,
 	responseFrom,
 	sessionStatusFrom,
+	slotsBySlotNumber,
 	toolResultOf,
 } from "./mcp"
 
@@ -457,54 +458,39 @@ describe("inventory", () => {
 		)
 	})
 
-	it("groups player slots the way the client itself groups them", () => {
-		const inventory = {
-			id: 0,
-			title: undefined,
-			slotCount: 46,
-			cursor: undefined,
-			slots: [
-				{ slot: 3, label: "Stick", count: 1 },
-				{ slot: 5, label: "Iron Helmet", count: 1 },
-				{ slot: 9, label: "Oak Log", count: 64 },
-				{ slot: 36, label: "Diamond Sword", count: 1 },
-				{ slot: 45, label: "Shield", count: 1 },
-			],
-		}
+	it("lays the player inventory out the way the client does", () => {
+		const regions = regionsFor({ id: 0, slotCount: 46 })
 
-		expect(inventorySections(inventory).map((section) => section.name)).toEqual([
-			"Hotbar",
-			"Inventory",
+		expect(regions.map((region) => region.name)).toEqual([
 			"Armour",
 			"Offhand",
 			"Crafting",
+			"Inventory",
+			"Hotbar",
 		])
+		expect(regions.find((region) => region.name === "Hotbar")?.slots).toEqual([
+			36, 37, 38, 39, 40, 41, 42, 43, 44,
+		])
+		expect(regions.find((region) => region.name === "Armour")?.slots).toEqual([5, 6, 7, 8])
+		expect(regions.find((region) => region.name === "Offhand")?.slots).toEqual([45])
 	})
 
-	it("leaves out sections that hold nothing", () => {
-		const inventory = {
-			id: 0,
-			title: undefined,
-			slotCount: 46,
-			cursor: undefined,
-			slots: [{ slot: 36, label: "Stone", count: 1 }],
-		}
+	it("falls back to a flat grid for a container that is not the player inventory", () => {
+		const regions = regionsFor({ id: 3, slotCount: 27 })
 
-		expect(inventorySections(inventory).map((section) => section.name)).toEqual(["Hotbar"])
+		expect(regions).toHaveLength(1)
+		expect(regions[0]?.name).toBe("Contents")
+		expect(regions[0]?.slots).toHaveLength(27)
 	})
 
-	it("does not apply the player layout to a container", () => {
-		const inventory = {
-			id: 3,
-			title: "Chest",
-			slotCount: 27,
-			cursor: undefined,
-			slots: [{ slot: 0, label: "Stone", count: 1 }],
-		}
-
-		expect(inventorySections(inventory)).toEqual([
-			{ name: "Contents", slots: [{ slot: 0, label: "Stone", count: 1 }] },
+	it("indexes slots by slot number so empty squares can be drawn", () => {
+		const byNumber = slotsBySlotNumber([
+			{ slot: 36, label: "Stone", count: 3 },
+			{ slot: 9, label: "Oak Log", count: 64 },
 		])
+
+		expect(byNumber.get(36)?.label).toBe("Stone")
+		expect(byNumber.get(37)).toBeUndefined()
 	})
 
 	it("totals the items it can see", () => {

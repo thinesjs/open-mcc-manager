@@ -62,6 +62,66 @@ const connectedTransport =
 	}
 
 describe("keeping the panel's view of each host current", () => {
+	it("reports an unreachable host to the recorder instead of only logging it", async () => {
+		const recordReachability = vi.fn(async () => undefined)
+		const now = new Date("2026-09-06T12:00:00Z")
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host()],
+			connect: async () => {
+				throw new Error("connection refused")
+			},
+			recordSeen: async () => undefined,
+			recordReachability,
+			now: () => now,
+		})
+
+		expect(run.unreachable).toEqual(["host-1"])
+		expect(recordReachability).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "host-1" }),
+			false,
+		)
+	})
+
+	it("reports a reachable host to the recorder too, so uptime has both sides", async () => {
+		const recordReachability = vi.fn(async () => undefined)
+		const now = new Date("2026-09-06T12:00:00Z")
+
+		await runHealthPoll({
+			pollableHosts: async () => [host()],
+			connect: connectedTransport("0"),
+			recordSeen: async () => undefined,
+			recordReachability,
+			now: () => now,
+		})
+
+		expect(recordReachability).toHaveBeenCalledWith(expect.objectContaining({ id: "host-1" }), true)
+	})
+
+	it("keeps polling the rest of the fleet when the recorder itself fails", async () => {
+		const onError = vi.fn()
+		const now = new Date("2026-09-06T12:00:00Z")
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host()],
+			connect: async () => {
+				throw new Error("connection refused")
+			},
+			recordSeen: async () => undefined,
+			recordReachability: async () => {
+				throw new Error("database is down")
+			},
+			now: () => now,
+			onError,
+		})
+
+		expect(run.unreachable).toEqual(["host-1"])
+		expect(onError).toHaveBeenCalledWith(
+			expect.stringContaining("Could not record"),
+			expect.anything(),
+		)
+	})
+
 	it("records when a host answered, so staleness is measurable", async () => {
 		const recordSeen = vi.fn(async () => undefined)
 		const now = new Date("2026-09-06T12:00:00Z")

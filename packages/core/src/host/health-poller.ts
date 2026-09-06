@@ -7,6 +7,7 @@ export type HealthPollerDeps = {
 	pollableHosts: () => Promise<HostRow[]>
 	connect: (host: HostRow) => Promise<HostTransport>
 	recordSeen: (host: HostRow, seenAt: Date, observed: HostObservationResult) => Promise<void>
+	recordReachability?: (host: HostRow, reached: boolean) => Promise<void>
 	now: () => Date
 	onError?: (message: string, error: Error | string) => void
 }
@@ -33,12 +34,21 @@ export const runHealthPoll = async (deps: HealthPollerDeps): Promise<HealthPollR
 			const observed = await observeHost(transport, profile)
 			await deps.recordSeen(host, deps.now(), observed)
 			run.reached.push(host.id)
+			await deps.recordReachability?.(host, true)
 		} catch (error) {
 			run.unreachable.push(host.id)
 			deps.onError?.(
 				`Health poll could not reach host ${host.id}`,
 				error instanceof Error ? error : String(error),
 			)
+			try {
+				await deps.recordReachability?.(host, false)
+			} catch (recordError) {
+				deps.onError?.(
+					`Could not record that host ${host.id} was unreachable`,
+					recordError instanceof Error ? recordError : String(recordError),
+				)
+			}
 		} finally {
 			await transport?.close().catch(() => undefined)
 		}

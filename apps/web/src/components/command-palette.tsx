@@ -1,17 +1,24 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Boxes, KeyRound, LayoutDashboard, LogOut, Search, Server, SunMoon } from "lucide-react"
+import {
+	Boxes,
+	KeyRound,
+	LayoutDashboard,
+	LogOut,
+	Monitor,
+	Moon,
+	Play,
+	RotateCcw,
+	Search,
+	Server,
+	Square,
+	Sun,
+} from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { authClient } from "~/lib/auth-client"
 import { groupPaletteItems, type PaletteItem, rankPaletteItems } from "~/lib/command-palette"
-import {
-	applyTheme,
-	nextPreference,
-	readStoredPreference,
-	resolveTheme,
-	storePreference,
-} from "~/lib/theme"
+import { applyTheme, resolveTheme, storePreference, type ThemePreference } from "~/lib/theme"
 import { useTRPC } from "~/lib/trpc"
 import { cn } from "~/lib/utils"
 
@@ -22,10 +29,11 @@ type PaletteAction = PaletteItem & {
 
 export type CommandPaletteProps = {
 	open: boolean
+	instant: boolean
 	onClose: () => void
 }
 
-export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
+export const CommandPalette = ({ open, instant, onClose }: CommandPaletteProps) => {
 	const reduced = useReducedMotion() ?? false
 	const navigate = useNavigate()
 	const trpc = useTRPC()
@@ -33,8 +41,21 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
 	const [active, setActive] = useState(0)
 	const field = useRef<HTMLInputElement>(null)
 
+	const queryClient = useQueryClient()
 	const instancesQuery = useQuery({ ...trpc.instance.list.queryOptions(), enabled: open })
 	const hostsQuery = useQuery({ ...trpc.host.list.queryOptions(), enabled: open })
+	const refresh = { onSuccess: () => queryClient.invalidateQueries() }
+	const startMutation = useMutation(trpc.instance.start.mutationOptions(refresh))
+	const stopMutation = useMutation(trpc.instance.stop.mutationOptions(refresh))
+	const restartMutation = useMutation(trpc.instance.restart.mutationOptions(refresh))
+
+	const setTheme = useCallback((preference: ThemePreference) => {
+		storePreference(window.localStorage, preference)
+		applyTheme(
+			document.documentElement,
+			resolveTheme(preference, window.matchMedia("(prefers-color-scheme: dark)").matches),
+		)
+	}, [])
 
 	const go = useCallback(
 		(run: () => void) => () => {
@@ -99,19 +120,28 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
 
 		const account: PaletteAction[] = [
 			{
-				id: "action:theme",
-				label: "Switch theme",
-				group: "Account",
-				keywords: "dark light appearance",
-				icon: SunMoon,
-				run: go(() => {
-					const next = nextPreference(readStoredPreference(window.localStorage))
-					storePreference(window.localStorage, next)
-					applyTheme(
-						document.documentElement,
-						resolveTheme(next, window.matchMedia("(prefers-color-scheme: dark)").matches),
-					)
-				}),
+				id: "action:theme-system",
+				label: "Use system theme",
+				group: "Appearance",
+				keywords: "appearance auto",
+				icon: Monitor,
+				run: go(() => setTheme("system")),
+			},
+			{
+				id: "action:theme-light",
+				label: "Use light theme",
+				group: "Appearance",
+				keywords: "appearance bright",
+				icon: Sun,
+				run: go(() => setTheme("light")),
+			},
+			{
+				id: "action:theme-dark",
+				label: "Use dark theme",
+				group: "Appearance",
+				keywords: "appearance night",
+				icon: Moon,
+				run: go(() => setTheme("dark")),
 			},
 			{
 				id: "action:sign-out",
@@ -125,10 +155,61 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
 			},
 		]
 
-		return [...navigation, ...instances, ...hosts, ...account]
-	}, [go, navigate, instancesQuery.data, hostsQuery.data])
+		const operations: PaletteAction[] = (instancesQuery.data ?? []).flatMap((instance) => {
+			if (instance.status === "running") {
+				return [
+					{
+						id: `stop:${instance.id}`,
+						label: `Stop ${instance.name}`,
+						group: "Run",
+						keywords: "halt",
+						icon: Square,
+						run: go(() => stopMutation.mutate({ instanceId: instance.id })),
+					},
+					{
+						id: `restart:${instance.id}`,
+						label: `Restart ${instance.name}`,
+						group: "Run",
+						keywords: "reboot apply settings",
+						icon: RotateCcw,
+						run: go(() => restartMutation.mutate({ instanceId: instance.id })),
+					},
+				]
+			}
+			if (instance.status === "needs_auth") return []
+			return [
+				{
+					id: `start:${instance.id}`,
+					label: `Start ${instance.name}`,
+					group: "Run",
+					keywords: "launch",
+					icon: Play,
+					run: go(() => startMutation.mutate({ instanceId: instance.id })),
+				},
+			]
+		})
 
-	const ranked = useMemo(() => rankPaletteItems(actions, query), [actions, query])
+		return [...navigation, ...instances, ...hosts, ...operations, ...account]
+	}, [
+		go,
+		navigate,
+		setTheme,
+		instancesQuery.data,
+		hostsQuery.data,
+		startMutation,
+		stopMutation,
+		restartMutation,
+	])
+
+	const ranked = useMemo(() => {
+		if (query.trim().length === 0) {
+			return actions.filter(
+				(action) =>
+					action.group !== "Instances" && action.group !== "Hosts" && action.group !== "Run",
+			)
+		}
+		return rankPaletteItems(actions, query)
+	}, [actions, query])
 	const groups = useMemo(() => groupPaletteItems(ranked), [ranked])
 
 	useEffect(() => {
@@ -177,7 +258,7 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					exit={{ opacity: 0 }}
-					transition={{ duration: reduced ? 0.1 : 0.15 }}
+					transition={{ duration: reduced ? 0.1 : instant ? 0 : 0.14 }}
 				>
 					<button
 						type="button"
@@ -189,10 +270,10 @@ export const CommandPalette = ({ open, onClose }: CommandPaletteProps) => {
 						role="dialog"
 						aria-label="Command palette"
 						className="relative w-full max-w-xl overflow-hidden rounded-[var(--radius)] border border-border bg-card shadow-2xl"
-						initial={reduced ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
-						animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-						exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
-						transition={{ type: "spring", duration: reduced ? 0.1 : 0.25, bounce: 0 }}
+						initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
+						animate={{ opacity: 1, scale: 1 }}
+						exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
+						transition={{ duration: reduced ? 0.1 : instant ? 0 : 0.16, ease: [0.16, 1, 0.3, 1] }}
 					>
 						<div className="flex items-center gap-2 border-b border-border px-3">
 							<Search className="size-4 shrink-0 text-muted-foreground" />

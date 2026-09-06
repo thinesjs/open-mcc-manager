@@ -44,11 +44,13 @@ function AuthenticatedLayout() {
 	const navigate = useNavigate()
 	const session = authClient.useSession()
 	const [paletteOpen, setPaletteOpen] = useState(false)
+	const [paletteInstant, setPaletteInstant] = useState(false)
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return
 			event.preventDefault()
+			setPaletteInstant(true)
 			setPaletteOpen((current) => !current)
 		}
 		document.addEventListener("keydown", onKey)
@@ -62,7 +64,11 @@ function AuthenticatedLayout() {
 
 	return (
 		<div className="flex h-dvh overflow-hidden">
-			<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+			<CommandPalette
+				open={paletteOpen}
+				instant={paletteInstant}
+				onClose={() => setPaletteOpen(false)}
+			/>
 			<aside className="flex h-full w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
 				<div>
 					<div className="flex items-center gap-2 px-5 py-4">
@@ -79,7 +85,10 @@ function AuthenticatedLayout() {
 					<div className="px-3 pt-1 pb-2">
 						<button
 							type="button"
-							onClick={() => setPaletteOpen(true)}
+							onClick={() => {
+								setPaletteInstant(false)
+								setPaletteOpen(true)
+							}}
 							className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] border border-sidebar-border px-3 py-1.5 text-sm text-sidebar-muted-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
 						>
 							<Search className="size-4 shrink-0" />

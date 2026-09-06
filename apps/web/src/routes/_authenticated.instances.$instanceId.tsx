@@ -1,7 +1,7 @@
 import { ACCOUNT_TYPE_LABELS, needsInteractiveSignIn } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ChevronLeft, CircleAlert, KeyRound, Play, Square, Terminal } from "lucide-react"
+import { ChevronLeft, CircleAlert, KeyRound, Play, RotateCcw, Square, Terminal } from "lucide-react"
 import { useState } from "react"
 import { ConsoleComposer } from "~/components/console-composer"
 import { EmptyState } from "~/components/empty-state"
@@ -22,7 +22,6 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { consoleLines } from "~/lib/minecraft-text"
-import { trackedStateSummary } from "~/lib/tracked-state"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/instances/$instanceId")({
@@ -101,6 +100,7 @@ function InstanceDetailPage() {
 	const completeMutation = useMutation(
 		trpc.instance.completeAuthentication.mutationOptions({ onSuccess, onError }),
 	)
+	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
 	const instance = instanceQuery.data
@@ -109,6 +109,7 @@ function InstanceDetailPage() {
 	const busy =
 		startMutation.isPending ||
 		stopMutation.isPending ||
+		restartMutation.isPending ||
 		authenticateMutation.isPending ||
 		completeMutation.isPending ||
 		removeMutation.isPending
@@ -219,6 +220,7 @@ function InstanceDetailPage() {
 							<TabsTab value="console">Console</TabsTab>
 							<TabsTab value="schedule">Schedule</TabsTab>
 							<TabsTab value="settings">Settings</TabsTab>
+							<TabsTab value="danger">Danger zone</TabsTab>
 						</TabsList>
 
 						<TabsPanel value="overview">
@@ -470,9 +472,21 @@ function InstanceDetailPage() {
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Wait between attempts</dt>
+											<dd className="text-sm tabular-nums text-foreground">{`${configQuery.data.autoRelogDelaySeconds}s`}</dd>
+										</div>
+										<div className="flex justify-between gap-4">
 											<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
 											<dd className="text-sm text-foreground">
 												{configQuery.data.autoRespawnEnabled ? "On" : "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.antiAfkEnabled
+													? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
+													: "Off"}
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
@@ -484,34 +498,82 @@ function InstanceDetailPage() {
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Client tracks</dt>
+											<dt className="text-sm text-muted-foreground">World and position</dt>
 											<dd className="text-sm text-foreground">
-												{trackedStateSummary(configQuery.data)}
+												{configQuery.data.worldDataEnabled ? "Tracked" : "Off"}
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
+											<dt className="text-sm text-muted-foreground">Inventory</dt>
 											<dd className="text-sm text-foreground">
-												{configQuery.data.antiAfkEnabled
-													? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
-													: "Off"}
+												{configQuery.data.inventoryDataEnabled ? "Tracked" : "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Nearby entities</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.entityDataEnabled ? "Tracked" : "Off"}
 											</dd>
 										</div>
 									</dl>
 								)}
 							</section>
 						</TabsPanel>
-					</Tabs>
 
-					<div className="flex gap-3">
-						<Button
-							variant="destructive-outline"
-							onClick={() => setConfirmingRemove(true)}
-							disabled={busy}
-						>
-							{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove instance"}
-						</Button>
-					</div>
+						<TabsPanel value="danger">
+							<div className="space-y-4">
+								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
+									<div>
+										<h2 className="text-sm font-semibold text-foreground">Restart</h2>
+										<p className="text-xs text-muted-foreground">
+											Stops the client, rewrites its config on the host, then starts it again. This
+											is how a settings change takes effect. The client leaves the server for a few
+											seconds. The whole sequence runs on the server, so closing this page will not
+											leave it half-restarted.
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="secondary"
+										disabled={busy || instance.status !== "running"}
+										onClick={() => restartMutation.mutate({ instanceId })}
+									>
+										{restartMutation.isPending ? (
+											<Spinner label="Restarting" />
+										) : (
+											<>
+												<RotateCcw className="size-4" />
+												Restart
+											</>
+										)}
+									</Button>
+									{instance.status !== "running" ? (
+										<p className="text-xs text-muted-foreground">
+											Only a running instance can be restarted. Use Start instead.
+										</p>
+									) : null}
+								</section>
+
+								<section className="space-y-3 rounded-[var(--radius)] border border-destructive/40 bg-card p-4">
+									<div>
+										<h2 className="text-sm font-semibold text-foreground">Remove this instance</h2>
+										<p className="text-xs text-muted-foreground">
+											Stops the client and deletes its unit, schedules and data from the host. Its
+											sign-in is discarded. This cannot be undone.
+										</p>
+									</div>
+									<Button
+										variant="destructive-outline"
+										size="sm"
+										onClick={() => setConfirmingRemove(true)}
+										disabled={busy}
+									>
+										{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove instance"}
+									</Button>
+								</section>
+							</div>
+						</TabsPanel>
+					</Tabs>
 				</>
 			) : null}
 

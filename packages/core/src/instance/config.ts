@@ -126,13 +126,6 @@ export const freeLiveControlPorts = function* (taken: Iterable<number>): Generat
 	}
 }
 
-export const allocateLiveControlPort = (taken: Iterable<number>): number => {
-	for (const port of freeLiveControlPorts(taken)) return port
-	throw new LiveControlPortsExhaustedError(
-		`No live control port is free between ${DEFAULT_LIVE_CONTROL_PORT} and ${LIVE_CONTROL_PORT_LIMIT}`,
-	)
-}
-
 export const defaultInstanceConfig = (values: {
 	accountType: AccountType
 	minecraftAccount: string

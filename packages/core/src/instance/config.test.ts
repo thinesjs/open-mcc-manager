@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
 	ALLOWED_CONFIG_KEYS,
-	allocateLiveControlPort,
 	EMPTIED_CONFIG_SECTIONS,
 	FIXED_CONFIG_KEYS,
-	LiveControlPortsExhaustedError,
+	freeLiveControlPorts,
 	renderInstanceConfig,
 	splitServerAddress,
 } from "./config"
@@ -307,23 +306,32 @@ describe("instance config rendering", () => {
 		expect(renderInstanceConfig({ ...base, liveControlPort: 33401 })).toContain("Port = 33401")
 	})
 
-	it("gives the first instance on a host the client's own default port", () => {
-		expect(allocateLiveControlPort([])).toBe(33333)
+	const firstFree = (taken: readonly number[]): number | undefined => {
+		for (const port of freeLiveControlPorts(taken)) return port
+		return undefined
+	}
+
+	it("offers the client's own default port first", () => {
+		expect(firstFree([])).toBe(33333)
 	})
 
-	it("never hands two instances the same port, since they share a network namespace", () => {
-		expect(allocateLiveControlPort([33333])).toBe(33334)
-		expect(allocateLiveControlPort([33333, 33334, 33335])).toBe(33336)
+	it("skips a port a sibling already holds, since they share a network namespace", () => {
+		expect(firstFree([33333])).toBe(33334)
+		expect(firstFree([33333, 33334, 33335])).toBe(33336)
 	})
 
-	it("reuses a port freed by a removed instance", () => {
-		expect(allocateLiveControlPort([33333, 33335])).toBe(33334)
+	it("offers a port freed by a removed instance again", () => {
+		expect(firstFree([33333, 33335])).toBe(33334)
 	})
 
-	it("refuses to hand out a port outside the range it owns", () => {
+	it("offers candidates in order, so a caller can probe each in turn", () => {
+		expect([...freeLiveControlPorts([33333, 33334])].slice(0, 3)).toEqual([33335, 33336, 33337])
+	})
+
+	it("offers nothing once the range it owns is used up", () => {
 		const everyPort = Array.from({ length: 500 }, (_, index) => 33333 + index)
 
-		expect(() => allocateLiveControlPort(everyPort)).toThrow(LiveControlPortsExhaustedError)
+		expect(firstFree(everyPort)).toBeUndefined()
 	})
 
 	it("leaves the costly handlers off, since they are what makes the client heavy", () => {

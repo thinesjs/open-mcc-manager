@@ -31,7 +31,6 @@ import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
 import {
-	allocateLiveControlPort,
 	defaultInstanceConfig,
 	freeLiveControlPorts,
 	LIVE_CONTROL_ROUTE,

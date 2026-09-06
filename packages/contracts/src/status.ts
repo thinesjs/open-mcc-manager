@@ -102,17 +102,23 @@ export const statusSourceSchema = z.enum(STATUS_SOURCES)
 
 export type StatusSource = z.infer<typeof statusSourceSchema>
 
-export const STATUS_RANGES = ["24h", "7d", "30d", "90d"] as const
+export const STATUS_RANGES = ["24h", "7d", "30d"] as const
 
 export const statusRangeSchema = z.enum(STATUS_RANGES)
 
 export type StatusRange = z.infer<typeof statusRangeSchema>
 
+export const rangeWithinRetention = (range: StatusRange, retentionDays: number): StatusRange => {
+	const wanted = RANGE_SECONDS[range] / (24 * 60 * 60)
+	if (wanted <= retentionDays) return range
+	if (retentionDays >= 7) return "7d"
+	return "24h"
+}
+
 export const RANGE_SECONDS: Record<StatusRange, number> = {
 	"24h": 24 * 60 * 60,
 	"7d": 7 * 24 * 60 * 60,
 	"30d": 30 * 24 * 60 * 60,
-	"90d": 90 * 24 * 60 * 60,
 }
 
 export const statusSummaryInput = z.object({ range: statusRangeSchema.default("24h") })
@@ -129,11 +135,11 @@ export type StatusSummaryInput = z.infer<typeof statusSummaryInput>
 
 export type StatusEventsInput = z.infer<typeof statusEventsInput>
 
-export const STATUS_EVENT_RETENTION_DAYS = 30
+export const DEFAULT_STATUS_RETENTION_DAYS = 30
 
-export const STATUS_INTERVAL_RETENTION_DAYS = 90
+export const MIN_STATUS_RETENTION_DAYS = 1
 
-export const STATUS_ROLLUP_RETENTION_DAYS = 760
+export const MAX_STATUS_RETENTION_DAYS = 365
 
 export const HOST_SUSPECT_TO_DOWN_MS = 3 * 60 * 1000
 
@@ -172,6 +178,11 @@ export const coverageRatio = (availability: Availability): number | undefined =>
 	return measuredSeconds(availability) / observable
 }
 
+export type BucketAvailability = {
+	start: string
+	availability: Availability
+}
+
 export type HostUptime = {
 	hostId: string
 	hostName: string
@@ -179,13 +190,19 @@ export type HostUptime = {
 	since: Date
 	lastCheckedAt: Date
 	availability: Availability
+	buckets: BucketAvailability[]
 }
 
 export type StatusSummary = {
 	hosts: HostUptime[]
 	answering: number
 	total: number
+	granularity: "hour" | "day"
+	retentionDays: number
 }
+
+export const granularityFor = (range: StatusRange): "hour" | "day" =>
+	range === "24h" ? "hour" : "day"
 
 export type StatusEventView = {
 	id: string

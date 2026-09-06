@@ -1,8 +1,10 @@
 import {
 	type Availability,
 	EMPTY_AVAILABILITY,
+	granularityFor,
 	type HostUptime,
 	RANGE_SECONDS,
+	rangeWithinRetention,
 	type StatusEventKind,
 	type StatusEventView,
 	type StatusRange,
@@ -13,7 +15,7 @@ import type { Db } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
 import { nextReachability, type ReachabilityCurrent, UNOBSERVED } from "./reachability"
-import { rollUpDay } from "./rollup"
+import { bucketStarts, rollUpWindow, SECONDS_PER_BUCKET } from "./rollup"
 import { createStatusRepository, type StatusRepository } from "./status.repository"
 
 export type StatusTransactionBundle = { status: StatusRepository }
@@ -31,6 +33,7 @@ export const createStatusControllerTransaction = (db: Db): WithStatusTransaction
 export type StatusControllerDeps = {
 	withTransaction: WithStatusTransaction
 	hostNames: (scope: OrgScope) => Promise<{ id: string; name: string }[]>
+	retentionDays: number
 	now: () => Date
 }
 
@@ -52,9 +55,8 @@ const availabilityOver = (
 		startedAt: interval.startedAt < since ? since : interval.startedAt,
 		endedAt: interval.endedAt ?? until,
 	}))
-	const seconds = Math.max(0, Math.round((until.getTime() - since.getTime()) / 1000))
-	if (seconds === 0) return EMPTY_AVAILABILITY
-	return rollUpDay(clipped, since)
+	if (until.getTime() <= since.getTime()) return EMPTY_AVAILABILITY
+	return rollUpWindow(clipped, since, until)
 }
 
 export const createStatusController = (deps: StatusControllerDeps) => ({
@@ -137,7 +139,8 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		})
 	},
 
-	summary: async (scope: OrgScope, range: StatusRange): Promise<StatusSummary> => {
+	summary: async (scope: OrgScope, requested: StatusRange): Promise<StatusSummary> => {
+		const range = rangeWithinRetention(requested, deps.retentionDays)
 		const since = new Date(deps.now().getTime() - RANGE_SECONDS[range] * 1000)
 		const names = await deps.hostNames(scope)
 		return await deps.withTransaction(async ({ status }) => {
@@ -146,22 +149,37 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 				dimension: HOST_REACHABILITY,
 				since,
 			})
+			const now = deps.now()
+			const granularity = granularityFor(range)
+			const starts = bucketStarts(since, now, granularity)
+			const step = SECONDS_PER_BUCKET[granularity] * 1000
 			const hosts = names.map((host) => {
 				const condition = conditions.find((entry) => entry.hostId === host.id)
 				const mine = intervals.filter((entry) => entry.hostId === host.id)
+				const clipped = mine.map((interval) => ({
+					state: interval.state,
+					startedAt: interval.startedAt,
+					endedAt: interval.endedAt ?? now,
+				}))
 				return {
 					hostId: host.id,
 					hostName: host.name,
 					state: condition?.state ?? "unknown",
 					since: condition?.startedAt ?? since,
 					lastCheckedAt: condition?.lastObservedAt ?? since,
-					availability: availabilityOver(mine, since, deps.now()),
+					availability: availabilityOver(mine, since, now),
+					buckets: starts.map((start) => ({
+						start: start.toISOString(),
+						availability: rollUpWindow(clipped, start, new Date(start.getTime() + step)),
+					})),
 				}
 			})
 			return {
 				hosts,
 				answering: hosts.filter((host) => host.state === "up").length,
 				total: hosts.length,
+				granularity,
+				retentionDays: deps.retentionDays,
 			}
 		})
 	},
@@ -170,10 +188,16 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		scope: OrgScope,
 		range: StatusRange,
 		limit: number,
+		filter: { hostId?: string; instanceId?: string } = {},
 	): Promise<StatusEventView[]> => {
 		const since = new Date(deps.now().getTime() - RANGE_SECONDS[range] * 1000)
 		return await deps.withTransaction(async ({ status }) => {
-			const rows = await status.listEvents(scope, { since, limit })
+			const rows = await status.listEvents(scope, {
+				since,
+				limit,
+				...(filter.hostId === undefined ? {} : { hostId: filter.hostId }),
+				...(filter.instanceId === undefined ? {} : { instanceId: filter.instanceId }),
+			})
 			return rows.map((row) => ({
 				id: row.id,
 				kind: row.kind,

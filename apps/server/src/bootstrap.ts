@@ -121,6 +121,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		withTransaction: createStatusControllerTransaction(db),
 		hostNames: async (scope) =>
 			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
+		retentionDays: env.STATUS_RETENTION_DAYS,
 		now: () => new Date(),
 	})
 

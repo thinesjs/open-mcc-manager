@@ -3,6 +3,7 @@ import { z } from "zod"
 const envSchema = z.object({
 	DATABASE_URL: z.string().min(1),
 	PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+	STATUS_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 	BETTER_AUTH_SECRET: z.string().min(16),
 	BETTER_AUTH_URL: z.string().url().default("http://localhost:3000"),
 	SEALBOX_KEYS: z.string().min(1),

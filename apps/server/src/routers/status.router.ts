@@ -9,6 +9,9 @@ export const statusRouter = router({
 
 	events: protectedProcedure.input(statusEventsInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.read")
-		return ctx.statusController.events(ctx.actor, input.range, input.limit)
+		return ctx.statusController.events(ctx.actor, input.range, input.limit, {
+			...(input.hostId === undefined ? {} : { hostId: input.hostId }),
+			...(input.instanceId === undefined ? {} : { instanceId: input.instanceId }),
+		})
 	}),
 })

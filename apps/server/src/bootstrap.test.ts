@@ -6,6 +6,7 @@ import type { Env } from "./env"
 const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
 	PORT: 0,
+	STATUS_RETENTION_DAYS: 30,
 	BETTER_AUTH_SECRET: "a-very-long-test-secret-value",
 	BETTER_AUTH_URL: "http://localhost:3000",
 	SEALBOX_KEYS: "",

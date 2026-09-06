@@ -31,6 +31,7 @@ const startWithAllowedOrigins = async (allowedOrigins: string): Promise<ServerHa
 	const env: Env = {
 		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
 		PORT: 0,
+		STATUS_RETENTION_DAYS: 30,
 		BETTER_AUTH_SECRET: "a-very-long-test-secret-value-000000",
 		BETTER_AUTH_URL: "http://localhost:3000",
 		SEALBOX_KEYS: await generateKeyPair("k1"),

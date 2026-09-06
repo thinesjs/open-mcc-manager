@@ -7,6 +7,7 @@ import { CreateInstanceForm } from "~/components/create-instance-form"
 import { HostDrift } from "~/components/host-drift"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostMetricsPanel } from "~/components/host-metrics"
+import { HostReliability } from "~/components/host-reliability"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { ProvisionProgress } from "~/components/provision-progress"
 import { Alert } from "~/components/ui/alert"
@@ -226,6 +227,8 @@ function HostDetailPage() {
 					</CardContent>
 				</Card>
 			) : null}
+
+			<HostReliability hostId={host.id} />
 
 			<HostMetricsPanel hostId={host.id} ready={host.status === "ready"} />
 

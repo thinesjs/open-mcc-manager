@@ -651,4 +651,63 @@ describe("running several instances on one host", () => {
 		expect(documents).toHaveLength(1)
 		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33334)
 	})
+
+	it("rewrites the config before starting, because the client clobbers it on exit", async () => {
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: false,
+					liveControlPort: 33333,
+					worldDataEnabled: true,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+		await controller.start(owner, "abc123")
+
+		const written = transport.stdins.find((each) => each.includes("[Main.General]"))
+		expect(written).toBeDefined()
+		expect(written).toContain("TerrainAndMovements = true")
+	})
+
+	it("writes that config before the unit is told to start, not after", async () => {
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: false,
+					liveControlPort: 33333,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+		await controller.start(owner, "abc123")
+
+		const wroteAt = transport.commands.findIndex((command) =>
+			command.includes("MinecraftClient.ini"),
+		)
+		const startedAt = transport.commands.findIndex((command) => command.includes("systemctl"))
+		expect(wroteAt).toBeGreaterThanOrEqual(0)
+		expect(startedAt).toBeGreaterThan(wroteAt)
+	})
 })

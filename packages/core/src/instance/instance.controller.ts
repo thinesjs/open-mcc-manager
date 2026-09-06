@@ -185,6 +185,33 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			: config.liveControlPort
 	}
 
+	const writeSavedConfig = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
+		const saved = await deps.instances.latestConfig(scopeOf(ctx), instance.id)
+		if (!saved) return
+		const parsed = instanceConfigInput.safeParse(saved.document)
+		if (!parsed.success) return
+		const document = renderInstanceConfig(parsed.data)
+
+		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		try {
+			const configPath = `${instanceDir(profile.instancesRoot, instance.id)}/MinecraftClient.ini`
+			const owner = instanceUser(instance.id)
+			const claim = usesPerInstanceUsers(profile)
+				? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(configPath)}`
+				: ""
+			const result = await transport.exec(
+				`(umask 077; cat > ${shellQuote(configPath)})${claim}`,
+				INSTANCE_STEP_TIMEOUT_MS,
+				document,
+			)
+			if (result.exitCode !== 0) {
+				throw new Error(`Failed to write instance config: ${result.stderr.trim()}`)
+			}
+		} finally {
+			await transport.close().catch(() => undefined)
+		}
+	}
+
 	const liveControlTargetFor = async (
 		ctx: ActorContext,
 		instanceId: string,
@@ -445,6 +472,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
+			await writeSavedConfig(ctx, instance)
 			await unitCommand(ctx, instance, "start")
 
 			const updated = await deps.withTransaction(async (repos) => {

@@ -164,6 +164,64 @@ export interface Member {
 	userId: string
 }
 
+export interface Notification {
+	body: string
+	createdAt: Generated<Timestamp>
+	dedupeKey: string
+	id: string
+	kind: string
+	organizationId: string
+	sourceStatusEventId: string | null
+	subjectId: string
+	subjectType: string
+	title: string
+}
+
+export interface NotificationAttempt {
+	at: Generated<Timestamp>
+	attempt: number
+	deliveryId: string
+	error: string | null
+	id: string
+	organizationId: string
+	outcome: string
+	statusCode: number | null
+}
+
+export interface NotificationDelivery {
+	attempts: Generated<number>
+	createdAt: Generated<Timestamp>
+	destinationId: string
+	id: string
+	lastError: string | null
+	notificationId: string
+	organizationId: string
+	settledAt: Timestamp | null
+	state: string
+}
+
+export interface NotificationDestination {
+	createdAt: Generated<Timestamp>
+	displayTarget: string
+	enabled: Generated<boolean>
+	id: string
+	kind: string
+	lastFailedAt: Timestamp | null
+	lastFailureReason: string | null
+	lastSucceededAt: Timestamp | null
+	name: string
+	organizationId: string
+	secretEncrypted: string
+	secretKeyId: string
+}
+
+export interface NotificationSubscription {
+	destinationId: string
+	id: string
+	kind: string
+	organizationId: string
+}
+
 export interface Organization {
 	createdAt: Generated<Timestamp>
 	id: string
@@ -304,6 +362,11 @@ export interface DB {
 	instanceSchedule: InstanceSchedule
 	invitation: Invitation
 	member: Member
+	notification: Notification
+	notificationAttempt: NotificationAttempt
+	notificationDelivery: NotificationDelivery
+	notificationDestination: NotificationDestination
+	notificationSubscription: NotificationSubscription
 	organization: Organization
 	processIdentity: ProcessIdentity
 	session: Session

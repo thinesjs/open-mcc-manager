@@ -7,6 +7,12 @@ import type {
 	InstanceScheduleTable,
 	InstanceTable,
 } from "./schema/instance"
+import type {
+	NotificationAttemptTable,
+	NotificationDeliveryTable,
+	NotificationDestinationTable,
+	NotificationTable,
+} from "./schema/notification"
 import type { ProcessIdentityTable } from "./schema/process-identity"
 import type { SshKeyTable } from "./schema/ssh-key"
 import type {
@@ -31,6 +37,10 @@ export type Database = Omit<
 	| "statusInterval"
 	| "statusDailyRollup"
 	| "statusSourceCursor"
+	| "notification"
+	| "notificationDestination"
+	| "notificationDelivery"
+	| "notificationAttempt"
 > & {
 	host: HostTable
 	processIdentity: ProcessIdentityTable
@@ -45,4 +55,8 @@ export type Database = Omit<
 	statusInterval: StatusIntervalTable
 	statusDailyRollup: StatusDailyRollupTable
 	statusSourceCursor: StatusSourceCursorTable
+	notification: NotificationTable
+	notificationDestination: NotificationDestinationTable
+	notificationDelivery: NotificationDeliveryTable
+	notificationAttempt: NotificationAttemptTable
 }

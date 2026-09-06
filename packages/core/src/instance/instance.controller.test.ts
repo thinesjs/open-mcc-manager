@@ -738,4 +738,45 @@ describe("running several instances on one host", () => {
 		expect(sealedTokens).toHaveLength(1)
 		expect(sealedTokens[0]).not.toMatch(/^[0-9a-f]{32}$/)
 	})
+
+	it("does not hand out a port something on the host is already listening on", async () => {
+		const { deps } = makeDeps()
+		const busy = createFakeTransport({}, {}, true, [33333, 33334])
+		deps.createTransport = () => busy
+		const documents: string[] = []
+		deps.instances.insertConfigVersion = async (_scope, _id, document) => {
+			documents.push(document)
+			return configRow()
+		}
+		const controller = createInstanceController(deps)
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		expect(documents).toHaveLength(1)
+		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33335)
+	})
+
+	it("closes the host connection when no port can be allocated", async () => {
+		const { deps } = makeDeps()
+		const everyPort = Array.from({ length: 600 }, (_, index) => 33333 + index)
+		const busy = createFakeTransport({}, {}, true, everyPort)
+		deps.createTransport = () => busy
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.create(owner, {
+				hostId: "host-1",
+				name: "afk-1",
+				accountType: "microsoft",
+				minecraftAccount: "afk@example.com",
+				serverAddress: "play.example.com",
+			}),
+		).rejects.toThrow(/port/i)
+		expect(busy.state()).not.toBe("ready")
+	})
 })

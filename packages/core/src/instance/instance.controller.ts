@@ -180,6 +180,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		ctx: ActorContext,
 		instance: InstanceRow,
 		config: InstanceConfigInput,
+		transport: HostTransport,
 	): Promise<number> => {
 		const scope = scopeOf(ctx)
 		const siblings = (await deps.instances.list(scope)).filter(
@@ -192,8 +193,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const parsed = instanceConfigInput.safeParse(saved.document)
 			if (parsed.success) taken.push(parsed.data.liveControlPort)
 		}
-		return taken.includes(config.liveControlPort)
-			? allocateLiveControlPort(taken)
+		if (taken.includes(config.liveControlPort)) return await unusedPortOnHost(transport, taken)
+		if (!config.liveControlEnabled) return config.liveControlPort
+		return (await transport.canForward(config.liveControlPort, LIVE_PORT_PROBE_TIMEOUT_MS))
+			? await unusedPortOnHost(transport, [...taken, config.liveControlPort])
 			: config.liveControlPort
 	}
 
@@ -424,46 +427,47 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				const parsed = instanceConfigInput.safeParse(saved.document)
 				if (parsed.success) takenPorts.push(parsed.data.liveControlPort)
 			}
-			const initialConfig = {
-				...defaultInstanceConfig({
-					accountType: input.accountType,
-					minecraftAccount: input.minecraftAccount,
-					serverAddress: input.serverAddress,
-				}),
-				liveControlPort: allocateLiveControlPort(takenPorts),
-			}
-			const liveControlToken = randomUUID().replaceAll("-", "")
-			const sealedToken = deps.secrets.seal(liveControlToken)
-
-			const created = await deps.withTransaction(async (repos) => {
-				const row = await repos.instances.insert(scopeOf(ctx), {
-					hostId: input.hostId,
-					name: input.name,
-					accountType: input.accountType,
-					minecraftAccount: input.minecraftAccount,
-					status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
-					liveControlTokenEncrypted: sealedToken.ciphertext,
-					liveControlTokenKeyId: sealedToken.keyId,
-				})
-				await repos.instances.insertConfigVersion(
-					scopeOf(ctx),
-					row.id,
-					JSON.stringify(initialConfig),
-					{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
-				)
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.create",
-					subjectType: "instance",
-					subjectId: row.id,
-					detail: { hostId: input.hostId, name: input.name, accountType: input.accountType },
-				})
-				return row
-			})
-
 			const { transport, profile } = await connectToHost(scopeOf(ctx), input.hostId)
+			let created: InstanceRow
 			try {
+				const initialConfig = {
+					...defaultInstanceConfig({
+						accountType: input.accountType,
+						minecraftAccount: input.minecraftAccount,
+						serverAddress: input.serverAddress,
+					}),
+					liveControlPort: await unusedPortOnHost(transport, takenPorts),
+				}
+				const liveControlToken = randomUUID().replaceAll("-", "")
+				const sealedToken = deps.secrets.seal(liveControlToken)
+
+				created = await deps.withTransaction(async (repos) => {
+					const row = await repos.instances.insert(scopeOf(ctx), {
+						hostId: input.hostId,
+						name: input.name,
+						accountType: input.accountType,
+						minecraftAccount: input.minecraftAccount,
+						status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
+						liveControlTokenEncrypted: sealedToken.ciphertext,
+						liveControlTokenKeyId: sealedToken.keyId,
+					})
+					await repos.instances.insertConfigVersion(
+						scopeOf(ctx),
+						row.id,
+						JSON.stringify(initialConfig),
+						{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
+					)
+					await repos.audit.record(scopeOf(ctx), {
+						actorId: ctx.memberId,
+						actorLabel: ctx.actorLabel,
+						action: "instance.create",
+						subjectType: "instance",
+						subjectId: row.id,
+						detail: { hostId: input.hostId, name: input.name, accountType: input.accountType },
+					})
+					return row
+				})
+
 				const dir = instanceDir(profile.instancesRoot, created.id)
 				const owner = instanceUser(created.id)
 				const isolated = usesPerInstanceUsers(profile)
@@ -721,13 +725,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const instance = await requireInstance(ctx, instanceId)
+			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			const settled = {
 				...config,
-				liveControlPort: await freeLiveControlPort(ctx, instance, config),
+				liveControlPort: await freeLiveControlPort(ctx, instance, config, transport),
 			}
 			const document = renderInstanceConfig(settled)
 
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				const configPath = `${instanceDir(profile.instancesRoot, instance.id)}/MinecraftClient.ini`
 				const owner = instanceUser(instance.id)

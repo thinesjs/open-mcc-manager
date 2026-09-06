@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
 	CLIENT_PROBE_COMMAND,
 	checkHostOverTransport,
+	FORWARD_PROBE_PORT,
 	LINGER_COMMAND,
 	unreachableReport,
 } from "./check"
@@ -19,7 +20,7 @@ const READY = {
 const connected = async (
 	responses: Record<string, { stdout: string; stderr: string; exitCode: number }>,
 ) => {
-	const transport = createFakeTransport(responses)
+	const transport = createFakeTransport(responses, {}, true, [FORWARD_PROBE_PORT])
 	await transport.connect({
 		hostname: "h",
 		port: 22,

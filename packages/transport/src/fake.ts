@@ -21,6 +21,7 @@ export const createFakeTransport = (
 	script: FakeScript = {},
 	failures: FakeFailures = {},
 	forwarding = true,
+	listening: readonly number[] = [],
 ): HostTransport & {
 	commands: string[]
 	forwarded: number[]
@@ -47,7 +48,7 @@ export const createFakeTransport = (
 			}
 			state = "ready"
 		},
-		canForward: async () => forwarding,
+		canForward: async (port: number) => forwarding && listening.includes(port),
 
 		forward: async (port: number) => {
 			if (!forwarding) throw new LiveChannelUnavailableError(`Forwarding is refused`)

@@ -4,6 +4,7 @@ import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
 import { EmptyState } from "~/components/empty-state"
+import { InstanceContextMenu } from "~/components/instance-context-menu"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { PlayerAvatar } from "~/components/player-avatar"
 import { Alert } from "~/components/ui/alert"
@@ -88,36 +89,40 @@ function InstanceListPage() {
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{instancesQuery.data.map((instance) => (
-							<Link
-								key={instance.id}
-								to="/instances/$instanceId"
-								params={{ instanceId: instance.id }}
-								className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4 transition-colors hover:border-foreground/16 hover:bg-accent/40"
-							>
-								<div className="flex items-start justify-between gap-3">
-									<div className="flex min-w-0 items-center gap-2.5">
-										<PlayerAvatar username={instance.minecraftUsername} fallback={instance.name} />
-										<div className="min-w-0">
-											<p className="truncate font-medium text-foreground">{instance.name}</p>
-											<p className="truncate text-xs text-muted-foreground">
-												{instance.minecraftUsername ?? instance.minecraftAccount}
-											</p>
+							<InstanceContextMenu key={instance.id} instance={instance}>
+								<Link
+									to="/instances/$instanceId"
+									params={{ instanceId: instance.id }}
+									className="flex flex-col gap-3 rounded-[var(--radius)] border border-border bg-card p-4 transition-colors hover:border-foreground/16 hover:bg-accent/40"
+								>
+									<div className="flex items-start justify-between gap-3">
+										<div className="flex min-w-0 items-center gap-2.5">
+											<PlayerAvatar
+												username={instance.minecraftUsername}
+												fallback={instance.name}
+											/>
+											<div className="min-w-0">
+												<p className="truncate font-medium text-foreground">{instance.name}</p>
+												<p className="truncate text-xs text-muted-foreground">
+													{instance.minecraftUsername ?? instance.minecraftAccount}
+												</p>
+											</div>
 										</div>
+										<InstanceStatusBadge status={instance.status} />
 									</div>
-									<InstanceStatusBadge status={instance.status} />
-								</div>
-								<p className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
-									<Server className="size-3.5 shrink-0" aria-label="Host" />
-									<span className="truncate">
-										{hostNameById.get(instance.hostId) ?? "Unknown host"}
-									</span>
-								</p>
-								{describeExitCode(instance.lastExitCode) ? (
-									<p className="truncate text-xs text-muted-foreground">
-										{describeExitCode(instance.lastExitCode)}
+									<p className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+										<Server className="size-3.5 shrink-0" aria-label="Host" />
+										<span className="truncate">
+											{hostNameById.get(instance.hostId) ?? "Unknown host"}
+										</span>
 									</p>
-								) : null}
-							</Link>
+									{describeExitCode(instance.lastExitCode) ? (
+										<p className="truncate text-xs text-muted-foreground">
+											{describeExitCode(instance.lastExitCode)}
+										</p>
+									) : null}
+								</Link>
+							</InstanceContextMenu>
 						))}
 					</div>
 				) : (
@@ -134,7 +139,11 @@ function InstanceListPage() {
 							</thead>
 							<tbody className="divide-y divide-border">
 								{instancesQuery.data.map((instance) => (
-									<tr key={instance.id} className="hover:bg-accent">
+									<InstanceContextMenu
+										key={instance.id}
+										instance={instance}
+										render={<tr className="hover:bg-accent" />}
+									>
 										<td className="px-4 py-2.5">
 											<Link
 												to="/instances/$instanceId"
@@ -163,7 +172,7 @@ function InstanceListPage() {
 												<ChevronRight className="size-4 text-muted-foreground" />
 											</Link>
 										</td>
-									</tr>
+									</InstanceContextMenu>
 								))}
 							</tbody>
 						</table>

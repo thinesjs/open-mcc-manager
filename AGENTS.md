@@ -293,6 +293,15 @@ Dependency direction is one-way: router → controller → repository.
 | `*.controller.ts` | business logic, orchestration | import tRPC or HTTP types |
 | `*.router.ts` | tRPC procedures, zod validation, capability check | touch the database directly |
 
+- A query procedure must never resolve to `undefined`. There is no tRPC
+  transformer, so `undefined` is not representable in JSON: the key is dropped
+  from the response, and TanStack Query rejects the result with "Query data
+  cannot be undefined", leaving the query in an *error* state. A UI that
+  branches on `data === undefined` then renders the right thing for the wrong
+  reason while logging an error on every poll. Controllers may keep returning
+  `T | undefined`; the router converts it with `nullWhenAbsent`, and the UI
+  branches on falsiness rather than on `undefined`.
+
 - `apps/server/src/routers/member.router.ts` is the one exception to that last
   cell, and it is a standing exception rather than an unconverted file. It
   reads `invitation` and writes `member` directly, in four places, with no
@@ -482,14 +491,26 @@ reachable from any network, and nothing here may change that.
 | Wire parsing: SSE frames, JSON-RPC, MCC's `{success,data}` envelope | `packages/contracts/src/boundary/mcp.ts` |
 | The rendered `[ChatBot.McpServer]` block | `packages/core/src/instance/config.ts` |
 
+- Verify any claim about MCC against **the tag this repo deploys**, named in
+  `packages/core/src/host/mcc-release.ts`, not against whatever a local
+  checkout happens to have: `git show <tag>:the client source...`. A local
+  clone sat 15 months behind and contained no the client at all, so a
+  round of "verified against MCC source" had been checked against a version
+  without the feature. The instance console prints the running build, e.g.
+  `GitHub build 511, built on 2026-08-29 from commit fbfae5b`.
 - The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
   are rendered `false` as `FIXED` keys, which is what keeps
   `mcc_run_internal_command` — MCC's entire internal command surface, `script`
   included — out of reach. The control FIFO and its allowlist remain the only
   write path. Never enable those two to make a feature easier.
-- `Inventory` and `EntityWorld` do grant mutation (`DropInventoryItem`,
-  `AttackEntity`) alongside the reads Stage 4 wants. Both default off, and the
-  settings UI states the cost per toggle. `mcc_world_state` is gated by
+- `Inventory` and `EntityWorld` do grant mutation alongside the reads Stage 4
+  wants, and the ratio is worse than it sounds: `Inventory` unlocks ten tools
+  of which six write (`InventoryWindowAction`, `DropInventoryItem`,
+  `OpenContainerAt`, `CloseContainer`, `ChangeHotbarSlot`, `SelectHotbarItem`,
+  plus container deposit and withdraw), and `EntityWorld` brings `AttackEntity`,
+  `InteractEntity` and `PickupItems`. Both default off, the settings UI states
+  the cost per toggle, and the read-only summary names whichever are on so the
+  grant is visible without opening the editor. `mcc_world_state` is gated by
   `SessionStatus` instead, so world data costs no write surface at all.
 - `BindHost` is rendered as the literal `127.0.0.1` and is never an operator
   field. MCC's own validation accepts `0.0.0.0`, `+` and `*` while rejecting

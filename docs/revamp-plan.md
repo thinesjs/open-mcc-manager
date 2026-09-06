@@ -307,13 +307,19 @@ never in `apps/web`. Translation keys resolve against a small injectable map, no
 Mojang's full language file; an unrecognised key degrades to its arguments or its
 raw key rather than throwing.
 
-## Stage 4 — State the operator can see — **partly landed**
+## Stage 4 — State the operator can see — **landed**
 
 **Ships:** server GUI and inventory, live world and radar, health and position.
 
-*Landed so far:* the three gating keys as managed settings, tab containers on the instance
-page, the world read (server ticks, dimension, chunk load, position) and the nearby-entity
-list. The inventory read remains.
+*All landed:* the three gating keys as managed settings, tab containers on the instance
+page, the world read (server ticks, dimension, chunk load, position), the nearby-entity
+list, and the player inventory.
+
+The inventory read groups slots the way the client groups them itself — hotbar, main,
+armour, offhand, crafting — taken from MCC's own the client rather than
+guessed from the protocol, and confirmed against a live client by giving it a helmet, a
+sword, a stack of logs and a shield and watching which slots they landed in. MCC does not
+name the individual armour slots, so neither does this.
 
 These are reads over the Stage 2 channel, grouped because they share a shape — a
 periodically refreshed projection of client state — and because none is worth a
@@ -342,6 +348,20 @@ Tab containers land here, when there is enough on the instance page to warrant t
 
 *Not started.* The delivery channel is still undecided, and that decision is not this
 plan's to make.
+
+What the owner has ruled out, and why it narrows the design: **ntfy and Gotify are out.**
+There is a mobile app planned for this control plane, built around self-hosted deployments
+— the operator types the control plane's URL, the app asks that server which auth methods
+it offers, authenticates, and drives everything from there. A second self-hosted daemon and
+a second app to install fights that premise directly.
+
+That makes the app the primary delivery target, which in turn means the control plane has
+to own notifications as a real domain object — persisted, per-user read state, queryable —
+rather than firing them at an external sink and forgetting them. Every outbound adapter
+worth having sits on top of that feed, so the feed is the part that is not a guess. Note
+also that self-hosting rules out anything needing a vendor account: Web Push (VAPID) is the
+only real push transport a lone self-hosted server can drive, since APNs and FCM need
+credentials the operator will not have.
 
 Anti-AFK, auto-rejoin and respawn-after-dying are **already shipped** and were before this
 plan was written: `ChatBot.AntiAFK.*` and `ChatBot.AutoRelog.*` are rendered, contracted and

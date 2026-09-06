@@ -23,7 +23,18 @@ These bound every stage. They are not goals to trade off.
 - Spinners, never "…ing" text.
 - `pnpm lint && pnpm typecheck && pnpm test` green before every commit.
 
-## What is already true
+## Where this stands
+
+Stages 1 to 3 have landed and were verified against a real host rather than in tests alone:
+config drift was proven by hand-editing a key over SSH and watching the UI name it; the
+live channel was proven by calling every write tool through it and having the client refuse
+each one; and a message typed into the console composer came back through the independent
+read channel. Stage 4 has its gating keys, tab containers, and the world and entity reads.
+
+What has not landed: chat **send** on modern servers (blocked upstream, below), the
+inventory read, and Stage 5's push notifications, which still need a delivery channel chosen.
+
+## What was already true when this was written
 
 Worth stating, because two of these change what the later stages cost.
 
@@ -41,7 +52,7 @@ Worth stating, because two of these change what the later stages cost.
 - **Config drift does not exist yet.** `expectedUnits` compares unit files only.
   `MinecraftClient.ini` is written once at create and never read back.
 
-## Stage 1 — Own the config file by key
+## Stage 1 — Own the config file by key — **landed**
 
 **Ships:** drift detection for `MinecraftClient.ini`, and an instance config editor
 that cannot be silently defeated.
@@ -116,7 +127,7 @@ MCC only writes this field through an interactive prompt reached when both `Logi
 instance — so this is defence in depth against a hand edit, not a live drift path.
 *(Landed.)*
 
-## Stage 2 — One live connection per host
+## Stage 2 — One live connection per host — **landed**
 
 **Ships:** nothing an operator sees. This is the transport every later stage rides
 on, and it is separated so its failure modes are found before a feature depends on
@@ -251,7 +262,7 @@ per-instance separation is what `system` mode provides, through per-instance OS
 users (`usesPerInstanceUsers`). `SECURITY.md` must say this plainly rather than
 implying instances are isolated from one another.
 
-## Stage 3 — Live chat and commands
+## Stage 3 — Live chat and commands — **landed, minus chat send**
 
 **Ships:** read public chat, system messages and whispers as they arrive; send server and
 client commands from the browser. **Plain chat send is not in this stage's deliverable** —
@@ -296,9 +307,13 @@ never in `apps/web`. Translation keys resolve against a small injectable map, no
 Mojang's full language file; an unrecognised key degrades to its arguments or its
 raw key rather than throwing.
 
-## Stage 4 — State the operator can see
+## Stage 4 — State the operator can see — **partly landed**
 
 **Ships:** server GUI and inventory, live world and radar, health and position.
+
+*Landed so far:* the three gating keys as managed settings, tab containers on the instance
+page, the world read (server ticks, dimension, chunk load, position) and the nearby-entity
+list. The inventory read remains.
 
 These are reads over the Stage 2 channel, grouped because they share a shape — a
 periodically refreshed projection of client state — and because none is worth a
@@ -324,6 +339,9 @@ Tab containers land here, when there is enough on the instance page to warrant t
 ## Stage 5 — Autonomy
 
 **Ships:** push notifications.
+
+*Not started.* The delivery channel is still undecided, and that decision is not this
+plan's to make.
 
 Anti-AFK, auto-rejoin and respawn-after-dying are **already shipped** and were before this
 plan was written: `ChatBot.AntiAFK.*` and `ChatBot.AutoRelog.*` are rendered, contracted and

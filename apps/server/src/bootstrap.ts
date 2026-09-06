@@ -25,6 +25,7 @@ import {
 	readBuildInfo,
 	readConnectionChanges,
 	redactError,
+	resolveMinecraftName,
 	type SchedulerHandle,
 	type SendJob,
 	startHealthPoller,
@@ -247,9 +248,13 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				if (reading.cursor !== null && reading.cursor !== cursor) {
 					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
 				}
-				if (reading.playerName !== undefined && reading.playerName !== instance.minecraftUsername) {
+				const resolved = await resolveMinecraftName(instance, transport, {
+					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
+					openToken: (sealed, keyId) => secrets.open(sealed, keyId),
+				})
+				if (resolved !== undefined && resolved !== instance.minecraftUsername) {
 					await createInstanceRepository(db)
-						.update(scope, instance.id, { minecraftUsername: reading.playerName })
+						.update(scope, instance.id, { minecraftUsername: resolved })
 						.catch(() => undefined)
 				}
 			}

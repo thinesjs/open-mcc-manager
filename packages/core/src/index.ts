@@ -159,6 +159,7 @@ export {
 	type StatusController,
 } from "./status/status.controller"
 export { createStatusRepository, type StatusRepository } from "./status/status.repository"
+export { resolveMinecraftName } from "./status/username"
 export type { BuildInfo } from "./system/build-info"
 export { describeBuild, isDevelopmentBuild, readBuildInfo, sameBuild } from "./system/build-info"
 export type {

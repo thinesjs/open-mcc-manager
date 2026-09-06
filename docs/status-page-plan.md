@@ -17,7 +17,7 @@ at all today without a new poll. "We already record disruption" was false.
 **`mcc_recent_events` cannot be a source of record.** Verified against the deployed tag
 `20260829-511`: the client appends the disconnect and then immediately stops the
 live host and clears its stores, so the entry is normally gone before the next read.
-the client is a 500-entry ring trimmed from the front, and the controller calls
+its event store is a 500-entry ring trimmed from the front, and the controller calls
 it with no persisted `afterId`, so every poll restarts from zero. It may *corroborate* an
 event; it must never create or close uptime.
 

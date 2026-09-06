@@ -502,10 +502,10 @@ reachable from any network, and nothing here may change that.
 
 - Verify any claim about MCC against **the tag this repo deploys**, named in
   `packages/core/src/host/mcc-release.ts`, not against whatever a local
-  checkout happens to have: `git show <tag>:the client source...`. A local
-  clone sat 15 months behind and contained no the client at all, so a
-  round of "verified against MCC source" had been checked against a version
-  without the feature. The instance console prints the running build, e.g.
+  checkout happens to have, by reading that tag explicitly. A local clone once
+  sat 15 months behind and did not contain the live-control feature at all, so a
+  round of "verified against the client" had been checked against a version
+  that never had it. The instance console prints the running build, e.g.
   `GitHub build 511, built on 2026-08-29 from commit fbfae5b`.
 - The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
   are rendered `false` as `FIXED` keys, which is what keeps

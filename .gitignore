@@ -24,3 +24,4 @@ docs/superpowers/
 apps/web/vite.config.ts.timestamp-*.mjs
 .work/
 docs/monitors-plan.md
+docs/mcc-integration.md

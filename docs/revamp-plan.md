@@ -118,9 +118,8 @@ to the FIFO changes meaning — chat becomes commands, or commands become chat. 
 send path is only sound while we own this key. *(Landed.)*
 
 **And a second, which the first draft of this plan missed while explicitly asking whether
-there was one:** `Main.General.Method`, the `{ mcc, browser }` switch at the client.
-the client branches on it and the client gates the device-code flow
-on `mcc`. Drifted to `browser`, MCC tries to open a system browser for OAuth on a headless
+there was one:** `Main.General.Method`, the `{ mcc, browser }` switch. The client
+branches on it and gates the device-code flow on `mcc`. Drifted to `browser`, MCC tries to open a system browser for OAuth on a headless
 server, and the device-code scraping in `authenticate.ts` has nothing to read. In practice
 MCC only writes this field through an interactive prompt reached when both `Login` and
 `Password` are blank, which never happens for a manager-created
@@ -137,7 +136,7 @@ Use **`McpServer`, not `WebSocketBot`.** The capability map reverses an earlier
 assumption here, on three grounds:
 
 1. MCP reads its token from an environment variable. WebSocketBot's password has no such channel and
-   would land in cleartext in a `.cs` file on the host.
+   would land in cleartext in a config file on the host.
 2. WebSocketBot is loaded by `/script`, so after a client restart it does not come
    back until something re-issues the command. No reconnect logic fixes that.
 3. MCP is config-driven, so Stage 1 already owns its settings.
@@ -316,7 +315,7 @@ page, the world read (server ticks, dimension, chunk load, position), the nearby
 list, and the player inventory.
 
 The inventory read groups slots the way the client groups them itself — hotbar, main,
-armour, offhand, crafting — taken from MCC's own the client rather than
+armour, offhand, crafting — taken from the client's own inventory view rather than
 guessed from the protocol, and confirmed against a live client by giving it a helmet, a
 sword, a stack of logs and a shield and watching which slots they landed in. MCC does not
 name the individual armour slots, so neither does this.

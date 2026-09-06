@@ -41,6 +41,7 @@ import { createAuth } from "./auth"
 import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
+import { defaultIconFetch, itemIconHandler } from "./item-icon"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -157,6 +158,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 
 	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
 	app.get("/api/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
+	app.get("/api/item-icons/:slug", requireSession(auth), itemIconHandler(defaultIconFetch))
 	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 	app.use(
 		"/trpc/*",

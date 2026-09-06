@@ -9,6 +9,7 @@ import {
 	inventoryFrom,
 	inventoryItemTotal,
 	isNotableEvent,
+	itemSlug,
 	McpProtocolError,
 	recentEventsFrom,
 	regionsFor,
@@ -511,5 +512,22 @@ describe("inventory", () => {
 	it("keeps names that are already words apart", () => {
 		expect(humanizeItemType("TNT")).toBe("TNT")
 		expect(humanizeItemType("minecraft_stone")).toBe("minecraft stone")
+	})
+})
+
+describe("item icon slugs", () => {
+	it("turns the client's PascalCase name into minecraft's own id", () => {
+		expect(itemSlug("Diamond Sword")).toBe("diamond_sword")
+		expect(itemSlug("DiamondSword")).toBe("diamond_sword")
+		expect(itemSlug("OakLog")).toBe("oak_log")
+	})
+
+	it("keeps a single word intact", () => {
+		expect(itemSlug("Stone")).toBe("stone")
+		expect(itemSlug("TNT")).toBe("tnt")
+	})
+
+	it("drops anything that is not part of an id", () => {
+		expect(itemSlug("Iron Helmet!")).toBe("iron_helmet")
 	})
 })

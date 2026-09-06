@@ -400,6 +400,13 @@ export type McpInventory = {
 	cursor: McpItemStack | undefined
 }
 
+export const itemSlug = (value: string): string =>
+	value
+		.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+		.replace(/[\s-]+/g, "_")
+		.toLowerCase()
+		.replace(/[^a-z0-9_]/g, "")
+
 export const humanizeItemType = (value: string): string => {
 	const spaced = value
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")

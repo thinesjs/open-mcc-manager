@@ -37,6 +37,11 @@ export const instanceRouter = router({
 		return ctx.instanceController.start(ctx.actor, input.instanceId)
 	}),
 
+	restart: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.start")
+		return ctx.instanceController.restart(ctx.actor, input.instanceId)
+	}),
+
 	stop: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.start")
 		return ctx.instanceController.stop(ctx.actor, input.instanceId)

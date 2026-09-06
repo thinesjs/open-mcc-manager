@@ -715,6 +715,41 @@ describe("running several instances on one host", () => {
 		expect(config?.liveControlPort).toBe(33333)
 	})
 
+	it("restarts by stopping, rewriting the config, then starting, in that order", async () => {
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 33333,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+
+		await controller.restart(owner, "abc123")
+
+		const stoppedAt = transport.commands.findIndex((command) => command.includes("stop"))
+		const wroteAt = transport.commands.findIndex((command) =>
+			command.includes("MinecraftClient.ini"),
+		)
+		const startedAt = transport.commands.findIndex((command) => command.includes("start"))
+
+		expect(stoppedAt).toBeGreaterThanOrEqual(0)
+		expect(wroteAt).toBeGreaterThan(stoppedAt)
+		expect(startedAt).toBeGreaterThan(wroteAt)
+	})
+
 	it("mints a new live control token on every start, so a leaked one expires", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.latestConfig = async () => configRow()

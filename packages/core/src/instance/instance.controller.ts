@@ -567,6 +567,39 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			return updated
 		},
 
+		restart: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
+			requireCapabilityFor(ctx.role, "instance.start")
+			const instance = await requireInstance(ctx, instanceId)
+			if (instance.status === "needs_auth") {
+				throw new InstanceAuthInProgressError(
+					`Instance ${instanceId} has not completed its microsoft sign-in`,
+				)
+			}
+
+			await unitCommand(ctx, instance, "stop")
+			const rotated = await rotateLiveControlToken(ctx, instance)
+			await writeSavedConfig(ctx, rotated)
+			await unitCommand(ctx, rotated, "start")
+
+			return await deps.withTransaction(async (repos) => {
+				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
+				if (!row) {
+					throw new InstanceConcurrentlyModifiedError(
+						`Instance ${instanceId} changed before it could be restarted`,
+					)
+				}
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.restart",
+					subjectType: "instance",
+					subjectId: instanceId,
+					detail: {},
+				})
+				return row
+			})
+		},
+
 		stop: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)

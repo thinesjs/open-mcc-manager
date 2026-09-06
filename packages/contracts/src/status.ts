@@ -66,10 +66,12 @@ export const STATUS_EVENT_KINDS = [
 	"instance.reconnected",
 	"instance.kicked",
 	"instance.connection_lost",
+	"instance.flapping",
 	"instance.never_joined",
 	"instance.started",
 	"instance.stopped",
 	"instance.unexpected_stop",
+	"instance.process_recovered",
 	"instance.needs_auth",
 	"instance.drift_started",
 	"instance.drift_resolved",
@@ -82,19 +84,38 @@ export type StatusEventKind = z.infer<typeof statusEventKindSchema>
 
 const NOTIFYING_EVENT_KINDS: ReadonlySet<string> = new Set<StatusEventKind>([
 	"host.unreachable",
-	"host.recovered",
 	"host.drift_started",
-	"host.drift_resolved",
 	"instance.disconnected",
-	"instance.reconnected",
+	"instance.flapping",
 	"instance.never_joined",
 	"instance.unexpected_stop",
 	"instance.needs_auth",
 	"instance.drift_started",
-	"instance.drift_resolved",
 ])
 
 export const isNotifyingEvent = (kind: StatusEventKind): boolean => NOTIFYING_EVENT_KINDS.has(kind)
+
+const RESOLVES: Partial<Record<StatusEventKind, StatusEventKind>> = {
+	"host.recovered": "host.unreachable",
+	"host.drift_resolved": "host.drift_started",
+	"instance.reconnected": "instance.disconnected",
+	"instance.process_recovered": "instance.unexpected_stop",
+	"instance.drift_resolved": "instance.drift_started",
+}
+
+export const problemResolvedBy = (kind: StatusEventKind): StatusEventKind | undefined =>
+	RESOLVES[kind]
+
+export const FLAPPING_WINDOW_MS = 30 * 60 * 1000
+
+export const FLAPPING_THRESHOLD = 5
+
+export const isFlapping = (
+	losses: readonly Date[],
+	now: Date,
+	windowMs: number = FLAPPING_WINDOW_MS,
+	threshold: number = FLAPPING_THRESHOLD,
+): boolean => losses.filter((at) => now.getTime() - at.getTime() <= windowMs).length >= threshold
 
 export const STATUS_SOURCES = ["host_probe", "journal", "live_channel", "reconcile"] as const
 

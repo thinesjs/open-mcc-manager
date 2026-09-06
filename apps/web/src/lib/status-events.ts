@@ -17,6 +17,8 @@ const TEMPLATES: Record<string, (subject: string) => string> = {
 	"instance.stopped": (subject) => `${subject} was stopped.`,
 	"instance.unexpected_stop": (subject) => `${subject} stopped on its own.`,
 	"instance.needs_auth": (subject) => `${subject} needs to sign in again.`,
+	"instance.flapping": (subject) => `${subject} keeps losing its connection.`,
+	"instance.process_recovered": (subject) => `${subject} is running again.`,
 	"instance.drift_started": (subject) => `${subject} no longer matches your saved settings.`,
 	"instance.drift_resolved": (subject) => `${subject} matches your saved settings again.`,
 	"monitoring.gap": () => "OpenMCC was not checking for a while.",

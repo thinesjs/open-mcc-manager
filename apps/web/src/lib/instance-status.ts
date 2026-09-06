@@ -26,7 +26,7 @@ const PRESENTATION_BY_STATUS: Record<InstanceStatus, InstanceStatusPresentation>
 	running: {
 		label: "Running",
 		variant: "success",
-		description: "Online and Healthy with auto-restart.",
+		description: "Instance is connected and being managed by OpenMCC.",
 	},
 	error: {
 		label: "Error",

@@ -46,33 +46,59 @@ const ItemIcon = ({ item }: { item: McpInventorySlot }) => {
 	)
 }
 
-const Slot = ({ item }: { item: McpInventorySlot | undefined }) => (
-	<div
-		className="relative grid size-11 place-items-center"
-		style={{
-			backgroundColor: SLOT,
-			borderTop: `2px solid ${SHADOW}`,
-			borderLeft: `2px solid ${SHADOW}`,
-			borderBottom: `2px solid ${HIGHLIGHT}`,
-			borderRight: `2px solid ${HIGHLIGHT}`,
-		}}
-		title={item ? `${item.label} × ${item.count}` : undefined}
-	>
-		{item ? (
-			<>
-				<ItemIcon item={item} />
-				{item.count > 1 ? (
-					<span
-						className="absolute right-0 bottom-0 font-mono text-[11px] leading-none text-white"
-						style={{ textShadow: "1px 1px 0 #3f3f3f" }}
-					>
-						{item.count}
-					</span>
-				) : null}
-			</>
-		) : null}
-	</div>
-)
+const TOOLTIP_BACKGROUND = "rgba(16, 0, 16, 0.94)"
+const TOOLTIP_BORDER_TOP = "#5000ff"
+const TOOLTIP_BORDER_BOTTOM = "#280050"
+
+const SLOT_CHROME = {
+	backgroundColor: SLOT,
+	borderTop: `2px solid ${SHADOW}`,
+	borderLeft: `2px solid ${SHADOW}`,
+	borderBottom: `2px solid ${HIGHLIGHT}`,
+	borderRight: `2px solid ${HIGHLIGHT}`,
+} as const
+
+const Slot = ({ item }: { item: McpInventorySlot | undefined }) => {
+	if (!item) {
+		return <div className="size-11" style={SLOT_CHROME} />
+	}
+
+	return (
+		<div
+			role="img"
+			aria-label={`${item.label}, ${item.count} in slot ${item.slot}`}
+			className="group relative grid size-11 place-items-center"
+			style={SLOT_CHROME}
+		>
+			<ItemIcon item={item} />
+			{item.count > 1 ? (
+				<span
+					className="absolute right-0 bottom-0 font-mono text-[11px] leading-none text-white"
+					style={{ textShadow: "1px 1px 0 #3f3f3f" }}
+				>
+					{item.count}
+				</span>
+			) : null}
+			<span
+				className="pointer-events-none absolute bottom-[110%] left-1/2 z-20 hidden w-max -translate-x-1/2 px-2 py-1 group-hover:block"
+				style={{
+					backgroundColor: TOOLTIP_BACKGROUND,
+					borderTop: `2px solid ${TOOLTIP_BORDER_TOP}`,
+					borderLeft: `2px solid ${TOOLTIP_BORDER_TOP}`,
+					borderBottom: `2px solid ${TOOLTIP_BORDER_BOTTOM}`,
+					borderRight: `2px solid ${TOOLTIP_BORDER_BOTTOM}`,
+				}}
+			>
+				<span className="block whitespace-nowrap text-[11px] leading-tight text-white">
+					{item.label}
+				</span>
+				<span className="block whitespace-nowrap text-[10px] leading-tight text-[#aaaaaa]">
+					{item.count === 1 ? `Slot ${item.slot}` : `${item.count} · slot ${item.slot}`}
+				</span>
+			</span>
+		</div>
+	)
+}
 
 export const LiveInventory = ({ inventory }: LiveInventoryProps) => {
 	const byNumber = slotsBySlotNumber(inventory.slots)

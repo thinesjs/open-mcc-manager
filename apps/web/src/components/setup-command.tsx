@@ -11,9 +11,7 @@ export const SetupCommand = ({ command, summary }: SetupCommandProps) => (
 		<div className="flex items-start justify-between gap-3">
 			<div className="min-w-0">
 				<p className="text-sm font-medium text-foreground">Setup command</p>
-				<p className="mt-0.5 text-xs text-muted-foreground">
-					Run once on the host. Omit the leading sudo when already root.
-				</p>
+				<p className="mt-0.5 text-xs text-muted-foreground">Run this once on the server.</p>
 			</div>
 			<CopyButton value={command} label="Setup command" />
 		</div>

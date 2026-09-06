@@ -178,10 +178,9 @@ export const InstanceSettingsForm = ({
 			{draft.liveControlEnabled ? (
 				<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
 					<div>
-						<Label>What the client keeps track of</Label>
+						<Label>Live details to show</Label>
 						<p className="text-xs text-muted-foreground">
-							Each of these makes the client hold more state, which costs memory, CPU and bandwidth
-							on the host. Leave them off unless something reads them.
+							Turn on only the live details you want to see.
 						</p>
 					</div>
 
@@ -193,9 +192,7 @@ export const InstanceSettingsForm = ({
 							options={ON_OFF}
 							onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
 						/>
-						<p className="text-xs text-muted-foreground">
-							Grants no write of any kind. This is the only one that does not.
-						</p>
+						<p className="text-xs text-muted-foreground">View only.</p>
 					</div>
 
 					<div className="space-y-1.5">
@@ -207,8 +204,7 @@ export const InstanceSettingsForm = ({
 							onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Reading the inventory also lets the live channel move and drop items. The client
-							offers no way to have one without the other.
+							Turning this on also lets OpenMCC move and drop items.
 						</p>
 					</div>
 
@@ -221,8 +217,7 @@ export const InstanceSettingsForm = ({
 							onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Reading entities also lets the live channel attack and interact with them, for the
-							same reason.
+							Turning this on also lets OpenMCC attack and interact with nearby creatures.
 						</p>
 					</div>
 				</div>

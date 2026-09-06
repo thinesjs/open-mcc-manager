@@ -70,8 +70,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 				<div>
 					<CardTitle>Sleep window</CardTitle>
 					<p className="text-sm text-muted-foreground">
-						Stop the client before a scheduled server restart and bring it back once the server is
-						warm.
+						Stops the bot before a server restart and starts it again afterwards.
 					</p>
 				</div>
 				{!editing ? (
@@ -92,7 +91,7 @@ export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 
 				{!editing && !query.isPending && !existing ? (
 					<p className="text-sm text-muted-foreground">
-						No sleep window. This instance runs until something stops it.
+						Without a sleep window, the bot runs until stopped.
 					</p>
 				) : null}
 

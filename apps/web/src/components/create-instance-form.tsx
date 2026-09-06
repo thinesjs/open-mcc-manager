@@ -60,7 +60,7 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 		return (
 			<div className="space-y-4">
 				<Alert variant="info" icon={<CircleAlert />}>
-					An instance runs on a provisioned host. Enroll and provision one first.
+					Set up a server before creating a bot.
 				</Alert>
 				<div className="flex justify-end">
 					<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
@@ -136,7 +136,7 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 				</Select>
 				<p className="text-xs text-muted-foreground">
 					{isOffline
-						? "Offline accounts skip Mojang's session servers. The server must run with online-mode=false."
+						? "Use this only for servers that allow offline accounts."
 						: "You complete the sign-in after the instance is created."}
 				</p>
 			</div>

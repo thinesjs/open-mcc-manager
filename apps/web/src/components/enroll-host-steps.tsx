@@ -38,14 +38,12 @@ export const HOST_MODE_OPTIONS = [
 	{
 		value: "rootless",
 		label: "Without root",
-		description:
-			"Everything lives in the account's own home directory and runs under its user manager. Nothing on the host needs root.",
+		description: "Runs every bot as the chosen server account, without administrator access.",
 	},
 	{
 		value: "system",
 		label: "With root",
-		description:
-			"System-wide units, and a separate locked account per instance so one instance cannot read another's session.",
+		description: "Uses administrator access and keeps each bot isolated from the others.",
 	},
 ] as const satisfies readonly ChoiceOption<HostMode>[]
 
@@ -116,8 +114,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								Choose the key to connect with
 							</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								The control plane authenticates to the host with this key. Its public half must
-								already be in the host's authorized_keys.
+								Choose the key OpenMCC will use to reach this server.
 							</p>
 						</div>
 
@@ -163,9 +160,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				{step === 1 ? (
 					<div className="space-y-4 pb-1">
 						<div>
-							<h3 className="text-sm font-medium text-foreground">Where the host lives</h3>
+							<h3 className="text-sm font-medium text-foreground">Where the server is</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								A public address, or a tailnet address if the host is only reachable privately.
+								Enter an address OpenMCC can reach.
 							</p>
 						</div>
 
@@ -201,7 +198,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						</div>
 
 						<div className="space-y-1.5">
-							<Label htmlFor="enroll-username">SSH username</Label>
+							<Label htmlFor="enroll-username">Server username</Label>
 							<Input
 								id="enroll-username"
 								value={username}
@@ -220,7 +217,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							<p className="text-xs leading-relaxed text-muted-foreground">
 								{mode === "rootless"
 									? "Run 'sudo loginctl enable-linger <user>' on the host first, or provisioning will stop and tell you to."
-									: "This account needs to be root, or reach root without a password prompt."}
+									: "Use the root account for this option."}
 							</p>
 						</div>
 					</div>
@@ -239,8 +236,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 
 						{requiresRootAccount(mode, username) ? (
 							<Alert variant="error" icon={<CircleAlert />}>
-								This host is set to use root, but {username} is not root. Either connect as root or
-								go back and choose "Without root".
+								Choose the root account, or go back and pick "Without root".
 							</Alert>
 						) : null}
 
@@ -264,7 +260,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						</div>
 
 						<div className="space-y-1.5">
-							<Label htmlFor="enroll-fingerprint">Expected fingerprint</Label>
+							<Label htmlFor="enroll-fingerprint">Server fingerprint</Label>
 							<Input
 								id="enroll-fingerprint"
 								value={expectedFingerprint}
@@ -282,9 +278,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
 							<div className="flex items-start justify-between gap-3">
 								<div>
-									<p className="text-sm font-medium text-foreground">Readiness</p>
+									<p className="text-sm font-medium text-foreground">Connection check</p>
 									<p className="mt-0.5 text-xs text-muted-foreground">
-										Connects once and verifies the host before enrolling it.
+										Checks that OpenMCC can safely reach this server.
 									</p>
 								</div>
 								<Button

@@ -50,7 +50,7 @@ export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 		<Card>
 			<CardHeader className="flex flex-row items-center justify-between gap-4">
 				<div>
-					<CardTitle>Host resources</CardTitle>
+					<CardTitle>Server usage</CardTitle>
 					<p className="text-sm text-muted-foreground">
 						Load, memory and disk as the host reports them.
 					</p>
@@ -80,7 +80,7 @@ export const HostMetricsPanel = ({ hostId, ready }: HostMetricsPanelProps) => {
 				{!metrics && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">
 						{ready
-							? "Reading opens an SSH session to this host."
+							? "Choose “Read now” to load server usage."
 							: "Available once this host has been provisioned."}
 					</p>
 				) : null}

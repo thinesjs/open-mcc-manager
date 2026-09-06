@@ -26,7 +26,7 @@ export const stateForStep = (
 }
 
 export const headlineFor = (running: boolean, complete: boolean, step: string | null): string => {
-	if (complete) return "Ready to run instances"
+	if (complete) return "Ready to run bots"
 	if (running) return step ?? "Starting"
 	return `Stopped at ${step ?? "the first step"}`
 }

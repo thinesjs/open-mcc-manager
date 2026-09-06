@@ -6,14 +6,10 @@ import { useTRPC } from "~/lib/trpc"
 
 export const EXPLANATION: Record<SystemStatus["condition"], string> = {
 	healthy: "",
-	"worker-missing":
-		"No worker has reported in. Background work such as host teardown is queued but nothing is running it.",
-	"worker-stale":
-		"The worker has stopped reporting in. Background work is queued but nothing is running it.",
-	"version-skew":
-		"The worker is running a different build from this control plane. Finish the upgrade so both run the same version.",
-	"schema-skew":
-		"The worker applied a different database schema. Finish the upgrade before relying on background work.",
+	"worker-missing": "Background work is paused. Ask whoever runs this server to restart OpenMCC.",
+	"worker-stale": "Background work is paused. Ask whoever runs this server to restart OpenMCC.",
+	"version-skew": "The OpenMCC upgrade is incomplete. Finish it before relying on background work.",
+	"schema-skew": "The OpenMCC upgrade is incomplete. Finish it before relying on background work.",
 }
 
 export const ControlPlaneStatus = () => {

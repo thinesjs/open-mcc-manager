@@ -94,8 +94,8 @@ export const ConsoleComposer = ({ instanceId, running, onSent }: ConsoleComposer
 				</Button>
 			</div>
 			<p className="text-xs text-muted-foreground">
-				Plain text goes to public chat. <code>/</code> sends a server command. <code>!</code> runs a
-				client command such as <code>!respawn</code>, <code>!reco</code> or <code>!list</code>.
+				Text sends chat. <code>/</code> runs a server command. <code>!</code> runs a bot command
+				such as <code>!respawn</code>.
 			</p>
 		</form>
 	)

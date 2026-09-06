@@ -19,7 +19,7 @@ export const ManagerHealth = () => {
 			<div className="flex items-baseline justify-between">
 				<h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
 					<HeartPulse className="size-4" />
-					Control plane
+					OpenMCC manager
 				</h2>
 				<span className="text-xs text-muted-foreground">
 					{metrics ? `up ${formatDuration(metrics.uptimeSeconds)}` : "—"}

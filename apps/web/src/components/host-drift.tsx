@@ -40,10 +40,9 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 		<Card>
 			<CardHeader className="flex flex-row items-center justify-between gap-4">
 				<div>
-					<CardTitle>Configuration drift</CardTitle>
+					<CardTitle>Bot setup check</CardTitle>
 					<p className="text-sm text-muted-foreground">
-						Compares installed units, runtime state and each client's config against what this
-						manager expects.
+						Checks whether this server and its bots match your saved settings.
 					</p>
 				</div>
 				<Button
@@ -67,13 +66,13 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 				) : null}
 
 				{query.isFetching && summary === undefined ? (
-					<LoadingBlock label="Checking configuration drift" />
+					<LoadingBlock label="Checking bot setup" />
 				) : null}
 
 				{summary === undefined && !query.isFetching && !query.isError ? (
 					<p className="text-sm text-muted-foreground">
 						{ready
-							? "Requires an SSH connection to the host."
+							? "OpenMCC must be able to reach this server."
 							: "Available once this host has been provisioned."}
 					</p>
 				) : null}
@@ -89,7 +88,7 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 
 				{summary?.verdict === "converged" ? (
 					<Alert variant="success" icon={<CircleCheck />}>
-						No drift detected. Host matches the expected configuration.
+						The server and its bots match your saved setup.
 					</Alert>
 				) : null}
 

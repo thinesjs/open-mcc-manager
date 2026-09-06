@@ -69,8 +69,7 @@ export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 				<div>
 					<CardTitle>Scheduled commands</CardTitle>
 					<p className="text-sm text-muted-foreground">
-						The manager sends these into the client's console on a schedule. They run only while the
-						instance is running.
+						Runs these commands on schedule while the bot is online.
 					</p>
 				</div>
 				{!adding ? (

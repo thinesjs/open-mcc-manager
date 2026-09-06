@@ -36,7 +36,7 @@ describe("what the timeline says when a run finishes", () => {
 	})
 
 	it("says the host is ready rather than naming the last step it ran", () => {
-		expect(headlineFor(false, true, "Reloading systemd")).toBe("Ready to run instances")
+		expect(headlineFor(false, true, "Reloading systemd")).toBe("Ready to run bots")
 	})
 
 	it("still names the failing step when a run stopped", () => {

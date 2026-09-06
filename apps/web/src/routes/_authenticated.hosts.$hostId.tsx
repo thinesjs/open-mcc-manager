@@ -142,7 +142,7 @@ function HostDetailPage() {
 						<p className="text-foreground">{formatDate(host.lastSeenAt)}</p>
 					</div>
 					<div>
-						<p className="text-muted-foreground">Host key algorithm</p>
+						<p className="text-muted-foreground">Fingerprint type</p>
 						<p className="text-foreground">{host.hostKeyAlgorithm ?? "Unknown"}</p>
 					</div>
 					<div>
@@ -158,17 +158,17 @@ function HostDetailPage() {
 						</p>
 					</div>
 					<div>
-						<p className="text-muted-foreground">Instance confinement</p>
+						<p className="text-muted-foreground">Bot isolation</p>
 						<p className="text-foreground">{confinementLabel(host.sandboxed)}</p>
 					</div>
 					<div className="col-span-2">
-						<p className="text-muted-foreground">Trusted host key fingerprint</p>
+						<p className="text-muted-foreground">Verified server fingerprint</p>
 						<p className="break-all font-mono text-foreground">
 							{host.hostKeyFingerprint ?? "Not set"}
 						</p>
 					</div>
 					<div className="col-span-2">
-						<p className="text-muted-foreground">Trusted by</p>
+						<p className="text-muted-foreground">Verified by</p>
 						<p className="text-foreground">
 							{host.hostKeyTrustedByLabel} on {formatDate(host.hostKeyTrustedAt)}
 						</p>
@@ -207,7 +207,7 @@ function HostDetailPage() {
 						<CardTitle>Provisioning</CardTitle>
 						<p className="text-sm text-muted-foreground">
 							{justProvisioned
-								? "Every step finished. This host can now run instances."
+								? "Setup complete. This server can run bots."
 								: host.status === "provisioning"
 									? "This continues on the server. You can leave this page and come back."
 									: "This run did not finish. Fix the cause on the host, then provision again."}

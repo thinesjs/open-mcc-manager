@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { HeartPulse } from "lucide-react"
+import { Tooltip } from "~/components/ui/tooltip"
 import { formatBytes, formatDuration, percentOf } from "~/lib/format-bytes"
 import { useTRPC } from "~/lib/trpc"
 
@@ -28,7 +29,9 @@ export const ManagerHealth = () => {
 
 			<dl className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
 				<div className="flex items-center gap-1.5 text-xs">
-					<dt className="text-muted-foreground">Heap</dt>
+					<dt className="text-muted-foreground">
+						<Tooltip content="Memory OpenMCC is using for active work.">Working memory</Tooltip>
+					</dt>
 					<dd className="font-medium tabular-nums text-foreground">
 						{metrics
 							? `${formatBytes(metrics.heapUsedBytes)} / ${formatBytes(metrics.heapTotalBytes)}`
@@ -36,13 +39,17 @@ export const ManagerHealth = () => {
 					</dd>
 				</div>
 				<div className="flex items-center gap-1.5 text-xs">
-					<dt className="text-muted-foreground">Resident</dt>
+					<dt className="text-muted-foreground">
+						<Tooltip content="Total memory OpenMCC currently holds.">Total memory</Tooltip>
+					</dt>
 					<dd className="font-medium tabular-nums text-foreground">
 						{metrics ? formatBytes(metrics.rssBytes) : "—"}
 					</dd>
 				</div>
 				<div className="flex items-center gap-1.5 text-xs">
-					<dt className="text-muted-foreground">Buffers</dt>
+					<dt className="text-muted-foreground">
+						<Tooltip content="Memory held for temporary data.">Buffered data</Tooltip>
+					</dt>
 					<dd className="font-medium tabular-nums text-foreground">
 						{metrics ? formatBytes(metrics.arrayBuffersBytes) : "—"}
 					</dd>

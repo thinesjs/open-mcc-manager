@@ -254,8 +254,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Confirm the host's identity</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								The control plane pins this fingerprint and verifies it on every connection to{" "}
-								{hostname || "this host"}. The setup command output it as its final line.
+								Paste the fingerprint printed by the setup command to confirm this is the same
+								server.
 							</p>
 						</div>
 

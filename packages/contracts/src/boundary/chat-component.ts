@@ -159,18 +159,30 @@ export const flattenChatComponent = (
 	return spans
 }
 
+export const MAX_CHAT_COMPONENT_DEPTH = 32
+
+const tooDeep = (value: unknown, depth: number): boolean => {
+	if (depth > MAX_CHAT_COMPONENT_DEPTH) return true
+	if (Array.isArray(value)) return value.some((item) => tooDeep(item, depth + 1))
+	if (typeof value !== "object" || value === null) return false
+	for (const nested of Object.values(value)) {
+		if (tooDeep(nested, depth + 1)) return true
+	}
+	return false
+}
+
 export const renderChatJson = (json: string | undefined): string | undefined => {
 	if (json === undefined || json.length === 0) return undefined
-	let parsed: unknown
 	try {
-		parsed = JSON.parse(json)
+		const parsed: unknown = JSON.parse(json)
+		if (tooDeep(parsed, 0)) return undefined
+		const component = safeParseChatComponent(parsed)
+		if (!component) return undefined
+		const rendered = flattenChatComponent(component)
+			.map((span) => span.text)
+			.join("")
+		return rendered.length > 0 ? rendered : undefined
 	} catch {
 		return undefined
 	}
-	const component = safeParseChatComponent(parsed)
-	if (!component) return undefined
-	const rendered = flattenChatComponent(component)
-		.map((span) => span.text)
-		.join("")
-	return rendered.length > 0 ? rendered : undefined
 }

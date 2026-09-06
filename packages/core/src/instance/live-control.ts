@@ -26,6 +26,10 @@ export const LIVE_CONTROL_TIMEOUT_MS = 10_000
 
 export const LIVE_CONTROL_CLIENT = "open-mcc-manager"
 
+export const MAX_LIVE_RESPONSE_BYTES = 1024 * 1024
+
+export class LiveResponseTooLargeError extends Error {}
+
 export type LiveControlTarget = {
 	transport: HostTransport
 	port: number
@@ -74,7 +78,22 @@ const post = async (
 			},
 			(response) => {
 				const chunks: Buffer[] = []
-				response.on("data", (chunk: Buffer) => chunks.push(chunk))
+				let received = 0
+				response.on("data", (chunk: Buffer) => {
+					received += chunk.length
+					if (received > MAX_LIVE_RESPONSE_BYTES) {
+						response.destroy()
+						finish(() =>
+							reject(
+								new LiveResponseTooLargeError(
+									`The client sent more than ${MAX_LIVE_RESPONSE_BYTES} bytes in one response`,
+								),
+							),
+						)
+						return
+					}
+					chunks.push(chunk)
+				})
 				response.on("end", () =>
 					finish(() =>
 						resolve({

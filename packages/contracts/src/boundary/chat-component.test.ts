@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { flattenChatComponent, parseChatComponent, safeParseChatComponent } from "./chat-component"
+import {
+	flattenChatComponent,
+	parseChatComponent,
+	renderChatJson,
+	safeParseChatComponent,
+} from "./chat-component"
 import motdFixture from "./motd-fixture.json"
 
 const textOf = (component: unknown, translate?: (key: string) => string | undefined) =>
@@ -100,5 +105,36 @@ describe("chat components", () => {
 
 	it("produces no span for an empty text node", () => {
 		expect(flattenChatComponent(parseChatComponent({ text: "" }))).toEqual([])
+	})
+
+	it("refuses a component nested deeper than anything a server legitimately sends", () => {
+		let nested = '{"text":"deep"}'
+		for (let level = 0; level < 200; level += 1) {
+			nested = `{"extra":[${nested}]}`
+		}
+
+		expect(renderChatJson(nested)).toBeUndefined()
+	})
+
+	it("does not throw on a hostile component, whatever it contains", () => {
+		let nested = '{"text":"x"}'
+		for (let level = 0; level < 5000; level += 1) {
+			nested = `{"extra":[${nested}]}`
+		}
+
+		expect(() => renderChatJson(nested)).not.toThrow()
+	})
+
+	it("still renders a component nested as deeply as a real one might be", () => {
+		let nested = '{"text":"leaf"}'
+		for (let level = 0; level < 5; level += 1) {
+			nested = `{"extra":[${nested}]}`
+		}
+
+		expect(renderChatJson(nested)).toBe("leaf")
+	})
+
+	it("returns nothing for a body that is not json at all", () => {
+		expect(renderChatJson("not json")).toBeUndefined()
 	})
 })

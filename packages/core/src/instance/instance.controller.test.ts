@@ -8,8 +8,8 @@ import type {
 	InstanceScheduleRow,
 	SshKeyRow,
 } from "@open-mcc/db"
+import { DatabaseError } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
-import { DatabaseError } from "pg"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
@@ -817,5 +817,36 @@ describe("running several instances on one host", () => {
 
 		expect(transport.forwarded).toContain(33350)
 		expect(transport.forwarded).not.toContain(33333)
+	})
+
+	it("expects the port the row owns when checking a host for drift", async () => {
+		const { deps } = makeDeps()
+		deps.instances.list = async () => [instanceRow({ liveControlPort: 33350 })]
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 33333,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		const controller = createInstanceController(deps)
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		if (!result.reachable) throw new Error("expected a reachable host")
+		const portDrift = result.configDrift.find(
+			(entry) => entry.kind !== "section" && entry.key === "ChatBot.McpServer.Transport.Port",
+		)
+		expect(portDrift?.expected).not.toBe("33333")
 	})
 })

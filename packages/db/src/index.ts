@@ -1,3 +1,4 @@
+export { DatabaseError } from "pg"
 export type { Db, Executor, Tx } from "./client"
 export { createDb } from "./client"
 export type { ConstraintViolation, ConstraintViolationKind } from "./constraint-violation"

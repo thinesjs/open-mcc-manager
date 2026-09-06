@@ -243,15 +243,20 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		)
 	}
 
-	const writeSavedConfig = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
-		const saved = await deps.instances.latestConfig(scopeOf(ctx), instance.id)
-		if (!saved) return
+	const expectedDocumentFor = async (
+		scope: OrgScope,
+		instance: InstanceRow,
+	): Promise<string | undefined> => {
+		const saved = await deps.instances.latestConfig(scope, instance.id)
+		if (!saved) return undefined
 		const parsed = instanceConfigInput.safeParse(saved.document)
-		if (!parsed.success) return
-		const document = renderInstanceConfig({
-			...parsed.data,
-			liveControlPort: instance.liveControlPort,
-		})
+		if (!parsed.success) return undefined
+		return renderInstanceConfig({ ...parsed.data, liveControlPort: instance.liveControlPort })
+	}
+
+	const writeSavedConfig = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
+		const document = await expectedDocumentFor(scopeOf(ctx), instance)
+		if (document === undefined) return
 
 		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
@@ -804,10 +809,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const expected = expectedUnits(profile, instances, schedules, renderScheduleUnits)
 			const expectedConfigs = new Map<string, string>()
 			for (const instance of instances) {
-				const saved = await deps.instances.latestConfig(scope, instance.id)
-				if (!saved) continue
-				const parsed = instanceConfigInput.safeParse(saved.document)
-				if (parsed.success) expectedConfigs.set(instance.id, renderInstanceConfig(parsed.data))
+				const document = await expectedDocumentFor(scope, instance)
+				if (document !== undefined) expectedConfigs.set(instance.id, document)
 			}
 
 			try {

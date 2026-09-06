@@ -54,15 +54,18 @@ Transitions, never samples, so row growth is bounded.
 *Hosts* measure reachability. One failed probe is `suspect`, not down; three minutes of
 failure is `down`. `failedUnits > 0` is a separate degraded condition and is not downtime.
 
-*Instances* get **two** numbers, connection first:
+*Instances* have **one** metric that counts: **connected** — proven joined to the
+Minecraft server as a player. The owner's rule is explicit:
 
-- **Connected** — proven joined to the Minecraft server.
-- **Client running** — the process is up and not stuck.
+> The status of the bot is green **only** when it has joined the server as a player.
 
-These genuinely differ: an active process is not a joined bot, and this repo already
-classifies "running but never joined". A failed live read with no exit evidence is
-`unknown`, not disconnected — the read channel itself may have failed. Sleep windows are
-`excluded` from both denominators, evaluated in their stored timezone.
+A running process is not green. "Running but never joined" is not green. Client-running
+state is still tracked, because it is what distinguishes *why* a bot is not connected, but
+it is secondary detail and never the headline colour.
+
+A failed live read with no exit evidence is `unknown`, not disconnected — the read channel
+itself may have failed. Sleep windows are `excluded` from the denominator, evaluated in
+their stored timezone.
 
 `suspect`, gaps and unmonitored periods never count as uptime. Every range returns
 uptime **and coverage**; the page must never print "100%" without coverage beside it, and
@@ -96,11 +99,29 @@ would invalidate this budget entirely, which is the other reason the ring is not
    source, sleep-window exclusion, and the connection/process cards.
 3. **Durable drift** on a five-minute background reconcile, then the notification handoff.
 
-## Open question for the owner
+## Resolved: the live channel does not have to be mandatory
 
-Stage 2 proposes making the minimal live channel **mandatory** — `McpServer.Enabled` and
-`Capabilities.SessionStatus` fixed true, the operator toggle removed — because connected
-uptime is unmeasurable without it. It stays loopback-only and token-authenticated with
-`ChatAndCommands` and `Movement` fixed false, so it grants no writes. But it removes a
-choice the operator currently has, and existing bots would show unknown connection history
-until their next restart. This is a product decision, not a technical one.
+The plan originally proposed forcing `McpServer.Enabled` and `Capabilities.SessionStatus`
+on for every instance, because connected uptime looked unmeasurable without them. It is
+not. **The console already states joined-ness unambiguously**, and this repo already knows
+the marker — `JOINED_MARKER = "Server was successfully joined"` in
+`packages/core/src/instance/reconcile.ts:38`, already used at line 277 to build a joined
+set.
+
+Confirmed against a real instance's journal, including a full drop-and-rejoin:
+
+```
+14:15:38  [MCC] Disconnected by Server :
+14:15:38  [MCC] Kicked by an operator
+14:16:10  [MCC] Server was successfully joined.     <- new process id
+```
+
+So the connection state machine closes on journal evidence alone: a join marker opens a
+connected interval, a `Disconnected by Server` closes it, the following line carries the
+reason, and a changed process id marks the restart. The kick reason is available for the
+event copy without any live channel at all.
+
+The live channel therefore stays **optional**. Where an operator has enabled it, a
+successful `mcc_session_status` read *corroborates* connected state and shortens detection
+latency. Where they have not, connected uptime still works. No capability is forced on
+anyone, and no existing bot has to be restarted to get history.

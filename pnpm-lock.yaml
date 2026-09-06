@@ -237,9 +237,15 @@ importers:
       '@types/libsodium-wrappers-sumo':
         specifier: ^0.7.8
         version: 0.7.8
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       '@types/sshpk':
         specifier: ^1.17.5
         version: 1.17.5
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
 
   packages/db:
     dependencies:

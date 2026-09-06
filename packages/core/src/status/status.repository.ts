@@ -52,31 +52,49 @@ export const createStatusRepository = (db: Executor) => ({
 		patch: ConditionPatch,
 		startedAt: Date,
 	): Promise<StatusConditionRow> => {
-		const columns = subjectColumns(subject)
-		const conflictTarget = subject.hostId === undefined ? "instanceId" : "hostId"
+		const values = {
+			id: nanoid(),
+			organizationId: scope.organizationId,
+			...subjectColumns(subject),
+			dimension,
+			state: patch.state,
+			startedAt,
+			lastObservedAt: patch.observedAt,
+			failureStartedAt: patch.failureStartedAt,
+			activeIncidentId: patch.activeIncidentId,
+			detail: JSON.stringify(patch.detail),
+		}
+		const updates = {
+			state: patch.state,
+			startedAt,
+			lastObservedAt: patch.observedAt,
+			failureStartedAt: patch.failureStartedAt,
+			activeIncidentId: patch.activeIncidentId,
+			detail: JSON.stringify(patch.detail),
+		}
+
+		if (subject.hostId === undefined) {
+			return await db
+				.insertInto("statusCondition")
+				.values(values)
+				.onConflict((conflict) =>
+					conflict
+						.columns(["organizationId", "instanceId", "dimension"])
+						.where("instanceId", "is not", null)
+						.doUpdateSet(updates),
+				)
+				.returningAll()
+				.executeTakeFirstOrThrow()
+		}
+
 		return await db
 			.insertInto("statusCondition")
-			.values({
-				id: nanoid(),
-				organizationId: scope.organizationId,
-				...columns,
-				dimension,
-				state: patch.state,
-				startedAt,
-				lastObservedAt: patch.observedAt,
-				failureStartedAt: patch.failureStartedAt,
-				activeIncidentId: patch.activeIncidentId,
-				detail: JSON.stringify(patch.detail),
-			})
+			.values(values)
 			.onConflict((conflict) =>
-				conflict.columns(["organizationId", conflictTarget, "dimension"]).doUpdateSet({
-					state: patch.state,
-					startedAt,
-					lastObservedAt: patch.observedAt,
-					failureStartedAt: patch.failureStartedAt,
-					activeIncidentId: patch.activeIncidentId,
-					detail: JSON.stringify(patch.detail),
-				}),
+				conflict
+					.columns(["organizationId", "hostId", "dimension"])
+					.where("hostId", "is not", null)
+					.doUpdateSet(updates),
 			)
 			.returningAll()
 			.executeTakeFirstOrThrow()

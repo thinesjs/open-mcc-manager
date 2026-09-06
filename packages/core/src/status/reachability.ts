@@ -26,12 +26,13 @@ export const nextReachability = (
 		if (current.state === "up") {
 			return { state: "up", failureStartedAt: null, event: undefined, changed: false }
 		}
-		return {
-			state: "up",
-			failureStartedAt: null,
-			event: current.state === "down" ? "host.recovered" : "host.check_recovered",
-			changed: true,
-		}
+		const event: StatusEventKind | undefined =
+			current.state === "down"
+				? "host.recovered"
+				: current.state === "suspect"
+					? "host.check_recovered"
+					: undefined
+		return { state: "up", failureStartedAt: null, event, changed: true }
 	}
 
 	if (current.state === "down") {

@@ -59,6 +59,10 @@ describe("host reachability", () => {
 		expect(decision.changed).toBe(true)
 	})
 
+	it("does not call a first sighting a recovery, because nothing was ever wrong", () => {
+		expect(nextReachability(UNOBSERVED, true, at(0)).event).toBeUndefined()
+	})
+
 	it("clears the failure clock on recovery so the next outage times from scratch", () => {
 		expect(
 			nextReachability(state({ state: "down", failureStartedAt: at(0) }), true, at(9))

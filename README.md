@@ -27,15 +27,23 @@ its project directory and reads `docker/.env`, which does not exist — every
 `${...}` in the compose file then silently falls back to its default and the
 ports in your `.env` are ignored. The scripts pass `--env-file .env` explicitly.
 
-It builds the control-plane image and runs four services, each published on the
-port its `.env` variable names:
+It builds the server and worker images and runs five services, each published on
+the port its `.env` variable names:
 
 - `postgres` — the persistent development database, `DEV_DB_PORT`.
 - `postgres-test` — an ephemeral database, `TEST_DB_PORT`, that the test suite
   connects to. It has no volume and is not expected to survive a restart.
 - `migrate` — a one-shot container that applies the schema to `postgres` and
-  exits. `server` waits for it to complete successfully.
+  exits. `server` and `worker` both wait for it to complete successfully.
 - `server` — the control plane, `SERVER_PORT`.
+- `worker` — background delivery and scheduled work. It publishes no port.
+
+The dashboard is not one of them; nothing in `docker/` builds or serves
+`apps/web`. Run it from the checkout, against the `server` the stack started:
+
+```bash
+pnpm --filter @open-mcc/web dev
+```
 
 The defaults in `.env.example` sit in a 25xxx block chosen not to collide with
 other local stacks. `ALLOWED_ORIGINS` must name the dashboard's own origin, and
@@ -52,13 +60,18 @@ so point it at the test database explicitly for that one command:
 
 ```bash
 pnpm install
-DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
+DATABASE_URL=postgres://postgres:postgres@localhost:25433/postgres \
   pnpm --filter @open-mcc/db db:migrate
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+Those four are the gates, and CI runs the same ones. `pnpm lint` is more than a
+formatter: it also runs the repository's own checkers over the whole tree, so a
+failure there may name a type-policy or runtime-dependency rule rather than a
+style one.
 
 Skipping that step fails most of the suite with `relation "organization" does
 not exist`; `packages/db`'s schema tests report the same cause as `table not
@@ -87,10 +100,10 @@ owner against the compose database, using the same `BETTER_AUTH_SECRET` the
 `server` service runs with, or its sessions will not verify:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/open_mcc_manager \
+DATABASE_URL=postgres://postgres:postgres@localhost:25432/open_mcc_manager \
 BETTER_AUTH_SECRET=dev-only-secret-change-me-before-any-real-deploy \
 SEALBOX_KEYS="dev-insecure-publicly-known:Am5fPqmntZmYRD3qh57huQfRy+oSfBgo1tzp8PNcNS8=:MDiplVb87qftrMZUimPXPEqL/CLTjlFUguzjwGwUgP0=" \
-ALLOWED_ORIGINS=http://localhost:5173 \
+ALLOWED_ORIGINS=http://localhost:25173 \
 BOOTSTRAP_OWNER_EMAIL=owner@example.com \
 BOOTSTRAP_OWNER_PASSWORD='correct horse battery staple' \
 BOOTSTRAP_OWNER_NAME=Owner BOOTSTRAP_ORG_NAME=Fleet BOOTSTRAP_ORG_SLUG=fleet \

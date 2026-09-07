@@ -186,6 +186,7 @@ export const CREATABLE_DESTINATION_KINDS = [
 	"gotify",
 	"ntfy",
 	"resend",
+	"email",
 ] as const
 
 export const creatableDestinationKindSchema = z.enum(CREATABLE_DESTINATION_KINDS)
@@ -204,6 +205,7 @@ export const creatableDestinationConfigInput = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("gotify"), config: gotifyConfigInput }),
 	z.object({ kind: z.literal("ntfy"), config: ntfyConfigInput }),
 	z.object({ kind: z.literal("resend"), config: resendConfigInput }),
+	z.object({ kind: z.literal("email"), config: emailConfigInput }),
 ])
 
 export const createDestinationInput = z.object({

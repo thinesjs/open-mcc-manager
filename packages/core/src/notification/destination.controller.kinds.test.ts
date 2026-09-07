@@ -65,6 +65,17 @@ const DESTINATIONS: readonly CreateDestinationInput["destination"][] = [
 			toAddresses: ["on-call@example.com"],
 		},
 	},
+	{
+		kind: "email",
+		config: {
+			smtpServer: "smtp.example.com",
+			smtpPort: 587,
+			username: "alerts",
+			password: "smtp-password",
+			fromAddress: "alerts@example.com",
+			toAddresses: ["on-call@example.com"],
+		},
+	},
 ]
 
 const create = async (destination: CreateDestinationInput["destination"]) =>
@@ -112,6 +123,7 @@ describe("storing every kind that now has a sender", () => {
 			expect(row.kind).toBe(destination.kind)
 			expect(readDestinationConfig(row.kind, row.secretEncrypted)?.kind).toBe(destination.kind)
 			for (const secret of [
+				"smtp-password",
 				"discord-token",
 				"slack-token",
 				"teams-signature",
@@ -224,6 +236,38 @@ describe("refusing an address that cannot work, instead of storing it", () => {
 					serverUrl: "https://ntfy.example.com/?token=secret",
 					topic: "open-mcc",
 					priority: 3,
+				},
+			}),
+		).toBe("parameters")
+	})
+
+	it("refuses a mail server on this machine at save time, not at send time", async () => {
+		expect(
+			await rejection({
+				kind: "email",
+				config: {
+					smtpServer: "localhost",
+					smtpPort: 587,
+					username: "alerts",
+					password: "secret",
+					fromAddress: "alerts@example.com",
+					toAddresses: ["on-call@example.com"],
+				},
+			}),
+		).toBe("loopback")
+	})
+
+	it("refuses a mail server given as a url rather than a bare address", async () => {
+		expect(
+			await rejection({
+				kind: "email",
+				config: {
+					smtpServer: "smtp://smtp.example.com:587",
+					smtpPort: 587,
+					username: "alerts",
+					password: "secret",
+					fromAddress: "alerts@example.com",
+					toAddresses: ["on-call@example.com"],
 				},
 			}),
 		).toBe("parameters")

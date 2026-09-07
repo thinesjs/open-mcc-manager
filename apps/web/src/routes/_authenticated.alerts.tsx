@@ -56,6 +56,17 @@ const BLANK_CONFIG: Record<CreatableDestinationKind, DestinationDraft["destinati
 	gotify: { kind: "gotify", config: { serverUrl: "", appToken: "", priority: 5 } },
 	ntfy: { kind: "ntfy", config: { serverUrl: "", topic: "", priority: 3 } },
 	resend: { kind: "resend", config: { apiKey: "", fromAddress: "", toAddresses: [] } },
+	email: {
+		kind: "email",
+		config: {
+			smtpServer: "",
+			smtpPort: 587,
+			username: "",
+			password: "",
+			fromAddress: "",
+			toAddresses: [],
+		},
+	},
 }
 
 const draftFor = (
@@ -406,7 +417,7 @@ function AlertsPage() {
 				</section>
 			) : null}
 
-			<Modal open={adding} onClose={() => setAdding(false)} title="Add destination">
+			<Modal open={adding} onClose={() => setAdding(false)} title="Add destination" size="wider">
 				<AlertDestinationForm
 					submitLabel="Add"
 					pending={create.isPending}
@@ -420,6 +431,7 @@ function AlertsPage() {
 				onClose={() => setPendingEdit(undefined)}
 				title="Edit destination"
 				description="OpenMCC never shows an address or token back, so enter it again to save."
+				size="wider"
 			>
 				{editing === undefined || !canBeCreated(editing.kind) ? null : (
 					<AlertDestinationForm

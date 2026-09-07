@@ -8,7 +8,7 @@ export type ModalProps = {
 	open: boolean
 	title: string
 	description?: string
-	size?: "default" | "wide"
+	size?: "default" | "wide" | "wider"
 	onClose: () => void
 	children: ReactNode
 }
@@ -60,7 +60,7 @@ export const Modal = ({
 						transition={surface}
 						className={cn(
 							"relative my-auto w-full rounded-[var(--radius)] border border-border bg-popover p-5 shadow-lg",
-							size === "wide" ? "max-w-3xl" : "max-w-lg",
+							size === "wider" ? "max-w-5xl" : size === "wide" ? "max-w-3xl" : "max-w-lg",
 						)}
 					>
 						<div className="flex items-start justify-between gap-4">

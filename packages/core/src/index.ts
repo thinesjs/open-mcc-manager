@@ -187,6 +187,7 @@ export {
 	readsAsAddressList,
 	sanitisedTarget,
 	verifyAddress,
+	verifyDestinationHost,
 	verifyDestinationUrl,
 } from "./notification/egress"
 export type {

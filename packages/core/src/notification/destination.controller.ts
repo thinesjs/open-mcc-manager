@@ -19,13 +19,19 @@ import { type ActorContext, ForbiddenError } from "../host/host.controller"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { SendJob } from "../job/job.queue"
 import { NOTIFICATION_HTTP_QUEUE } from "../job/queue-setup"
+import { assertExhaustive } from "../lib/exhaustive"
 import {
 	shortFingerprint,
 	telegramTarget,
 	toDestinationView,
 	webhookTarget,
 } from "./destination.view"
-import { type EgressPolicy, type RejectionCategory, verifyDestinationUrl } from "./egress"
+import {
+	type EgressPolicy,
+	type RejectionCategory,
+	verifyDestinationHost,
+	verifyDestinationUrl,
+} from "./egress"
 import {
 	createNotificationRepository,
 	type NotificationRepository,
@@ -122,6 +128,11 @@ const checkUrl = (
 	policy: EgressPolicy,
 	teamsHosts: readonly string[],
 ): void => {
+	if (settings.kind === "email") {
+		const host = verifyDestinationHost(settings.config.smtpServer, policy)
+		if (!host.allowed) throw new DestinationRejectedError(host.reason, host.category)
+		return
+	}
 	const url = configurableUrl(settings)
 	if (url === undefined) return
 	const shape = verifyProviderUrl(settings.kind, url, teamsHosts)
@@ -152,25 +163,39 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 		signingSecret: string | undefined,
 		previous: { secret: string; expiresAt: string } | undefined,
 	): StoredDestinationConfig => {
-		if (input.kind === "telegram") return { kind: "telegram", config: input.config }
-		if (input.kind === "discord") return { kind: "discord", config: input.config }
-		if (input.kind === "slack") return { kind: "slack", config: input.config }
-		if (input.kind === "teams") return { kind: "teams", config: input.config }
-		if (input.kind === "gotify") return { kind: "gotify", config: input.config }
-		if (input.kind === "ntfy") return { kind: "ntfy", config: input.config }
-		if (input.kind === "resend") return { kind: "resend", config: input.config }
-		return {
-			kind: "webhook",
-			config: {
-				url: input.config.url,
-				signingSecret: signingSecret ?? newSecret(),
-				...(previous === undefined
-					? {}
-					: {
-							previousSigningSecret: previous.secret,
-							previousSigningSecretExpiresAt: previous.expiresAt,
-						}),
-			},
+		switch (input.kind) {
+			case "webhook":
+				return {
+					kind: "webhook",
+					config: {
+						url: input.config.url,
+						signingSecret: signingSecret ?? newSecret(),
+						...(previous === undefined
+							? {}
+							: {
+									previousSigningSecret: previous.secret,
+									previousSigningSecretExpiresAt: previous.expiresAt,
+								}),
+					},
+				}
+			case "telegram":
+				return { kind: "telegram", config: input.config }
+			case "discord":
+				return { kind: "discord", config: input.config }
+			case "slack":
+				return { kind: "slack", config: input.config }
+			case "teams":
+				return { kind: "teams", config: input.config }
+			case "gotify":
+				return { kind: "gotify", config: input.config }
+			case "ntfy":
+				return { kind: "ntfy", config: input.config }
+			case "resend":
+				return { kind: "resend", config: input.config }
+			case "email":
+				return { kind: "email", config: input.config }
+			default:
+				return assertExhaustive(input)
 		}
 	}
 

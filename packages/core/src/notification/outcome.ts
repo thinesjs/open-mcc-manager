@@ -140,3 +140,11 @@ export const classifyResendReply = (
 	}
 	return classifyHttpStatus(status, retryAfter, now)
 }
+
+export const classifySmtpReply = (code: number, reason: string): DeliveryOutcome => {
+	if (code >= 200 && code < 400) return { kind: "delivered", statusCode: code }
+	if (code >= 400 && code < 500) {
+		return { kind: "retryable", statusCode: code, reason, retryAfterSeconds: undefined }
+	}
+	return { kind: "terminal", statusCode: code, reason, stopSending: false }
+}

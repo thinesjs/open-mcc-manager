@@ -16,6 +16,7 @@ import {
 	deliverTelegram,
 	deliverWebhook,
 } from "./sender"
+import { deliverEmail } from "./smtp.sender"
 
 const UNREADABLE = "this destination's settings could not be read"
 
@@ -103,5 +104,16 @@ export const dispatchTo = async (
 			{ policy },
 		)
 	}
-	return classifyRefusal("this kind of destination cannot be sent to yet")
+	return await deliverEmail(
+		{
+			smtpServer: settings.config.smtpServer,
+			smtpPort: settings.config.smtpPort,
+			username: settings.config.username,
+			password: settings.config.password,
+			fromAddress: settings.config.fromAddress,
+			toAddresses: settings.config.toAddresses,
+		},
+		envelope,
+		{ policy },
+	)
 }

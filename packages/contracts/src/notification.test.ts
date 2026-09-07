@@ -188,64 +188,111 @@ describe("which secret a webhook is signed with", () => {
 	})
 })
 
-describe("only the kinds that can actually send may be created", () => {
+describe("every kind can be created now that every kind can be sent", () => {
 	const base = { name: "Somewhere", subscribedTo: ["host.unreachable"] }
 
-	it("accepts the two that dispatch implements", () => {
-		expect(
-			createDestinationInput.safeParse({
-				...base,
-				destination: { kind: "webhook", config: { url: "https://hooks.example.com/x" } },
-			}).success,
-		).toBe(true)
-		expect(
-			createDestinationInput.safeParse({
-				...base,
-				destination: { kind: "telegram", config: { botToken: "1:AA", chatId: "-100" } },
-			}).success,
-		).toBe(true)
+	const VALID = [
+		{ kind: "webhook", config: { url: "https://hooks.example.com/x" } },
+		{ kind: "telegram", config: { botToken: "1:AA", chatId: "-100" } },
+		{ kind: "discord", config: { url: "https://discord.com/api/webhooks/1/tok" } },
+		{ kind: "slack", config: { url: "https://hooks.slack.com/services/T/B/x" } },
+		{ kind: "teams", config: { url: "https://a.05.environment.api.powerplatform.com/x?sig=z" } },
+		{ kind: "gotify", config: { serverUrl: "https://push.example.com", appToken: "tok" } },
+		{ kind: "ntfy", config: { serverUrl: "https://ntfy.example.com", topic: "open-mcc" } },
+		{
+			kind: "resend",
+			config: {
+				apiKey: "re_live_key",
+				fromAddress: "alerts@example.com",
+				toAddresses: ["on-call@example.com"],
+			},
+		},
+		{
+			kind: "email",
+			config: {
+				smtpServer: "smtp.example.com",
+				smtpPort: 587,
+				username: "alerts",
+				password: "secret",
+				fromAddress: "alerts@example.com",
+				toAddresses: ["on-call@example.com"],
+			},
+		},
+	]
+
+	const validFor = (kind: string) => VALID.find((entry) => entry.kind === kind)?.config
+
+	it("has a real configuration on hand for every kind that exists", () => {
+		for (const kind of DESTINATION_KINDS) {
+			expect(validFor(kind), kind).toBeDefined()
+		}
 	})
 
-	it("refuses the seven that would be rejected at delivery time", () => {
+	it("leaves no kind that dispatch would refuse at delivery time", () => {
+		expect(new Set(CREATABLE_DESTINATION_KINDS)).toEqual(new Set(DESTINATION_KINDS))
 		for (const kind of DESTINATION_KINDS) {
-			if (canBeCreated(kind)) continue
+			expect(canBeCreated(kind), kind).toBe(true)
+		}
+	})
+
+	it("accepts a real configuration for every one of them", () => {
+		for (const kind of DESTINATION_KINDS) {
 			expect(
 				createDestinationInput.safeParse({
 					...base,
-					destination: { kind, config: { url: "https://hooks.example.com/x" } },
+					destination: { kind, config: validFor(kind) },
 				}).success,
+				kind,
+			).toBe(true)
+		}
+	})
+
+	it("holds an edit to exactly the same set, so the two cannot drift apart", () => {
+		for (const kind of DESTINATION_KINDS) {
+			expect(
+				editDestinationInput.safeParse({
+					destinationId: "dst_1",
+					...base,
+					destination: { kind, config: validFor(kind) },
+				}).success,
+				kind,
+			).toBe(true)
+		}
+	})
+
+	it("refuses settings that cannot belong to the kind they were sent under", () => {
+		const mismatched: readonly [string, string][] = [
+			["email", "webhook"],
+			["webhook", "email"],
+			["telegram", "webhook"],
+			["gotify", "ntfy"],
+			["ntfy", "gotify"],
+			["resend", "email"],
+		]
+		for (const [kind, borrowed] of mismatched) {
+			expect(
+				createDestinationInput.safeParse({
+					...base,
+					destination: { kind, config: validFor(borrowed) },
+				}).success,
+				`${kind} accepted ${borrowed} settings`,
 			).toBe(false)
 		}
 	})
 
-	it("says which kinds are creatable, and it is everything that has a sender", () => {
-		expect(new Set(CREATABLE_DESTINATION_KINDS)).toEqual(
-			new Set(DESTINATION_KINDS.filter((kind) => kind !== "email")),
-		)
-		for (const kind of CREATABLE_DESTINATION_KINDS) {
-			expect([...DESTINATION_KINDS]).toContain(kind)
+	it("distinguishes the four url-only kinds by their name alone, since their settings match", () => {
+		const urlOnly = ["webhook", "discord", "slack", "teams"] as const
+		for (const kind of urlOnly) {
+			for (const other of urlOnly) {
+				expect(
+					createDestinationInput.safeParse({
+						...base,
+						destination: { kind, config: validFor(other) },
+					}).success,
+					`${kind} with ${other} settings`,
+				).toBe(true)
+			}
 		}
-		expect(canBeCreated("email")).toBe(false)
-	})
-
-	it("holds an edit to the same restriction, so a kind cannot be smuggled in later", () => {
-		expect(
-			editDestinationInput.safeParse({
-				destinationId: "dst_1",
-				...base,
-				destination: {
-					kind: "email",
-					config: {
-						smtpServer: "smtp.example.com",
-						smtpPort: 587,
-						username: "alerts",
-						password: "secret",
-						fromAddress: "alerts@example.com",
-						toAddresses: ["on-call@example.com"],
-					},
-				},
-			}).success,
-		).toBe(false)
 	})
 
 	it("takes a full configuration for every kind that now has a sender", () => {

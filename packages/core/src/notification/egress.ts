@@ -301,6 +301,40 @@ export const verifyDestinationUrl = (
 	return { allowed: true, hostname: parsed.hostname }
 }
 
+export const verifyDestinationHost = (
+	raw: string,
+	policy: EgressPolicy = PUBLIC_ONLY,
+): UrlVerdict => {
+	const hostname = bareHostname(raw.trim()).toLowerCase()
+	if (hostname.length === 0) {
+		return {
+			allowed: false,
+			reason: "that does not look like a server address",
+			category: "unreadable",
+		}
+	}
+
+	const hostAllowed = hostIsAllowed(hostname, policy)
+	if (isIP(hostname) !== 0) {
+		const verdict = verifyAddress(hostname, policy, hostAllowed)
+		return verdict.allowed
+			? { allowed: true, hostname }
+			: { allowed: false, reason: verdict.reason, category: verdict.category }
+	}
+
+	if (hostname.includes("/") || hostname.includes("@") || hostname.includes(":")) {
+		return {
+			allowed: false,
+			reason: "give the server address only, with nothing after it",
+			category: "parameters",
+		}
+	}
+	if (!hostAllowed && looksLocalName(hostname)) {
+		return { allowed: false, reason: LOOPBACK, category: "loopback" }
+	}
+	return { allowed: true, hostname }
+}
+
 export const sanitisedTarget = (raw: string): string => {
 	try {
 		const parsed = new URL(raw)

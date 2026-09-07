@@ -29,6 +29,7 @@ const KIND_COPY: Record<CreatableDestinationKind, string> = {
 	gotify: "Push to your own Gotify server.",
 	ntfy: "Push to your own ntfy server.",
 	resend: "Send an email through Resend.",
+	email: "Send an email through your own mail server.",
 }
 
 const KIND_OPTIONS = CREATABLE_DESTINATION_KINDS.map((kind) => ({
@@ -64,6 +65,8 @@ const URL_HINT: Record<UrlKind, string> = {
 	slack: "Copy it from the Slack app's Incoming Webhooks page.",
 	teams: "Copy it from the Workflows trigger, with its access set to Anyone.",
 }
+
+const DEFAULT_SMTP_PORT = 587
 
 const DEFAULT_PRIORITY: Record<"gotify" | "ntfy", number> = { gotify: 5, ntfy: 3 }
 
@@ -122,6 +125,10 @@ export const AlertDestinationForm = ({
 	const [accessToken, setAccessToken] = useState("")
 	const [priority, setPriority] = useState("")
 	const [apiKey, setApiKey] = useState("")
+	const [smtpServer, setSmtpServer] = useState("")
+	const [smtpPort, setSmtpPort] = useState("")
+	const [username, setUsername] = useState("")
+	const [password, setPassword] = useState("")
 	const [fromAddress, setFromAddress] = useState("")
 	const [toAddresses, setToAddresses] = useState("")
 	const [chosen, setChosen] = useState<SubscriptionKind[]>(initial?.subscribedTo ?? [])
@@ -130,6 +137,25 @@ export const AlertDestinationForm = ({
 		setChosen((current) =>
 			current.includes(alert) ? current.filter((each) => each !== alert) : [...current, alert],
 		)
+	}
+
+	const chooseKind = (next: CreatableDestinationKind) => {
+		setKind(next)
+		setUrl("")
+		setBotToken("")
+		setChatId("")
+		setServerUrl("")
+		setAppToken("")
+		setTopic("")
+		setAccessToken("")
+		setPriority("")
+		setApiKey("")
+		setFromAddress("")
+		setToAddresses("")
+		setSmtpServer("")
+		setSmtpPort("")
+		setUsername("")
+		setPassword("")
 	}
 
 	const priorityOf = (fallback: number): number => {
@@ -161,6 +187,17 @@ export const AlertDestinationForm = ({
 				kind: "resend",
 				config: { apiKey, fromAddress, toAddresses: recipientsOf(toAddresses) },
 			}),
+			email: () => ({
+				kind: "email",
+				config: {
+					smtpServer,
+					smtpPort: Number(smtpPort) || DEFAULT_SMTP_PORT,
+					username,
+					password,
+					fromAddress,
+					toAddresses: recipientsOf(toAddresses),
+				},
+			}),
 		}
 		return built[kind]()
 	}
@@ -174,209 +211,301 @@ export const AlertDestinationForm = ({
 
 	return (
 		<form onSubmit={handleSubmit} className="space-y-5">
-			<div className="space-y-2">
-				<Label htmlFor="destination-name">Name</Label>
-				<Input
-					id="destination-name"
-					value={name}
-					onChange={(event) => setName(event.target.value)}
-					placeholder="On-call Telegram"
-					required
-				/>
-			</div>
+			<div className="grid gap-x-6 gap-y-5 lg:grid-cols-2">
+				<div className="space-y-5">
+					<div className="space-y-2">
+						<Label htmlFor="destination-name">Name</Label>
+						<Input
+							id="destination-name"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+							placeholder="On-call Telegram"
+							required
+						/>
+					</div>
 
-			{initial === undefined ? (
-				<Choice label="Destination type" value={kind} options={KIND_OPTIONS} onChange={setKind} />
-			) : null}
-
-			{postsToAUrl(kind) ? (
-				<div className="space-y-2">
-					<Label htmlFor="destination-url">{URL_LABEL[kind]}</Label>
-					<Input
-						id="destination-url"
-						value={url}
-						onChange={(event) => setUrl(event.target.value)}
-						placeholder={URL_PLACEHOLDER[kind]}
-						required
-					/>
-					<p className="text-xs text-muted-foreground">
-						{URL_HINT[kind]}
-						{kind === "webhook" && onExplainWebhook !== undefined ? (
-							<>
-								{" "}
-								<button
-									type="button"
-									onClick={onExplainWebhook}
-									className="underline underline-offset-4 transition-colors hover:text-foreground"
-								>
-									How it works
-								</button>
-							</>
-						) : null}
-					</p>
+					{initial === undefined ? (
+						<Choice
+							label="Destination type"
+							value={kind}
+							options={KIND_OPTIONS}
+							onChange={chooseKind}
+						/>
+					) : null}
 				</div>
-			) : null}
 
-			{kind === "telegram" ? (
-				<div className="grid gap-4 sm:grid-cols-2">
-					<div className="space-y-2">
-						<Label htmlFor="destination-token">Bot token</Label>
-						<Input
-							id="destination-token"
-							value={botToken}
-							onChange={(event) => setBotToken(event.target.value)}
-							required
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="destination-chat">Chat ID</Label>
-						<Input
-							id="destination-chat"
-							value={chatId}
-							onChange={(event) => setChatId(event.target.value)}
-							required
-						/>
-					</div>
-				</div>
-			) : null}
-
-			{kind === "gotify" || kind === "ntfy" ? (
-				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="destination-server">Server address</Label>
-						<Input
-							id="destination-server"
-							value={serverUrl}
-							onChange={(event) => setServerUrl(event.target.value)}
-							placeholder={
-								kind === "gotify" ? "https://push.example.com" : "https://ntfy.example.com"
-							}
-							required
-						/>
-						<p className="text-xs text-muted-foreground">
-							The address only, with nothing after it.
-						</p>
-					</div>
-					<div className="grid gap-4 sm:grid-cols-2">
-						{kind === "gotify" ? (
-							<div className="space-y-2">
-								<Label htmlFor="destination-app-token">Application token</Label>
-								<Input
-									id="destination-app-token"
-									value={appToken}
-									onChange={(event) => setAppToken(event.target.value)}
-									required
-								/>
-							</div>
-						) : (
-							<div className="space-y-2">
-								<Label htmlFor="destination-topic">Topic</Label>
-								<Input
-									id="destination-topic"
-									value={topic}
-									onChange={(event) => setTopic(event.target.value)}
-									placeholder="open-mcc"
-									required
-								/>
-							</div>
-						)}
+				<div className="space-y-5">
+					{postsToAUrl(kind) ? (
 						<div className="space-y-2">
-							<Label htmlFor="destination-priority">Priority</Label>
+							<Label htmlFor="destination-url">{URL_LABEL[kind]}</Label>
 							<Input
-								id="destination-priority"
-								type="number"
-								inputMode="numeric"
-								min={range?.min}
-								max={range?.max}
-								value={priority}
-								onChange={(event) => setPriority(event.target.value)}
-								placeholder={String(DEFAULT_PRIORITY[kind])}
+								id="destination-url"
+								value={url}
+								onChange={(event) => setUrl(event.target.value)}
+								placeholder={URL_PLACEHOLDER[kind]}
+								required
 							/>
 							<p className="text-xs text-muted-foreground">
-								{range === undefined ? null : `${range.min} to ${range.max}.`} Leave it blank for{" "}
-								{DEFAULT_PRIORITY[kind]}.
-							</p>
-						</div>
-					</div>
-					{kind === "ntfy" ? (
-						<div className="space-y-2">
-							<Label htmlFor="destination-access-token">Access token</Label>
-							<Input
-								id="destination-access-token"
-								value={accessToken}
-								onChange={(event) => setAccessToken(event.target.value)}
-							/>
-							<p className="text-xs text-muted-foreground">
-								Only needed if your server asks for one.
+								{URL_HINT[kind]}
+								{kind === "webhook" && onExplainWebhook !== undefined ? (
+									<>
+										{" "}
+										<button
+											type="button"
+											onClick={onExplainWebhook}
+											className="underline underline-offset-4 transition-colors hover:text-foreground"
+										>
+											How it works
+										</button>
+									</>
+								) : null}
 							</p>
 						</div>
 					) : null}
-				</div>
-			) : null}
 
-			{kind === "resend" ? (
-				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="destination-api-key">API key</Label>
-						<Input
-							id="destination-api-key"
-							value={apiKey}
-							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="re_…"
-							required
-						/>
-					</div>
-					<div className="grid gap-4 sm:grid-cols-2">
-						<div className="space-y-2">
-							<Label htmlFor="destination-from">From</Label>
-							<Input
-								id="destination-from"
-								type="email"
-								value={fromAddress}
-								onChange={(event) => setFromAddress(event.target.value)}
-								placeholder="alerts@example.com"
-								required
-							/>
+					{kind === "telegram" ? (
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div className="space-y-2">
+								<Label htmlFor="destination-token">Bot token</Label>
+								<Input
+									id="destination-token"
+									value={botToken}
+									onChange={(event) => setBotToken(event.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="destination-chat">Chat ID</Label>
+								<Input
+									id="destination-chat"
+									value={chatId}
+									onChange={(event) => setChatId(event.target.value)}
+									required
+								/>
+							</div>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="destination-to">Send to</Label>
-							<Input
-								id="destination-to"
-								value={toAddresses}
-								onChange={(event) => setToAddresses(event.target.value)}
-								placeholder="on-call@example.com"
-								required
-							/>
+					) : null}
+
+					{kind === "gotify" || kind === "ntfy" ? (
+						<div className="space-y-4">
+							<div className="space-y-2">
+								<Label htmlFor="destination-server">Server address</Label>
+								<Input
+									id="destination-server"
+									value={serverUrl}
+									onChange={(event) => setServerUrl(event.target.value)}
+									placeholder={
+										kind === "gotify" ? "https://push.example.com" : "https://ntfy.example.com"
+									}
+									required
+								/>
+								<p className="text-xs text-muted-foreground">
+									The address only, with nothing after it.
+								</p>
+							</div>
+							<div className="grid gap-4 sm:grid-cols-2">
+								{kind === "gotify" ? (
+									<div className="space-y-2">
+										<Label htmlFor="destination-app-token">Application token</Label>
+										<Input
+											id="destination-app-token"
+											value={appToken}
+											onChange={(event) => setAppToken(event.target.value)}
+											required
+										/>
+									</div>
+								) : (
+									<div className="space-y-2">
+										<Label htmlFor="destination-topic">Topic</Label>
+										<Input
+											id="destination-topic"
+											value={topic}
+											onChange={(event) => setTopic(event.target.value)}
+											placeholder="open-mcc"
+											required
+										/>
+									</div>
+								)}
+								<div className="space-y-2">
+									<Label htmlFor="destination-priority">Priority</Label>
+									<Input
+										id="destination-priority"
+										type="number"
+										inputMode="numeric"
+										min={range?.min}
+										max={range?.max}
+										value={priority}
+										onChange={(event) => setPriority(event.target.value)}
+										placeholder={String(DEFAULT_PRIORITY[kind])}
+									/>
+									<p className="text-xs text-muted-foreground">
+										{range === undefined ? null : `${range.min} to ${range.max}.`} Leave it blank
+										for {DEFAULT_PRIORITY[kind]}.
+									</p>
+								</div>
+							</div>
+							{kind === "ntfy" ? (
+								<div className="space-y-2">
+									<Label htmlFor="destination-access-token">Access token</Label>
+									<Input
+										id="destination-access-token"
+										value={accessToken}
+										onChange={(event) => setAccessToken(event.target.value)}
+									/>
+									<p className="text-xs text-muted-foreground">
+										Only needed if your server asks for one.
+									</p>
+								</div>
+							) : null}
+						</div>
+					) : null}
+
+					{kind === "resend" ? (
+						<div className="space-y-4">
+							<div className="space-y-2">
+								<Label htmlFor="destination-api-key">API key</Label>
+								<Input
+									id="destination-api-key"
+									value={apiKey}
+									onChange={(event) => setApiKey(event.target.value)}
+									placeholder="re_…"
+									required
+								/>
+							</div>
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label htmlFor="destination-from">From</Label>
+									<Input
+										id="destination-from"
+										type="email"
+										value={fromAddress}
+										onChange={(event) => setFromAddress(event.target.value)}
+										placeholder="alerts@example.com"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="destination-to">Send to</Label>
+									<Input
+										id="destination-to"
+										value={toAddresses}
+										onChange={(event) => setToAddresses(event.target.value)}
+										placeholder="on-call@example.com"
+										required
+									/>
+									<p className="text-xs text-muted-foreground">
+										Separate several addresses with a comma.
+									</p>
+								</div>
+							</div>
+						</div>
+					) : null}
+
+					{kind === "email" ? (
+						<div className="space-y-4">
+							<div className="grid gap-4 sm:grid-cols-3">
+								<div className="space-y-2 sm:col-span-2">
+									<Label htmlFor="destination-smtp-server">Mail server</Label>
+									<Input
+										id="destination-smtp-server"
+										value={smtpServer}
+										onChange={(event) => setSmtpServer(event.target.value)}
+										placeholder="smtp.example.com"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="destination-smtp-port">Port</Label>
+									<Input
+										id="destination-smtp-port"
+										type="number"
+										inputMode="numeric"
+										min={1}
+										max={65535}
+										value={smtpPort}
+										onChange={(event) => setSmtpPort(event.target.value)}
+										placeholder={String(DEFAULT_SMTP_PORT)}
+									/>
+								</div>
+							</div>
 							<p className="text-xs text-muted-foreground">
-								Separate several addresses with a comma.
+								465 connects securely from the start. Any other port has to offer STARTTLS, or
+								nothing is sent. Many hosting providers block port 25 outright.
 							</p>
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label htmlFor="destination-smtp-username">Username</Label>
+									<Input
+										id="destination-smtp-username"
+										value={username}
+										onChange={(event) => setUsername(event.target.value)}
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="destination-smtp-password">Password</Label>
+									<Input
+										id="destination-smtp-password"
+										type="password"
+										value={password}
+										onChange={(event) => setPassword(event.target.value)}
+									/>
+								</div>
+							</div>
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label htmlFor="destination-from">From</Label>
+									<Input
+										id="destination-from"
+										type="email"
+										value={fromAddress}
+										onChange={(event) => setFromAddress(event.target.value)}
+										placeholder="alerts@example.com"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="destination-to">Send to</Label>
+									<Input
+										id="destination-to"
+										value={toAddresses}
+										onChange={(event) => setToAddresses(event.target.value)}
+										placeholder="on-call@example.com"
+										required
+									/>
+									<p className="text-xs text-muted-foreground">
+										Separate several addresses with a comma.
+									</p>
+								</div>
+							</div>
 						</div>
-					</div>
-				</div>
-			) : null}
+					) : null}
 
-			<fieldset className="space-y-2">
-				<legend className="text-sm font-medium text-foreground">Send an alert when</legend>
-				<div className="grid gap-2 sm:grid-cols-2">
-					{SUBSCRIPTION_KINDS.map((alert) => (
-						<label
-							key={alert}
-							className="flex cursor-pointer items-start gap-2 rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm text-foreground"
-						>
-							<input
-								type="checkbox"
-								checked={chosen.includes(alert)}
-								onChange={() => toggle(alert)}
-								className="mt-0.5 size-4 accent-[var(--primary)]"
-							/>
-							<span className="min-w-0">
-								<span className="block">{SUBSCRIPTION_LABELS[alert]}</span>
-								<span className="block font-mono text-[11px] text-muted-foreground">{alert}</span>
-							</span>
-						</label>
-					))}
+					<fieldset className="space-y-2">
+						<legend className="text-sm font-medium text-foreground">Send an alert when</legend>
+						<div className="grid gap-2">
+							{SUBSCRIPTION_KINDS.map((alert) => (
+								<label
+									key={alert}
+									className="flex cursor-pointer items-start gap-2 rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm text-foreground"
+								>
+									<input
+										type="checkbox"
+										checked={chosen.includes(alert)}
+										onChange={() => toggle(alert)}
+										className="mt-0.5 size-4 accent-[var(--primary)]"
+									/>
+									<span className="min-w-0">
+										<span className="block">{SUBSCRIPTION_LABELS[alert]}</span>
+										<span className="block font-mono text-[11px] text-muted-foreground">
+											{alert}
+										</span>
+									</span>
+								</label>
+							))}
+						</div>
+					</fieldset>
 				</div>
-			</fieldset>
+			</div>
 
 			<div className="flex justify-end">
 				<Button type="submit" disabled={pending || chosen.length === 0}>

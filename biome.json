@@ -6,6 +6,7 @@
 			"!**/dist",
 			"!**/node_modules",
 			"!apps/web/src/routeTree.gen.ts",
+			"!apps/web/vite.config.ts.timestamp-*.mjs",
 			"!**/.turbo",
 			"!**/coverage",
 			"!**/build",

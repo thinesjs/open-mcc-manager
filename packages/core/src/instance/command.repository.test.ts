@@ -34,6 +34,7 @@ beforeAll(async () => {
 			name: "afk",
 			minecraftAccount: "a@b.com",
 			minecraftUsername: null,
+			liveControlPort: 34333,
 		})
 		.returningAll()
 		.executeTakeFirstOrThrow()

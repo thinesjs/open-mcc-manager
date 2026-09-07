@@ -15,7 +15,9 @@
 		"kysely": "^0.29.5",
 		"libsodium-wrappers-sumo": "0.7.15",
 		"nanoid": "^5.0.9",
-		"sshpk": "^1.18.0"
+		"pg-boss": "^12.30.0",
+		"sshpk": "^1.18.0",
+		"undici": "^8.10.2"
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*",

@@ -320,6 +320,7 @@ describe("instance tenant integrity", () => {
 					name: "cross",
 					minecraftAccount: "a@example.com",
 					minecraftUsername: null,
+					liveControlPort: 33333,
 				})
 				.execute(),
 		).rejects.toThrow(/instance_host_org_fk/)
@@ -338,6 +339,7 @@ describe("instance tenant integrity", () => {
 				name: "live",
 				minecraftAccount: "a@example.com",
 				minecraftUsername: null,
+				liveControlPort: 33334,
 			})
 			.execute()
 		seeded.instanceIds.push(instanceId)
@@ -361,6 +363,7 @@ describe("instance tenant integrity", () => {
 				name: "cfg",
 				minecraftAccount: "a@example.com",
 				minecraftUsername: null,
+				liveControlPort: 33335,
 			})
 			.execute()
 		seeded.instanceIds.push(instanceId)
@@ -406,6 +409,7 @@ describe("instance tenant integrity", () => {
 					name: "noclaim",
 					minecraftAccount: "a@example.com",
 					minecraftUsername: null,
+					liveControlPort: 33336,
 					authClaimId: "attempt-1",
 				})
 				.execute(),

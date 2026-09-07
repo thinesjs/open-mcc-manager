@@ -22,7 +22,6 @@ export type InstanceTable = Omit<
 	| "status"
 	| "accountType"
 	| "lastExitCode"
-	| "liveControlPort"
 	| "liveControlTokenEncrypted"
 	| "liveControlTokenKeyId"
 	| "authClaimId"
@@ -32,7 +31,6 @@ export type InstanceTable = Omit<
 	status: Generated<InstanceStatus>
 	accountType: Generated<AccountType>
 	lastExitCode: Generated<DB["instance"]["lastExitCode"]>
-	liveControlPort: Generated<DB["instance"]["liveControlPort"]>
 	liveControlTokenEncrypted: Generated<DB["instance"]["liveControlTokenEncrypted"]>
 	liveControlTokenKeyId: Generated<DB["instance"]["liveControlTokenKeyId"]>
 	authClaimId: Generated<DB["instance"]["authClaimId"]>

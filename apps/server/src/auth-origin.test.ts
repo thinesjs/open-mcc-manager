@@ -36,6 +36,9 @@ const startWithAllowedOrigins = async (allowedOrigins: string): Promise<ServerHa
 		BETTER_AUTH_URL: "http://localhost:3000",
 		SEALBOX_KEYS: await generateKeyPair("k1"),
 		ALLOWED_ORIGINS: allowedOrigins,
+		NOTIFICATION_ALLOW_HTTP: false,
+		NOTIFICATION_ALLOWED_HOSTS: "",
+		NOTIFICATION_ALLOWED_ADDRESSES: "",
 	}
 	handle = await startServer(env, vi.fn())
 	return handle

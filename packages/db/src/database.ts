@@ -11,6 +11,7 @@ import type {
 	NotificationAttemptTable,
 	NotificationDeliveryTable,
 	NotificationDestinationTable,
+	NotificationSubscriptionTable,
 	NotificationTable,
 } from "./schema/notification"
 import type { ProcessIdentityTable } from "./schema/process-identity"
@@ -41,6 +42,7 @@ export type Database = Omit<
 	| "notificationDestination"
 	| "notificationDelivery"
 	| "notificationAttempt"
+	| "notificationSubscription"
 > & {
 	host: HostTable
 	processIdentity: ProcessIdentityTable
@@ -59,4 +61,5 @@ export type Database = Omit<
 	notificationDestination: NotificationDestinationTable
 	notificationDelivery: NotificationDeliveryTable
 	notificationAttempt: NotificationAttemptTable
+	notificationSubscription: NotificationSubscriptionTable
 }

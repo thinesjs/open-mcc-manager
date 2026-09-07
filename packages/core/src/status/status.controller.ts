@@ -14,13 +14,24 @@ import {
 import type { Db } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
+import type { SendJob } from "../job/job.queue"
+import { announce } from "../notification/announce"
+import {
+	createNotificationRepository,
+	type NotificationRepository,
+} from "../notification/notification.repository"
 import type { ConnectionChange, ConnectionCurrent } from "./connection"
 import { UNOBSERVED_CONNECTION } from "./connection"
 import { nextReachability, type ReachabilityCurrent, UNOBSERVED } from "./reachability"
 import { bucketStarts, rollUpWindow, SECONDS_PER_BUCKET } from "./rollup"
 import { createStatusRepository, type StatusRepository } from "./status.repository"
 
-export type StatusTransactionBundle = { status: StatusRepository }
+export type StatusTransactionBundle = {
+	status: StatusRepository
+	notifications: NotificationRepository
+	runner: SqlRunner
+}
 
 export type WithStatusTransaction = <T>(
 	fn: (repos: StatusTransactionBundle) => Promise<T>,
@@ -28,12 +39,19 @@ export type WithStatusTransaction = <T>(
 
 export const createStatusControllerTransaction = (db: Db): WithStatusTransaction => {
 	const withTransaction: WithStatusTransaction = (fn) =>
-		db.transaction().execute((tx) => fn({ status: createStatusRepository(tx) }))
+		db.transaction().execute((tx) =>
+			fn({
+				status: createStatusRepository(tx),
+				notifications: createNotificationRepository(tx),
+				runner: asSqlRunner(tx),
+			}),
+		)
 	return withTransaction
 }
 
 export type StatusControllerDeps = {
 	withTransaction: WithStatusTransaction
+	sendJob: SendJob
 	hostNames: (scope: OrgScope) => Promise<{ id: string; name: string }[]>
 	instanceNames: (scope: OrgScope) => Promise<{ id: string; name: string }[]>
 	retentionDays: number
@@ -67,7 +85,7 @@ const availabilityOver = (
 export const createStatusController = (deps: StatusControllerDeps) => ({
 	recordHostReachability: async (scope: OrgScope, observation: HostObservation): Promise<void> => {
 		const now = deps.now()
-		await deps.withTransaction(async ({ status }) => {
+		await deps.withTransaction(async ({ status, notifications, runner }) => {
 			const existing = await status.findCondition(
 				scope,
 				{ hostId: observation.hostId },
@@ -119,6 +137,20 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 							detail: {},
 						})
 
+			if (event !== undefined) {
+				await announce(
+					scope,
+					{
+						statusEventId: event.id,
+						kind: event.kind,
+						subjectType: "host",
+						subjectId: observation.hostId,
+						subjectName: observation.hostName,
+					},
+					{ notifications, sendJob: deps.sendJob, runner },
+				)
+			}
+
 			await status.closeOpenInterval(scope, subject, HOST_REACHABILITY, now, event?.id ?? null)
 			await status.openInterval(
 				scope,
@@ -150,7 +182,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		changes: readonly ConnectionChange[],
 	): Promise<void> => {
 		if (changes.length === 0) return
-		await deps.withTransaction(async ({ status }) => {
+		await deps.withTransaction(async ({ status, notifications, runner }) => {
 			const subject = { instanceId: instance.id }
 			for (const change of changes) {
 				const event =
@@ -172,6 +204,20 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 								sourceKey: `${instance.id}:${change.at.toISOString()}:${change.event}`,
 								detail: change.reason === undefined ? {} : { reason: change.reason },
 							})
+
+				if (event !== undefined) {
+					await announce(
+						scope,
+						{
+							statusEventId: event.id,
+							kind: event.kind,
+							subjectType: "instance",
+							subjectId: instance.id,
+							subjectName: instance.name,
+						},
+						{ notifications, sendJob: deps.sendJob, runner },
+					)
+				}
 
 				const closed = await status.closeOpenInterval(
 					scope,

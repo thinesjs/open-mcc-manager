@@ -82,7 +82,7 @@ export const statusEventKindSchema = z.enum(STATUS_EVENT_KINDS)
 
 export type StatusEventKind = z.infer<typeof statusEventKindSchema>
 
-const NOTIFYING_EVENT_KINDS: ReadonlySet<string> = new Set<StatusEventKind>([
+export const NOTIFYING_EVENT_KINDS = [
 	"host.unreachable",
 	"host.drift_started",
 	"instance.disconnected",
@@ -91,9 +91,19 @@ const NOTIFYING_EVENT_KINDS: ReadonlySet<string> = new Set<StatusEventKind>([
 	"instance.unexpected_stop",
 	"instance.needs_auth",
 	"instance.drift_started",
-])
+] as const
 
-export const isNotifyingEvent = (kind: StatusEventKind): boolean => NOTIFYING_EVENT_KINDS.has(kind)
+export const RESOLVING_EVENT_KINDS = [
+	"host.recovered",
+	"host.drift_resolved",
+	"instance.reconnected",
+	"instance.process_recovered",
+	"instance.drift_resolved",
+] as const
+
+const NOTIFYING: ReadonlySet<string> = new Set<string>(NOTIFYING_EVENT_KINDS)
+
+export const isNotifyingEvent = (kind: StatusEventKind): boolean => NOTIFYING.has(kind)
 
 const RESOLVES: Partial<Record<StatusEventKind, StatusEventKind>> = {
 	"host.recovered": "host.unreachable",

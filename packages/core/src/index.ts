@@ -132,9 +132,46 @@ export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
 export type { SqlRunner } from "./job/executor-adapter"
 export { asSqlRunner } from "./job/executor-adapter"
 export { createHostTeardownHandler } from "./job/host-teardown.job"
-export type { JobQueue, QueueName, SendJob } from "./job/job.queue"
+export type { JobQueue, QueueName, SendJob, SendJobOptions } from "./job/job.queue"
 export { createJobQueue, HOST_TEARDOWN_QUEUE, QUEUE_NAMES } from "./job/job.queue"
+export type { QueueAdmin, QueuePolicy, StoredQueue } from "./job/queue-setup"
+export {
+	adminFor,
+	NOTIFICATION_DEADLETTER_QUEUE,
+	NOTIFICATION_EMAIL_QUEUE,
+	NOTIFICATION_HTTP_QUEUE,
+	reconcileQueues,
+} from "./job/queue-setup"
 export { assertExhaustive } from "./lib/exhaustive"
+export type {
+	DeliveryDeps,
+	DeliveryPayload,
+	DeliveryResult,
+	DeliveryStore,
+} from "./notification/delivery.job"
+export { createDeliveryHandler, readDeliveryPayload } from "./notification/delivery.job"
+export { dispatchTo } from "./notification/dispatch"
+export type {
+	AddressAllowance,
+	AddressVerdict,
+	EgressPolicy,
+	EgressSettings,
+	UrlVerdict,
+} from "./notification/egress"
+export {
+	bareHostname,
+	egressPolicy,
+	hostIsAllowed,
+	looksLocalName,
+	PUBLIC_ONLY,
+	readsAsAddressList,
+	sanitisedTarget,
+	verifyAddress,
+	verifyDestinationUrl,
+} from "./notification/egress"
+export type { NotificationRepository } from "./notification/notification.repository"
+export { createNotificationRepository } from "./notification/notification.repository"
+export type { NotificationEnvelope } from "./notification/sender"
 export { redact, redactError } from "./security/redact"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"
 export { generateSshKeyPair } from "./ssh-key/generate"

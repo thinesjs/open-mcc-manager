@@ -227,9 +227,15 @@ importers:
       nanoid:
         specifier: ^5.0.9
         version: 5.1.16
+      pg-boss:
+        specifier: ^12.30.0
+        version: 12.30.0
       sshpk:
         specifier: ^1.18.0
         version: 1.18.0
+      undici:
+        specifier: ^8.10.2
+        version: 8.10.2
     devDependencies:
       '@open-mcc/config':
         specifier: workspace:*
@@ -2539,6 +2545,10 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  undici@8.10.2:
+    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+    engines: {node: '>=22.19.0'}
+
   unplugin@3.3.0:
     resolution: {integrity: sha512-qa66K+crbfyE6JK10GjvbJeRrOsuC/JpbnHctfyp/i4oBTxWOzJfRZyDiOk1PtErMFRu8JhsU/wPvOdBNWe5Rg==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -4592,6 +4602,8 @@ snapshots:
   undici-types@5.26.5: {}
 
   undici-types@6.21.0: {}
+
+  undici@8.10.2: {}
 
   unplugin@3.3.0(esbuild@0.28.2)(rollup@4.63.1)(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)):
     dependencies:

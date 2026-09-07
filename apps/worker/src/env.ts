@@ -1,8 +1,18 @@
+import { readsAsAddressList } from "@open-mcc/core"
 import { z } from "zod"
+
+const boolean = z.enum(["true", "false"]).transform((value) => value === "true")
+
+const addressList = z
+	.string()
+	.refine(readsAsAddressList, "must be a comma-separated list of addresses or ranges")
 
 export const workerEnvSchema = z.object({
 	DATABASE_URL: z.string().min(1),
 	SEALBOX_KEYS: z.string().min(1),
+	NOTIFICATION_ALLOW_HTTP: boolean.default("false"),
+	NOTIFICATION_ALLOWED_HOSTS: z.string().default(""),
+	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),
 })
 
 export type WorkerEnv = z.infer<typeof workerEnvSchema>

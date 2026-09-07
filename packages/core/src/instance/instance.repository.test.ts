@@ -30,7 +30,10 @@ const seedHost = async (organizationId: string): Promise<string> => {
 	return id
 }
 
+let nextPort = 33333
+
 const seedInstance = async (organizationId: string, hostId: string) => {
+	nextPort += 1
 	const row = await createInstanceRepository(testDb()).insert(
 		{ organizationId },
 		{
@@ -38,6 +41,7 @@ const seedInstance = async (organizationId: string, hostId: string) => {
 			name: `inst-${Math.random().toString(36).slice(2, 10)}`,
 			minecraftAccount: "a@b.com",
 			minecraftUsername: null,
+			liveControlPort: nextPort,
 		},
 	)
 	trackInstanceId(row.id)

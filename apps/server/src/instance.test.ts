@@ -198,6 +198,7 @@ const seedInstance = async (orgId: string): Promise<string> => {
 			name: `afk-${instanceId.slice(0, 8)}`,
 			minecraftAccount: "afk@example.com",
 			minecraftUsername: null,
+			liveControlPort: 48919,
 			status: "stopped",
 		})
 		.execute()

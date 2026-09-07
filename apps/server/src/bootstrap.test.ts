@@ -11,6 +11,9 @@ const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	BETTER_AUTH_URL: "http://localhost:3000",
 	SEALBOX_KEYS: "",
 	ALLOWED_ORIGINS: "http://localhost:5173",
+	NOTIFICATION_ALLOW_HTTP: false,
+	NOTIFICATION_ALLOWED_HOSTS: "",
+	NOTIFICATION_ALLOWED_ADDRESSES: "",
 	...overrides,
 })
 

@@ -11,7 +11,7 @@ RUN pnpm dlx esbuild@0.25.12 apps/worker/src/index.ts \
 	--outfile=worker.mjs \
 	--external:kysely --external:kysely/* \
 	--external:libsodium-wrappers-sumo --external:nanoid --external:pg \
-	--external:pg-boss --external:ssh2 --external:sshpk --external:zod
+	--external:pg-boss --external:ssh2 --external:sshpk --external:undici --external:zod
 RUN pnpm deploy --filter @open-mcc/worker --prod --legacy --config.node-linker=hoisted /out
 RUN cp worker.mjs /out/worker.mjs
 RUN node prune-deploy.mjs /out

@@ -1,6 +1,7 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
+	adminFor,
 	type BuildInfo,
 	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
@@ -24,6 +25,7 @@ import {
 	profileFrom,
 	readBuildInfo,
 	readConnectionChanges,
+	reconcileQueues,
 	redactError,
 	resolveMinecraftName,
 	type SchedulerHandle,
@@ -71,7 +73,18 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 	await boss.start()
 	await boss.createQueue(HOST_TEARDOWN_QUEUE)
-	const sendJob: SendJob = (queue, payload, runner) => boss.send(queue, payload, { db: runner })
+	await reconcileQueues(
+		adminFor({
+			createQueue: async (name, options) => await boss.createQueue(name, options),
+			updateQueue: async (name, options) => await boss.updateQueue(name, options),
+			getQueue: async (name) => await boss.getQueue(name),
+		}),
+	)
+	const sendJob: SendJob = (queue, payload, runner, options) =>
+		boss.send(queue, payload, {
+			db: runner,
+			...(options === undefined ? {} : { startAfter: options.startAfterSeconds }),
+		})
 
 	const db = createDb(env.DATABASE_URL)
 	const build = readBuildInfo(process.env)
@@ -123,6 +136,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 	const statusController = createStatusController({
 		withTransaction: createStatusControllerTransaction(db),
+		sendJob,
 		hostNames: async (scope) =>
 			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
 		instanceNames: async (scope) =>

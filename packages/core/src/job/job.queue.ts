@@ -1,16 +1,29 @@
 import type { Executor } from "@open-mcc/db"
 import { asSqlRunner, type SqlRunner } from "./executor-adapter"
+import {
+	NOTIFICATION_DEADLETTER_QUEUE,
+	NOTIFICATION_EMAIL_QUEUE,
+	NOTIFICATION_HTTP_QUEUE,
+} from "./queue-setup"
 
 export const HOST_TEARDOWN_QUEUE = "host.teardown"
 
-export const QUEUE_NAMES = [HOST_TEARDOWN_QUEUE] as const
+export const QUEUE_NAMES = [
+	HOST_TEARDOWN_QUEUE,
+	NOTIFICATION_HTTP_QUEUE,
+	NOTIFICATION_EMAIL_QUEUE,
+	NOTIFICATION_DEADLETTER_QUEUE,
+] as const
 
 export type QueueName = (typeof QUEUE_NAMES)[number]
+
+export type SendJobOptions = { startAfterSeconds: number }
 
 export type SendJob = (
 	queue: QueueName,
 	payload: Record<string, string>,
 	runner: SqlRunner,
+	options?: SendJobOptions,
 ) => Promise<string | null>
 
 export type JobQueue = {

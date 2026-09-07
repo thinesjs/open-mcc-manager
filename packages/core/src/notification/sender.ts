@@ -5,6 +5,7 @@ import { redact } from "../security/redact"
 import { byteLength, truncateBytes, truncateChars } from "./bounds"
 import type { EgressPolicy } from "./egress"
 import { PUBLIC_ONLY, sanitisedTarget } from "./egress"
+import { networkReason } from "./failure"
 import {
 	classifyDiscordReply,
 	classifyHttpStatus,
@@ -75,14 +76,7 @@ const attempt = async (
 	try {
 		result = await transport(request)
 	} catch (error) {
-		return classifyNetworkFailure(
-			redact(
-				withoutTarget(
-					error instanceof Error ? error.message : "the delivery did not go through",
-					request.url,
-				),
-			),
-		)
+		return classifyNetworkFailure(networkReason(error instanceof Error ? error : undefined))
 	}
 	if (!result.sent) return classifyRefusal(result.reason)
 	return onSent(result)

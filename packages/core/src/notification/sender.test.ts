@@ -199,8 +199,23 @@ describe("Telegram, which hides its failures inside a 200", () => {
 				chat_id: "-1001",
 				text: telegramText(envelope),
 				disable_notification: false,
+				disable_web_page_preview: true,
 			}),
 		)
+	})
+
+	it("stops Telegram fetching any link that lands in an alert", async () => {
+		const { transport, seen } = transportReturning({
+			sent: true,
+			status: 200,
+			headers: {},
+			body: '{"ok":true}',
+		})
+
+		await deliverTelegram({ botToken: "123:AAA", chatId: "-1001" }, envelope, { transport, now })
+
+		expect(seen[0]?.body).toContain('"disable_web_page_preview":true')
+		expect(seen[0]?.body).not.toContain("parse_mode")
 	})
 
 	it("includes a topic only when there is one", async () => {

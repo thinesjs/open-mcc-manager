@@ -15,6 +15,7 @@ import {
 	type NotificationEnvelope,
 	NTFY_MESSAGE_BYTES,
 	ntfyMessage,
+	ntfyUrl,
 	RESEND_URL,
 	SLACK_TEXT_CHARS,
 	slackText,
@@ -151,7 +152,7 @@ describe("what Slack actually receives", () => {
 })
 
 describe("what Teams actually receives", () => {
-	it("sends a card with no buttons, because a workflow cannot run them", async () => {
+	it("sends an adaptive card in the envelope a workflow expects", async () => {
 		const { transport, seen } = transportReturning(answered(202))
 
 		const outcome = await deliverTeams(
@@ -164,21 +165,51 @@ describe("what Teams actually receives", () => {
 
 		expect(outcome.kind).toBe("delivered")
 		expect(seen[0]?.body).toBe(
-			exactly({
-				"@type": "MessageCard",
-				"@context": "https://schema.org/extensions",
-				summary: "steve-bot left the server",
-				themeColor: "D1242F",
-				title: "steve-bot left the server",
-				text: "It has not come back on its own.",
+			JSON.stringify({
+				type: "message",
+				attachments: [
+					{
+						contentType: "application/vnd.microsoft.card.adaptive",
+						content: {
+							type: "AdaptiveCard",
+							$schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+							version: "1.2",
+							body: [
+								{
+									type: "TextBlock",
+									text: "\u26a0\ufe0f steve-bot left the server",
+									size: "Medium",
+									weight: "Bolder",
+									wrap: true,
+								},
+								{ type: "TextBlock", text: "It has not come back on its own.", wrap: true },
+							],
+						},
+					},
+				],
 			}),
 		)
-		expect(seen[0]?.body).not.toContain("potentialAction")
 	})
 
-	it("colours a recovery differently from a problem", () => {
-		expect(teamsBody(envelope)).toContain('"themeColor":"D1242F"')
-		expect(teamsBody(resolved)).toContain('"themeColor":"2EA043"')
+	it("sends nothing a workflow cannot run", async () => {
+		const { transport, seen } = transportReturning(answered(202))
+		await deliverTeams(
+			{ url: "https://a.05.environment.api.powerplatform.com/x?sig=z" },
+			envelope,
+			{
+				transport,
+			},
+		)
+
+		expect(seen[0]?.body).not.toContain("potentialAction")
+		expect(seen[0]?.body).not.toContain("Action.OpenUrl")
+		expect(seen[0]?.body).not.toContain("MessageCard")
+	})
+
+	it("marks a recovery apart from a problem in the title", () => {
+		expect(teamsBody(envelope)).toContain("\u26a0\ufe0f steve-bot left the server")
+		expect(teamsBody(resolved)).toContain("\u2705 steve-bot left the server")
+		expect(teamsBody(envelope)).not.toContain("themeColor")
 	})
 
 	it("stays inside the message limit even for an absurd alert", () => {
@@ -200,10 +231,11 @@ describe("what Gotify actually receives", () => {
 		expect(seen[0]?.url).toBe("https://push.example.com/message")
 		expect(seen[0]?.headers["x-gotify-key"]).toBe("AbCd")
 		expect(seen[0]?.body).toBe(
-			exactly({
+			JSON.stringify({
 				title: "steve-bot left the server",
 				message: "It has not come back on its own.",
 				priority: 7,
+				extras: { "client::display": { contentType: "text/plain" } },
 			}),
 		)
 	})
@@ -215,7 +247,7 @@ describe("what Gotify actually receives", () => {
 })
 
 describe("what ntfy actually receives", () => {
-	it("names the topic in the body and the token in a header", async () => {
+	it("names the topic in the path, the way every other ntfy client does", async () => {
 		const { transport, seen } = transportReturning(answered(200))
 
 		const outcome = await deliverNtfy(
@@ -225,15 +257,19 @@ describe("what ntfy actually receives", () => {
 		)
 
 		expect(outcome.kind).toBe("delivered")
-		expect(seen[0]?.url).toBe("https://ntfy.example.com")
+		expect(seen[0]?.url).toBe("https://ntfy.example.com/open-mcc")
 		expect(seen[0]?.headers.authorization).toBe("Bearer tk")
-		expect(seen[0]?.body).toBe(
-			exactly({
-				topic: "open-mcc",
-				title: "steve-bot left the server",
-				message: "It has not come back on its own.",
-				priority: 4,
-			}),
+		expect(seen[0]?.headers["x-title"]).toBe("steve-bot left the server")
+		expect(seen[0]?.headers["x-priority"]).toBe("4")
+		expect(seen[0]?.body).toBe("It has not come back on its own.")
+	})
+
+	it("keeps a server behind a subpath intact", () => {
+		expect(ntfyUrl("https://example.com/ntfy", "open-mcc")).toBe(
+			"https://example.com/ntfy/open-mcc",
+		)
+		expect(ntfyUrl("https://ntfy.example.com/", "open-mcc")).toBe(
+			"https://ntfy.example.com/open-mcc",
 		)
 	})
 

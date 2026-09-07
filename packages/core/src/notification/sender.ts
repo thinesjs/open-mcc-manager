@@ -1,7 +1,6 @@
 import type { NotificationKind } from "@open-mcc/contracts"
 import { DELIVERY_TIMEOUT_MS, RESOLVING_EVENT_KINDS } from "@open-mcc/contracts"
 import { parseTelegramReply } from "@open-mcc/contracts/boundary/telegram"
-import { redact } from "../security/redact"
 import { byteLength, truncateBytes, truncateChars } from "./bounds"
 import type { EgressPolicy } from "./egress"
 import { PUBLIC_ONLY, sanitisedTarget } from "./egress"
@@ -49,19 +48,6 @@ export const webhookBody = (envelope: NotificationEnvelope): string =>
 			subject: { type: envelope.subjectType, id: envelope.subjectId },
 		},
 	})
-
-const pathOf = (url: string): string | undefined => {
-	const scheme = url.indexOf("://")
-	if (scheme === -1) return undefined
-	const slash = url.indexOf("/", scheme + 3)
-	return slash === -1 ? undefined : url.slice(slash)
-}
-
-export const withoutTarget = (message: string, url: string): string => {
-	const stripped = message.split(url).join(sanitisedTarget(url))
-	const path = pathOf(url)
-	return path === undefined || path.length <= 1 ? stripped : stripped.split(path).join("/…")
-}
 
 const attempt = async (
 	request: PinnedRequest,
@@ -145,6 +131,7 @@ export const deliverTelegram = async (
 				chat_id: settings.chatId,
 				text: telegramText(envelope),
 				disable_notification: false,
+				disable_web_page_preview: true,
 				...(settings.messageThreadId === undefined
 					? {}
 					: { message_thread_id: settings.messageThreadId }),
@@ -244,22 +231,34 @@ export const deliverSlack = async (
 }
 
 export const teamsTitle = (envelope: NotificationEnvelope): string =>
-	truncateChars(envelope.title, TEAMS_TITLE_CHARS)
+	`${RESOLVING.has(envelope.kind) ? "\u2705" : "\u26a0\ufe0f"} ${truncateChars(envelope.title, TEAMS_TITLE_CHARS)}`
 
 export const teamsText = (envelope: NotificationEnvelope): string =>
 	truncateBytes(envelope.body, TEAMS_TEXT_BYTES)
 
-export const teamsColour = (envelope: NotificationEnvelope): string =>
-	RESOLVING.has(envelope.kind) ? "2EA043" : "D1242F"
-
 export const teamsBody = (envelope: NotificationEnvelope): string =>
 	JSON.stringify({
-		"@type": "MessageCard",
-		"@context": "https://schema.org/extensions",
-		summary: teamsTitle(envelope),
-		themeColor: teamsColour(envelope),
-		title: teamsTitle(envelope),
-		text: teamsText(envelope),
+		type: "message",
+		attachments: [
+			{
+				contentType: "application/vnd.microsoft.card.adaptive",
+				content: {
+					type: "AdaptiveCard",
+					$schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+					version: "1.2",
+					body: [
+						{
+							type: "TextBlock",
+							text: teamsTitle(envelope),
+							size: "Medium",
+							weight: "Bolder",
+							wrap: true,
+						},
+						{ type: "TextBlock", text: teamsText(envelope), wrap: true },
+					],
+				},
+			},
+		],
 	})
 
 export const deliverTeams = async (
@@ -297,6 +296,7 @@ export const gotifyBody = (envelope: NotificationEnvelope, priority: number): st
 		title: truncateChars(envelope.title, TEAMS_TITLE_CHARS),
 		message: truncateChars(envelope.body, OPERATIONAL_TEXT_CHARS),
 		priority,
+		extras: { "client::display": { contentType: "text/plain" } },
 	})
 
 export const deliverGotify = async (
@@ -331,13 +331,8 @@ export type NtfySettings = {
 export const ntfyMessage = (envelope: NotificationEnvelope): string =>
 	truncateBytes(envelope.body, NTFY_MESSAGE_BYTES)
 
-export const ntfyBody = (envelope: NotificationEnvelope, topic: string, priority: number): string =>
-	JSON.stringify({
-		topic,
-		title: truncateChars(envelope.title, NTFY_TITLE_CHARS),
-		message: ntfyMessage(envelope),
-		priority,
-	})
+export const ntfyUrl = (serverUrl: string, topic: string): string =>
+	`${serverUrl.replace(/\/+$/, "")}/${topic}`
 
 export const deliverNtfy = async (
 	settings: NtfySettings,
@@ -349,15 +344,18 @@ export const deliverNtfy = async (
 
 	return await attempt(
 		{
-			url: settings.serverUrl,
+			url: ntfyUrl(settings.serverUrl, settings.topic),
 			method: "POST",
 			headers: {
-				...JSON_HEADERS,
+				"content-type": "text/plain; charset=utf-8",
+				"user-agent": "OpenMCC",
+				"x-title": truncateChars(envelope.title, NTFY_TITLE_CHARS),
+				"x-priority": String(settings.priority),
 				...(settings.accessToken === undefined
 					? {}
 					: { authorization: `Bearer ${settings.accessToken}` }),
 			},
-			body: ntfyBody(envelope, settings.topic, settings.priority),
+			body: ntfyMessage(envelope),
 			timeoutMs: DELIVERY_TIMEOUT_MS,
 			policy: deps.policy ?? PUBLIC_ONLY,
 		},

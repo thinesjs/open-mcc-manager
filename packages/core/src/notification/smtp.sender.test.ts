@@ -109,9 +109,7 @@ describe("who the mail sender is willing to talk to", () => {
 		})
 
 		expect(outcome.kind).toBe("retryable")
-		expect(outcome.kind === "retryable" && outcome.reason).toBe(
-			"that mail server could not be reached",
-		)
+		expect(outcome.kind === "retryable" && outcome.reason).toBe("The delivery did not go through")
 	})
 
 	it("secures the socket before the greeting on the implicit-TLS port", async () => {
@@ -221,5 +219,59 @@ describe("the message an operator receives", () => {
 		const built = emailMessage(settings, huge, new Date())
 		expect(Array.from(built.subject)).toHaveLength(250)
 		expect(Array.from(built.text)).toHaveLength(4000)
+	})
+})
+
+describe("what an operator is told when the connection itself fails", () => {
+	const pinnedOnce = {
+		resolve: async () => ({
+			pinned: true as const,
+			addresses: [{ address: "203.0.113.7", family: 4 as const, named: false }],
+		}),
+	}
+
+	it("names a refused connection rather than calling it unreachable", async () => {
+		const outcome = await deliverEmail(settings, envelope, {
+			...pinnedOnce,
+			open: async () => {
+				throw Object.assign(new Error("connect ECONNREFUSED 203.0.113.7:587"), {
+					code: "ECONNREFUSED",
+				})
+			},
+		})
+
+		expect(outcome.kind === "retryable" && outcome.reason).toBe(
+			"That address refused the connection",
+		)
+	})
+
+	it("names an untrusted certificate on the implicit-TLS port instead of hiding it", async () => {
+		const outcome = await deliverEmail({ ...settings, smtpPort: 465 }, envelope, {
+			...pinnedOnce,
+			open: async () => socketStub(),
+			secure: async () => {
+				throw Object.assign(new Error("self signed certificate"), {
+					code: "DEPTH_ZERO_SELF_SIGNED_CERT",
+				})
+			},
+		})
+
+		expect(outcome.kind === "retryable" && outcome.reason).toBe(
+			"That address presented a certificate we could not trust",
+		)
+	})
+
+	it("still never repeats the address it could not reach", async () => {
+		const outcome = await deliverEmail(settings, envelope, {
+			...pinnedOnce,
+			open: async () => {
+				throw Object.assign(new Error("connect ETIMEDOUT 203.0.113.7:587"), {
+					code: "ETIMEDOUT",
+				})
+			},
+		})
+
+		const reason = outcome.kind === "retryable" ? outcome.reason : ""
+		expect(reason).not.toMatch(/\d+\.\d+\.\d+\.\d+|:\d{2,5}\b/)
 	})
 })

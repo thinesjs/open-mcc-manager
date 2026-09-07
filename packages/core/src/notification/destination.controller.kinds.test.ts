@@ -18,11 +18,16 @@ const secrets: SecretStore = {
 	open: (ciphertext) => ciphertext,
 }
 
+const queued: string[] = []
+
 const controller = createDestinationController({
 	withTransaction: createDestinationControllerTransaction(testDb()),
 	notifications: createNotificationRepository(testDb()),
 	secrets,
-	sendJob: async () => "job",
+	sendJob: async (queue) => {
+		queued.push(queue)
+		return "job"
+	},
 	policy: PUBLIC_ONLY,
 	teamsHosts: ["environment.api.powerplatform.us"],
 })
@@ -280,5 +285,100 @@ describe("refusing an address that cannot work, instead of storing it", () => {
 				config: { serverUrl: "https://localhost", appToken: "tok", priority: 5 },
 			}),
 		).toBe("loopback")
+	})
+})
+
+describe("which queue a test or a retry lands on", () => {
+	it("sends an email destination's test to the email queue, not the http one", async () => {
+		const { destination: view } = await create({
+			kind: "email",
+			config: {
+				smtpServer: "smtp.example.com",
+				smtpPort: 587,
+				username: "alerts",
+				password: "smtp-password",
+				fromAddress: "alerts@example.com",
+				toAddresses: ["on-call@example.com"],
+			},
+		})
+
+		queued.length = 0
+		await controller.test(owner, view.id)
+
+		expect(queued).toEqual(["notification.deliver.email"])
+	})
+
+	it("still sends an http destination's test to the http queue", async () => {
+		const { destination: view } = await create(A_DISCORD_WEBHOOK)
+
+		queued.length = 0
+		await controller.test(owner, view.id)
+
+		expect(queued).toEqual(["notification.deliver.http"])
+	})
+
+	const failedDeliveryFor = async (destinationId: string): Promise<string> => {
+		const repo = createNotificationRepository(testDb())
+		const scope = { organizationId }
+		const created = await repo.createNotification(scope, {
+			kind: "host.unreachable",
+			title: "basement-box is unreachable",
+			body: "The last three checks did not answer.",
+			subjectType: "host",
+			subjectId: `host-${suffix()}`,
+			dedupeKey: `retry-${suffix()}`,
+		})
+		if (!created) throw new Error("the test could not create a notification")
+		const delivery = await repo.createDelivery(scope, {
+			notificationId: created.id,
+			destinationId,
+		})
+		if (!delivery) throw new Error("the test could not create a delivery")
+		await repo.settleDelivery(scope, delivery.id, {
+			state: "failed",
+			attempts: 1,
+			settledAt: new Date(),
+			lastError: "it did not go through",
+		})
+		return delivery.id
+	}
+
+	it("sends an email destination's retry to the email queue, not the http one", async () => {
+		const { destination: view } = await create({
+			kind: "email",
+			config: {
+				smtpServer: "smtp.example.com",
+				smtpPort: 587,
+				username: "alerts",
+				password: "smtp-password",
+				fromAddress: "alerts@example.com",
+				toAddresses: ["on-call@example.com"],
+			},
+		})
+		const deliveryId = await failedDeliveryFor(view.id)
+
+		queued.length = 0
+		await controller.retry(owner, deliveryId)
+
+		expect(queued).toEqual(["notification.deliver.email"])
+	})
+
+	it("still sends an http destination's retry to the http queue", async () => {
+		const { destination: view } = await create(A_DISCORD_WEBHOOK)
+		const deliveryId = await failedDeliveryFor(view.id)
+
+		queued.length = 0
+		await controller.retry(owner, deliveryId)
+
+		expect(queued).toEqual(["notification.deliver.http"])
+	})
+
+	it("refuses to test a destination that is turned off, as retry already did", async () => {
+		const { destination: view } = await create(A_DISCORD_WEBHOOK)
+		await controller.setEnabled(owner, view.id, false)
+
+		queued.length = 0
+		await expect(controller.test(owner, view.id)).rejects.toThrow()
+		expect(queued).toEqual([])
 	})
 })

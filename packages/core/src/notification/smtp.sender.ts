@@ -2,7 +2,8 @@ import type { Socket } from "node:net"
 import { DELIVERY_TIMEOUT_MS } from "@open-mcc/contracts"
 import { truncateChars } from "./bounds"
 import { bareHostname, type EgressPolicy, PUBLIC_ONLY } from "./egress"
-import { classifyRefusal, type DeliveryOutcome } from "./outcome"
+import { networkReason } from "./failure"
+import { classifyNetworkFailure, classifyRefusal, type DeliveryOutcome } from "./outcome"
 import { resolvePinned } from "./pinned"
 import type { NotificationEnvelope } from "./sender"
 import { converse, type Upgrade } from "./smtp.client"
@@ -72,27 +73,21 @@ export const deliverEmail = async (
 		let socket: Socket
 		try {
 			socket = await open({ address: pinned.address, port: settings.smtpPort, timeoutMs })
-		} catch {
-			lastFailure = {
-				kind: "retryable",
-				statusCode: undefined,
-				reason: NOWHERE,
-				retryAfterSeconds: undefined,
-			}
+		} catch (error) {
+			lastFailure = classifyNetworkFailure(
+				networkReason(error instanceof Error ? error : undefined),
+			)
 			continue
 		}
 
 		if (!needsStartTls(settings.smtpPort)) {
 			try {
 				socket = await secure(socket)
-			} catch {
+			} catch (error) {
 				socket.destroy()
-				lastFailure = {
-					kind: "retryable",
-					statusCode: undefined,
-					reason: NOWHERE,
-					retryAfterSeconds: undefined,
-				}
+				lastFailure = classifyNetworkFailure(
+					networkReason(error instanceof Error ? error : undefined),
+				)
 				continue
 			}
 		}

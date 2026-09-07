@@ -18,8 +18,8 @@ import type { SecretStore } from "../crypto/sealed-box"
 import { type ActorContext, ForbiddenError } from "../host/host.controller"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { SendJob } from "../job/job.queue"
-import { NOTIFICATION_HTTP_QUEUE } from "../job/queue-setup"
 import { assertExhaustive } from "../lib/exhaustive"
+import { queueFor } from "./announce"
 import {
 	shortFingerprint,
 	telegramTarget,
@@ -469,7 +469,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 				if (!requeued) throw new DestinationNotFoundError("that alert is no longer waiting")
 
 				const jobId = await deps.sendJob(
-					NOTIFICATION_HTTP_QUEUE,
+					queueFor(destination),
 					{ organizationId: scope.organizationId, deliveryId, attempt: "1" },
 					runner,
 				)
@@ -493,6 +493,9 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 			return await deps.withTransaction(async ({ notifications, audit, runner }) => {
 				const row = await notifications.findDestination(scope, destinationId)
 				if (!row) throw new DestinationNotFoundError("that destination no longer exists")
+				if (!row.enabled) {
+					throw new DestinationDisabledError("that destination is turned off")
+				}
 
 				await notifications.lockTestsFor(scope)
 				const since = new Date(now().getTime() - TEST_WINDOW_MS)
@@ -524,7 +527,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 				if (!delivery) throw new Error("that test could not be started")
 
 				const jobId = await deps.sendJob(
-					NOTIFICATION_HTTP_QUEUE,
+					queueFor(row),
 					{
 						organizationId: scope.organizationId,
 						deliveryId: delivery.id,

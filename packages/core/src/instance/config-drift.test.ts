@@ -7,7 +7,7 @@ import { compareInstanceConfig, describeConfigDrift, isSafetyDrift } from "./con
 const base = {
 	accountType: "offline",
 	minecraftAccount: "OpenMccBot",
-	serverAddress: "100.83.37.21",
+	serverAddress: "100.101.102.103",
 	autoRelogRetries: 3,
 	autoRelogDelaySeconds: 10,
 	antiAfkEnabled: false,
@@ -88,7 +88,7 @@ describe("instance config drift", () => {
 
 	it("names a managed key an operator changed on the host", () => {
 		const expected = renderInstanceConfig(base)
-		const actual = expected.replace('Host = "100.83.37.21"', 'Host = "evil.example.net"')
+		const actual = expected.replace('Host = "100.101.102.103"', 'Host = "evil.example.net"')
 		const drift = compareInstanceConfig(expected, actual)
 
 		expect(drift).toHaveLength(1)
@@ -141,11 +141,11 @@ describe("instance config drift", () => {
 
 	it("says what changed in words an operator can act on", () => {
 		const expected = renderInstanceConfig(base)
-		const actual = expected.replace('Host = "100.83.37.21"', 'Host = "elsewhere"')
+		const actual = expected.replace('Host = "100.101.102.103"', 'Host = "elsewhere"')
 		const [drift] = compareInstanceConfig(expected, actual)
 
 		expect(drift && describeConfigDrift(drift)).toBe(
-			'Main.General.Server.Host is "elsewhere", expected "100.83.37.21"',
+			'Main.General.Server.Host is "elsewhere", expected "100.101.102.103"',
 		)
 	})
 })

@@ -261,6 +261,31 @@ describe("what an operator is told when the connection itself fails", () => {
 		)
 	})
 
+	it("reports the last address it tried when every one of them fails", async () => {
+		const dialled: string[] = []
+
+		const outcome = await deliverEmail(settings, envelope, {
+			resolve: async () => ({
+				pinned: true as const,
+				addresses: [
+					{ address: "203.0.113.7", family: 4 as const, named: false },
+					{ address: "203.0.113.8", family: 4 as const, named: false },
+				],
+			}),
+			open: async ({ address }) => {
+				dialled.push(address)
+				throw address === "203.0.113.7"
+					? Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })
+					: Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" })
+			},
+		})
+
+		expect(dialled).toEqual(["203.0.113.7", "203.0.113.8"])
+		expect(outcome.kind === "retryable" && outcome.reason).toBe(
+			"That address did not answer in time",
+		)
+	})
+
 	it("still never repeats the address it could not reach", async () => {
 		const outcome = await deliverEmail(settings, envelope, {
 			...pinnedOnce,

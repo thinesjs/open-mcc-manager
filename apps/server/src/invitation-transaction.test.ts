@@ -5,6 +5,7 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
 import { createTestStatusController } from "./test/status-controller"
 
@@ -105,6 +106,7 @@ beforeAll(async () => {
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db),
 				statusController: createTestStatusController(db),
+				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
 			}),
 		}),

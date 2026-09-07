@@ -1,6 +1,7 @@
 import type { Role } from "@open-mcc/contracts"
 import type {
 	BuildInfo,
+	DestinationController,
 	HostController,
 	InstanceController,
 	ProcessIdentityRepository,
@@ -29,5 +30,6 @@ export type RequestContext = {
 	instanceController: InstanceController
 	statusController: StatusController
 	sshKeyController: SshKeyController
+	destinationController: DestinationController
 	db: Db
 }

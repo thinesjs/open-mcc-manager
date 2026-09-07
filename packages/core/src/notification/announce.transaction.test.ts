@@ -16,6 +16,14 @@ let sendJob: SendJob
 let organizationId = ""
 let destinationId = ""
 
+const run = Math.random().toString(36).slice(2, 10)
+
+const eventIds = {
+	rollback: `evt-rollback-${run}`,
+	commit: `evt-commit-${run}`,
+	kick: `evt-kick-${run}`,
+}
+
 const seedStatusEvent = async (id: string): Promise<string> => {
 	await testDb()
 		.insertInto("statusEvent")
@@ -77,7 +85,7 @@ beforeAll(async () => {
 	sendJob = (queue, payload, runner) => boss.send(queue, payload, { db: runner })
 
 	organizationId = await seedOrganization("announce-tx")
-	destinationId = `dest-${organizationId.slice(0, 8)}`
+	destinationId = `dest-${run}`
 	await testDb()
 		.insertInto("notificationDestination")
 		.values({
@@ -93,14 +101,14 @@ beforeAll(async () => {
 	await testDb()
 		.insertInto("notificationSubscription")
 		.values({
-			id: `sub-${organizationId.slice(0, 8)}`,
+			id: `sub-${run}`,
 			organizationId,
 			destinationId,
 			kind: "host.unreachable",
 		})
 		.execute()
 
-	for (const id of ["evt-rollback", "evt-commit", "evt-kick"]) await seedStatusEvent(id)
+	for (const id of [eventIds.rollback, eventIds.commit, eventIds.kick]) await seedStatusEvent(id)
 }, 60_000)
 
 afterAll(async () => {
@@ -118,7 +126,7 @@ describe("a notification and its queued job commit together or not at all", () =
 			testDb()
 				.transaction()
 				.execute(async (tx) => {
-					await announce({ organizationId }, fact("evt-rollback"), {
+					await announce({ organizationId }, fact(eventIds.rollback), {
 						notifications: createNotificationRepository(tx),
 						sendJob,
 						runner: asSqlRunner(tx),
@@ -139,7 +147,7 @@ describe("a notification and its queued job commit together or not at all", () =
 			.transaction()
 			.execute(
 				async (tx) =>
-					await announce({ organizationId }, fact("evt-commit"), {
+					await announce({ organizationId }, fact(eventIds.commit), {
 						notifications: createNotificationRepository(tx),
 						sendJob,
 						runner: asSqlRunner(tx),
@@ -159,7 +167,7 @@ describe("a notification and its queued job commit together or not at all", () =
 			.transaction()
 			.execute(
 				async (tx) =>
-					await announce({ organizationId }, fact("evt-commit"), {
+					await announce({ organizationId }, fact(eventIds.commit), {
 						notifications: createNotificationRepository(tx),
 						sendJob,
 						runner: asSqlRunner(tx),
@@ -180,7 +188,7 @@ describe("a notification and its queued job commit together or not at all", () =
 				async (tx) =>
 					await announce(
 						{ organizationId },
-						{ ...fact("evt-kick"), kind: "instance.kicked" },
+						{ ...fact(eventIds.kick), kind: "instance.kicked" },
 						{
 							notifications: createNotificationRepository(tx),
 							sendJob,

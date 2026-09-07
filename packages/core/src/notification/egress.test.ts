@@ -1,3 +1,4 @@
+import { REJECTION_CATEGORIES, REJECTION_ERROR_CODES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import {
 	egressPolicy,
@@ -500,5 +501,40 @@ describe("naming a host", () => {
 
 		expect(hostIsAllowed("fd00::1", policy)).toBe(true)
 		expect(hostIsAllowed("[fd00::1]", policy)).toBe(true)
+	})
+})
+
+describe("why an address was refused, in a form the interface can act on", () => {
+	it("distinguishes what the operator would have to do about it", () => {
+		const cases = [
+			["127.0.0.1", "loopback"],
+			["10.0.0.1", "private"],
+			["169.254.169.254", "reserved"],
+			["nonsense", "unreadable"],
+		] as const
+
+		for (const [address, category] of cases) {
+			const verdict = verifyAddress(address)
+			expect(verdict.allowed === false && verdict.category).toBe(category)
+		}
+	})
+
+	it("tells a plain http address apart from a private one", () => {
+		const insecure = verifyDestinationUrl("http://hooks.example.com/x")
+		expect(insecure.allowed === false && insecure.category).toBe("insecure")
+	})
+
+	it("names credentials and fragments separately, because the fix differs", () => {
+		const credentials = verifyDestinationUrl("https://u:p@hooks.example.com/x")
+		const fragment = verifyDestinationUrl("https://hooks.example.com/x#part")
+
+		expect(credentials.allowed === false && credentials.category).toBe("credentials")
+		expect(fragment.allowed === false && fragment.category).toBe("fragment")
+	})
+
+	it("keeps every category mapped to a code, so none can fall through", () => {
+		for (const category of REJECTION_CATEGORIES) {
+			expect(REJECTION_ERROR_CODES[category].length).toBeGreaterThan(0)
+		}
 	})
 })

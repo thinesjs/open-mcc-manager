@@ -1,7 +1,15 @@
 import { INSTANCE_INTERRUPTED_TO_DOWN_MS, type StatusEventKind } from "@open-mcc/contracts"
 import type { ConnectionSignal } from "@open-mcc/contracts/boundary/journal"
 
-export type ConnectionState = "joined" | "interrupted" | "down" | "never_joined" | "unknown"
+export const CONNECTION_STATES = [
+	"joined",
+	"interrupted",
+	"down",
+	"never_joined",
+	"unknown",
+] as const
+
+export type ConnectionState = (typeof CONNECTION_STATES)[number]
 
 export type ConnectionCurrent = {
 	state: ConnectionState

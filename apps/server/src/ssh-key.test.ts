@@ -22,6 +22,7 @@ import { createRequestContext } from "./create-context"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
+import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
 import { createTestStatusController } from "./test/status-controller"
 
@@ -92,6 +93,7 @@ beforeAll(async () => {
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db),
 				statusController: createTestStatusController(db),
+				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
 			}),
 		}),

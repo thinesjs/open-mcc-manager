@@ -3,6 +3,7 @@ import type {
 	StatusConditionRow,
 	StatusDimension,
 	StatusEventInsert,
+	StatusEventKind,
 	StatusEventRow,
 	StatusIntervalRow,
 	StatusSource,
@@ -156,6 +157,65 @@ export const createStatusRepository = (db: Executor) => ({
 				? query.where("instanceId", "=", subject.instanceId)
 				: query.where("hostId", "=", subject.hostId)
 		return await query.returningAll().executeTakeFirst()
+	},
+
+	recentLossesAt: async (
+		scope: OrgScope,
+		instanceId: string,
+		window: { since: Date; until: Date },
+		kinds: readonly StatusEventKind[],
+	): Promise<Date[]> => {
+		if (kinds.length === 0) return []
+		const rows = await db
+			.selectFrom("statusEvent")
+			.select("occurredAt")
+			.where("organizationId", "=", scope.organizationId)
+			.where("instanceId", "=", instanceId)
+			.where("kind", "in", kinds)
+			.where("occurredAt", ">=", window.since)
+			.where("occurredAt", "<=", window.until)
+			.orderBy("occurredAt", "desc")
+			.execute()
+		return rows.map((row) => row.occurredAt)
+	},
+
+	claimEscalation: async (
+		scope: OrgScope,
+		conditionId: string,
+		incidentId: string,
+		state: StatusState,
+		observedAt: Date,
+	): Promise<boolean> => {
+		const result = await db
+			.updateTable("statusCondition")
+			.set({ state, lastObservedAt: observedAt, startedAt: observedAt })
+			.where("organizationId", "=", scope.organizationId)
+			.where("id", "=", conditionId)
+			.where("activeIncidentId", "=", incidentId)
+			.where("state", "=", "interrupted")
+			.executeTakeFirst()
+		return result.numUpdatedRows === 1n
+	},
+
+	claimFlapping: async (
+		scope: OrgScope,
+		conditionId: string,
+		now: Date,
+		cooldownMs: number,
+	): Promise<boolean> => {
+		const result = await db
+			.updateTable("statusCondition")
+			.set({ lastFlappedAt: now })
+			.where("organizationId", "=", scope.organizationId)
+			.where("id", "=", conditionId)
+			.where((eb) =>
+				eb.or([
+					eb("lastFlappedAt", "is", null),
+					eb("lastFlappedAt", "<=", new Date(now.getTime() - cooldownMs)),
+				]),
+			)
+			.executeTakeFirst()
+		return result.numUpdatedRows === 1n
 	},
 
 	recordEvent: async (

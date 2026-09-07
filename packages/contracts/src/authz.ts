@@ -20,6 +20,8 @@ export const CAPABILITIES = [
 	"host.enroll",
 	"sshKey.manage",
 	"member.manage",
+	"notification.read",
+	"notification.manage",
 ] as const
 export type Capability = (typeof CAPABILITIES)[number]
 
@@ -30,6 +32,7 @@ const OPERATOR: readonly Capability[] = [
 	"console.write",
 	"instance.start",
 	"config.edit",
+	"notification.read",
 ]
 
 const GRANTS: Record<Role, readonly Capability[]> = {

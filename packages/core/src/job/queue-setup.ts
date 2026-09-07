@@ -2,6 +2,10 @@ import type { Queue, QueueResult, UpdateQueueOptions } from "pg-boss"
 
 export const NOTIFICATION_DEADLETTER_QUEUE = "notification.deadletter"
 
+export const STATUS_ESCALATE_QUEUE = "status.escalate"
+
+export const NOTIFICATION_CLEANUP_QUEUE = "notification.cleanup"
+
 export const NOTIFICATION_HTTP_QUEUE = "notification.deliver.http"
 
 export const NOTIFICATION_EMAIL_QUEUE = "notification.deliver.email"
@@ -10,7 +14,7 @@ const DAY_SECONDS = 24 * 60 * 60
 
 const DELIVERY_RETENTION_SECONDS = 14 * DAY_SECONDS
 
-const DEADLETTER_RETENTION_SECONDS = 30 * DAY_SECONDS
+export const DEADLETTER_RETENTION_SECONDS = 30 * DAY_SECONDS
 
 export type QueuePolicy = {
 	readonly name: string
@@ -41,6 +45,20 @@ const DELIVERY_POLICY = {
 	notify: false,
 } as const
 
+export const STATUS_ESCALATE_POLICY = {
+	retryLimit: 3,
+	retryDelay: 30,
+	retryBackoff: true,
+	retryDelayMax: 10 * 60,
+	expireInSeconds: 5 * 60,
+	retentionSeconds: DELIVERY_RETENTION_SECONDS,
+	deleteAfterSeconds: DELIVERY_RETENTION_SECONDS,
+	deadLetter: NOTIFICATION_DEADLETTER_QUEUE,
+	warningQueueSize: 1000,
+	heartbeatSeconds: null,
+	notify: false,
+} as const
+
 export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	{
 		name: NOTIFICATION_DEADLETTER_QUEUE,
@@ -58,6 +76,8 @@ export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	},
 	{ name: NOTIFICATION_HTTP_QUEUE, ...DELIVERY_POLICY },
 	{ name: NOTIFICATION_EMAIL_QUEUE, ...DELIVERY_POLICY },
+	{ name: STATUS_ESCALATE_QUEUE, ...STATUS_ESCALATE_POLICY },
+	{ name: NOTIFICATION_CLEANUP_QUEUE, ...STATUS_ESCALATE_POLICY },
 ]
 
 export const orderedForCreation = (policies: readonly QueuePolicy[]): readonly QueuePolicy[] => [

@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
+import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
 import { createTestStatusController } from "./test/status-controller"
 
@@ -115,6 +116,7 @@ const ctx: RequestContext = {
 	schemaVersion: "test",
 	instanceController: await createTestInstanceController(db),
 	statusController: createTestStatusController(db),
+	destinationController: createTestDestinationController(db, hostControllerDeps.secrets),
 	sshKeyController,
 	db,
 }

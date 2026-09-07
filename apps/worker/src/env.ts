@@ -10,6 +10,7 @@ const addressList = z
 export const workerEnvSchema = z.object({
 	DATABASE_URL: z.string().min(1),
 	SEALBOX_KEYS: z.string().min(1),
+	STATUS_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 	NOTIFICATION_ALLOW_HTTP: boolean.default("false"),
 	NOTIFICATION_ALLOWED_HOSTS: z.string().default(""),
 	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),

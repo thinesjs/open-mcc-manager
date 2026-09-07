@@ -13,6 +13,7 @@ export type EventFact = {
 	readonly subjectType: "host" | "instance"
 	readonly subjectId: string
 	readonly subjectName: string
+	readonly incidentId?: string
 }
 
 export type PlannedNotification = {
@@ -53,6 +54,7 @@ export type LastAnnounced = (
 	subjectType: "host" | "instance",
 	subjectId: string,
 	kinds: readonly NotificationKind[],
+	incidentId: string | undefined,
 ) => Promise<string | undefined>
 
 export const planNotification = async (
@@ -65,7 +67,12 @@ export const planNotification = async (
 	const previous =
 		problemResolvedBy(fact.kind) === undefined
 			? undefined
-			: await lastAnnounced(fact.subjectType, fact.subjectId, relevantKinds(fact.kind))
+			: await lastAnnounced(
+					fact.subjectType,
+					fact.subjectId,
+					relevantKinds(fact.kind),
+					fact.incidentId,
+				)
 
 	if (!worthAnnouncing(fact.kind, previous)) return undefined
 

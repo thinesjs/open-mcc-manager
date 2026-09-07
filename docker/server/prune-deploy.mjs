@@ -18,6 +18,7 @@ const runtimeRoots = [
 	"pg-boss",
 	"ssh2",
 	"sshpk",
+	"undici",
 	"zod",
 ]
 

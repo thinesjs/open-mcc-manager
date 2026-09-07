@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated.alerts'
 import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
 import { Route as AuthenticatedSshKeysRouteImport } from './routes/_authenticated.ssh-keys'
 import { Route as AuthenticatedStatusRouteImport } from './routes/_authenticated.status'
@@ -40,6 +41,11 @@ const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAlertsRoute = AuthenticatedAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedOverviewRoute = AuthenticatedOverviewRouteImport.update({
   id: '/overview',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
   '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
   '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
+  '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
   '/_authenticated/overview': typeof AuthenticatedOverviewRoute
   '/_authenticated/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/_authenticated/status': typeof AuthenticatedStatusRoute
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accept-invitation'
     | '/sign-in'
+    | '/alerts'
     | '/overview'
     | '/ssh-keys'
     | '/status'
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accept-invitation'
     | '/sign-in'
+    | '/alerts'
     | '/overview'
     | '/ssh-keys'
     | '/status'
@@ -159,6 +170,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/accept-invitation'
     | '/sign-in'
+    | '/_authenticated/alerts'
     | '/_authenticated/overview'
     | '/_authenticated/ssh-keys'
     | '/_authenticated/status'
@@ -205,6 +217,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/sign-in'
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/alerts': {
+      id: '/_authenticated/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof AuthenticatedAlertsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/overview': {
       id: '/_authenticated/overview'
@@ -266,6 +285,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
   AuthenticatedOverviewRoute: typeof AuthenticatedOverviewRoute
   AuthenticatedSshKeysRoute: typeof AuthenticatedSshKeysRoute
   AuthenticatedStatusRoute: typeof AuthenticatedStatusRoute
@@ -277,6 +297,7 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAlertsRoute: AuthenticatedAlertsRoute,
   AuthenticatedOverviewRoute: AuthenticatedOverviewRoute,
   AuthenticatedSshKeysRoute: AuthenticatedSshKeysRoute,
   AuthenticatedStatusRoute: AuthenticatedStatusRoute,

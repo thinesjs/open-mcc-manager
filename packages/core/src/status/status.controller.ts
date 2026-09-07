@@ -1,11 +1,12 @@
 import {
 	type Availability,
 	EMPTY_AVAILABILITY,
+	FLAPPING_WINDOW_MS,
 	granularityFor,
-	type HostUptime,
+	INSTANCE_INTERRUPTED_TO_DOWN_MS,
+	isFlapping,
 	RANGE_SECONDS,
 	rangeWithinRetention,
-	type StatusEventKind,
 	type StatusEventView,
 	type StatusRange,
 	type StatusState,
@@ -16,13 +17,23 @@ import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { SendJob } from "../job/job.queue"
+import { STATUS_ESCALATE_QUEUE } from "../job/queue-setup"
 import { announce } from "../notification/announce"
 import {
 	createNotificationRepository,
 	type NotificationRepository,
 } from "../notification/notification.repository"
 import type { ConnectionChange, ConnectionCurrent } from "./connection"
-import { UNOBSERVED_CONNECTION } from "./connection"
+import { CONNECTION_STATES, escalateIfStillDown, UNOBSERVED_CONNECTION } from "./connection"
+import {
+	countsAsLoss,
+	escalationKeyFor,
+	FLAPPING_LOSS_EVENTS,
+	incidentOfEvent,
+	lossWindow,
+	nextIncident,
+	worthClaimingFlapping,
+} from "./incident"
 import { nextReachability, type ReachabilityCurrent, UNOBSERVED } from "./reachability"
 import { bucketStarts, rollUpWindow, SECONDS_PER_BUCKET } from "./rollup"
 import { createStatusRepository, type StatusRepository } from "./status.repository"
@@ -116,6 +127,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 					: decision.state === "up"
 						? null
 						: (existing?.activeIncidentId ?? null)
+			const eventIncidentId = incidentId ?? existing?.activeIncidentId ?? null
 
 			const event =
 				decision.event === undefined
@@ -130,7 +142,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 							occurredAt: now,
 							observedAt: now,
 							lastCorroboratedAt: now,
-							incidentId,
+							incidentId: eventIncidentId,
 							primarySource: "host_probe",
 							sources: ["host_probe"],
 							sourceKey: null,
@@ -146,6 +158,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 						subjectType: "host",
 						subjectId: observation.hostId,
 						subjectName: observation.hostName,
+						...(eventIncidentId === null ? {} : { incidentId: eventIncidentId }),
 					},
 					{ notifications, sendJob: deps.sendJob, runner },
 				)
@@ -176,6 +189,77 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		})
 	},
 
+	escalateInstance: async (
+		scope: OrgScope,
+		instance: { id: string; name: string },
+		incidentId: string,
+	): Promise<boolean> =>
+		await deps.withTransaction(async ({ status, notifications, runner }) => {
+			const subject = { instanceId: instance.id }
+			const condition = await status.findCondition(scope, subject, INSTANCE_CONNECTION)
+			if (!condition || condition.activeIncidentId !== incidentId) return false
+
+			const connectionState = CONNECTION_STATES.find((candidate) => candidate === condition.state)
+			if (connectionState === undefined) return false
+
+			const change = escalateIfStillDown(
+				{ state: connectionState, since: condition.failureStartedAt, pid: null },
+				deps.now(),
+			)
+			if (!change) return false
+
+			const claimed = await status.claimEscalation(
+				scope,
+				condition.id,
+				incidentId,
+				change.state,
+				deps.now(),
+			)
+			if (!claimed) return false
+
+			const event = await status.recordEvent(scope, {
+				subjectType: "instance",
+				subjectId: instance.id,
+				subjectLabel: instance.name,
+				hostId: null,
+				instanceId: instance.id,
+				kind: "instance.disconnected",
+				occurredAt: change.at,
+				observedAt: deps.now(),
+				lastCorroboratedAt: deps.now(),
+				incidentId,
+				primarySource: "journal",
+				sources: ["journal"],
+				sourceKey: escalationKeyFor(incidentId),
+				detail: {},
+			})
+			if (event === undefined) return false
+
+			await announce(
+				scope,
+				{
+					statusEventId: event.id,
+					kind: event.kind,
+					subjectType: "instance",
+					subjectId: instance.id,
+					subjectName: instance.name,
+					incidentId,
+				},
+				{ notifications, sendJob: deps.sendJob, runner },
+			)
+
+			await status.closeOpenInterval(scope, subject, INSTANCE_CONNECTION, change.at, event.id)
+			await status.openInterval(
+				scope,
+				subject,
+				INSTANCE_CONNECTION,
+				change.state,
+				change.at,
+				event.id,
+			)
+			return true
+		}),
+
 	recordInstanceConnection: async (
 		scope: OrgScope,
 		instance: { id: string; name: string },
@@ -184,7 +268,12 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		if (changes.length === 0) return
 		await deps.withTransaction(async ({ status, notifications, runner }) => {
 			const subject = { instanceId: instance.id }
+			const opening = await status.findCondition(scope, subject, INSTANCE_CONNECTION)
+			let incidentId = opening?.activeIncidentId ?? null
 			for (const change of changes) {
+				const decision = nextIncident(incidentId, change.state, change.event, nanoid)
+				incidentId = decision.incidentId
+				const eventIncidentId = incidentOfEvent(decision)
 				const event =
 					change.event === undefined
 						? undefined
@@ -198,7 +287,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 								occurredAt: change.at,
 								observedAt: deps.now(),
 								lastCorroboratedAt: deps.now(),
-								incidentId: null,
+								incidentId: eventIncidentId,
 								primarySource: "journal",
 								sources: ["journal"],
 								sourceKey: `${instance.id}:${change.at.toISOString()}:${change.event}`,
@@ -214,9 +303,65 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 							subjectType: "instance",
 							subjectId: instance.id,
 							subjectName: instance.name,
+							...(eventIncidentId === null ? {} : { incidentId: eventIncidentId }),
 						},
 						{ notifications, sendJob: deps.sendJob, runner },
 					)
+				}
+
+				if (decision.opened && incidentId !== null) {
+					const scheduled = await deps.sendJob(
+						STATUS_ESCALATE_QUEUE,
+						{ organizationId: scope.organizationId, instanceId: instance.id, incidentId },
+						runner,
+						{ startAfterSeconds: Math.ceil(INSTANCE_INTERRUPTED_TO_DOWN_MS / 1000) },
+					)
+					if (scheduled === null) {
+						throw new Error(`the check on ${instance.name} could not be scheduled`)
+					}
+				}
+
+				if (countsAsLoss(change.event) && opening !== undefined) {
+					const losses = await status.recentLossesAt(
+						scope,
+						instance.id,
+						lossWindow(change.at),
+						FLAPPING_LOSS_EVENTS,
+					)
+					if (
+						worthClaimingFlapping(losses, change.at) &&
+						(await status.claimFlapping(scope, opening.id, change.at, FLAPPING_WINDOW_MS))
+					) {
+						const flapped = await status.recordEvent(scope, {
+							subjectType: "instance",
+							subjectId: instance.id,
+							subjectLabel: instance.name,
+							hostId: null,
+							instanceId: instance.id,
+							kind: "instance.flapping",
+							occurredAt: change.at,
+							observedAt: deps.now(),
+							lastCorroboratedAt: deps.now(),
+							incidentId,
+							primarySource: "journal",
+							sources: ["journal"],
+							sourceKey: `flap:${instance.id}:${change.at.toISOString()}`,
+							detail: {},
+						})
+						if (flapped !== undefined) {
+							await announce(
+								scope,
+								{
+									statusEventId: flapped.id,
+									kind: flapped.kind,
+									subjectType: "instance",
+									subjectId: instance.id,
+									subjectName: instance.name,
+								},
+								{ notifications, sendJob: deps.sendJob, runner },
+							)
+						}
+					}
 				}
 
 				const closed = await status.closeOpenInterval(
@@ -246,7 +391,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 						state: change.state,
 						observedAt: deps.now(),
 						failureStartedAt: change.state === "joined" ? null : change.at,
-						activeIncidentId: null,
+						activeIncidentId: incidentId,
 						detail: change.reason === undefined ? {} : { reason: change.reason },
 					},
 					change.at,

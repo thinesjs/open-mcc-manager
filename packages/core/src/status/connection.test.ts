@@ -135,3 +135,44 @@ describe("escalating a bot that has not come back", () => {
 		expect(escalateIfStillDown(current({ state: "down", since: at(0) }), at(30))).toBeUndefined()
 	})
 })
+
+describe("the quiet cases, which decide whether an operator keeps alerts on", () => {
+	const interrupted = (since: Date) => ({
+		state: "interrupted" as const,
+		since,
+		pid: "1",
+	})
+
+	it("says nothing while a bot is still inside its grace period", () => {
+		const at = new Date("2026-09-07T12:00:00Z")
+		const oneMinuteLater = new Date("2026-09-07T12:01:00Z")
+
+		expect(escalateIfStillDown(interrupted(at), oneMinuteLater)).toBeUndefined()
+	})
+
+	it("escalates once the grace period has passed", () => {
+		const at = new Date("2026-09-07T12:00:00Z")
+		const threeMinutesLater = new Date("2026-09-07T12:03:00Z")
+
+		expect(escalateIfStillDown(interrupted(at), threeMinutesLater)?.event).toBe(
+			"instance.disconnected",
+		)
+	})
+
+	it("says nothing about a bot that is already back on", () => {
+		const at = new Date("2026-09-07T12:00:00Z")
+		const later = new Date("2026-09-07T12:30:00Z")
+
+		expect(escalateIfStillDown({ state: "joined", since: null, pid: "1" }, later)).toBeUndefined()
+		expect(escalateIfStillDown({ state: "down", since: at, pid: "1" }, later)).toBeUndefined()
+	})
+
+	it("says nothing when it never knew when the loss started", () => {
+		expect(
+			escalateIfStillDown(
+				{ state: "interrupted", since: null, pid: "1" },
+				new Date("2026-09-07T13:00:00Z"),
+			),
+		).toBeUndefined()
+	})
+})

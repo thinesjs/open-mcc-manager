@@ -1,4 +1,5 @@
 import { isIP } from "node:net"
+import type { RejectionCategory } from "@open-mcc/contracts"
 
 export type AddressAllowance = {
 	readonly bytes: readonly number[]
@@ -17,7 +18,11 @@ export const PUBLIC_ONLY: EgressPolicy = {
 	allowedAddresses: [],
 }
 
-export type AddressVerdict = { allowed: true; named: boolean } | { allowed: false; reason: string }
+export type { RejectionCategory }
+
+export type AddressVerdict =
+	| { allowed: true; named: boolean }
+	| { allowed: false; reason: string; category: RejectionCategory }
 
 const LOOPBACK = "it points back at this machine"
 const PRIVATE = "it points at a private network"
@@ -96,7 +101,7 @@ const parseAddress = (address: string): number[] | undefined => {
 	return undefined
 }
 
-type Range = AddressAllowance & { readonly reason: string }
+type Range = AddressAllowance & { readonly reason: string; readonly category: RejectionCategory }
 
 const allowanceOf = (notation: string): AddressAllowance | undefined => {
 	const slash = notation.indexOf("/")
@@ -111,10 +116,19 @@ const allowanceOf = (notation: string): AddressAllowance | undefined => {
 	return { bytes, bits }
 }
 
+const CATEGORY_OF: Record<string, RejectionCategory> = {
+	[LOOPBACK]: "loopback",
+	[PRIVATE]: "private",
+	[RESERVED]: "reserved",
+	[UNREADABLE]: "unreadable",
+}
+
+const categoryFor = (reason: string): RejectionCategory => CATEGORY_OF[reason] ?? "reserved"
+
 const range = (notation: string, reason: string): Range => {
 	const allowance = allowanceOf(notation)
 	if (!allowance) throw new Error(`unusable address range: ${notation}`)
-	return { ...allowance, reason }
+	return { ...allowance, reason, category: categoryFor(reason) }
 }
 
 const within = (bytes: readonly number[], limit: AddressAllowance): boolean => {
@@ -203,23 +217,25 @@ export const verifyAddress = (
 	hostAllowed = false,
 ): AddressVerdict => {
 	const parsed = parseAddress(address)
-	if (!parsed) return { allowed: false, reason: UNREADABLE }
+	if (!parsed) return { allowed: false, reason: UNREADABLE, category: "unreadable" }
 	const bytes = normalised(parsed)
 
 	const never = (bytes.length === 4 ? NEVER_V4 : NEVER_V6).find((limit) => within(bytes, limit))
-	if (never) return { allowed: false, reason: never.reason }
+	if (never) return { allowed: false, reason: never.reason, category: never.category }
 
 	const named = hostAllowed || policy.allowedAddresses.some((allowance) => within(bytes, allowance))
 	const hit = softDeny(bytes)
 	if (!hit) return { allowed: true, named }
 	if (named) return { allowed: true, named: true }
-	return { allowed: false, reason: hit.reason }
+	return { allowed: false, reason: hit.reason, category: hit.category }
 }
 
 export const hostIsAllowed = (hostname: string, policy: EgressPolicy): boolean =>
 	policy.allowedHosts.includes(bareHostname(hostname).toLowerCase())
 
-export type UrlVerdict = { allowed: true; hostname: string } | { allowed: false; reason: string }
+export type UrlVerdict =
+	| { allowed: true; hostname: string }
+	| { allowed: false; reason: string; category: RejectionCategory }
 
 const INSECURE = "the address must start with https"
 
@@ -231,35 +247,55 @@ export const verifyDestinationUrl = (
 	try {
 		parsed = new URL(raw)
 	} catch {
-		return { allowed: false, reason: "that does not look like a web address" }
+		return {
+			allowed: false,
+			reason: "that does not look like a web address",
+			category: "unreadable",
+		}
 	}
 	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-		return { allowed: false, reason: INSECURE }
+		return { allowed: false, reason: INSECURE, category: "insecure" }
 	}
 	if (parsed.username.length > 0 || parsed.password.length > 0) {
-		return { allowed: false, reason: "the address must not contain a username or password" }
+		return {
+			allowed: false,
+			reason: "the address must not contain a username or password",
+			category: "credentials",
+		}
 	}
 	if (parsed.hash.length > 0) {
-		return { allowed: false, reason: "the address must not contain a fragment" }
+		return {
+			allowed: false,
+			reason: "the address must not contain a fragment",
+			category: "fragment",
+		}
 	}
 
 	const hostname = bareHostname(parsed.hostname)
 	if (hostname.length === 0) {
-		return { allowed: false, reason: "that does not look like a web address" }
+		return {
+			allowed: false,
+			reason: "that does not look like a web address",
+			category: "unreadable",
+		}
 	}
 
 	const hostAllowed = hostIsAllowed(hostname, policy)
 	const literal = isIP(hostname) !== 0
 	const verdict = literal ? verifyAddress(hostname, policy, hostAllowed) : undefined
 
-	if (verdict && !verdict.allowed) return { allowed: false, reason: verdict.reason }
+	if (verdict && !verdict.allowed) {
+		return { allowed: false, reason: verdict.reason, category: verdict.category }
+	}
 	if (!hostAllowed && !literal && looksLocalName(hostname)) {
-		return { allowed: false, reason: LOOPBACK }
+		return { allowed: false, reason: LOOPBACK, category: "loopback" }
 	}
 
 	if (parsed.protocol === "http:") {
 		const named = hostAllowed || (verdict?.allowed === true && verdict.named)
-		if (!policy.allowHttp || !named) return { allowed: false, reason: INSECURE }
+		if (!policy.allowHttp || !named) {
+			return { allowed: false, reason: INSECURE, category: "insecure" }
+		}
 	}
 
 	return { allowed: true, hostname: parsed.hostname }

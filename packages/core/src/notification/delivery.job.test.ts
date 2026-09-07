@@ -297,3 +297,34 @@ describe("how long we wait before trying again", () => {
 		expect(nextDelaySeconds(1, undefined)).toBe(15)
 	})
 })
+
+describe("a destination the operator turned off", () => {
+	it("is not sent to, even when a delivery was already queued for it", async () => {
+		const { handle, send, settle } = build(
+			{ kind: "delivered", statusCode: 200 },
+			{
+				findDestination: async () => ({ ...destination, enabled: false }),
+			},
+		)
+
+		expect(await handle(payload)).toEqual({ settled: "abandoned" })
+		expect(send).not.toHaveBeenCalled()
+		expect(settle).toHaveBeenCalledWith(
+			{ organizationId: "org_1" },
+			"del_1",
+			expect.objectContaining({ state: "abandoned" }),
+		)
+	})
+
+	it("says why, in words an operator will recognise", async () => {
+		const { handle, settle } = build(
+			{ kind: "delivered", statusCode: 200 },
+			{
+				findDestination: async () => ({ ...destination, enabled: false }),
+			},
+		)
+		await handle(payload)
+
+		expect(JSON.stringify(settle.mock.calls)).toContain("turned off")
+	})
+})

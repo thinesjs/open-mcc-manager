@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { ErrorCode } from "./errors"
 import { NOTIFYING_EVENT_KINDS, RESOLVING_EVENT_KINDS } from "./status"
 
 export const DESTINATION_KINDS = [
@@ -176,9 +177,23 @@ export const usableSigningSecrets = (
 	return [config.signingSecret, previous]
 }
 
+export const CREATABLE_DESTINATION_KINDS = ["webhook", "telegram"] as const
+
+export const creatableDestinationKindSchema = z.enum(CREATABLE_DESTINATION_KINDS)
+
+export type CreatableDestinationKind = z.infer<typeof creatableDestinationKindSchema>
+
+export const canBeCreated = (kind: DestinationKind): kind is CreatableDestinationKind =>
+	CREATABLE_DESTINATION_KINDS.some((candidate) => candidate === kind)
+
+export const creatableDestinationConfigInput = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("webhook"), config: webhookConfigInput }),
+	z.object({ kind: z.literal("telegram"), config: telegramConfigInput }),
+])
+
 export const createDestinationInput = z.object({
 	name: z.string().min(1).max(64),
-	destination: destinationConfigInput,
+	destination: creatableDestinationConfigInput,
 	subscribedTo: z
 		.array(subscriptionKindSchema)
 		.min(1)
@@ -188,5 +203,88 @@ export const createDestinationInput = z.object({
 })
 
 export const destinationIdInput = z.object({ destinationId: z.string().min(1) })
+
+export const deliveryIdInput = z.object({ deliveryId: z.string().min(1) })
+
+export const REJECTION_CATEGORIES = [
+	"loopback",
+	"private",
+	"reserved",
+	"unreadable",
+	"insecure",
+	"credentials",
+	"fragment",
+] as const
+
+export type RejectionCategory = (typeof REJECTION_CATEGORIES)[number]
+
+export const REJECTION_ERROR_CODES: Record<RejectionCategory, ErrorCode> = {
+	loopback: "DESTINATION_POINTS_HERE",
+	private: "DESTINATION_NOT_PUBLIC",
+	reserved: "DESTINATION_NOT_USABLE",
+	unreadable: "DESTINATION_NOT_AN_ADDRESS",
+	insecure: "DESTINATION_NOT_HTTPS",
+	credentials: "DESTINATION_HAS_CREDENTIALS",
+	fragment: "DESTINATION_HAS_FRAGMENT",
+} as const
+
+export const signingSecretHint = (secret: string): string =>
+	secret.length <= 4 ? "…" : `…${secret.slice(-4)}`
+
+export const destinationViewSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	kind: destinationKindSchema,
+	kindLabel: z.string(),
+	enabled: z.boolean(),
+	target: z.string(),
+	subscribedTo: z.array(subscriptionKindSchema).readonly(),
+	lastSucceededAt: z.date().nullable(),
+	lastFailedAt: z.date().nullable(),
+	lastFailureReason: z.string().nullable(),
+	signingKeyHint: z.string().nullable(),
+	targetFingerprint: z.string().nullable(),
+})
+
+export type DestinationView = z.infer<typeof destinationViewSchema>
+
+export const deliveryProgressSchema = z.object({
+	state: deliveryStateSchema,
+	reason: z.string().nullable(),
+	attempts: z.number().int(),
+})
+
+export type DeliveryProgress = z.infer<typeof deliveryProgressSchema>
+
+export const deliveryFailureViewSchema = z.object({
+	deliveryId: z.string(),
+	destinationId: z.string(),
+	destinationName: z.string(),
+	title: z.string(),
+	reason: z.string().nullable(),
+	attempts: z.number().int(),
+	settledAt: z.date().nullable(),
+})
+
+export type DeliveryFailureView = z.infer<typeof deliveryFailureViewSchema>
+
+export const editDestinationInput = z.object({
+	destinationId: z.string().min(1),
+	name: z.string().min(1).max(64),
+	destination: creatableDestinationConfigInput,
+	subscribedTo: z
+		.array(subscriptionKindSchema)
+		.min(1)
+		.refine((kinds) => new Set(kinds).size === kinds.length, {
+			message: "each alert can only be chosen once",
+		}),
+})
+
+export type EditDestinationInput = z.infer<typeof editDestinationInput>
+
+export const setDestinationEnabledInput = z.object({
+	destinationId: z.string().min(1),
+	enabled: z.boolean(),
+})
 
 export type CreateDestinationInput = z.infer<typeof createDestinationInput>

@@ -1,11 +1,23 @@
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
-import { Activity, Boxes, KeyRound, LayoutDashboard, LogOut, Search, Server } from "lucide-react"
+import {
+	Activity,
+	BellRing,
+	Boxes,
+	KeyRound,
+	LayoutDashboard,
+	LogOut,
+	Search,
+	Server,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
 import { authClient } from "~/lib/auth-client"
+import { navItemVisible } from "~/lib/nav-access"
 import { decideFromSession } from "~/lib/session-guard"
+import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated")({
 	beforeLoad: async () => {
@@ -33,6 +45,7 @@ const SECTIONS = [
 			{ to: "/instances", icon: Boxes, label: "Instances" },
 			{ to: "/hosts", icon: Server, label: "Hosts" },
 			{ to: "/status", icon: Activity, label: "Status" },
+			{ to: "/alerts", icon: BellRing, label: "Alerts" },
 		],
 	},
 	{
@@ -43,7 +56,9 @@ const SECTIONS = [
 
 function AuthenticatedLayout() {
 	const navigate = useNavigate()
+	const trpc = useTRPC()
 	const session = authClient.useSession()
+	const me = useQuery(trpc.member.me.queryOptions())
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [paletteInstant, setPaletteInstant] = useState(false)
 
@@ -107,17 +122,19 @@ function AuthenticatedLayout() {
 										{section.label}
 									</p>
 								) : null}
-								{section.items.map((item) => (
-									<Link
-										key={item.to}
-										to={item.to}
-										className={NAV_LINK_CLASSES}
-										activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
-									>
-										<item.icon className="size-4" />
-										{item.label}
-									</Link>
-								))}
+								{section.items
+									.filter((item) => navItemVisible(me.data?.role, item.to))
+									.map((item) => (
+										<Link
+											key={item.to}
+											to={item.to}
+											className={NAV_LINK_CLASSES}
+											activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
+										>
+											<item.icon className="size-4" />
+											{item.label}
+										</Link>
+									))}
 							</div>
 						))}
 					</nav>

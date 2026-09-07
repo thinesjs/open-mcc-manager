@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest"
 import {
+	CREATABLE_DESTINATION_KINDS,
+	canBeCreated,
 	createDestinationInput,
 	DESTINATION_KINDS,
 	DESTINATION_LABELS,
+	editDestinationInput,
 	NOTIFICATION_KINDS,
 	ntfyConfigInput,
 	SUBSCRIPTION_KINDS,
+	signingSecretHint,
 	TEST_NOTIFICATION_KIND,
 	telegramConfigInput,
 	usableSigningSecrets,
 } from "./notification"
+import { SUBSCRIPTION_LABELS } from "./notification-copy"
 import {
 	isNotifyingEvent,
 	NOTIFYING_EVENT_KINDS,
@@ -180,5 +185,102 @@ describe("which secret a webhook is signed with", () => {
 		expect(usableSigningSecrets({ ...base, previousSigningSecret: "whsec_OLD" }, now)).toEqual([
 			"whsec_CURRENT",
 		])
+	})
+})
+
+describe("only the kinds that can actually send may be created", () => {
+	const base = { name: "Somewhere", subscribedTo: ["host.unreachable"] }
+
+	it("accepts the two that dispatch implements", () => {
+		expect(
+			createDestinationInput.safeParse({
+				...base,
+				destination: { kind: "webhook", config: { url: "https://hooks.example.com/x" } },
+			}).success,
+		).toBe(true)
+		expect(
+			createDestinationInput.safeParse({
+				...base,
+				destination: { kind: "telegram", config: { botToken: "1:AA", chatId: "-100" } },
+			}).success,
+		).toBe(true)
+	})
+
+	it("refuses the seven that would be rejected at delivery time", () => {
+		for (const kind of DESTINATION_KINDS) {
+			if (canBeCreated(kind)) continue
+			expect(
+				createDestinationInput.safeParse({
+					...base,
+					destination: { kind, config: { url: "https://hooks.example.com/x" } },
+				}).success,
+			).toBe(false)
+		}
+	})
+
+	it("says which kinds are creatable, and it is a subset of what exists", () => {
+		expect([...CREATABLE_DESTINATION_KINDS]).toEqual(["webhook", "telegram"])
+		for (const kind of CREATABLE_DESTINATION_KINDS) {
+			expect([...DESTINATION_KINDS]).toContain(kind)
+		}
+	})
+
+	it("holds an edit to the same restriction, so a kind cannot be smuggled in later", () => {
+		expect(
+			editDestinationInput.safeParse({
+				destinationId: "dst_1",
+				...base,
+				destination: { kind: "gotify", config: { serverUrl: "https://g.example", appToken: "t" } },
+			}).success,
+		).toBe(false)
+	})
+})
+
+describe("how the alerts are named for the person choosing them", () => {
+	it("names every one an operator can subscribe to", () => {
+		for (const kind of SUBSCRIPTION_KINDS) {
+			expect(SUBSCRIPTION_LABELS[kind].length).toBeGreaterThan(0)
+		}
+	})
+
+	it("describes what happens, not what the system calls it", () => {
+		for (const kind of SUBSCRIPTION_KINDS) {
+			const label = SUBSCRIPTION_LABELS[kind]
+			expect(label).not.toMatch(
+				/systemd|journal|SSH|webhook|payload|drift_|instance\.|host\.|flapping|_/i,
+			)
+			expect(label[0]).toBe(label[0]?.toUpperCase())
+		}
+	})
+
+	it("gives each alert its own wording, so two choices never read the same", () => {
+		const labels = SUBSCRIPTION_KINDS.map((kind) => SUBSCRIPTION_LABELS[kind])
+		expect(new Set(labels).size).toBe(labels.length)
+	})
+})
+
+describe("tracking which signing key a destination is using", () => {
+	it("shows only the last four characters", () => {
+		expect(signingSecretHint("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw")).toBe("…LaSw")
+	})
+
+	it("never shows enough to sign with", () => {
+		const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+		const hint = signingSecretHint(secret)
+
+		expect(hint.length).toBeLessThan(6)
+		expect(secret).not.toBe(hint)
+		expect(hint).not.toContain("whsec_")
+		expect(hint).not.toContain("MfKQ")
+	})
+
+	it("changes when the key is rotated, so an operator can tell the swap happened", () => {
+		expect(signingSecretHint("whsec_AAAAAAAAAAAA1111")).not.toBe(
+			signingSecretHint("whsec_AAAAAAAAAAAA2222"),
+		)
+	})
+
+	it("does not fall apart on a short value", () => {
+		expect(signingSecretHint("ab")).toBe("…")
 	})
 })

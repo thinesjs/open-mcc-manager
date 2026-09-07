@@ -270,6 +270,7 @@ export interface StatusCondition {
 	hostId: string | null
 	id: string
 	instanceId: string | null
+	lastFlappedAt: Timestamp | null
 	lastObservedAt: Timestamp
 	organizationId: string
 	startedAt: Timestamp

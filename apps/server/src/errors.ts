@@ -1,6 +1,17 @@
-import type { ErrorCode } from "@open-mcc/contracts"
+import {
+	type ErrorCode,
+	isErrorCode,
+	REJECTION_ERROR_CODES,
+	type RejectionCategory,
+} from "@open-mcc/contracts"
 import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
 import {
+	DestinationDisabledError,
+	DestinationHasNoSigningKeyError,
+	DestinationKindImmutableError,
+	DestinationNotFoundError,
+	DestinationRejectedError,
+	DestinationTestThrottledError,
 	DisallowedInternalCommandError,
 	FingerprintMismatchError,
 	ForbiddenError,
@@ -19,6 +30,7 @@ import {
 	InstanceNotFoundError,
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
+	OrganizationTestThrottledError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -27,7 +39,18 @@ import { ChannelLimitReachedError } from "@open-mcc/transport"
 
 export class InvitationNotFoundError extends Error {}
 
-export type MappedErrorCode = "FORBIDDEN" | "NOT_FOUND" | "BAD_REQUEST" | "CONFLICT"
+const codeForRejection = (category: RejectionCategory | undefined): ErrorCode => {
+	if (category === undefined) return "DESTINATION_REJECTED"
+	const code = REJECTION_ERROR_CODES[category]
+	return isErrorCode(code) ? code : "DESTINATION_REJECTED"
+}
+
+export type MappedErrorCode =
+	| "FORBIDDEN"
+	| "NOT_FOUND"
+	| "BAD_REQUEST"
+	| "CONFLICT"
+	| "TOO_MANY_REQUESTS"
 
 export type MappedError = {
 	code: MappedErrorCode
@@ -41,6 +64,7 @@ const HTTP_STATUS_BY_CODE: Record<MappedErrorCode, number> = {
 	NOT_FOUND: 404,
 	BAD_REQUEST: 400,
 	CONFLICT: 409,
+	TOO_MANY_REQUESTS: 429,
 }
 
 const mapped = (code: MappedErrorCode, errorCode: ErrorCode, message: string): MappedError => ({
@@ -113,6 +137,34 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"Host provisioning is already in progress",
 		)
 	}
+	if (cause instanceof DestinationRejectedError) {
+		return mapped("BAD_REQUEST", codeForRejection(cause.category), cause.message)
+	}
+
+	if (cause instanceof DestinationTestThrottledError) {
+		return mapped("TOO_MANY_REQUESTS", "DESTINATION_TEST_THROTTLED", cause.message)
+	}
+
+	if (cause instanceof OrganizationTestThrottledError) {
+		return mapped("TOO_MANY_REQUESTS", "ORGANIZATION_TEST_THROTTLED", cause.message)
+	}
+
+	if (cause instanceof DestinationDisabledError) {
+		return mapped("CONFLICT", "DESTINATION_DISABLED", cause.message)
+	}
+
+	if (cause instanceof DestinationKindImmutableError) {
+		return mapped("BAD_REQUEST", "DESTINATION_KIND_IMMUTABLE", cause.message)
+	}
+
+	if (cause instanceof DestinationHasNoSigningKeyError) {
+		return mapped("BAD_REQUEST", "DESTINATION_NO_SIGNING_KEY", cause.message)
+	}
+
+	if (cause instanceof DestinationNotFoundError) {
+		return mapped("NOT_FOUND", "DESTINATION_NOT_FOUND", cause.message)
+	}
+
 	if (cause instanceof SshKeyInUseError) {
 		return mapped("CONFLICT", "SSH_KEY_IN_USE", "SSH key is still in use by an enrolled host")
 	}

@@ -147,7 +147,7 @@ have:
 
 | Rule | Enforced by |
 | --- | --- |
-| Organization scope on every repository method | TypeScript — the scope is a required parameter, so a call without one does not compile |
+| Organization scope on every repository method but the one exception named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
@@ -298,7 +298,7 @@ Dependency direction is one-way: router → controller → repository.
 
 | File | Does | Must never |
 | --- | --- | --- |
-| `*.repository.ts` | Kysely queries, org-scoped | business logic, transport calls |
+| `*.repository.ts` | Kysely queries, org-scoped but for the one exception named under Tenancy | business logic, transport calls |
 | `*.controller.ts` | business logic, orchestration | import tRPC or HTTP types |
 | `*.router.ts` | tRPC procedures, zod validation, capability check | touch the database directly |
 
@@ -394,12 +394,24 @@ Actor columns reference `member`, never the global `user`, except an audit
 row's `actorLabel`, which is a label captured at the time of the action, not
 a live reference, and survives the member being deleted. Repositories take
 an organization scope (`{ organizationId }`) as a required first argument on
-every method — there is no method that queries or writes without one, and
-that includes `host.repository.ts`'s `lockHost`, which takes no organization
-predicate but folds the organization id into the advisory lock key so one
-tenant cannot stall another's host that happens to share an id. The compiler
-is what enforces this: a method without the scope parameter cannot be called
-without one.
+every method but one, and that includes `host.repository.ts`'s `lockHost`,
+which takes no organization predicate but folds the organization id into the
+advisory lock key so one tenant cannot stall another's host that happens to
+share an id. The compiler is what enforces this: a method without the scope
+parameter cannot be called without one.
+
+`organization.repository.ts`'s `listIds` is that one exception and must stay
+the only one. It enumerates the global `organization` table so the fleet-wide
+retention worker can iterate tenants and then call organization-scoped methods
+for each; the `organization` table carries no `organizationId` column, so
+there is nothing for a scope to bind to and a scope parameter would be
+decoration. Its safety rests on reach rather than on a predicate: it returns
+organization ids and nothing else, its only caller is internal fleet-wide
+background work (`apps/worker/src/bootstrap.ts`, wiring
+`createCleanupHandler`), and it is reachable from no router and from no other
+actor-facing path. Never give it one — a procedure returning that list would
+tell one tenant that every other exists. Nothing else in this section is
+relaxed by it.
 
 ## Auth
 

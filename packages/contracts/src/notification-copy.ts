@@ -1,4 +1,15 @@
-import type { NotificationKind } from "./notification"
+import type { NotificationKind, SubscriptionKind } from "./notification"
+
+export const SUBSCRIPTION_LABELS: Record<SubscriptionKind, string> = {
+	"host.unreachable": "A machine stops responding",
+	"host.drift_started": "A machine was changed outside OpenMCC",
+	"instance.disconnected": "A bot leaves the server and cannot get back on",
+	"instance.flapping": "A bot keeps dropping out",
+	"instance.never_joined": "A bot never gets on the server",
+	"instance.unexpected_stop": "A bot stops on its own",
+	"instance.needs_auth": "A bot needs you to sign in",
+	"instance.drift_started": "A bot's settings were changed outside OpenMCC",
+}
 
 export type NotificationSubject = { readonly name: string }
 

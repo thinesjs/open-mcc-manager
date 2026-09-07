@@ -23,10 +23,19 @@ export const announce = async (
 	fact: EventFact,
 	deps: AnnounceDeps,
 ): Promise<PlannedNotification | undefined> => {
-	const planned = await planNotification(fact, async (subjectType, subjectId, kinds) => {
-		const last = await deps.notifications.lastAnnouncedAmong(scope, subjectType, subjectId, kinds)
-		return last?.kind
-	})
+	const planned = await planNotification(
+		fact,
+		async (subjectType, subjectId, kinds, incidentId) => {
+			const last = await deps.notifications.lastAnnouncedAmong(
+				scope,
+				subjectType,
+				subjectId,
+				kinds,
+				incidentId,
+			)
+			return last?.kind
+		},
+	)
 	if (!planned) return undefined
 
 	const subscribable = SUBSCRIPTION_KINDS.find(

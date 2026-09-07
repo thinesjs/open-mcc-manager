@@ -2,17 +2,24 @@ import {
 	adminFor,
 	asSqlRunner,
 	createAuditRepository,
+	createCleanupHandler,
 	createDeliveryHandler,
+	createEscalationHandler,
 	createHostRepository,
 	createHostTeardownHandler,
+	createInstanceRepository,
 	createNotificationRepository,
+	createOrganizationRepository,
 	createProcessIdentityRepository,
 	createSecretStore,
 	createSshKeyRepository,
+	createStatusController,
+	createStatusControllerTransaction,
 	dispatchTo,
 	type EgressPolicy,
 	egressPolicy,
 	HOST_TEARDOWN_QUEUE,
+	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
 	NOTIFICATION_HTTP_QUEUE,
 	type NotificationEnvelope,
@@ -21,6 +28,7 @@ import {
 	readDeliveryPayload,
 	reconcileQueues,
 	type SendJob,
+	STATUS_ESCALATE_QUEUE,
 	startHeartbeat,
 } from "@open-mcc/core"
 import {
@@ -155,6 +163,47 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 			if (payload) await deliver(payload)
 		}
 	}
+
+	const instances = createInstanceRepository(db)
+	const statusController = createStatusController({
+		withTransaction: createStatusControllerTransaction(db),
+		sendJob,
+		hostNames: async (scope) =>
+			(await hosts.list(scope)).map((host) => ({ id: host.id, name: host.name })),
+		instanceNames: async (scope) =>
+			(await instances.list(scope)).map((row) => ({ id: row.id, name: row.name })),
+		retentionDays: env.STATUS_RETENTION_DAYS,
+		now: () => new Date(),
+	})
+
+	const escalations = createEscalationHandler({
+		escalate: async (scope, instanceId, incidentId) => {
+			const instance = await instances.findById(scope, instanceId)
+			if (!instance) return false
+			return await statusController.escalateInstance(
+				scope,
+				{ id: instance.id, name: instance.name },
+				incidentId,
+			)
+		},
+	})
+
+	await boss.work(STATUS_ESCALATE_QUEUE, async (jobs: Job[]) => {
+		for (const job of jobs) await escalations(job.data)
+	})
+
+	const cleanUp = createCleanupHandler({
+		organizationIds: async () => await createOrganizationRepository(db).listIds(),
+		deleteSettledBefore: async (scope, boundaries) =>
+			await createNotificationRepository(db).deleteSettledBefore(scope, boundaries),
+		now: () => new Date(),
+	})
+
+	await boss.schedule(NOTIFICATION_CLEANUP_QUEUE, "17 3 * * *")
+	await boss.work(NOTIFICATION_CLEANUP_QUEUE, async () => {
+		const removed = await cleanUp()
+		if (removed > 0) console.error(`Removed ${removed} notifications past retention`)
+	})
 
 	await boss.work(NOTIFICATION_HTTP_QUEUE, workDeliveries(NOTIFICATION_HTTP_QUEUE))
 	await boss.work(NOTIFICATION_EMAIL_QUEUE, workDeliveries(NOTIFICATION_EMAIL_QUEUE))

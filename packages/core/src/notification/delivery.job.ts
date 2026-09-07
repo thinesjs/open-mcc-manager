@@ -105,6 +105,18 @@ export const createDeliveryHandler =
 			return { settled: "abandoned" }
 		}
 
+		if (!destination.enabled) {
+			await deps.withTransaction(async ({ notifications }) => {
+				await notifications.settleDelivery(scope, delivery.id, {
+					state: "abandoned",
+					attempts: attempt,
+					settledAt: deps.now(),
+					lastError: "this destination was turned off before it could be sent",
+				})
+			})
+			return { settled: "abandoned" }
+		}
+
 		const envelope: NotificationEnvelope = {
 			id: notification.id,
 			kind: notification.kind,

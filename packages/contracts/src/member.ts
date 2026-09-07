@@ -15,3 +15,9 @@ export const acceptInvitationInput = z.object({
 })
 
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationInput>
+
+export const memberSelfViewSchema = z.object({
+	role: roleSchema,
+})
+
+export type MemberSelfView = z.infer<typeof memberSelfViewSchema>

@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto"
-import { acceptInvitationInput, inviteMemberInput, isRole } from "@open-mcc/contracts"
+import {
+	acceptInvitationInput,
+	inviteMemberInput,
+	isRole,
+	type MemberSelfView,
+} from "@open-mcc/contracts"
 import { createAuditRepository } from "@open-mcc/core"
 import { InvitationNotFoundError } from "../errors"
 import { protectedProcedure, publicProcedure, requireCapability, router } from "../trpc"
 
 export const memberRouter = router({
+	me: protectedProcedure.query(({ ctx }): MemberSelfView => ({ role: ctx.actor.role })),
+
 	invite: protectedProcedure.input(inviteMemberInput).mutation(async ({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "member.manage")
 		const invitation = await ctx.auth.api.createInvitation({

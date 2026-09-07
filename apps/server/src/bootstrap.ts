@@ -5,12 +5,15 @@ import {
 	type BuildInfo,
 	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
+	createDestinationController,
+	createDestinationControllerTransaction,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
 	createInstanceController,
 	createInstanceControllerTransaction,
 	createInstanceRepository,
+	createNotificationRepository,
 	createProcessIdentityRepository,
 	createScheduleRepository,
 	createSecretStore,
@@ -19,6 +22,7 @@ import {
 	createSshKeyRepository,
 	createStatusController,
 	createStatusControllerTransaction,
+	egressPolicy,
 	generateSshKeyPair,
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
@@ -158,6 +162,18 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		createTransport: createSshTransport,
 		withTransaction: createInstanceControllerTransaction(db),
 	})
+	const destinationController = createDestinationController({
+		withTransaction: createDestinationControllerTransaction(db),
+		notifications: createNotificationRepository(db),
+		secrets,
+		sendJob,
+		policy: egressPolicy({
+			allowHttp: env.NOTIFICATION_ALLOW_HTTP,
+			allowedHosts: env.NOTIFICATION_ALLOWED_HOSTS,
+			allowedAddresses: env.NOTIFICATION_ALLOWED_ADDRESSES,
+		}),
+	})
+
 	const sshKeyController = createSshKeyController({
 		sshKeys,
 		secrets,
@@ -189,6 +205,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 				instanceController,
 				statusController,
 				sshKeyController,
+				destinationController,
 			}),
 		}),
 	)

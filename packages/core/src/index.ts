@@ -137,10 +137,13 @@ export { createJobQueue, HOST_TEARDOWN_QUEUE, QUEUE_NAMES } from "./job/job.queu
 export type { QueueAdmin, QueuePolicy, StoredQueue } from "./job/queue-setup"
 export {
 	adminFor,
+	DEADLETTER_RETENTION_SECONDS,
+	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
 	NOTIFICATION_HTTP_QUEUE,
 	reconcileQueues,
+	STATUS_ESCALATE_QUEUE,
 } from "./job/queue-setup"
 export { assertExhaustive } from "./lib/exhaustive"
 export type {
@@ -150,6 +153,22 @@ export type {
 	DeliveryStore,
 } from "./notification/delivery.job"
 export { createDeliveryHandler, readDeliveryPayload } from "./notification/delivery.job"
+export type {
+	DestinationController,
+	DestinationControllerDeps,
+	WithDestinationTransaction,
+} from "./notification/destination.controller"
+export {
+	createDestinationController,
+	createDestinationControllerTransaction,
+	DestinationDisabledError,
+	DestinationHasNoSigningKeyError,
+	DestinationKindImmutableError,
+	DestinationNotFoundError,
+	DestinationRejectedError,
+	DestinationTestThrottledError,
+	OrganizationTestThrottledError,
+} from "./notification/destination.controller"
 export { dispatchTo } from "./notification/dispatch"
 export type {
 	AddressAllowance,
@@ -169,9 +188,23 @@ export {
 	verifyAddress,
 	verifyDestinationUrl,
 } from "./notification/egress"
-export type { NotificationRepository } from "./notification/notification.repository"
+export type {
+	NotificationRepository,
+	RetentionBoundaries,
+} from "./notification/notification.repository"
 export { createNotificationRepository } from "./notification/notification.repository"
+export type { CleanupDeps } from "./notification/retention"
+export {
+	boundariesFor,
+	createCleanupHandler,
+	DEADLETTER_RETENTION_DAYS,
+	NOTIFICATION_RETENTION_DAYS,
+	TEST_WINDOW_MS,
+	TESTS_PER_WINDOW,
+} from "./notification/retention"
 export type { NotificationEnvelope } from "./notification/sender"
+export type { OrganizationRepository } from "./organization/organization.repository"
+export { createOrganizationRepository } from "./organization/organization.repository"
 export { redact, redactError } from "./security/redact"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"
 export { generateSshKeyPair } from "./ssh-key/generate"
@@ -188,6 +221,8 @@ export {
 } from "./ssh-key/ssh-key.controller"
 export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.repository"
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
+export type { EscalationDeps, EscalationPayload } from "./status/escalation.job"
+export { createEscalationHandler, readEscalationPayload } from "./status/escalation.job"
 export { readConnectionChanges } from "./status/instance-observer"
 export { nextReachability } from "./status/reachability"
 export {

@@ -2,6 +2,7 @@ import { router } from "../trpc"
 import { hostRouter } from "./host.router"
 import { instanceRouter } from "./instance.router"
 import { memberRouter } from "./member.router"
+import { notificationRouter } from "./notification.router"
 import { sshKeyRouter } from "./ssh-key.router"
 import { statusRouter } from "./status.router"
 import { systemRouter } from "./system.router"
@@ -13,6 +14,7 @@ export const appRouter = router({
 	member: memberRouter,
 	status: statusRouter,
 	sshKey: sshKeyRouter,
+	notification: notificationRouter,
 })
 
 export type AppRouter = typeof appRouter

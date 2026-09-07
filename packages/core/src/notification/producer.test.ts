@@ -1,4 +1,4 @@
-import { RESOLVING_EVENT_KINDS, STATUS_EVENT_KINDS } from "@open-mcc/contracts"
+import { isFlapping, RESOLVING_EVENT_KINDS, STATUS_EVENT_KINDS } from "@open-mcc/contracts"
 import { describe, expect, it, vi } from "vitest"
 import {
 	dedupeKeyFor,
@@ -66,10 +66,12 @@ describe("a recovery only speaks if its problem did", () => {
 		)
 
 		expect(planned?.kind).toBe("instance.reconnected")
-		expect(lastAnnounced).toHaveBeenCalledWith("instance", "i1", [
-			"instance.disconnected",
-			"instance.reconnected",
-		])
+		expect(lastAnnounced).toHaveBeenCalledWith(
+			"instance",
+			"i1",
+			["instance.disconnected", "instance.reconnected"],
+			undefined,
+		)
 	})
 
 	it("says nothing when the problem was never announced, so a quiet kick's rejoin cannot page", async () => {
@@ -85,6 +87,26 @@ describe("a recovery only speaks if its problem did", () => {
 				async () => "instance.reconnected",
 			),
 		).toBeUndefined()
+	})
+
+	it("asks only about the incident it belongs to, so an older outage cannot answer for it", async () => {
+		const lastAnnounced = vi.fn(async () => undefined)
+		await planNotification(
+			fact({
+				kind: "instance.reconnected",
+				subjectType: "instance",
+				subjectId: "i1",
+				incidentId: "inc_7",
+			}),
+			lastAnnounced,
+		)
+
+		expect(lastAnnounced).toHaveBeenCalledWith(
+			"instance",
+			"i1",
+			["instance.disconnected", "instance.reconnected"],
+			"inc_7",
+		)
 	})
 
 	it("holds for every declared recovery, not just the connection one", async () => {
@@ -141,5 +163,30 @@ describe("the kinds a recovery looks back at", () => {
 
 	it("is just itself for a problem", () => {
 		expect(relevantKinds("host.unreachable")).toEqual(["host.unreachable"])
+	})
+})
+
+describe("the sixth drop, and why it must stay silent", () => {
+	it("still reads as flapping, so the predicate alone cannot be the guard", () => {
+		const now = new Date("2026-09-07T12:00:00Z")
+		const five = [0, 2, 4, 6, 8].map((m) => new Date(now.getTime() - m * 60_000))
+		const six = [...five, new Date(now.getTime() - 10 * 60_000)]
+
+		expect(isFlapping(five, now)).toBe(true)
+		expect(isFlapping(six, now)).toBe(true)
+	})
+
+	it("stops reading as flapping once the drops age out of the window", () => {
+		const now = new Date("2026-09-07T13:00:00Z")
+		const old = [0, 2, 4, 6, 8].map((m) => new Date(now.getTime() - (40 + m) * 60_000))
+
+		expect(isFlapping(old, now)).toBe(false)
+	})
+
+	it("does not read as flapping on four drops", () => {
+		const now = new Date("2026-09-07T12:00:00Z")
+		const four = [0, 2, 4, 6].map((m) => new Date(now.getTime() - m * 60_000))
+
+		expect(isFlapping(four, now)).toBe(false)
 	})
 })

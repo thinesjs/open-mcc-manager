@@ -2,16 +2,25 @@ import { X } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import type { ReactNode } from "react"
 import { useEffect } from "react"
+import { cn } from "~/lib/utils"
 
 export type ModalProps = {
 	open: boolean
 	title: string
 	description?: string
+	size?: "default" | "wide"
 	onClose: () => void
 	children: ReactNode
 }
 
-export const Modal = ({ open, title, description, onClose, children }: ModalProps) => {
+export const Modal = ({
+	open,
+	title,
+	description,
+	size = "default",
+	onClose,
+	children,
+}: ModalProps) => {
 	const reduced = useReducedMotion() ?? false
 	const surface = { type: "spring", duration: reduced ? 0.1 : 0.25, bounce: 0 } as const
 
@@ -49,7 +58,10 @@ export const Modal = ({ open, title, description, onClose, children }: ModalProp
 						animate={reduced ? { opacity: 1 } : { opacity: 1, scale: 1 }}
 						exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
 						transition={surface}
-						className="relative my-auto w-full max-w-lg rounded-[var(--radius)] border border-border bg-popover p-5 shadow-lg"
+						className={cn(
+							"relative my-auto w-full rounded-[var(--radius)] border border-border bg-popover p-5 shadow-lg",
+							size === "wide" ? "max-w-3xl" : "max-w-lg",
+						)}
 					>
 						<div className="flex items-start justify-between gap-4">
 							<div>

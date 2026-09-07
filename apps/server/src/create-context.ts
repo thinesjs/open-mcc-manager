@@ -1,6 +1,7 @@
 import { isRole } from "@open-mcc/contracts"
 import type {
 	BuildInfo,
+	DestinationController,
 	HostController,
 	InstanceController,
 	ProcessIdentityRepository,
@@ -22,6 +23,7 @@ export type AppDeps = {
 	instanceController: InstanceController
 	statusController: StatusController
 	sshKeyController: SshKeyController
+	destinationController: DestinationController
 }
 
 const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | null> => {
@@ -66,6 +68,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			instanceController: deps.instanceController,
 			statusController: deps.statusController,
 			sshKeyController: deps.sshKeyController,
+			destinationController: deps.destinationController,
 			db: deps.db,
 		}
 	}

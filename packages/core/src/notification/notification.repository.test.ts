@@ -1,4 +1,4 @@
-import type { DestinationKind, SubscriptionKind } from "@open-mcc/db"
+import type { DeliveryState, DestinationKind, SubscriptionKind } from "@open-mcc/db"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedOrganization, teardownTestDb, testDb } from "../test/db"
 import { createNotificationRepository } from "./notification.repository"
@@ -182,5 +182,231 @@ describe("not saying the same thing twice", () => {
 
 		expect(first).toBeDefined()
 		expect(second).toBeUndefined()
+	})
+})
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const daysAgo = (days: number): Date => new Date(Date.now() - days * DAY_MS)
+
+const seedNotification = async (organizationId: string, createdAt: Date): Promise<string> => {
+	const id = `notif-${suffix()}`
+	await testDb()
+		.insertInto("notification")
+		.values({ ...notification(`event:${suffix()}`), id, organizationId, createdAt })
+		.execute()
+	return id
+}
+
+const seedDelivery = async (
+	organizationId: string,
+	values: {
+		notificationId: string
+		destinationId: string
+		state: DeliveryState
+		settledAt: Date | null
+		attempts?: number
+		lastError?: string | null
+	},
+): Promise<string> => {
+	const id = `del-${suffix()}`
+	await testDb()
+		.insertInto("notificationDelivery")
+		.values({
+			id,
+			organizationId,
+			notificationId: values.notificationId,
+			destinationId: values.destinationId,
+			state: values.state,
+			settledAt: values.settledAt,
+			attempts: values.attempts ?? 1,
+			lastError: values.lastError ?? null,
+		})
+		.execute()
+	return id
+}
+
+const notificationStillThere = async (
+	organizationId: string,
+	notificationId: string,
+): Promise<boolean> =>
+	(await repo.findNotification({ organizationId }, notificationId)) !== undefined
+
+const RETENTION = {
+	createdBefore: daysAgo(90),
+	settledBefore: daysAgo(30),
+}
+
+describe("what retention is allowed to remove", () => {
+	it("keeps a notification whose delivery only just failed, because a dead letter still names it", async () => {
+		const destination = await seedDestination(orgA)
+		const older = await seedNotification(orgA, daysAgo(120))
+		await seedDelivery(orgA, {
+			notificationId: older,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(1),
+		})
+
+		expect(await repo.deleteSettledBefore({ organizationId: orgA }, RETENTION)).toBe(0)
+		expect(await notificationStillThere(orgA, older)).toBe(true)
+	})
+
+	it("keeps a notification whose delivery is still waiting to be sent", async () => {
+		const destination = await seedDestination(orgA)
+		const older = await seedNotification(orgA, daysAgo(120))
+		await seedDelivery(orgA, {
+			notificationId: older,
+			destinationId: destination,
+			state: "queued",
+			settledAt: null,
+		})
+
+		expect(await repo.deleteSettledBefore({ organizationId: orgA }, RETENTION)).toBe(0)
+		expect(await notificationStillThere(orgA, older)).toBe(true)
+	})
+
+	it("removes a notification past retention whose deliveries settled before any dead letter expired", async () => {
+		const destination = await seedDestination(orgA)
+		const older = await seedNotification(orgA, daysAgo(120))
+		await seedDelivery(orgA, {
+			notificationId: older,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(100),
+		})
+
+		expect(await repo.deleteSettledBefore({ organizationId: orgA }, RETENTION)).toBe(1)
+		expect(await notificationStillThere(orgA, older)).toBe(false)
+	})
+
+	it("keeps a settled notification that is still inside the retention window", async () => {
+		const destination = await seedDestination(orgA)
+		const recent = await seedNotification(orgA, daysAgo(2))
+		await seedDelivery(orgA, {
+			notificationId: recent,
+			destinationId: destination,
+			state: "delivered",
+			settledAt: daysAgo(2),
+		})
+
+		expect(await repo.deleteSettledBefore({ organizationId: orgA }, RETENTION)).toBe(0)
+		expect(await notificationStillThere(orgA, recent)).toBe(true)
+	})
+
+	it("refuses to delete another organization's notifications", async () => {
+		const destination = await seedDestination(orgA)
+		const theirs = await seedNotification(orgA, daysAgo(120))
+		await seedDelivery(orgA, {
+			notificationId: theirs,
+			destinationId: destination,
+			state: "delivered",
+			settledAt: daysAgo(100),
+		})
+
+		expect(await repo.deleteSettledBefore({ organizationId: orgB }, RETENTION)).toBe(0)
+		expect(await notificationStillThere(orgA, theirs)).toBe(true)
+	})
+})
+
+describe("alerts that did not arrive", () => {
+	it("lists a delivery that gave up after trying", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(1),
+			attempts: 8,
+		})
+
+		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+
+		expect(found.map((row) => row.deliveryId)).toContain(delivery)
+	})
+
+	it("leaves out a delivery abandoned because its destination was turned off", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "abandoned",
+			settledAt: daysAgo(1),
+			lastError: "this destination was turned off before it could be sent",
+		})
+
+		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+
+		expect(found.map((row) => row.deliveryId)).not.toContain(delivery)
+	})
+
+	it("refuses to hand one organization another's failures", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(1),
+		})
+
+		const found = await repo.recentFailures({ organizationId: orgB }, 20)
+
+		expect(found.map((row) => row.deliveryId)).not.toContain(delivery)
+	})
+})
+
+describe("dismissing an alert that did not arrive", () => {
+	it("settles it so it stops showing as outstanding", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(1),
+			lastError: "Server refused with 404",
+		})
+		const at = new Date()
+
+		expect(await repo.dismissDelivery({ organizationId: orgA }, delivery, at)).toBe(true)
+
+		const row = await repo.findDelivery({ organizationId: orgA }, delivery)
+		expect(row?.state).toBe("abandoned")
+		expect(row?.settledAt).toEqual(at)
+		expect(row?.lastError).toBe("Server refused with 404")
+
+		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+		expect(found.map((entry) => entry.deliveryId)).not.toContain(delivery)
+	})
+
+	it("refuses to dismiss another organization's alert", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "failed",
+			settledAt: daysAgo(1),
+		})
+
+		expect(await repo.dismissDelivery({ organizationId: orgB }, delivery, new Date())).toBe(false)
+		expect((await repo.findDelivery({ organizationId: orgA }, delivery))?.state).toBe("failed")
+	})
+
+	it("leaves an alert that is still being sent alone", async () => {
+		const destination = await seedDestination(orgA)
+		const created = await seedNotification(orgA, daysAgo(1))
+		const delivery = await seedDelivery(orgA, {
+			notificationId: created,
+			destinationId: destination,
+			state: "queued",
+			settledAt: null,
+		})
+
+		expect(await repo.dismissDelivery({ organizationId: orgA }, delivery, new Date())).toBe(false)
+		expect((await repo.findDelivery({ organizationId: orgA }, delivery))?.state).toBe("queued")
 	})
 })

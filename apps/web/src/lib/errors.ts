@@ -9,6 +9,29 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	UNAUTHORIZED: "Your session has expired. Please sign in again.",
 	FORBIDDEN: "You do not have permission to perform this action.",
 	HOST_NOT_FOUND: "That host no longer exists.",
+	DESTINATION_NOT_FOUND: "That destination no longer exists. Refresh the list.",
+	DESTINATION_TEST_THROTTLED:
+		"This destination was tested a moment ago. Wait a minute before testing it again.",
+	ORGANIZATION_TEST_THROTTLED:
+		"Several destinations were tested just now. Wait a minute before testing another.",
+	DESTINATION_DISABLED: "That destination is turned off. Turn it on before sending again.",
+	DESTINATION_KIND_IMMUTABLE:
+		"A destination cannot change where it sends to. Remove it and add a new one.",
+	DESTINATION_NO_SIGNING_KEY: "Only a webhook has a signing key.",
+	DESTINATION_REJECTED:
+		"OpenMCC will not send alerts there. It needs an address on the internet reachable over https, unless an administrator has allowed your own network.",
+	DESTINATION_POINTS_HERE:
+		"That address points back at the machine OpenMCC runs on. An administrator has to allow it before alerts can be sent there.",
+	DESTINATION_NOT_PUBLIC:
+		"That address is on a private network. An administrator has to allow it before alerts can be sent there.",
+	DESTINATION_NOT_USABLE:
+		"That address is reserved and cannot receive anything. Check it and try again.",
+	DESTINATION_NOT_AN_ADDRESS: "That does not look like a web address. Check it and try again.",
+	DESTINATION_NOT_HTTPS:
+		"The address has to start with https. Plain http is only allowed to an address an administrator has named.",
+	DESTINATION_HAS_CREDENTIALS:
+		"Remove the username and password from the address. Put the secret in the path or a header instead.",
+	DESTINATION_HAS_FRAGMENT: "Remove the # and anything after it from the address.",
 	SSH_KEY_NOT_FOUND: "That SSH key no longer exists.",
 	FINGERPRINT_MISMATCH:
 		"The key the host presented did not match the fingerprint you provided. Refusing to trust an unverified host.",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { GENERATE_KEY_FLAG, generateSealboxKeyFromArgv } from "./index"
+import { GENERATE_KEY_FLAG, generateSealboxKeyFromArgv } from "./sealbox-key-argv"
 
 describe("sealbox key generation from the command line", () => {
 	it("emits a key entry the SEALBOX_KEYS format accepts", async () => {

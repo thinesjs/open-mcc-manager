@@ -246,6 +246,37 @@ describe("what Gotify actually receives", () => {
 	})
 })
 
+describe("an ntfy topic is a password, so it must not reach an operator", () => {
+	const settings = {
+		serverUrl: "https://ntfy.internal.example.com:8443",
+		topic: "s3cret-topic",
+		priority: 4,
+		accessToken: "tk_live_do_not_log",
+	}
+
+	it("keeps the url, host, port, topic and token out of the failure reason", async () => {
+		const outcome = await deliverNtfy(settings, envelope, {
+			transport: async () => {
+				throw new Error(
+					"connect ETIMEDOUT https://ntfy.internal.example.com:8443/s3cret-topic tk_live_do_not_log 203.0.113.9:8443",
+				)
+			},
+		})
+
+		const reason = outcome.kind === "delivered" ? "" : outcome.reason
+		for (const secret of [
+			"s3cret-topic",
+			"tk_live_do_not_log",
+			"ntfy.internal.example.com",
+			"8443",
+			"203.0.113.9",
+		]) {
+			expect(reason).not.toContain(secret)
+		}
+		expect(reason.length).toBeGreaterThan(0)
+	})
+})
+
 describe("what ntfy actually receives", () => {
 	it("names the topic in the path, the way every other ntfy client does", async () => {
 		const { transport, seen } = transportReturning(answered(200))

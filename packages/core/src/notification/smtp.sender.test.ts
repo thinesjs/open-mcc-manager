@@ -199,7 +199,7 @@ describe("who the mail sender is willing to talk to", () => {
 })
 
 describe("the message an operator receives", () => {
-	it("carries the delivery id so a retry cannot arrive twice", () => {
+	it("carries the delivery id as stable message identity across retries", () => {
 		const built = emailMessage(settings, envelope, new Date("2026-09-07T12:00:05Z"))
 		expect(built.id).toBe("dlv_xyz789")
 	})

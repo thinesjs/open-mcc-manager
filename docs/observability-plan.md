@@ -178,6 +178,15 @@ So all three esbuild invocations gain a banner that supplies a real `require`:
 The alternative — marking the package `--external` — would trade one build flag for an entry
 in `runtimeRoots` and the drift check, which is the more invasive of the two. The banner wins.
 
+**Shutdown wants about ten seconds of grace, and that number is load-bearing.** A collector that
+refuses the connection rejects immediately, but one that accepts and never answers exercises the
+exporter's timeout instead — measured at roughly 10 seconds against a black-hole listener, which
+is the OTLP exporter's default export timeout rather than a hang. That sits comfortably inside
+Kubernetes' default 30-second `terminationGracePeriodSeconds`, **so anyone who tunes that down
+to speed up rollouts has to leave tracing shutdown at least that much headroom** or the flush
+this handler exists for will be killed mid-export. Losing the last batch on every routine
+rolling deploy — not an edge case, every deploy — is worse than a bounded few-second delay.
+
 **A telemetry failure must never take the service down.** The same probe also showed
 `provider.shutdown()` rejecting with `ECONNREFUSED` when nothing is listening at the endpoint,
 which as an unhandled rejection kills the process. So an Alloy outage, or one mistyped
@@ -246,10 +255,17 @@ readiness checks.
   forever — silently — and a logger test that threads a span in by hand still passes green. So
   one test calls the logger from inside a *real* active span, started through the global API and
   not passed in, and asserts the ids appear. This is the wiring with no coverage otherwise.
-- **A retry with a real gap, not a same-second one.** The acceptance run forces a multi-minute
-  backoff and confirms the later span still resolves under the same trace id. Long-running
-  traces are a handled scenario rather than a data-loss one, but whether a given tenant renders
-  them coherently is cheap to check now and expensive to discover later.
+- ~~A retry with a real gap, not a same-second one.~~ **Cut deliberately, not forgotten.** The
+  intent was an acceptance run forcing a multi-minute backoff to confirm a later span still
+  resolves under the same trace id. What it would actually exercise is the *backend's* handling of
+  a long-running trace, not this codebase: our side of the guarantee is that a retry re-enqueues
+  the same `traceparent`, and three tests already prove that without waiting —
+  `job-span.test.ts:74` keeps two attempts in one trace, `tracing.test.ts:181` does the same at the
+  carrier level, and `delivery.job.test.ts:270,284` prove the handler re-spreads the carrier onto
+  both the next attempt and the dead letter. Adding wall-clock realism on top buys a Grafana
+  rendering question, which belongs with the derived-field wiring already listed as a handover
+  item. If a long-gap trace ever renders incoherently, that is a tenant configuration bug and the
+  place to check is the backend, not `delivery.job.ts`.
 - No bare `console.` call remains **in the server and worker runtime paths**, asserted by a
   check in the style of the existing type-policy check. The scope is deliberate: **CLI
   entrypoints are excluded**, because `generate-sealbox-key-cli` printing the key it just

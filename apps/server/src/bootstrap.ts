@@ -38,6 +38,7 @@ import {
 	startHealthPoller,
 	startHeartbeat,
 	startScheduler,
+	tracedDialect,
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
 import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
@@ -91,7 +92,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 			...(options === undefined ? {} : { startAfter: options.startAfterSeconds }),
 		})
 
-	const db = createDb(env.DATABASE_URL)
+	const db = createDb(env.DATABASE_URL, tracedDialect)
 	const build = readBuildInfo(process.env)
 	const schemaVersion = await appliedSchemaVersion(db)
 	const identities = createProcessIdentityRepository(db)

@@ -15,6 +15,7 @@ import {
 	createSshKeyRepository,
 	createStatusController,
 	createStatusControllerTransaction,
+	deliverQueuedBatch,
 	dispatchTo,
 	type EgressPolicy,
 	egressPolicy,
@@ -25,11 +26,11 @@ import {
 	type NotificationEnvelope,
 	type QueueName,
 	readBuildInfo,
-	readDeliveryPayload,
 	reconcileQueues,
 	type SendJob,
 	STATUS_ESCALATE_QUEUE,
 	startHeartbeat,
+	tracedDialect,
 } from "@open-mcc/core"
 import {
 	appliedSchemaVersion,
@@ -51,7 +52,7 @@ export type WorkerHandle = {
 }
 
 export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
-	const db = createDb(env.DATABASE_URL)
+	const db = createDb(env.DATABASE_URL, tracedDialect)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 	const sshKeys = createSshKeyRepository(db)
 	const hosts = createHostRepository(db)
@@ -156,13 +157,8 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 			now: () => new Date(),
 		})
 
-	const workDeliveries = (queue: QueueName) => async (jobs: Job[]) => {
-		const deliver = deliverOn(queue)
-		for (const job of jobs) {
-			const payload = readDeliveryPayload(job.data)
-			if (payload) await deliver(payload)
-		}
-	}
+	const workDeliveries = (queue: QueueName) => async (jobs: Job[]) =>
+		await deliverQueuedBatch(queue, jobs, deliverOn(queue))
 
 	const instances = createInstanceRepository(db)
 	const statusController = createStatusController({

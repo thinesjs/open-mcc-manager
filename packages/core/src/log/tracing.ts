@@ -1,4 +1,11 @@
-import { isSpanContextValid, trace } from "@opentelemetry/api"
+import {
+	type Context,
+	context,
+	isSpanContextValid,
+	propagation,
+	ROOT_CONTEXT,
+	trace,
+} from "@opentelemetry/api"
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { resourceFromAttributes } from "@opentelemetry/resources"
@@ -47,4 +54,20 @@ export const activeTraceIds = (): TraceIds | undefined => {
 	const spanContext = span.spanContext()
 	if (!isSpanContextValid(spanContext)) return undefined
 	return { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+}
+
+export const TRACEPARENT = "traceparent"
+
+export const carrierForActiveContext = (): Record<string, string> => {
+	const carrier: Record<string, string> = {}
+	propagation.inject(context.active(), carrier)
+	return carrier
+}
+
+export const contextFromCarrier = (carrier: Readonly<Record<string, string>>): Context =>
+	propagation.extract(ROOT_CONTEXT, carrier)
+
+export const hasTraceparent = (carrier: Readonly<Record<string, string>>): boolean => {
+	const value = carrier[TRACEPARENT]
+	return typeof value === "string" && value.length > 0
 }

@@ -148,8 +148,10 @@ export {
 export { assertExhaustive } from "./lib/exhaustive"
 export type { Fields, Level, Logger, TraceIds } from "./log/logger"
 export { createLogger, readLevel } from "./log/logger"
+export { tracedDialect } from "./log/query-span"
 export type { TracingHandle, TracingOptions } from "./log/tracing"
 export { activeTraceIds, startTracing, tracesUrl } from "./log/tracing"
+export { deliverQueuedBatch } from "./notification/delivery.batch"
 export type {
 	DeliveryDeps,
 	DeliveryPayload,

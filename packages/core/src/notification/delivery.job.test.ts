@@ -267,6 +267,33 @@ describe("a delivery worth trying again", () => {
 		)
 	})
 
+	it("carries the enqueueing trace onto the next attempt", async () => {
+		const { handle, sendJob } = build(retryable)
+		const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+		await handle({ ...payload, traceparent })
+
+		expect(sendJob).toHaveBeenCalledWith(
+			NOTIFICATION_HTTP_QUEUE,
+			expect.objectContaining({ attempt: "2", traceparent }),
+			expect.anything(),
+			{ startAfterSeconds: 45 },
+		)
+	})
+
+	it("carries the enqueueing trace onto the delivery it sets aside", async () => {
+		const { handle, sendJob } = build(retryable, {}, { retryLimit: 3 })
+		const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+		await handle({ ...payload, attempt: 3, traceparent })
+
+		expect(sendJob).toHaveBeenCalledWith(
+			NOTIFICATION_DEADLETTER_QUEUE,
+			expect.objectContaining({ deliveryId: "del_1", traceparent }),
+			expect.anything(),
+		)
+	})
+
 	it("stops trying once the budget is spent, and sets it aside", async () => {
 		const { handle, sendJob } = build(retryable, {}, { retryLimit: 3 })
 
@@ -326,5 +353,52 @@ describe("a destination the operator turned off", () => {
 		await handle(payload)
 
 		expect(JSON.stringify(settle.mock.calls)).toContain("turned off")
+	})
+})
+
+describe("trace context travelling with a delivery job", () => {
+	it("is read off the payload when the enqueuer put one there", () => {
+		const payload = readDeliveryPayload({
+			organizationId: "org_1",
+			deliveryId: "dlv_1",
+			attempt: "1",
+			traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		})
+
+		expect(payload?.traceparent).toBe("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+	})
+
+	it("is absent rather than empty when nothing was traced", () => {
+		const payload = readDeliveryPayload({
+			organizationId: "org_1",
+			deliveryId: "dlv_1",
+			attempt: "1",
+		})
+
+		expect(payload).toBeDefined()
+		expect(payload !== undefined && "traceparent" in payload).toBe(false)
+	})
+
+	it("ignores an empty traceparent rather than carrying a useless one", () => {
+		const payload = readDeliveryPayload({
+			organizationId: "org_1",
+			deliveryId: "dlv_1",
+			attempt: "1",
+			traceparent: "",
+		})
+
+		expect(payload !== undefined && "traceparent" in payload).toBe(false)
+	})
+
+	it("does not let a malformed traceparent reject an otherwise valid job", () => {
+		const payload = readDeliveryPayload({
+			organizationId: "org_1",
+			deliveryId: "dlv_1",
+			attempt: "2",
+			traceparent: "nonsense",
+		})
+
+		expect(payload?.deliveryId).toBe("dlv_1")
+		expect(payload?.attempt).toBe(2)
 	})
 })

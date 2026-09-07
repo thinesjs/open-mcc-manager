@@ -1,12 +1,18 @@
-import { Kysely, PostgresDialect, type Transaction } from "kysely"
+import { type Dialect, Kysely, PostgresDialect, type Transaction } from "kysely"
 import { Pool } from "pg"
 import type { Database } from "./database"
 
-export const createDb = (url: string): Kysely<Database> =>
+type DecorateDialect = (dialect: Dialect) => Dialect
+
+const asItComes: DecorateDialect = (dialect) => dialect
+
+export const createDb = (url: string, decorate: DecorateDialect = asItComes): Kysely<Database> =>
 	new Kysely<Database>({
-		dialect: new PostgresDialect({
-			pool: new Pool({ connectionString: url, max: 10 }),
-		}),
+		dialect: decorate(
+			new PostgresDialect({
+				pool: new Pool({ connectionString: url, max: 10 }),
+			}),
+		),
 	})
 
 export type Db = Kysely<Database>

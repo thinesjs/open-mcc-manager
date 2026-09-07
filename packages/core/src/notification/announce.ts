@@ -3,6 +3,7 @@ import type { NotificationDestinationRow } from "@open-mcc/db"
 import type { SqlRunner } from "../job/executor-adapter"
 import type { QueueName, SendJob } from "../job/job.queue"
 import { NOTIFICATION_EMAIL_QUEUE, NOTIFICATION_HTTP_QUEUE } from "../job/queue-setup"
+import { carrierForActiveContext } from "../log/tracing"
 import type { NotificationRepository } from "./notification.repository"
 import type { EventFact, PlannedNotification } from "./producer"
 import { planNotification, subscriptionKindFor } from "./producer"
@@ -66,7 +67,12 @@ export const announce = async (
 
 		const jobId = await deps.sendJob(
 			queueFor(destination),
-			{ organizationId: scope.organizationId, deliveryId: delivery.id, attempt: "1" },
+			{
+				organizationId: scope.organizationId,
+				deliveryId: delivery.id,
+				attempt: "1",
+				...carrierForActiveContext(),
+			},
 			deps.runner,
 		)
 		if (jobId === null) {

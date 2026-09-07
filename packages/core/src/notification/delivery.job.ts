@@ -24,6 +24,7 @@ export type DeliveryPayload = {
 	organizationId: string
 	deliveryId: string
 	attempt: number
+	traceparent?: string
 }
 
 export const readDeliveryPayload = (payload: object): DeliveryPayload | undefined => {
@@ -34,10 +35,12 @@ export const readDeliveryPayload = (payload: object): DeliveryPayload | undefine
 	const attempt = record.attempt
 	if (typeof organizationId !== "string" || organizationId.length === 0) return undefined
 	if (typeof deliveryId !== "string" || deliveryId.length === 0) return undefined
-	if (attempt === undefined) return { organizationId, deliveryId, attempt: 1 }
+	const traceparent = record.traceparent
+	const carried = typeof traceparent === "string" && traceparent.length > 0 ? { traceparent } : {}
+	if (attempt === undefined) return { organizationId, deliveryId, attempt: 1, ...carried }
 	const counted = typeof attempt === "string" ? Number(attempt) : attempt
 	if (typeof counted !== "number" || !Number.isInteger(counted) || counted < 1) return undefined
-	return { organizationId, deliveryId, attempt: counted }
+	return { organizationId, deliveryId, attempt: counted, ...carried }
 }
 
 export type DeliverySend = (
@@ -87,6 +90,7 @@ export const createDeliveryHandler =
 		const scope = { organizationId: payload.organizationId }
 		const retryLimit = deps.retryLimit ?? DELIVERY_RETRY_LIMIT
 		const attempt = payload.attempt
+		const carried = payload.traceparent === undefined ? {} : { traceparent: payload.traceparent }
 
 		const delivery = await deps.store.findDelivery(scope, payload.deliveryId)
 		if (!delivery || SETTLED.has(delivery.state)) return { settled: "skipped" }
@@ -181,7 +185,11 @@ export const createDeliveryHandler =
 				})
 				const dead = await deps.sendJob(
 					NOTIFICATION_DEADLETTER_QUEUE,
-					{ organizationId: scope.organizationId, deliveryId: delivery.id },
+					{
+						organizationId: scope.organizationId,
+						deliveryId: delivery.id,
+						...carried,
+					},
 					runner,
 				)
 				if (dead === null) throw new Error("this delivery could not be set aside")
@@ -204,6 +212,7 @@ export const createDeliveryHandler =
 					organizationId: scope.organizationId,
 					deliveryId: delivery.id,
 					attempt: `${attempt + 1}`,
+					...carried,
 				},
 				runner,
 				{ startAfterSeconds: afterSeconds },

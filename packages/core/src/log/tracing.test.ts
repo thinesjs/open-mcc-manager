@@ -1,7 +1,15 @@
-import { trace } from "@opentelemetry/api"
+import { context, trace } from "@opentelemetry/api"
 import { afterAll, describe, expect, it } from "vitest"
 import { createLogger, type Field } from "./logger"
-import { activeTraceIds, startTracing, tracesUrl } from "./tracing"
+import {
+	activeTraceIds,
+	carrierForActiveContext,
+	contextFromCarrier,
+	hasTraceparent,
+	startTracing,
+	TRACEPARENT,
+	tracesUrl,
+} from "./tracing"
 
 const parsed = (line: string | undefined): Record<string, Field> => JSON.parse(line ?? "{}")
 
@@ -120,5 +128,84 @@ describe("the wiring that makes a log line find its trace", () => {
 		const tracer = trace.getTracer("test")
 		tracer.startActiveSpan("brief", (span) => span.end())
 		expect(activeTraceIds()).toBeUndefined()
+	})
+})
+
+describe("carrying trace context through a queue", () => {
+	const handle = startTracing({ service: "hop", endpoint: "http://127.0.0.1:4318" })
+
+	afterAll(async () => {
+		await handle.shutdown()
+	})
+
+	it("writes a traceparent when a span is active", () => {
+		const tracer = trace.getTracer("hop")
+		const carrier = tracer.startActiveSpan("enqueue", (span) => {
+			const written = carrierForActiveContext()
+			span.end()
+			return written
+		})
+
+		expect(hasTraceparent(carrier)).toBe(true)
+		expect(carrier[TRACEPARENT]).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/)
+	})
+
+	it("writes nothing when no span is active, so a job carries no empty context", () => {
+		const carrier = carrierForActiveContext()
+		expect(hasTraceparent(carrier)).toBe(false)
+	})
+
+	it("hands back a context whose span belongs to the trace that enqueued it", () => {
+		const tracer = trace.getTracer("hop")
+
+		const enqueued = tracer.startActiveSpan("enqueue", (span) => {
+			const ids = activeTraceIds()
+			const written = carrierForActiveContext()
+			span.end()
+			return { ids, written }
+		})
+
+		const parent = contextFromCarrier(enqueued.written)
+		const delivered = context.with(parent, () =>
+			tracer.startActiveSpan("deliver", (span) => {
+				const ids = activeTraceIds()
+				span.end()
+				return ids
+			}),
+		)
+
+		expect(delivered?.trace_id).toBe(enqueued.ids?.trace_id)
+		expect(delivered?.span_id).not.toBe(enqueued.ids?.span_id)
+	})
+
+	it("keeps a second attempt in the same trace, which is what a retry needs", () => {
+		const tracer = trace.getTracer("hop")
+
+		const carrier = tracer.startActiveSpan("enqueue", (span) => {
+			const written = carrierForActiveContext()
+			span.end()
+			return written
+		})
+		const parent = contextFromCarrier(carrier)
+
+		const attempts = [1, 2].map((attempt) =>
+			context.with(parent, () =>
+				tracer.startActiveSpan(`attempt ${attempt}`, (span) => {
+					const ids = activeTraceIds()
+					span.end()
+					return ids
+				}),
+			),
+		)
+
+		expect(attempts[0]?.trace_id).toBe(attempts[1]?.trace_id)
+		expect(attempts[0]?.span_id).not.toBe(attempts[1]?.span_id)
+	})
+
+	it("treats a malformed traceparent as no context rather than throwing", () => {
+		for (const bad of ["", "nonsense", "00-tooshort-x-01"]) {
+			const derived = contextFromCarrier({ [TRACEPARENT]: bad })
+			expect(trace.getSpan(derived)).toBeUndefined()
+		}
 	})
 })

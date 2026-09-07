@@ -400,6 +400,8 @@ export const createNotificationRepository = (db: Executor) => ({
 		destinationId: string,
 		values: { succeededAt: Date | null; failedAt: Date | null; reason: string | null },
 	): Promise<void> => {
+		const observedAt = values.succeededAt ?? values.failedAt
+		if (!observedAt) return
 		await db
 			.updateTable("notificationDestination")
 			.set(
@@ -409,6 +411,11 @@ export const createNotificationRepository = (db: Executor) => ({
 			)
 			.where("organizationId", "=", scope.organizationId)
 			.where("id", "=", destinationId)
+			.where(
+				sql<Date>`greatest(coalesce("lastSucceededAt", '-infinity'), coalesce("lastFailedAt", '-infinity'))`,
+				"<",
+				observedAt,
+			)
 			.execute()
 	},
 

@@ -410,3 +410,113 @@ describe("dismissing an alert that did not arrive", () => {
 		expect((await repo.findDelivery({ organizationId: orgA }, delivery))?.state).toBe("queued")
 	})
 })
+
+describe("a destination's health only moves forward in time", () => {
+	const scope = () => ({ organizationId: orgA })
+	const EARLY = new Date("2026-09-07T12:00:00.000Z")
+	const LATE = new Date("2026-09-07T12:05:00.000Z")
+
+	const succeed = async (destination: string, at: Date) =>
+		await repo.markDestinationOutcome(scope(), destination, {
+			succeededAt: at,
+			failedAt: null,
+			reason: null,
+		})
+
+	const fail = async (destination: string, at: Date, reason: string) =>
+		await repo.markDestinationOutcome(scope(), destination, {
+			succeededAt: null,
+			failedAt: at,
+			reason,
+		})
+
+	const health = async (destination: string) => {
+		const row = await repo.findDestination(scope(), destination)
+		return {
+			succeeded: row?.lastSucceededAt?.toISOString() ?? null,
+			failed: row?.lastFailedAt?.toISOString() ?? null,
+			reason: row?.lastFailureReason ?? null,
+		}
+	}
+
+	it("keeps a newer success when a stale failure arrives afterwards", async () => {
+		const destination = await seedDestination(orgA)
+		await succeed(destination, LATE)
+		await fail(destination, EARLY, "it did not go through")
+
+		expect(await health(destination)).toEqual({
+			succeeded: LATE.toISOString(),
+			failed: null,
+			reason: null,
+		})
+	})
+
+	it("keeps a newer failure when a stale success arrives afterwards", async () => {
+		const destination = await seedDestination(orgA)
+		await fail(destination, LATE, "it did not go through")
+		await succeed(destination, EARLY)
+
+		expect(await health(destination)).toEqual({
+			succeeded: null,
+			failed: LATE.toISOString(),
+			reason: "it did not go through",
+		})
+	})
+
+	it("does not let a stale failure regress a newer failure's reason", async () => {
+		const destination = await seedDestination(orgA)
+		await fail(destination, LATE, "the certificate was not trusted")
+		await fail(destination, EARLY, "the connection was refused")
+
+		expect(await health(destination)).toMatchObject({
+			failed: LATE.toISOString(),
+			reason: "the certificate was not trusted",
+		})
+	})
+
+	it("does not let a stale success regress a newer success", async () => {
+		const destination = await seedDestination(orgA)
+		await succeed(destination, LATE)
+		await succeed(destination, EARLY)
+
+		expect(await health(destination)).toMatchObject({ succeeded: LATE.toISOString() })
+	})
+
+	it("leaves the first of two writes at the same instant standing", async () => {
+		const destination = await seedDestination(orgA)
+		await fail(destination, LATE, "the first one recorded")
+		await fail(destination, LATE, "the second one recorded")
+
+		expect(await health(destination)).toMatchObject({ reason: "the first one recorded" })
+	})
+
+	it("still applies writes that arrive in order, in both directions", async () => {
+		const failing = await seedDestination(orgA)
+		await fail(failing, EARLY, "an early failure")
+		await succeed(failing, LATE)
+		expect(await health(failing)).toEqual({
+			succeeded: LATE.toISOString(),
+			failed: EARLY.toISOString(),
+			reason: null,
+		})
+
+		const succeeding = await seedDestination(orgA)
+		await succeed(succeeding, EARLY)
+		await fail(succeeding, LATE, "a later failure")
+		expect(await health(succeeding)).toEqual({
+			succeeded: EARLY.toISOString(),
+			failed: LATE.toISOString(),
+			reason: "a later failure",
+		})
+	})
+
+	it("applies a first write against a destination that has no history yet", async () => {
+		const first = await seedDestination(orgA)
+		await succeed(first, EARLY)
+		expect(await health(first)).toMatchObject({ succeeded: EARLY.toISOString() })
+
+		const other = await seedDestination(orgA)
+		await fail(other, EARLY, "nothing recorded before this")
+		expect(await health(other)).toMatchObject({ failed: EARLY.toISOString() })
+	})
+})

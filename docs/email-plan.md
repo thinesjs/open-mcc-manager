@@ -51,10 +51,21 @@ A MITM can pipeline plaintext commands immediately after the server's `220` repl
 If the client keeps those buffered bytes across the TLS boundary, they execute afterwards as
 though they arrived inside the encrypted session. So:
 
-**After reading exactly the one reply line to `STARTTLS`, the read buffer must be empty. Any
-residual byte means someone injected, and the attempt is abandoned — not retried, not
-downgraded.** That is an assertion in code, and it is directly testable with a fake server that
-answers `220 go ahead\r\n250 injected\r\n` in a single write.
+**After parsing the complete reply to `STARTTLS`, the read buffer must be empty. Any residual
+byte means someone injected, and the attempt is abandoned — not retried, not downgraded.** That
+is an assertion in code, and it is directly testable with a fake server that answers
+`220 go ahead\r\n250 injected\r\n` in a single write.
+
+Two details decide whether that assertion actually works:
+
+- It is **synchronous on bytes already in hand**, never "wait a moment and see if more arrives".
+  The injection test's whole premise is that both lines land in one `data` event, so the question
+  is "having consumed the reply I recognise as complete, is anything left?" — evaluated against
+  the buffer, not the clock.
+- It uses the **same multi-line-aware reply parser as the rest of the client**. A reader that
+  grabs one line only for `STARTTLS` would misfire on a legitimate `220-` continuation from an
+  unusual but valid server, and a false positive here is exactly the kind of thing that later
+  gets "fixed" by loosening the one check that matters.
 
 `STARTTLS` is **required, never opportunistic**. If the server does not advertise it, or the
 upgrade fails, the attempt fails. There is no plaintext `AUTH` or `MAIL FROM` path in this
@@ -69,11 +80,20 @@ produces a *refused delivery* rather than a silent downgrade. Blocking 25 would 
 internal smart-host relays that some self-hosted deployments legitimately run. `emailConfigInput`
 gains no TLS field — the mode is derived from the port, so there is one fewer knob to set wrong.
 
+One operational warning that has nothing to do with this plan and everything to do with an
+afternoon lost to the wrong suspect: **most cloud providers and consumer VPS hosts block outbound
+port 25 at the network level by default.** A connection that times out on port 25 is far more
+likely the host's own firewall than anything in OpenMCC. That belongs in the field's hint text.
+
 **Any rejected recipient aborts the whole send before `DATA`.** `DeliveryOutcome` has no
 partial-success shape, and inventing one here would be the wrong place to do it. The reason this
 is not merely a modelling convenience: silently dropping one recipient from an *alert* leaves an
-operator believing their on-call was told when they were not. A `4xx` rejection at `RCPT TO` is
-retryable, a `5xx` is terminal, and either way `DATA` is never sent.
+operator believing their on-call was told when they were not.
+
+With several recipients the rejections can be mixed — one address answers `250`, another `550` —
+so the rule has to say which wins: **any `5xx` anywhere makes the whole attempt terminal, and
+only an all-`4xx` set of rejections retries.** Retrying cannot fix a permanently bad address, and
+`DATA` is never sent in either case.
 
 **TLS always, with no plaintext exception, and this deliberately breaks symmetry with
 `NOTIFICATION_ALLOW_HTTP`.** That escape hatch exists so a LAN gotify or ntfy server can be
@@ -105,9 +125,15 @@ status class.
 
 - The SMTP password is sealed with the rest of the config and never appears in a view. The safe
   target is the from-address, which `targetFor` already returns for `email`.
-- `redact.ts` gains the `AUTH PLAIN <base64>` and `AUTH LOGIN` argument shapes, so a password
-  cannot reach a log line even if a future change starts logging the conversation. Defence in
-  depth: this slice logs no conversation at all.
+- `redact.ts` gains the `AUTH PLAIN <base64>` shape, so a password cannot reach a log line even if
+  a future change starts logging the conversation. Defence in depth: this slice logs no
+  conversation at all.
+- **`AUTH LOGIN` is deliberately not claimed as covered.** Its wire form is a challenge/response
+  where the username and password each arrive as a bare base64 line with no prefix, so no static
+  pattern can single them out from any other short base64-looking token without false-positiving
+  constantly. The test must not imply otherwise. The real protection for `AUTH LOGIN` is that the
+  conversation is never logged, and if it ever is, the redaction has to happen at the point of
+  logging where the protocol state is known — not in a regex.
 - Recipient addresses are not shown in the read model, matching the rule already proved for
   resend.
 
@@ -133,9 +159,21 @@ silently changes the security posture.
   important test in the slice.
 - **The downgrade test**: a server whose `EHLO` response omits `STARTTLS` gets no `AUTH` and no
   `MAIL FROM`, and the delivery fails.
-- **The identity test**: the socket connects to the pinned address while `servername` carries the
-  configured hostname. Asserted on the options handed to `tls.connect`, because that is where the
-  bug would live.
+- **The identity test, as a real handshake and not only an options assertion.** Both: assert the
+  options handed to `tls.connect`, because that localises a regression fast, *and* stand up a
+  local TLS server whose certificate has a SAN of `smtp.example.com`, bind it to `127.0.0.1`,
+  connect the pinned socket to `127.0.0.1` with `servername: "smtp.example.com"`, and assert the
+  handshake succeeds. The options assertion alone proves only that we *called* the API with the
+  values we meant — not that Node's TLS layer verifies against `servername` rather than the
+  socket's physical peer when a pre-connected socket is handed in, which is a much less travelled
+  path than the ordinary `tls.connect(port, host)` one. A **negative control** comes with it: the
+  same server with `servername` omitted must fail the handshake, so the test cannot pass by
+  accident of a default happening to work.
+- The certificate is a **checked-in test-only pair with a far-out expiry**, under
+  `packages/core/src/notification/fixtures/`. Not generated per run: a fixture has no moving
+  parts, and a certificate-generating devDependency would be one more thing to keep working for
+  no gain. (It would not have reached the shipped images either way — `check-runtime-deps.mjs`
+  and `prune-deploy.mjs` govern only what the Dockerfiles mark `--external:`.)
 - **A multi-line reply test**, classifying off the last line, and a test that a `250-` first line
   followed by a `550` final line is read as terminal rather than delivered.
 - **`RCPT TO` partial rejection**: `DATA` is never sent, `4xx` is retryable, `5xx` is terminal.

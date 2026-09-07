@@ -245,6 +245,31 @@ overlay. The `kustomize build` assertion waits until the manifests have a home.
 The correction matters more than the saving: a plan that invents work is as misleading as one
 that omits it.
 
+## The prerequisite this plan missed entirely
+
+**Nothing in this repository publishes a container image, so none of the above can deploy.**
+Verified rather than assumed: `.github/workflows/` holds only `ci.yml` and `security.yml`, and
+`security.yml` builds the server image **locally for a Trivy scan and never pushes it** — there
+is no registry login and no build-push step anywhere. No image has ever existed at
+`ghcr.io/thinesjs/open-mcc-server`, `-worker` or `-migrate`.
+
+So however correct the Kubernetes wiring is, a first sync ends in `ImagePullBackOff`. This is a
+hard prerequisite, not a nice-to-have, and the plan asserted "tags are advanced by annotation"
+while quietly assuming images existed to advance.
+
+What it needs, and it is a slice of its own rather than a footnote here:
+
+- A release workflow that builds all three images and pushes them to GHCR, tagged with a real
+  version rather than `latest`, because ArgoCD Image Updater is configured for semver and
+  `latest` is exactly the thing it cannot order.
+- A decision on what triggers it — a git tag, or a push to the default branch. Semver tags
+  imply the former.
+- The GHCR pull secret in the cluster, which is the `ghcr-creds` sealed secret the manifests
+  already expect.
+
+Until that exists the manifests are correct but undeployable, and this plan says so plainly
+rather than leaving it to be discovered at the first sync.
+
 ## What this plan does not cover
 
 **The web dashboard is out of scope, and that is pre-existing rather than an omission here.**

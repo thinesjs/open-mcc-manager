@@ -47,16 +47,24 @@ export const Route = createFileRoute("/_authenticated/alerts")({
 const whenLast = (at: Date | string | null): string =>
 	at === null ? "never" : new Date(at).toLocaleString()
 
+const BLANK_CONFIG: Record<CreatableDestinationKind, DestinationDraft["destination"]> = {
+	webhook: { kind: "webhook", config: { url: "" } },
+	telegram: { kind: "telegram", config: { botToken: "", chatId: "" } },
+	discord: { kind: "discord", config: { url: "" } },
+	slack: { kind: "slack", config: { url: "" } },
+	teams: { kind: "teams", config: { url: "" } },
+	gotify: { kind: "gotify", config: { serverUrl: "", appToken: "", priority: 5 } },
+	ntfy: { kind: "ntfy", config: { serverUrl: "", topic: "", priority: 3 } },
+	resend: { kind: "resend", config: { apiKey: "", fromAddress: "", toAddresses: [] } },
+}
+
 const draftFor = (
 	kind: CreatableDestinationKind,
 	name: string,
 	subscribedTo: readonly SubscriptionKind[],
 ): DestinationDraft => ({
 	name,
-	destination:
-		kind === "telegram"
-			? { kind: "telegram", config: { botToken: "", chatId: "" } }
-			: { kind: "webhook", config: { url: "" } },
+	destination: BLANK_CONFIG[kind],
 	subscribedTo: [...subscribedTo],
 })
 

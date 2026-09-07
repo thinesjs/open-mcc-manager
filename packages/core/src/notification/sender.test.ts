@@ -12,6 +12,7 @@ import { verifySignature } from "./signature"
 
 const envelope: NotificationEnvelope = {
 	id: "ntf_abc123",
+	deliveryId: "dlv_xyz789",
 	kind: "host.unreachable",
 	title: "basement-box is not responding",
 	body: "OpenMCC cannot reach this machine, so the bots on it are unmanaged.",

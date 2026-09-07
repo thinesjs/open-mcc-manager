@@ -32,6 +32,13 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	DESTINATION_HAS_CREDENTIALS:
 		"Remove the username and password from the address. Put the secret in the path or a header instead.",
 	DESTINATION_HAS_FRAGMENT: "Remove the # and anything after it from the address.",
+	DESTINATION_WRONG_HOST:
+		"That address is not from the service you chose. Paste the address that service gave you.",
+	DESTINATION_ADDRESS_RETIRED:
+		"That Teams address no longer works. In Teams, add a Workflows webhook and paste the address it gives you.",
+	DESTINATION_REQUIRES_SIGN_IN:
+		"That workflow asks callers to sign in. Set its trigger access to Anyone, then paste the new address.",
+	DESTINATION_HAS_PARAMETERS: "Give the server address only. Remove the ? and anything after it.",
 	SSH_KEY_NOT_FOUND: "That SSH key no longer exists.",
 	FINGERPRINT_MISMATCH:
 		"The key the host presented did not match the fingerprint you provided. Refusing to trust an unverified host.",

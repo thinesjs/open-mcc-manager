@@ -10,8 +10,12 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/(https:\/\/api\.telegram\.org\/bot)[^/\s]+/gi, "$1[redacted]"],
 	[/\b\d{6,}:[A-Za-z0-9_-]{30,}\b/g, "[redacted token]"],
 	[/(https:\/\/hooks\.slack\.com\/services)\/\S+/gi, "$1/[redacted]"],
-	[/(https:\/\/discord(?:app)?\.com\/api\/webhooks)\/\S+/gi, "$1/[redacted]"],
+	[/(https:\/\/(?:[^\s/]*\.)?discord(?:app)?\.com\/api\/webhooks)\/\S+/gi, "$1/[redacted]"],
 	[/(https:\/\/[^\s/]*webhook\.office\.com\/webhookb2)\/\S+/gi, "$1/[redacted]"],
+	[/(https:\/\/[^\s/]*\.environment\.api\.powerplatform\.[a-z]{2,})\/\S+/gi, "$1/[redacted]"],
+	[/(https:\/\/[^\s/]*\.logic\.azure\.com(?::\d+)?\/workflows)\/\S+/gi, "$1/[redacted]"],
+	[/([?&](?:sig|sv|sp)=)[^&\s"']+/gi, "$1[redacted]"],
+	[/((?:X-Gotify-Key|x-gotify-key)\s*[:=]\s*)\S+/g, "$1[redacted]"],
 	[/(?<![A-Za-z0-9_-])(re_)[A-Za-z0-9]{16,}/g, "$1[redacted]"],
 ]
 

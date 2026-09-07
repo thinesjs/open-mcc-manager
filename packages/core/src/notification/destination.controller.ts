@@ -30,6 +30,7 @@ import {
 	createNotificationRepository,
 	type NotificationRepository,
 } from "./notification.repository"
+import { verifyProviderUrl } from "./provider-url"
 import { TEST_WINDOW_MS, TESTS_PER_WINDOW_PER_ORGANIZATION, throttleExceeded } from "./retention"
 import { generateSigningSecret } from "./signature"
 
@@ -82,20 +83,50 @@ export type DestinationControllerDeps = {
 	secrets: SecretStore
 	sendJob: SendJob
 	policy: EgressPolicy
+	teamsHosts?: readonly string[]
 	newSigningSecret?: () => string
 	now?: () => Date
 }
 
-export const targetFor = (settings: StoredDestinationConfig): string =>
-	settings.kind === "telegram"
-		? telegramTarget(settings.config.chatId, settings.config.messageThreadId)
-		: settings.kind === "webhook"
-			? webhookTarget(settings.config.url)
-			: settings.kind
+const POSTS_TO_A_URL = ["webhook", "discord", "slack", "teams"] as const
 
-const checkUrl = (settings: StoredDestinationConfig, policy: EgressPolicy): void => {
-	if (settings.kind !== "webhook") return
-	const verdict = verifyDestinationUrl(settings.config.url, policy)
+const postsToAUrl = (
+	settings: StoredDestinationConfig,
+): settings is Extract<StoredDestinationConfig, { kind: (typeof POSTS_TO_A_URL)[number] }> =>
+	POSTS_TO_A_URL.some((kind) => kind === settings.kind)
+
+const HAS_A_SERVER = ["gotify", "ntfy"] as const
+
+const hasAServer = (
+	settings: StoredDestinationConfig,
+): settings is Extract<StoredDestinationConfig, { kind: (typeof HAS_A_SERVER)[number] }> =>
+	HAS_A_SERVER.some((kind) => kind === settings.kind)
+
+export const configurableUrl = (settings: StoredDestinationConfig): string | undefined => {
+	if (postsToAUrl(settings)) return settings.config.url
+	if (hasAServer(settings)) return settings.config.serverUrl
+	return undefined
+}
+
+export const targetFor = (settings: StoredDestinationConfig): string => {
+	if (settings.kind === "telegram") {
+		return telegramTarget(settings.config.chatId, settings.config.messageThreadId)
+	}
+	if (settings.kind === "resend" || settings.kind === "email") return settings.config.fromAddress
+	const url = configurableUrl(settings)
+	return url === undefined ? settings.kind : webhookTarget(url)
+}
+
+const checkUrl = (
+	settings: StoredDestinationConfig,
+	policy: EgressPolicy,
+	teamsHosts: readonly string[],
+): void => {
+	const url = configurableUrl(settings)
+	if (url === undefined) return
+	const shape = verifyProviderUrl(settings.kind, url, teamsHosts)
+	if (!shape.allowed) throw new DestinationRejectedError(shape.reason, shape.category)
+	const verdict = verifyDestinationUrl(url, policy)
 	if (!verdict.allowed) throw new DestinationRejectedError(verdict.reason, verdict.category)
 }
 
@@ -114,27 +145,34 @@ const requireRead = (actor: ActorContext): void => {
 export const createDestinationController = (deps: DestinationControllerDeps) => {
 	const now = deps.now ?? (() => new Date())
 	const newSecret = deps.newSigningSecret ?? generateSigningSecret
+	const teamsHosts = deps.teamsHosts ?? []
 
 	const storedFor = (
 		input: CreateDestinationInput["destination"],
 		signingSecret: string | undefined,
 		previous: { secret: string; expiresAt: string } | undefined,
-	): StoredDestinationConfig =>
-		input.kind === "telegram"
-			? { kind: "telegram", config: input.config }
-			: {
-					kind: "webhook",
-					config: {
-						url: input.config.url,
-						signingSecret: signingSecret ?? newSecret(),
-						...(previous === undefined
-							? {}
-							: {
-									previousSigningSecret: previous.secret,
-									previousSigningSecretExpiresAt: previous.expiresAt,
-								}),
-					},
-				}
+	): StoredDestinationConfig => {
+		if (input.kind === "telegram") return { kind: "telegram", config: input.config }
+		if (input.kind === "discord") return { kind: "discord", config: input.config }
+		if (input.kind === "slack") return { kind: "slack", config: input.config }
+		if (input.kind === "teams") return { kind: "teams", config: input.config }
+		if (input.kind === "gotify") return { kind: "gotify", config: input.config }
+		if (input.kind === "ntfy") return { kind: "ntfy", config: input.config }
+		if (input.kind === "resend") return { kind: "resend", config: input.config }
+		return {
+			kind: "webhook",
+			config: {
+				url: input.config.url,
+				signingSecret: signingSecret ?? newSecret(),
+				...(previous === undefined
+					? {}
+					: {
+							previousSigningSecret: previous.secret,
+							previousSigningSecretExpiresAt: previous.expiresAt,
+						}),
+			},
+		}
+	}
 
 	const settingsOf = (row: NotificationDestinationRow): StoredDestinationConfig | undefined => {
 		try {
@@ -176,7 +214,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 			requireManage(actor)
 			const scope = { organizationId: actor.organizationId }
 			const settings = storedFor(input.destination, undefined, undefined)
-			checkUrl(settings, deps.policy)
+			checkUrl(settings, deps.policy, teamsHosts)
 
 			const sealed = deps.secrets.seal(JSON.stringify(settings.config))
 			return await deps.withTransaction(async ({ notifications, audit }) => {
@@ -230,7 +268,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 						? { secret: previous, expiresAt: previousExpiresAt }
 						: undefined
 				const settings = storedFor(input.destination, keptSecret, keptPrevious)
-				checkUrl(settings, deps.policy)
+				checkUrl(settings, deps.policy, teamsHosts)
 
 				const sealed = deps.secrets.seal(JSON.stringify(settings.config))
 				const updated = await notifications.updateDestination(scope, input.destinationId, {

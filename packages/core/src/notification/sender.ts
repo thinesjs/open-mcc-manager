@@ -1,13 +1,16 @@
 import type { NotificationKind } from "@open-mcc/contracts"
-import { DELIVERY_TIMEOUT_MS } from "@open-mcc/contracts"
+import { DELIVERY_TIMEOUT_MS, RESOLVING_EVENT_KINDS } from "@open-mcc/contracts"
 import { parseTelegramReply } from "@open-mcc/contracts/boundary/telegram"
 import { redact } from "../security/redact"
+import { byteLength, truncateBytes, truncateChars } from "./bounds"
 import type { EgressPolicy } from "./egress"
 import { PUBLIC_ONLY, sanitisedTarget } from "./egress"
 import {
+	classifyDiscordReply,
 	classifyHttpStatus,
 	classifyNetworkFailure,
 	classifyRefusal,
+	classifyResendReply,
 	classifyTelegramReply,
 	type DeliveryOutcome,
 } from "./outcome"
@@ -17,6 +20,7 @@ import { signatureHeader } from "./signature"
 
 export type NotificationEnvelope = {
 	readonly id: string
+	readonly deliveryId: string
 	readonly kind: NotificationKind
 	readonly title: string
 	readonly body: string
@@ -159,5 +163,259 @@ export const deliverTelegram = async (
 	)
 }
 
-export const deliveryTarget = (kind: "webhook" | "telegram", settings: string): string =>
-	kind === "telegram" ? "Telegram" : sanitisedTarget(settings)
+export const DISCORD_CONTENT_CHARS = 2000
+
+export const SLACK_TEXT_CHARS = 4000
+
+export const TEAMS_BODY_BYTES = 25_000
+
+export const TEAMS_TEXT_BYTES = 20_000
+
+export const TEAMS_TITLE_CHARS = 250
+
+export const NTFY_MESSAGE_BYTES = 4096
+
+export const NTFY_TITLE_CHARS = 250
+
+export const OPERATIONAL_TEXT_CHARS = 4000
+
+const RESOLVING: ReadonlySet<string> = new Set<string>(RESOLVING_EVENT_KINDS)
+
+const JSON_HEADERS: Readonly<Record<string, string>> = {
+	"content-type": "application/json",
+	"user-agent": "OpenMCC",
+}
+
+const plainText = (envelope: NotificationEnvelope): string => `${envelope.title}\n${envelope.body}`
+
+export type IncomingWebhookSettings = {
+	readonly url: string
+}
+
+export const discordContent = (envelope: NotificationEnvelope): string =>
+	truncateChars(plainText(envelope), DISCORD_CONTENT_CHARS)
+
+export const discordBody = (envelope: NotificationEnvelope): string =>
+	JSON.stringify({ content: discordContent(envelope) })
+
+export const deliverDiscord = async (
+	settings: IncomingWebhookSettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: settings.url,
+			method: "POST",
+			headers: JSON_HEADERS,
+			body: discordBody(envelope),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) =>
+			classifyDiscordReply(result.status, result.headers["retry-after"], result.body, now),
+	)
+}
+
+export const slackText = (envelope: NotificationEnvelope): string =>
+	truncateChars(plainText(envelope), SLACK_TEXT_CHARS)
+
+export const slackBody = (envelope: NotificationEnvelope): string =>
+	JSON.stringify({ text: slackText(envelope) })
+
+export const deliverSlack = async (
+	settings: IncomingWebhookSettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: settings.url,
+			method: "POST",
+			headers: JSON_HEADERS,
+			body: slackBody(envelope),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) => classifyHttpStatus(result.status, result.headers["retry-after"], now),
+	)
+}
+
+export const teamsTitle = (envelope: NotificationEnvelope): string =>
+	truncateChars(envelope.title, TEAMS_TITLE_CHARS)
+
+export const teamsText = (envelope: NotificationEnvelope): string =>
+	truncateBytes(envelope.body, TEAMS_TEXT_BYTES)
+
+export const teamsColour = (envelope: NotificationEnvelope): string =>
+	RESOLVING.has(envelope.kind) ? "2EA043" : "D1242F"
+
+export const teamsBody = (envelope: NotificationEnvelope): string =>
+	JSON.stringify({
+		"@type": "MessageCard",
+		"@context": "https://schema.org/extensions",
+		summary: teamsTitle(envelope),
+		themeColor: teamsColour(envelope),
+		title: teamsTitle(envelope),
+		text: teamsText(envelope),
+	})
+
+export const deliverTeams = async (
+	settings: IncomingWebhookSettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: settings.url,
+			method: "POST",
+			headers: JSON_HEADERS,
+			body: teamsBody(envelope),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) => classifyHttpStatus(result.status, result.headers["retry-after"], now),
+	)
+}
+
+export type GotifySettings = {
+	readonly serverUrl: string
+	readonly appToken: string
+	readonly priority: number
+}
+
+export const gotifyUrl = (serverUrl: string): string => `${serverUrl.replace(/\/+$/, "")}/message`
+
+export const gotifyBody = (envelope: NotificationEnvelope, priority: number): string =>
+	JSON.stringify({
+		title: truncateChars(envelope.title, TEAMS_TITLE_CHARS),
+		message: truncateChars(envelope.body, OPERATIONAL_TEXT_CHARS),
+		priority,
+	})
+
+export const deliverGotify = async (
+	settings: GotifySettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: gotifyUrl(settings.serverUrl),
+			method: "POST",
+			headers: { ...JSON_HEADERS, "x-gotify-key": settings.appToken },
+			body: gotifyBody(envelope, settings.priority),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) => classifyHttpStatus(result.status, result.headers["retry-after"], now),
+	)
+}
+
+export type NtfySettings = {
+	readonly serverUrl: string
+	readonly topic: string
+	readonly priority: number
+	readonly accessToken?: string
+}
+
+export const ntfyMessage = (envelope: NotificationEnvelope): string =>
+	truncateBytes(envelope.body, NTFY_MESSAGE_BYTES)
+
+export const ntfyBody = (envelope: NotificationEnvelope, topic: string, priority: number): string =>
+	JSON.stringify({
+		topic,
+		title: truncateChars(envelope.title, NTFY_TITLE_CHARS),
+		message: ntfyMessage(envelope),
+		priority,
+	})
+
+export const deliverNtfy = async (
+	settings: NtfySettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: settings.serverUrl,
+			method: "POST",
+			headers: {
+				...JSON_HEADERS,
+				...(settings.accessToken === undefined
+					? {}
+					: { authorization: `Bearer ${settings.accessToken}` }),
+			},
+			body: ntfyBody(envelope, settings.topic, settings.priority),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) => classifyHttpStatus(result.status, result.headers["retry-after"], now),
+	)
+}
+
+export type ResendSettings = {
+	readonly apiKey: string
+	readonly fromAddress: string
+	readonly toAddresses: readonly string[]
+}
+
+export const RESEND_URL = "https://api.resend.com/emails"
+
+export const resendBody = (
+	envelope: NotificationEnvelope,
+	from: string,
+	to: readonly string[],
+): string =>
+	JSON.stringify({
+		from,
+		to: [...to],
+		subject: truncateChars(envelope.title, TEAMS_TITLE_CHARS),
+		text: truncateChars(envelope.body, OPERATIONAL_TEXT_CHARS),
+	})
+
+export const deliverResend = async (
+	settings: ResendSettings,
+	envelope: NotificationEnvelope,
+	deps: SenderDeps = {},
+): Promise<DeliveryOutcome> => {
+	const transport = deps.transport ?? sendPinned
+	const now = (deps.now ?? (() => new Date()))()
+
+	return await attempt(
+		{
+			url: RESEND_URL,
+			method: "POST",
+			headers: {
+				...JSON_HEADERS,
+				authorization: `Bearer ${settings.apiKey}`,
+				"idempotency-key": envelope.deliveryId,
+			},
+			body: resendBody(envelope, settings.fromAddress, settings.toAddresses),
+			timeoutMs: DELIVERY_TIMEOUT_MS,
+			policy: deps.policy ?? PUBLIC_ONLY,
+		},
+		transport,
+		(result) => classifyResendReply(result.status, result.headers["retry-after"], result.body, now),
+	)
+}
+
+export const fitsTeamsMessage = (body: string): boolean => byteLength(body) <= TEAMS_BODY_BYTES

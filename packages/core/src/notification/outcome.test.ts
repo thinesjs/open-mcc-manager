@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
+	classifyDiscordReply,
 	classifyHttpStatus,
 	classifyNetworkFailure,
+	classifyResendReply,
 	classifyTelegramReply,
 	MAX_RETRY_AFTER_SECONDS,
 	parseRetryAfter,
@@ -144,5 +146,82 @@ describe("honouring Retry-After", () => {
 			retryAfterSeconds: 999999,
 		})
 		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBe(MAX_RETRY_AFTER_SECONDS)
+	})
+})
+
+describe("reading what Discord sends back", () => {
+	const now = new Date("2026-09-07T12:00:00.000Z")
+
+	it("reads any 2xx as delivered, because a plain send answers 204 and wait=true answers 200", () => {
+		expect(classifyDiscordReply(204, undefined, "", now).kind).toBe("delivered")
+		expect(classifyDiscordReply(200, undefined, '{"id":"1"}', now).kind).toBe("delivered")
+	})
+
+	it("waits the longer of what the body asked and what the header asked", () => {
+		const outcome = classifyDiscordReply(429, "2", '{"retry_after":6.2}', now)
+		expect(outcome).toEqual({
+			kind: "retryable",
+			statusCode: 429,
+			reason: "Server answered 429",
+			retryAfterSeconds: 7,
+		})
+	})
+
+	it("still honours the header when the body cannot be read", () => {
+		const outcome = classifyDiscordReply(429, "9", "not json", now)
+		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBe(9)
+	})
+
+	it("still honours the body when there is no header", () => {
+		const outcome = classifyDiscordReply(429, undefined, '{"retry_after":0.1}', now)
+		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBe(1)
+	})
+
+	it("leaves the delay to the backoff when neither source can be read", () => {
+		const outcome = classifyDiscordReply(429, undefined, "", now)
+		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBeUndefined()
+	})
+
+	it("will not be talked into waiting longer than an hour", () => {
+		const outcome = classifyDiscordReply(429, undefined, '{"retry_after":99999}', now)
+		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBe(MAX_RETRY_AFTER_SECONDS)
+	})
+
+	it("treats a malformed payload as terminal", () => {
+		const outcome = classifyDiscordReply(400, undefined, '{"code":50109}', now)
+		expect(outcome.kind).toBe("terminal")
+		expect(outcome.kind === "terminal" && outcome.stopSending).toBe(false)
+	})
+})
+
+describe("reading what Resend sends back", () => {
+	const now = new Date("2026-09-07T12:00:00.000Z")
+
+	it("retries a rate limit", () => {
+		const outcome = classifyResendReply(429, "1", '{"name":"rate_limit_exceeded"}', now)
+		expect(outcome.kind).toBe("retryable")
+		expect(outcome.kind === "retryable" && outcome.retryAfterSeconds).toBe(1)
+	})
+
+	it("gives up on a spent quota, which no number of retries inside the hour can clear", () => {
+		for (const name of ["daily_quota_exceeded", "monthly_quota_exceeded"]) {
+			const outcome = classifyResendReply(429, undefined, `{"name":"${name}"}`, now)
+			expect(outcome.kind).toBe("terminal")
+			expect(outcome.kind === "terminal" && outcome.reason).toBe(
+				"The email service has used up its sending quota",
+			)
+			expect(outcome.kind === "terminal" && outcome.stopSending).toBe(false)
+		}
+	})
+
+	it("falls back to the status line for everything else", () => {
+		expect(classifyResendReply(200, undefined, '{"id":"x"}', now).kind).toBe("delivered")
+		expect(classifyResendReply(422, undefined, '{"name":"invalid_parameter"}', now).kind).toBe(
+			"terminal",
+		)
+		expect(classifyResendReply(503, undefined, '{"name":"service_unavailable"}', now).kind).toBe(
+			"retryable",
+		)
+		expect(classifyResendReply(429, undefined, "gateway timeout", now).kind).toBe("retryable")
 	})
 })

@@ -1,3 +1,5 @@
+import { parseDiscordRetryAfter } from "@open-mcc/contracts/boundary/discord"
+import { parseResendErrorName } from "@open-mcc/contracts/boundary/resend"
 import type { TelegramReply } from "@open-mcc/contracts/boundary/telegram"
 
 export type DeliveryOutcome =
@@ -95,4 +97,46 @@ export const classifyTelegramReply = (
 		return { kind: "terminal", statusCode: code, reason, stopSending: false }
 	}
 	return { kind: "retryable", statusCode: code, reason, retryAfterSeconds }
+}
+
+const RESEND_QUOTA_SPENT: ReadonlySet<string> = new Set([
+	"daily_quota_exceeded",
+	"monthly_quota_exceeded",
+])
+
+export const classifyDiscordReply = (
+	status: number,
+	retryAfter: string | undefined,
+	body: string,
+	now: Date = new Date(),
+): DeliveryOutcome => {
+	if (status !== 429) return classifyHttpStatus(status, retryAfter, now)
+	const fromHeader = parseRetryAfter(retryAfter, now)
+	const fromBody = parseDiscordRetryAfter(body)
+	const asked = [fromHeader, fromBody].filter((value) => value !== undefined)
+	const longest = asked.length === 0 ? undefined : Math.max(...asked)
+	return {
+		kind: "retryable",
+		statusCode: status,
+		reason: `Server answered ${status}`,
+		retryAfterSeconds:
+			longest === undefined ? undefined : Math.min(longest, MAX_RETRY_AFTER_SECONDS),
+	}
+}
+
+export const classifyResendReply = (
+	status: number,
+	retryAfter: string | undefined,
+	body: string,
+	now: Date = new Date(),
+): DeliveryOutcome => {
+	if (status === 429 && RESEND_QUOTA_SPENT.has(parseResendErrorName(body) ?? "")) {
+		return {
+			kind: "terminal",
+			statusCode: status,
+			reason: "The email service has used up its sending quota",
+			stopSending: false,
+		}
+	}
+	return classifyHttpStatus(status, retryAfter, now)
 }

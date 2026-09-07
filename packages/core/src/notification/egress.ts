@@ -324,6 +324,8 @@ const listed = (raw: string): string[] =>
 		.map((entry) => entry.trim().toLowerCase())
 		.filter((entry) => entry.length > 0)
 
+export const hostList = (raw: string): readonly string[] => listed(raw)
+
 export const readsAsAddressList = (raw: string): boolean =>
 	listed(raw).every((entry) => allowanceOf(entry) !== undefined)
 

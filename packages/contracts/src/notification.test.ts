@@ -218,11 +218,14 @@ describe("only the kinds that can actually send may be created", () => {
 		}
 	})
 
-	it("says which kinds are creatable, and it is a subset of what exists", () => {
-		expect([...CREATABLE_DESTINATION_KINDS]).toEqual(["webhook", "telegram"])
+	it("says which kinds are creatable, and it is everything that has a sender", () => {
+		expect(new Set(CREATABLE_DESTINATION_KINDS)).toEqual(
+			new Set(DESTINATION_KINDS.filter((kind) => kind !== "email")),
+		)
 		for (const kind of CREATABLE_DESTINATION_KINDS) {
 			expect([...DESTINATION_KINDS]).toContain(kind)
 		}
+		expect(canBeCreated("email")).toBe(false)
 	})
 
 	it("holds an edit to the same restriction, so a kind cannot be smuggled in later", () => {
@@ -230,9 +233,70 @@ describe("only the kinds that can actually send may be created", () => {
 			editDestinationInput.safeParse({
 				destinationId: "dst_1",
 				...base,
-				destination: { kind: "gotify", config: { serverUrl: "https://g.example", appToken: "t" } },
+				destination: {
+					kind: "email",
+					config: {
+						smtpServer: "smtp.example.com",
+						smtpPort: 587,
+						username: "alerts",
+						password: "secret",
+						fromAddress: "alerts@example.com",
+						toAddresses: ["on-call@example.com"],
+					},
+				},
 			}).success,
 		).toBe(false)
+	})
+
+	it("takes a full configuration for every kind that now has a sender", () => {
+		const filled = [
+			{ kind: "discord", config: { url: "https://discord.com/api/webhooks/1/tok" } },
+			{ kind: "slack", config: { url: "https://hooks.slack.com/services/T/B/x" } },
+			{ kind: "teams", config: { url: "https://a.05.environment.api.powerplatform.com/x?sig=z" } },
+			{ kind: "gotify", config: { serverUrl: "https://push.example.com", appToken: "tok" } },
+			{ kind: "ntfy", config: { serverUrl: "https://ntfy.example.com", topic: "open-mcc" } },
+			{
+				kind: "resend",
+				config: {
+					apiKey: "re_live_key",
+					fromAddress: "alerts@example.com",
+					toAddresses: ["on-call@example.com"],
+				},
+			},
+		]
+		for (const destination of filled) {
+			expect(
+				createDestinationInput.safeParse({ ...base, destination }).success,
+				destination.kind,
+			).toBe(true)
+		}
+	})
+
+	it("fills in the priority a server expects when the operator leaves it out", () => {
+		const gotify = createDestinationInput.safeParse({
+			...base,
+			destination: {
+				kind: "gotify",
+				config: { serverUrl: "https://push.example.com", appToken: "tok" },
+			},
+		})
+		const ntfy = createDestinationInput.safeParse({
+			...base,
+			destination: {
+				kind: "ntfy",
+				config: { serverUrl: "https://ntfy.example.com", topic: "open-mcc" },
+			},
+		})
+		expect(
+			gotify.success &&
+				gotify.data.destination.kind === "gotify" &&
+				gotify.data.destination.config.priority,
+		).toBe(5)
+		expect(
+			ntfy.success &&
+				ntfy.data.destination.kind === "ntfy" &&
+				ntfy.data.destination.config.priority,
+		).toBe(3)
 	})
 })
 

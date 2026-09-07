@@ -181,6 +181,7 @@ export {
 	bareHostname,
 	egressPolicy,
 	hostIsAllowed,
+	hostList,
 	looksLocalName,
 	PUBLIC_ONLY,
 	readsAsAddressList,

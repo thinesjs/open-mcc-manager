@@ -119,6 +119,7 @@ export const createDeliveryHandler =
 
 		const envelope: NotificationEnvelope = {
 			id: notification.id,
+			deliveryId: delivery.id,
 			kind: notification.kind,
 			title: notification.title,
 			body: notification.body,

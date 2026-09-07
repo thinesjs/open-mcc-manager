@@ -18,6 +18,7 @@ const envSchema = z.object({
 	NOTIFICATION_ALLOW_HTTP: boolean.default("false"),
 	NOTIFICATION_ALLOWED_HOSTS: z.string().default(""),
 	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),
+	NOTIFICATION_TEAMS_HOSTS: z.string().default(""),
 })
 
 export type Env = z.infer<typeof envSchema>

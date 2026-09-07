@@ -177,7 +177,16 @@ export const usableSigningSecrets = (
 	return [config.signingSecret, previous]
 }
 
-export const CREATABLE_DESTINATION_KINDS = ["webhook", "telegram"] as const
+export const CREATABLE_DESTINATION_KINDS = [
+	"webhook",
+	"telegram",
+	"discord",
+	"slack",
+	"teams",
+	"gotify",
+	"ntfy",
+	"resend",
+] as const
 
 export const creatableDestinationKindSchema = z.enum(CREATABLE_DESTINATION_KINDS)
 
@@ -189,6 +198,12 @@ export const canBeCreated = (kind: DestinationKind): kind is CreatableDestinatio
 export const creatableDestinationConfigInput = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("webhook"), config: webhookConfigInput }),
 	z.object({ kind: z.literal("telegram"), config: telegramConfigInput }),
+	z.object({ kind: z.literal("discord"), config: incomingWebhookConfigInput }),
+	z.object({ kind: z.literal("slack"), config: incomingWebhookConfigInput }),
+	z.object({ kind: z.literal("teams"), config: incomingWebhookConfigInput }),
+	z.object({ kind: z.literal("gotify"), config: gotifyConfigInput }),
+	z.object({ kind: z.literal("ntfy"), config: ntfyConfigInput }),
+	z.object({ kind: z.literal("resend"), config: resendConfigInput }),
 ])
 
 export const createDestinationInput = z.object({
@@ -214,6 +229,10 @@ export const REJECTION_CATEGORIES = [
 	"insecure",
 	"credentials",
 	"fragment",
+	"host",
+	"retired",
+	"signin",
+	"parameters",
 ] as const
 
 export type RejectionCategory = (typeof REJECTION_CATEGORIES)[number]
@@ -226,6 +245,10 @@ export const REJECTION_ERROR_CODES: Record<RejectionCategory, ErrorCode> = {
 	insecure: "DESTINATION_NOT_HTTPS",
 	credentials: "DESTINATION_HAS_CREDENTIALS",
 	fragment: "DESTINATION_HAS_FRAGMENT",
+	host: "DESTINATION_WRONG_HOST",
+	retired: "DESTINATION_ADDRESS_RETIRED",
+	signin: "DESTINATION_REQUIRES_SIGN_IN",
+	parameters: "DESTINATION_HAS_PARAMETERS",
 } as const
 
 export const signingSecretHint = (secret: string): string =>

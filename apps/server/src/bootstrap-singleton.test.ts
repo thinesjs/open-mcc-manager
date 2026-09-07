@@ -34,6 +34,7 @@ const baseEnv = async (): Promise<Env> => ({
 	NOTIFICATION_ALLOW_HTTP: false,
 	NOTIFICATION_ALLOWED_HOSTS: "",
 	NOTIFICATION_ALLOWED_ADDRESSES: "",
+	NOTIFICATION_TEAMS_HOSTS: "",
 })
 
 afterEach(async () => {

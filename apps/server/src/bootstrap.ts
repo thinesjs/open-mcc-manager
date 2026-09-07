@@ -26,6 +26,7 @@ import {
 	generateSshKeyPair,
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
+	hostList,
 	profileFrom,
 	readBuildInfo,
 	readConnectionChanges,
@@ -172,6 +173,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 			allowedHosts: env.NOTIFICATION_ALLOWED_HOSTS,
 			allowedAddresses: env.NOTIFICATION_ALLOWED_ADDRESSES,
 		}),
+		teamsHosts: hostList(env.NOTIFICATION_TEAMS_HOSTS),
 	})
 
 	const sshKeyController = createSshKeyController({

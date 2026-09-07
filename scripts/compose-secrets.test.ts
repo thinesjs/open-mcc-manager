@@ -53,4 +53,32 @@ describe("the compose file a real deployment uses", () => {
 		expect(base).not.toContain("postgres-test")
 		expect(dev).toContain("postgres-test")
 	})
+
+	it("bundles no database at all, so a real deployment points at its own", () => {
+		expect(base).not.toContain("image: postgres:17")
+		expect(base).not.toContain("pgdata")
+		expect(dev).toContain("image: postgres:17")
+		expect(dev).toContain("pgdata")
+	})
+
+	it("takes the database address whole from the environment, never assembling one", () => {
+		expect(base).toContain("DATABASE_URL: ${DATABASE_URL}")
+		expect(base).not.toContain("@postgres:5432")
+	})
+
+	it("never migrates from the build stage, which ships the whole toolchain", () => {
+		expect(base).not.toContain("target: build")
+		expect(base).toContain("target: migrate")
+	})
+
+	it("pins the server to the runtime stage, so a new last stage cannot silently become it", () => {
+		expect(base).toContain("target: runtime")
+	})
+
+	it("gives the two settings that break a deployment no default to hide behind", () => {
+		for (const name of ["ALLOWED_ORIGINS", "BETTER_AUTH_URL"]) {
+			expect(new RegExp(`${name}: \\$\\{${name}\\}`).test(base), name).toBe(true)
+			expect(new RegExp(`\\$\\{${name}:[-?]`).test(base), name).toBe(false)
+		}
+	})
 })

@@ -4,10 +4,15 @@ Six destination kinds have config schemas, a database that accepts them, a queue
 them and a worker that consumes it — and cannot be created, because `dispatchTo` would refuse
 them at delivery time. This closes that: discord, slack, teams, gotify, ntfy, resend.
 
-Email stays out. SMTP is not HTTP, so the pinned-egress guarantee — resolve every answer,
-validate all of them, pin the approved address into the connection — does not transfer, and
-would have to be rebuilt for a different protocol. Bundling it here would hide the one hard
-piece behind five easy ones.
+Email stays out, and it is worth being precise about why, because half of the reason people
+would assume is wrong. The **validation** half of the pinned-egress guarantee transfers to
+SMTP untouched: `resolvePinned` takes a hostname and a policy and hands back approved
+addresses, with no HTTP anywhere in it. What does not transfer is the **binding** half — an
+undici `Agent`'s `connect.lookup` is how an approved address gets pinned into an HTTP request,
+and SMTP needs its own socket, its own certificate check against the configured hostname
+rather than the pinned address, and a multi-step conversation that can be talked down to
+plaintext mid-flight. That is a different problem, and bundling it here would hide it behind
+five easy ones.
 
 ## What is already in place
 

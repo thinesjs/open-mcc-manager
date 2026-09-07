@@ -108,6 +108,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 	const signupAuth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
 		disableSignUp: false,
+		userCreation: "trusted",
 		trustedOrigins: allowed,
 	})
 

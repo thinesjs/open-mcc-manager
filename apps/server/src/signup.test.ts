@@ -47,7 +47,7 @@ describe("argon2id wiring", () => {
 			db,
 			"a-very-long-test-secret-value-000000",
 			"http://localhost:3000",
-			{ disableSignUp: false, disableRateLimit: true },
+			{ disableSignUp: false, disableRateLimit: true, userCreation: "trusted" },
 		)
 		const email = `${randomUUID()}@example.com`
 		const signUpResult = await signupAuth.api.signUpEmail({

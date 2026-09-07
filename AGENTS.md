@@ -141,7 +141,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Nine rules stated further down this document are enforced too, and are listed
+Ten rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -157,6 +157,7 @@ have:
 | Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |
 | The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
+| Registration closed to every authentication method once a user exists | `apps/server/src/registration-gate.test.ts` — the gate is driven with a `create-user` source for each method better-auth can report as well as over HTTP, so unwiring it from `createAuth` or making it always admit both fail it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -415,15 +416,63 @@ relaxed by it.
 
 ## Auth
 
-Registration is closed (`emailAndPassword.disableSignUp`) — there is no
-public sign-up endpoint. The first owner is created by a deployment-time
-bootstrap (`pnpm --filter @open-mcc/server bootstrap:owner`, reading
-credentials from environment variables), which refuses to run if any user
-already exists, serialized with a Postgres advisory lock so two concurrent
-runs cannot both win. Every subsequent member arrives by invitation: an
-existing member holding `member.manage` issues one, and the invited person's
-account is created only as part of accepting that specific, still-pending
-invitation. Password hashing is Argon2id, configured explicitly
+Registration is closed by two independent controls, and the second is the one
+that carries the guarantee. `emailAndPassword.disableSignUp` shuts better-auth's
+own `/sign-up/email` endpoint on every mounted instance, and that is the whole
+of what it can do: it is a plain boolean read once when `betterAuth()` is
+constructed, so it cannot express "open until the first account exists", and it
+sits under `emailAndPassword`, so it governs that one method. Google, OIDC,
+SAML, passkeys, magic links, email OTP and every future plugin route around it,
+which is why a gate built on it alone would open a hole the day any of those
+ship.
+
+The control that closes those is `user.validateUserInfo`
+(`apps/server/src/security/registration-gate.ts`). better-auth calls it from
+`internalAdapter.createUser`, the single seam every method's user creation
+passes through, with a `source` naming the action and the method; a returned
+`{ error, errorDescription }` becomes a `403`. The gate rejects `create-user`
+whenever `anyUserExists` finds a row and admits it otherwise, so a deployment
+with no account is open and a deployment with one is closed to every method at
+once, including methods added later. It never reads the identity or the method,
+and that is what makes the second half true — do not add a per-method branch to
+it. It admits `link-account` and `sign-in` untouched, so an existing member can
+still link a provider and sign back in. The `errorDescription` reaches the
+client, so it stays lean and names nothing about the deployment.
+
+`CreateAuthOptions.userCreation` decides which instances carry the gate. It
+defaults to `gated`, so a new instance is closed unless it says otherwise, and
+only `bootstrap.ts`'s `signupAuth` sets `trusted`: invitation acceptance creates
+a user precisely when accounts already exist, and `member.router.ts` has already
+verified a specific pending, unexpired invitation before it calls. Never set
+`trusted` on an instance mounted on the HTTP handler. The bootstrap CLI's
+instance stays `gated` deliberately — it runs against an empty deployment, so
+the gate admits it, and leaving it gated means the CLI is subject to the same
+condition it checks for itself.
+
+`anyUserExists` is not a repository method, and that is deliberate. It reads
+better-auth's own `user` table, which carries no `organizationId`; a repository
+method for it would be a second global-reach exception in a layer where
+`organization.repository.ts`'s `listIds` is stated under Tenancy to be the only
+one. It lives beside `createAuth`, next to the
+`databaseHooks.session.create.before` hook that already reads a better-auth
+table with no organization scope — the same standing exception `member.router.ts`
+holds under Layering, for the same reason: better-auth's tables, reached from
+better-auth's own wiring. Nothing in Tenancy is relaxed by it.
+
+The first owner is created by a deployment-time bootstrap
+(`pnpm --filter @open-mcc/server bootstrap:owner`, reading credentials from
+environment variables), which refuses to run if any user already exists,
+serialized with a Postgres advisory lock so two concurrent runs cannot both win.
+That precondition and the gate ask `anyUserExists`, one predicate, so "is this
+deployment uninitialized" has one meaning in one place. A first-run flow in the
+dashboard must call `bootstrapOwner` rather than better-auth's sign-up endpoint,
+and that is not a style preference: the gate reads before better-auth writes, so
+two concurrent requests against an empty database would both pass it, and the
+advisory lock is the only thing in this system that makes "exactly one first
+owner" true. Every subsequent member arrives by invitation: an existing member
+holding `member.manage` issues one, and the invited person's account is created
+only as part of accepting that specific, still-pending invitation. Password
+hashing is Argon2id, configured explicitly
 (`apps/server/src/security/password.ts`) rather than left to better-auth's
 default, because that default has changed between library versions and an
 audit needs a fixed answer.

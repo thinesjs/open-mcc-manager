@@ -146,6 +146,10 @@ export {
 	STATUS_ESCALATE_QUEUE,
 } from "./job/queue-setup"
 export { assertExhaustive } from "./lib/exhaustive"
+export type { Fields, Level, Logger, TraceIds } from "./log/logger"
+export { createLogger, readLevel } from "./log/logger"
+export type { TracingHandle, TracingOptions } from "./log/tracing"
+export { activeTraceIds, startTracing, tracesUrl } from "./log/tracing"
 export type {
 	DeliveryDeps,
 	DeliveryPayload,

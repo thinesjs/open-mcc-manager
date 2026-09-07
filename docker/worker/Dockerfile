@@ -8,6 +8,7 @@ COPY docker/server/prune-deploy.mjs ./prune-deploy.mjs
 RUN pnpm install --frozen-lockfile
 RUN pnpm dlx esbuild@0.25.12 apps/worker/src/index.ts \
 	--bundle --platform=node --format=esm --target=node22 \
+	"--banner:js=import{createRequire as __ocr}from'node:module';var require=__ocr(import.meta.url);" \
 	--outfile=worker.mjs \
 	--external:kysely --external:kysely/* \
 	--external:libsodium-wrappers-sumo --external:nanoid --external:pg \

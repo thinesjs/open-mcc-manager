@@ -1,6 +1,6 @@
 import "@open-mcc/config/load-env.mjs"
 import { serve } from "@hono/node-server"
-import { generateKeyPair } from "@open-mcc/core"
+import { generateKeyPair, readBuildInfo, startTracing } from "@open-mcc/core"
 import { startServer } from "./bootstrap"
 import { loadEnv } from "./env"
 
@@ -25,7 +25,24 @@ const main = async (): Promise<void> => {
 		process.stdout.write(`${entry}\n`)
 		return
 	}
-	await startServer(loadEnv(), serve)
+	const env = loadEnv()
+	const tracing = startTracing({
+		service: "open-mcc-server",
+		version: readBuildInfo(process.env).version,
+		endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
+	})
+	if (!tracing.active) {
+		console.warn(
+			"OTEL_EXPORTER_OTLP_ENDPOINT is not set, so no traces are being sent. Logs will carry no trace id and a delivery cannot be followed across processes.",
+		)
+	}
+	const flush = (): void => {
+		void tracing.shutdown().then(() => process.exit(0))
+	}
+	process.on("SIGINT", flush)
+	process.on("SIGTERM", flush)
+
+	await startServer(env, serve)
 }
 
 main().catch((error: Error) => {

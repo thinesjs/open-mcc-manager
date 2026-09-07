@@ -15,6 +15,8 @@ const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	NOTIFICATION_ALLOWED_HOSTS: "",
 	NOTIFICATION_ALLOWED_ADDRESSES: "",
 	NOTIFICATION_TEAMS_HOSTS: "",
+	LOG_LEVEL: "info",
+	OTEL_EXPORTER_OTLP_ENDPOINT: "",
 	...overrides,
 })
 

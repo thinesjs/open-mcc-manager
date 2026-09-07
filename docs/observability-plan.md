@@ -141,6 +141,50 @@ actually true: nothing new is externalised, so there is **nothing to add to
 `check-runtime-deps.mjs` or `prune-deploy.mjs`'s `runtimeRoots`** — the trap that has already
 crash-looped both containers in this project simply does not apply.
 
+### One deployment change is unavoidable, and an earlier draft of this plan denied it
+
+This plan said "application code with no manifest change". The manifest part is still true. The
+**Dockerfiles** are not.
+
+Bundling the tracer exactly as the images do — esbuild, `--format=esm`, the same external list
+— **builds cleanly and then dies on boot**:
+
+```
+Error: Dynamic require of "async_hooks" is not supported
+```
+
+`@opentelemetry/context-async-hooks` is CommonJS and calls `require("async_hooks")` with no
+`node:` prefix. Under ESM output esbuild cannot emit a real `require`, so it substitutes a shim
+that throws. The vitest suite stays green throughout, because vitest transforms source rather
+than bundling — so this is the "green tests, broken container" failure this repository already
+has a drift check for, arriving by a different door.
+
+**Importing only the `AsyncLocalStorage` implementation does not avoid it, and this is
+permanent rather than a bundling mistake to engineer around.** That was the obvious escape and
+it was tested twice, independently: `AsyncLocalStorageContextManager.js` itself does
+`require("async_hooks")` on line 9, unprefixed and independent of the package's barrel. Node's
+`AsyncLocalStorage` class *lives in* the `async_hooks` core module, so no async-context
+primitive can be used without requiring it somewhere. The package has no `exports` map, so the
+deep import is *possible*; it simply changes nothing. **The banner is a required fixture of
+using async context under esbuild plus ESM, not a workaround** — written down so nobody spends
+an afternoon rediscovering it.
+
+So all three esbuild invocations gain a banner that supplies a real `require`:
+
+```
+--banner:js=import{createRequire as __ocr}from'node:module';var require=__ocr(import.meta.url);
+```
+
+The alternative — marking the package `--external` — would trade one build flag for an entry
+in `runtimeRoots` and the drift check, which is the more invasive of the two. The banner wins.
+
+**A telemetry failure must never take the service down.** The same probe also showed
+`provider.shutdown()` rejecting with `ECONNREFUSED` when nothing is listening at the endpoint,
+which as an unhandled rejection kills the process. So an Alloy outage, or one mistyped
+endpoint, would stop the server and the worker — the observer killing the observed. `shutdown`
+therefore cannot reject, and a test starts tracing against a closed port and asserts it
+resolves.
+
 ## Correlation, which is the part that gets skipped
 
 Every log line carries `trace_id` and `span_id` when a span is active. That single detail is
@@ -163,6 +207,18 @@ from the collector's own configuration rather than assumed:
 - The two apps already emitting set exactly one variable,
   `OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc.cluster.local:4318"` — identical
   to what the infra ConfigMap already carries.
+
+**The exporter is handed an explicit URL rather than reading that variable itself**, for a
+documented trap rather than testability alone: the SDK appends `/v1/traces` to
+`OTEL_EXPORTER_OTLP_ENDPOINT` but uses `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` verbatim, and the
+signal-specific variable takes precedence. Deferring would leave two independent readers of the
+environment — the SDK's resolution and this code's own is-it-configured check — free to
+disagree, producing a doubled or missing path that stays invisible until spans stop arriving.
+One tested function owns the rule instead.
+
+**A missing endpoint is announced once at boot**, with a `console.warn` in the same shape as the
+existing `usesKnownInsecureKey` warning, so the absence of traces is itself in the log stream
+rather than a silence someone has to notice.
 
 The consequence is precise: because the line arrives at Loki unparsed, the log-to-trace link is
 **entirely** a Grafana datasource concern — a derived field whose regex pulls the id out of the

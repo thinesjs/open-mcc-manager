@@ -19,6 +19,8 @@ const envSchema = z.object({
 	NOTIFICATION_ALLOWED_HOSTS: z.string().default(""),
 	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),
 	NOTIFICATION_TEAMS_HOSTS: z.string().default(""),
+	LOG_LEVEL: z.string().default("info"),
+	OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),
 })
 
 export type Env = z.infer<typeof envSchema>

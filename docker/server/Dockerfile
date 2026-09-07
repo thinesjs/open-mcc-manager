@@ -8,6 +8,7 @@ COPY docker/server/prune-deploy.mjs ./prune-deploy.mjs
 RUN pnpm install --frozen-lockfile
 RUN pnpm dlx esbuild@0.25.12 apps/server/src/index.ts \
 	--bundle --platform=node --format=esm --target=node22 \
+	"--banner:js=import{createRequire as __ocr}from'node:module';var require=__ocr(import.meta.url);" \
 	--outfile=server.mjs \
 	--external:@hono/node-server --external:@hono/trpc-server --external:@trpc/server \
 	--external:argon2 --external:better-auth --external:better-auth/* \
@@ -17,6 +18,7 @@ RUN pnpm dlx esbuild@0.25.12 apps/server/src/index.ts \
 	--external:ssh2 --external:sshpk --external:zod
 RUN pnpm dlx esbuild@0.25.12 packages/db/src/migrate.ts \
 	--bundle --platform=node --format=esm --target=node22 \
+	"--banner:js=import{createRequire as __ocr}from'node:module';var require=__ocr(import.meta.url);" \
 	--outfile=migrate.mjs \
 	--external:kysely --external:kysely/* --external:pg
 RUN pnpm deploy --filter @open-mcc/server --prod --legacy --config.node-linker=hoisted /out

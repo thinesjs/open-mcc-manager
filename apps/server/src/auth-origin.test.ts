@@ -40,6 +40,8 @@ const startWithAllowedOrigins = async (allowedOrigins: string): Promise<ServerHa
 		NOTIFICATION_ALLOWED_HOSTS: "",
 		NOTIFICATION_ALLOWED_ADDRESSES: "",
 		NOTIFICATION_TEAMS_HOSTS: "",
+		LOG_LEVEL: "info",
+		OTEL_EXPORTER_OTLP_ENDPOINT: "",
 	}
 	handle = await startServer(env, vi.fn())
 	return handle

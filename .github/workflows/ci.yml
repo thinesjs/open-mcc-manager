@@ -47,3 +47,20 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - run: pnpm test
       - run: pnpm build
+      - name: Validate the production compose file on its own
+        run: docker compose -f docker/compose.yml config --quiet
+        env:
+          DATABASE_URL: postgres://user:pass@db:5432/open_mcc_manager
+          BETTER_AUTH_URL: https://example.invalid
+          ALLOWED_ORIGINS: https://example.invalid
+          BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+          SEALBOX_KEYS: ci-only-not-a-real-key
+      - name: Validate the development overlay
+        run: docker compose -f docker/compose.yml -f docker/compose.dev.yml config --quiet
+        env:
+          POSTGRES_PASSWORD: postgres
+          DATABASE_URL: postgres://user:pass@db:5432/open_mcc_manager
+          BETTER_AUTH_URL: https://example.invalid
+          ALLOWED_ORIGINS: https://example.invalid
+          BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+          SEALBOX_KEYS: ci-only-not-a-real-key

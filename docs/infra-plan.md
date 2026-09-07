@@ -152,11 +152,31 @@ mystery.
 **Sealed:** `SEALBOX_KEYS` and `BETTER_AUTH_SECRET`. Those two only. The dev values in
 `compose.dev.yml` are publicly known and must never appear in a manifest.
 
-**The database credential is not ours to seal.** CNPG's operator generates the app-user Secret
-itself, so there is no value for a human to encrypt — and modern CNPG puts a ready-made `uri`
-key in it. `DATABASE_URL` therefore comes from
-`secretKeyRef: { name: open-mcc-pg-app, key: uri }`: no assembly, no `secretGenerator`, no third
-sealed secret.
+**The database credential: this needs deciding, and an earlier draft of this plan got it
+wrong.** That draft said CNPG's operator generates the app-user Secret so there is nothing for a
+human to encrypt, and that `DATABASE_URL` should come from
+`secretKeyRef: { name: open-mcc-pg-app, key: uri }`. **That is not how this cluster works.**
+Reading it rather than reasoning about it: `manifests/agentbot-dev/` seals a
+`SealedSecret` named `agentbot-pg-app` carrying `username` and `password`, and that is exactly
+what its `Cluster`'s `bootstrap.initdb.secret.name` points at. Its application's
+`DATABASE_URL` is a separate sealed key in `agentbot-secret`. So in this cluster the credential
+**is** supplied and sealed by hand, and nothing references a generated `uri`.
+
+Both shapes are valid CNPG. The choice is real:
+
+- **Follow the convention.** Seal `open-mcc-pg-app` with `username` and `password` for
+  `initdb.secret.name`, and seal `DATABASE_URL` alongside the other two app secrets. Matches
+  every other app here. Cost: the password exists in two sealed secrets and has to be kept in
+  step by hand, which is a drift waiting to happen.
+- **Let CNPG own it.** Omit `initdb.secret.name`, let the operator generate `<cluster>-app`, and
+  `secretKeyRef` its `uri` key. One source of truth, nothing to keep in step, no password
+  written twice. Cost: it diverges from the cluster's convention, so a reader of the other apps
+  will find this one different.
+
+**Preference: let CNPG own it**, because a secret duplicated across two sealed files is a
+correctness problem and "matches the neighbours" is a weaker reason than "cannot drift". But
+this is a deliberate divergence rather than an accident, so it is written down here as one and
+carries the reason, instead of being discovered later as an inconsistency.
 
 ### The config that is not secret but is not optional either
 
@@ -208,12 +228,22 @@ offering a connector that cannot deliver. I would like this challenged rather th
 - The stack rebuilt and `docker ps` confirmed `Up` for server, worker and migrate, because a
   `build=0` has never meant the container started.
 
-**Where these checks live.** `.github/workflows/ci.yml` runs `pnpm test`, which already covers
-`compose-secrets.test.ts` and `check-runtime-deps.test.ts`, so the two assertions that are plain
-tests land in CI for free. The three that are not — compose config validation, the
-runtime-deps removal proof, and `kustomize build` with a no-plaintext-secret assertion — need
-their own CI steps, or they are pre-merge human checks that will rot. **They go in CI**; a
-verification nobody runs is not a verification.
+**Where these checks live, corrected after reading the workflow rather than assuming it.** This
+plan first claimed three new CI steps were needed. Two of them already exist:
+
+- The **runtime-deps removal proof** is already a unit test in `check-runtime-deps.test.ts`
+  ("names a package that is externalised but would be deleted"), and `pnpm lint` — which CI
+  runs — executes `check-runtime-deps.mjs` against the real Dockerfiles. So the drift check is
+  covered twice over, in fixture form and against the actual files, with no new step.
+- The **compose content invariants** ride `pnpm test` through `compose-secrets.test.ts`.
+
+Only one genuinely new step was missing: **`docker compose config` validation**, which catches
+a broken file or a bad interpolation that a content assertion reading the text cannot. It is now
+two steps, one per file, so the production compose file is proved to stand alone with no dev
+overlay. The `kustomize build` assertion waits until the manifests have a home.
+
+The correction matters more than the saving: a plan that invents work is as misleading as one
+that omits it.
 
 ## What this plan does not cover
 

@@ -270,6 +270,37 @@ What it needs, and it is a slice of its own rather than a footnote here:
 Until that exists the manifests are correct but undeployable, and this plan says so plainly
 rather than leaving it to be discovered at the first sync.
 
+### The release workflow, decided rather than left open
+
+- **Triggered by a pushed git tag matching `v*.*.*`.** Image Updater is configured for semver,
+  so the version has to come from somewhere unambiguous, and a tag is the only thing that is.
+  A branch push would have to synthesise a version, and a synthesised version cannot be
+  ordered.
+- **The image tag is the semver without the `v`.** The git tag is `v1.2.3`; the images are
+  `1.2.3`. This is not cosmetic: the `allowTags` regexp is `^[0-9]+\.[0-9]+\.[0-9]+$`, so a
+  `v` prefix would make Image Updater ignore every build it produced.
+- **Three images from two Dockerfiles** — `docker/server/Dockerfile` at `--target runtime` and
+  `--target migrate`, and `docker/worker/Dockerfile`. The migrate target exists precisely so
+  this is possible without a third file.
+- **Authentication is `GITHUB_TOKEN` with `packages: write`.** No new secret to manage, and
+  nothing for an operator to rotate.
+- **Built for both `linux/amd64` and `linux/arm64`.** This one is a judgement call under an
+  unknown I cannot resolve: nothing in the cluster repository declares a node architecture —
+  no `kubernetes.io/arch` selector anywhere, and only one node name is ever referenced — so I
+  cannot tell what the nodes are without access to them. A single-arch image on the wrong
+  architecture fails at first run with an exec-format error, which is the same class of
+  discovered-too-late failure as the missing publish workflow itself. Two platforms removes
+  the unknown. The cost is real but narrower than it sounds: `argon2` ships prebuilt
+  binaries for both `linux-x64` and `linux-arm64`, so it never compiles. The one piece that
+  actually builds from source under emulation is `cpu-features`, an **optional** dependency of
+  `ssh2`, and it degrades gracefully — a slow or failed build there does not fail the install,
+  because `ssh2` has a path without it. So the exposure is one non-fatal native compile, not
+  two. **If the cluster
+  turns out to be single-architecture, dropping the other platform roughly halves it** — that
+  is a one-line change and worth making once someone can confirm.
+- **The `security.yml` Trivy scan stays where it is.** It scans a locally built image on every
+  push, which is the right cadence for a scan; tying it to releases would scan less often.
+
 ## What this plan does not cover
 
 **The web dashboard is out of scope, and that is pre-existing rather than an omission here.**

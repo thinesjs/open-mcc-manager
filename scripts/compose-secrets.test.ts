@@ -82,3 +82,35 @@ describe("the compose file a real deployment uses", () => {
 		}
 	})
 })
+
+const daemonBlock = (service: string): string => {
+	const start = base.indexOf(`\n  ${service}:`)
+	const rest = base.slice(start + 1)
+	const next = rest.search(/\n {2}[a-z][a-z-]*:\n/)
+	return next === -1 ? rest : rest.slice(0, next)
+}
+
+describe("what the compose file forwards to the daemons that read it", () => {
+	it.each([{ service: "server" }, { service: "worker" }])(
+		"gives $service the log level, or an operator setting it in .env would be silently ignored",
+		({ service }) => {
+			expect(daemonBlock(service)).toContain("LOG_LEVEL: ${LOG_LEVEL:-info}")
+		},
+	)
+
+	it.each([{ service: "server" }, { service: "worker" }])(
+		"gives $service the tracing endpoint, or traces would be unreachable through this deployment",
+		({ service }) => {
+			expect(daemonBlock(service)).toContain(
+				"OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}",
+			)
+		},
+	)
+
+	it.each([{ name: "LOG_LEVEL" }, { name: "OTEL_EXPORTER_OTLP_ENDPOINT" }])(
+		"documents $name in .env.example, so an operator can discover it",
+		({ name }) => {
+			expect(readFileSync(join(ROOT, ".env.example"), "utf8")).toMatch(new RegExp(`^${name}=`, "m"))
+		},
+	)
+})

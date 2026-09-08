@@ -19,6 +19,7 @@ import { type ActorContext, ForbiddenError } from "../host/host.controller"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { SendJob } from "../job/job.queue"
 import { assertExhaustive } from "../lib/exhaustive"
+import { carrierForActiveContext } from "../log/tracing"
 import { queueFor } from "./announce"
 import {
 	shortFingerprint,
@@ -470,7 +471,12 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 
 				const jobId = await deps.sendJob(
 					queueFor(destination),
-					{ organizationId: scope.organizationId, deliveryId, attempt: "1" },
+					{
+						organizationId: scope.organizationId,
+						deliveryId,
+						attempt: "1",
+						...carrierForActiveContext(),
+					},
 					runner,
 				)
 				if (jobId === null) throw new Error("that alert could not be queued again")
@@ -532,6 +538,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 						organizationId: scope.organizationId,
 						deliveryId: delivery.id,
 						attempt: "1",
+						...carrierForActiveContext(),
 					},
 					runner,
 				)

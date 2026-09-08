@@ -28,6 +28,8 @@
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*",
+		"@opentelemetry/api": "^1.9.1",
+		"@opentelemetry/sdk-trace-node": "^2.11.0",
 		"@types/pg": "^8.23.1",
 		"tsx": "^4.23.13"
 	}

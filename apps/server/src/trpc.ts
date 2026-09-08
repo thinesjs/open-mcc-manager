@@ -1,4 +1,5 @@
 import { type Capability, can, type ErrorCode, type Role } from "@open-mcc/contracts"
+import { inProcedureSpan } from "@open-mcc/core"
 import { initTRPC, TRPCError } from "@trpc/server"
 import { ZodError } from "zod"
 import type { RequestContext } from "./context"
@@ -34,7 +35,12 @@ const t = initTRPC.context<RequestContext>().create({
 })
 
 export const router = t.router
-export const publicProcedure = t.procedure
+
+const tracedProcedure = t.procedure.use(
+	async ({ path, type, next }) => await inProcedureSpan(type, path, next),
+)
+
+export const publicProcedure = tracedProcedure
 
 export const requireCapability = (role: Role, capability: Capability): void => {
 	if (!can(role, capability)) {
@@ -42,7 +48,7 @@ export const requireCapability = (role: Role, capability: Capability): void => {
 	}
 }
 
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+export const protectedProcedure = tracedProcedure.use(({ ctx, next }) => {
 	if (!ctx.actor) throw new TRPCError({ code: "UNAUTHORIZED" })
 	return next({ ctx: { ...ctx, actor: ctx.actor } })
 })

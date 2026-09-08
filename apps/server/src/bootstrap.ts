@@ -50,6 +50,7 @@ import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { defaultIconFetch, itemIconHandler } from "./item-icon"
+import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -185,6 +186,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 
 	const app = new Hono()
+	app.use("*", requestSpan())
 	app.use("*", securityHeaders())
 	app.use("*", strictCors(allowed))
 	app.use("*", requireSameOrigin(allowed))

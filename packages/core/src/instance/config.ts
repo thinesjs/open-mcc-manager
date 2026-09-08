@@ -31,6 +31,9 @@ export const ALLOWED_CONFIG_KEYS = [
 
 export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.EnableSentry",
+	"Main.Advanced.ShowGithubStarReminder",
+	"Console.General.ConsoleMode",
+	"Logging.LogToFile",
 	"Main.Advanced.ExitOnFailure",
 	"Main.Advanced.InternalCmdChar",
 	"Main.General.Method",
@@ -52,6 +55,8 @@ export const EMPTIED_CONFIG_SECTIONS = [
 	"Main.Advanced.AccountList",
 	"Main.Advanced.ServerList",
 ] as const
+
+export const CONSOLE_MODE = "classic"
 
 export const INTERNAL_CMD_CHAR = "slash"
 
@@ -173,6 +178,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`EnableSentry = ${tomlBool(false)}`,
 		`ExitOnFailure = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
+		`ShowGithubStarReminder = ${tomlBool(false)}`,
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
 		`TerrainAndMovements = ${tomlBool(config.worldDataEnabled)}`,
 		`InventoryHandling = ${tomlBool(config.inventoryDataEnabled)}`,
@@ -207,5 +213,11 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`Movement = ${tomlBool(false)}`,
 		`Inventory = ${tomlBool(config.liveControlEnabled && config.inventoryDataEnabled)}`,
 		`EntityWorld = ${tomlBool(config.liveControlEnabled && config.entityDataEnabled)}`,
+		"",
+		"[Console.General]",
+		`ConsoleMode = ${tomlString(CONSOLE_MODE)}`,
+		"",
+		"[Logging]",
+		`LogToFile = ${tomlBool(false)}`,
 		"",
 	].join("\n")

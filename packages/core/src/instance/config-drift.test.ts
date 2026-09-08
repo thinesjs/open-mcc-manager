@@ -32,13 +32,56 @@ describe("instance config drift", () => {
 		expect(compareInstanceConfig(document, document)).toEqual([])
 	})
 
-	it("agrees with the document the client expanded, on every key it was told about", () => {
+	it("agrees with the document the client expanded, apart from the star reminder we pin off", () => {
 		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
 		const settled = compareInstanceConfig(expected, realConfig).filter(
 			(entry) => entry.kind !== "section" && !entry.key.startsWith("ChatBot.McpServer."),
 		)
 
-		expect(settled).toEqual([])
+		expect(settled).toEqual([
+			{
+				kind: "fixed",
+				key: "Main.Advanced.ShowGithubStarReminder",
+				expected: false,
+				actual: true,
+			},
+		])
+	})
+
+	it("reports each pinned key the host disagrees with, one at a time", () => {
+		const expected = renderInstanceConfig(base)
+		const cases = [
+			{
+				key: "Console.General.ConsoleMode",
+				from: 'ConsoleMode = "classic"',
+				to: 'ConsoleMode = "hidden"',
+				want: "hidden",
+			},
+			{
+				key: "Main.Advanced.ShowGithubStarReminder",
+				from: "ShowGithubStarReminder = false",
+				to: "ShowGithubStarReminder = true",
+				want: true,
+			},
+			{ key: "Logging.LogToFile", from: "LogToFile = false", to: "LogToFile = true", want: true },
+		] as const
+
+		for (const probe of cases) {
+			expect(expected).toContain(probe.from)
+			const actual = expected.replace(probe.from, probe.to)
+			const drift = compareInstanceConfig(expected, actual).filter(
+				(entry) => entry.kind !== "section",
+			)
+
+			expect(drift).toEqual([
+				{
+					kind: "fixed",
+					key: probe.key,
+					expected: probe.key === "Console.General.ConsoleMode" ? "classic" : false,
+					actual: probe.want,
+				},
+			])
+		}
 	})
 
 	it("reports the client's own defaults for live control as drift, because they are unsafe", () => {

@@ -42,6 +42,8 @@ describe("instance config rendering", () => {
 			"[ChatBot.McpServer]",
 			"[ChatBot.McpServer.Transport]",
 			"[ChatBot.McpServer.Capabilities]",
+			"[Console.General]",
+			"[Logging]",
 		])
 
 		const hostLines = rendered.split("\n").filter((line) => line.startsWith("Host = "))
@@ -61,6 +63,7 @@ describe("instance config rendering", () => {
 			"EnableSentry",
 			"ExitOnFailure",
 			"InternalCmdChar",
+			"ShowGithubStarReminder",
 			"AutoRespawn",
 			"TerrainAndMovements",
 			"InventoryHandling",
@@ -81,6 +84,8 @@ describe("instance config rendering", () => {
 			"Movement",
 			"Inventory",
 			"EntityWorld",
+			"ConsoleMode",
+			"LogToFile",
 		])
 	})
 
@@ -109,6 +114,35 @@ describe("instance config rendering", () => {
 			if (match) emitted.push(`${section}.${match[1]}`)
 		}
 		expect(emitted.sort()).toEqual([...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS].sort())
+	})
+
+	it("pins the three keys the client would otherwise choose for itself", () => {
+		const rendered = renderInstanceConfig(base)
+		let section = ""
+		const emitted = new Map<string, string>()
+		for (const line of rendered.split("\n")) {
+			if (line.startsWith("[")) {
+				section = line.slice(1, -1)
+				continue
+			}
+			const match = /^([A-Za-z_][A-Za-z0-9_]*) = (.*)$/.exec(line)
+			if (match) emitted.set(`${section}.${match[1]}`, match[2] ?? "")
+		}
+
+		expect(emitted.get("Console.General.ConsoleMode")).toBe('"classic"')
+		expect(emitted.get("Main.Advanced.ShowGithubStarReminder")).toBe("false")
+		expect(emitted.get("Logging.LogToFile")).toBe("false")
+	})
+
+	it("treats those three as pinned, never as something an operator chooses", () => {
+		for (const key of [
+			"Console.General.ConsoleMode",
+			"Main.Advanced.ShowGithubStarReminder",
+			"Logging.LogToFile",
+		]) {
+			expect(FIXED_CONFIG_KEYS).toContain(key)
+			expect(ALLOWED_CONFIG_KEYS).not.toContain(key)
+		}
 	})
 
 	it("opts out of the client's error telemetry, whatever the operator asks for", () => {

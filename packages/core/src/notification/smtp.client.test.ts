@@ -46,8 +46,16 @@ const run = async (
 		upgrade: clientUpgrade,
 		timeoutMs: 5000,
 	})
-	return { outcome: conversation.outcome, conversation, transcript: fake.transcript }
+	return {
+		outcome: conversation.outcome,
+		conversation,
+		transcript: fake.transcript,
+		payload: fake.payload(),
+	}
 }
+
+const headerLine = (payload: string | undefined, name: string): string | undefined =>
+	payload?.split("\r\n").find((line) => line.startsWith(`${name}:`))
 
 afterEach(async () => {
 	await fake?.close()
@@ -184,32 +192,110 @@ describe("a recipient the server will not take", () => {
 		to: ["first@example.com", "second@example.com"],
 	}
 
-	const runWith = async (codes: readonly string[]) => {
-		fake = await startFake("220 mail.example.com ESMTP\r\n", withRecipients(codes), serverSideTls)
+	const runWith = async (
+		codes: readonly string[],
+		finalReply?: string,
+		recipients: SmtpMessage = many,
+	) => {
+		fake = await startFake("220 mail.example.com ESMTP\r\n", withRecipients(codes), serverSideTls, {
+			...(finalReply === undefined ? {} : { finalReply }),
+		})
 		const socket = await dial(fake.port)
-		const conversation = await converse(socket, credentials, many, {
+		const conversation = await converse(socket, credentials, recipients, {
 			upgrade: clientUpgrade,
 			timeoutMs: 5000,
 		})
-		return { outcome: conversation.outcome, transcript: fake.transcript }
+		return {
+			outcome: conversation.outcome,
+			conversation,
+			transcript: fake.transcript,
+			payload: fake.payload(),
+		}
 	}
 
-	it("gives up permanently when any address is refused for good, and never sends the message", async () => {
-		const { outcome, transcript } = await runWith(["250 ok", "550 no such mailbox"])
+	const three: SmtpMessage = {
+		...message,
+		to: ["first@example.com", "second@example.com", "third@example.com"],
+	}
 
+	it("still sends to the addresses it accepted, and settles terminal without retrying", async () => {
+		const { outcome, conversation, transcript, payload } = await runWith([
+			"250 ok",
+			"550 no such mailbox",
+		])
+
+		expect(transcript).toContain("<message>")
+		expect(conversation.kind).toBe("settled")
 		expect(outcome.kind).toBe("terminal")
 		expect(outcome.kind === "terminal" && outcome.statusCode).toBe(550)
-		expect(transcript).not.toContain("DATA")
-		expect(transcript).not.toContain("<message>")
+		expect(outcome.kind === "terminal" && outcome.stopSending).toBe(false)
+		expect(headerLine(payload, "To")).toBe("To: first@example.com, second@example.com")
 	})
 
-	it("prefers the permanent refusal even when a temporary one came first", async () => {
+	it("names no address in the reason an operator sees", async () => {
+		const { outcome } = await runWith(["250 ok", "550 no such mailbox"])
+
+		const reason = outcome.kind === "delivered" ? "" : outcome.reason
+		expect(reason).toBe("That mail server refused one or more of the addresses")
+		for (const address of many.to) expect(reason).not.toContain(address)
+	})
+
+	it("carries the first transient refusal when a partial send met only transient ones", async () => {
+		const { outcome, transcript } = await runWith(
+			["250 ok", "450 try later", "451 also later"],
+			undefined,
+			three,
+		)
+
+		expect(transcript).toContain("<message>")
+		expect(outcome.kind).toBe("terminal")
+		expect(outcome.kind === "terminal" && outcome.statusCode).toBe(450)
+	})
+
+	it("prefers the permanent refusal over an earlier transient one on a partial send", async () => {
+		const { outcome, transcript } = await runWith(
+			["250 ok", "450 try later", "550 gone"],
+			undefined,
+			three,
+		)
+
+		expect(
+			transcript,
+			"without this the old abort-before-DATA behaviour returns the same 550",
+		).toContain("<message>")
+		expect(outcome.kind).toBe("terminal")
+		expect(outcome.kind === "terminal" && outcome.statusCode).toBe(550)
+	})
+
+	it("lets a transient reply after the dot override the partial result entirely", async () => {
+		const { conversation } = await runWith(["250 ok", "550 gone"], "451 spooling failed\r\n")
+
+		expect(conversation.kind).toBe("tryNextAddress")
+		expect(conversation.outcome.kind).toBe("retryable")
+		expect(conversation.outcome.statusCode).toBe(451)
+	})
+
+	it("lets a permanent reply after the dot override the partial result entirely", async () => {
+		const { conversation } = await runWith(["250 ok", "550 gone"], "552 mailbox full\r\n")
+
+		expect(conversation.kind).toBe("settled")
+		expect(conversation.outcome.kind).toBe("terminal")
+		expect(conversation.outcome.statusCode).toBe(552)
+	})
+
+	it("settles delivered when every address is accepted", async () => {
+		const { outcome } = await runWith(["250 ok", "250 ok"])
+
+		expect(outcome.kind).toBe("delivered")
+	})
+
+	it("with nothing accepted, prefers the permanent refusal over an earlier transient one", async () => {
 		const { outcome } = await runWith(["450 try later", "550 no such mailbox"])
 		expect(outcome.kind).toBe("terminal")
 		expect(outcome.kind === "terminal" && outcome.statusCode).toBe(550)
 	})
 
-	it("retries only when every refusal was temporary", async () => {
+	it("with nothing accepted, retries only when every refusal was temporary", async () => {
 		const { outcome, transcript } = await runWith(["450 try later", "451 also later"])
 
 		expect(outcome.kind).toBe("retryable")
@@ -390,11 +476,12 @@ describe("whether a conversation says another address is worth trying", () => {
 		).toBe("delivered")
 	})
 
-	it("settles as delivered on a positive final reply", async () => {
-		const { conversation } = await run("220 mail.example.com ESMTP\r\n", happyPath)
+	it("settles as delivered on a positive final reply, and sends the configured recipients", async () => {
+		const { conversation, payload } = await run("220 mail.example.com ESMTP\r\n", happyPath)
 
 		expect(conversation.kind).toBe("settled")
 		expect(conversation.outcome.kind).toBe("delivered")
+		expect(headerLine(payload, "To")).toBe("To: on-call@example.com")
 	})
 
 	it("settles when the server does not advertise the STARTTLS we require", async () => {

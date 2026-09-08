@@ -25,6 +25,7 @@ export type Answer = {
 export type Fake = {
 	readonly port: number
 	readonly transcript: readonly string[]
+	readonly payload: () => string | undefined
 	readonly close: () => Promise<void>
 }
 
@@ -41,6 +42,7 @@ export const startFake = async (
 ): Promise<Fake> => {
 	const finalReply = options.finalReply ?? "250 queued\r\n"
 	const transcript: string[] = []
+	let captured: string | undefined
 	let server: Server | undefined
 
 	const drive = (socket: Socket) => {
@@ -58,6 +60,7 @@ export const startFake = async (
 				}
 				const end = buffer.indexOf("\r\n.\r\n")
 				if (end === -1) return
+				captured = buffer.slice(0, end)
 				transcript.push("<message>")
 				buffer = buffer.slice(end + 5)
 				collecting = false
@@ -106,6 +109,7 @@ export const startFake = async (
 	return {
 		port: typeof address === "object" && address !== null ? address.port : 0,
 		transcript,
+		payload: () => captured,
 		close: () => new Promise<void>((resolve) => server?.close(() => resolve())),
 	}
 }

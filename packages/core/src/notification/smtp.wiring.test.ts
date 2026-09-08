@@ -59,6 +59,12 @@ const busy = upTo(() => ({ write: "450 mailbox busy\r\n" }))
 
 const rejects = upTo(() => ({ write: "550 no such mailbox\r\n" }))
 
+const acceptsOnlyTheFirst = upTo((line) =>
+	line.includes("on-call@example.com")
+		? { write: "250 recipient ok\r\n" }
+		: { write: "550 no such mailbox\r\n" },
+)
+
 let fakes: Fake[] = []
 
 const twoEndpoints = async (
@@ -118,6 +124,22 @@ describe("the real client driving the real sender across two addresses", () => {
 
 		expect(dialled).toEqual([FIRST])
 		expect(outcome.kind).toBe("terminal")
+		expect(fakes[1]?.transcript).toEqual([])
+	})
+
+	it("never reopens the message elsewhere after a partial delivery", async () => {
+		const { dialled, open } = await twoEndpoints(acceptsOnlyTheFirst, accepts)
+
+		const outcome = await deliverEmail(
+			{ ...settings, toAddresses: ["on-call@example.com", "typo@example.com"] },
+			envelope,
+			{ resolve: async () => bothAddresses, open, secure: clientUpgrade },
+		)
+
+		expect(dialled).toEqual([FIRST])
+		expect(outcome.kind).toBe("terminal")
+		expect(outcome.kind === "terminal" && outcome.stopSending).toBe(false)
+		expect(fakes[0]?.transcript).toContain("<message>")
 		expect(fakes[1]?.transcript).toEqual([])
 	})
 })

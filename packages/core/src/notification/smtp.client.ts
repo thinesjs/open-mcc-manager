@@ -27,6 +27,8 @@ const REFUSED = "That mail server refused the message"
 
 const REFUSED_RECIPIENT = "That mail server refused one of the addresses"
 
+const PARTIAL = "That mail server refused one or more of the addresses"
+
 const UNEXPECTED = "That mail server answered in a way we did not expect"
 
 export type Reader = {
@@ -196,14 +198,14 @@ export const converse = async (
 		if (!isPositive(sender)) return byReply(sender.code, REFUSED)
 
 		const refusals: number[] = []
+		let takers = 0
 		for (const recipient of message.to) {
 			const answer = await step(`RCPT TO:<${recipient}>\r\n`)
-			if (!isPositive(answer)) refusals.push(answer.code)
+			if (isPositive(answer)) takers += 1
+			else refusals.push(answer.code)
 		}
-		if (refusals.length > 0) {
-			const permanent = refusals.find((code) => !isTransient(code))
-			return byReply(permanent ?? refusals[0] ?? 550, REFUSED_RECIPIENT)
-		}
+		const explains = refusals.find((code) => !isTransient(code)) ?? refusals[0] ?? 550
+		if (takers === 0) return byReply(explains, REFUSED_RECIPIENT)
 
 		const opened = await step("DATA\r\n")
 		if (opened.code !== 354) return byReply(opened.code, REFUSED)
@@ -212,7 +214,15 @@ export const converse = async (
 		const accepted = await step(`${messageBytes(message)}\r\n.\r\n`)
 		if (!isPositive(accepted)) return byReply(accepted.code, REFUSED)
 
-		const landed: Conversation = settled({ kind: "delivered", statusCode: accepted.code })
+		const landed: Conversation =
+			refusals.length === 0
+				? settled({ kind: "delivered", statusCode: accepted.code })
+				: settled({
+						kind: "terminal",
+						statusCode: explains,
+						reason: PARTIAL,
+						stopSending: false,
+					})
 
 		try {
 			await say(socket, "QUIT\r\n")

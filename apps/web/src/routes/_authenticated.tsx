@@ -11,6 +11,7 @@ import {
 	Server,
 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { AffiliationNotice } from "~/components/affiliation-notice"
 import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
@@ -159,6 +160,7 @@ function AuthenticatedLayout() {
 						<LogOut className="size-4" />
 						Sign out
 					</button>
+					<AffiliationNotice className="mt-3 border-t border-sidebar-border px-3 pt-3" />
 				</div>
 			</aside>
 			<main className="h-full min-w-0 flex-1 overflow-y-auto px-8 py-6">

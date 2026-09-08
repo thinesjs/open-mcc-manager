@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
+import { AffiliationNotice } from "~/components/affiliation-notice"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
@@ -88,6 +89,7 @@ function SignInPage() {
 						Accept it
 					</Link>
 				</p>
+				<AffiliationNotice className="text-center" />
 			</div>
 		</div>
 	)

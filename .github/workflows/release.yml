@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   publish:
-    if: vars.PUBLISH_IMAGES == 'true'
+    # Hard-closed: the published images do not yet carry the third-party licence
+    # texts they must ship with. See NOTICE. Re-open by deleting this line, once
+    # those texts are verified present in the built artifacts.
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -91,15 +91,15 @@ describe("chat components", () => {
 		expect(parseChatComponent({ text: "x", insertion: "y" })).toEqual({ text: "x" })
 	})
 
-	it("flattens a real server's MOTD", () => {
+	it("flattens a server MOTD with the nesting a real one uses", () => {
 		const spans = flattenChatComponent(parseChatComponent(motdFixture))
 		const rendered = spans.map((span) => span.text).join("")
 
-		expect(rendered).toContain("Jartex")
+		expect(rendered).toContain("Example")
 		expect(rendered).toContain("Network")
-		expect(rendered).toContain("NEW SKYBLOCK SEASON")
-		expect(spans.find((span) => span.text === "Jartex")?.color).toBe("yellow")
-		expect(spans.find((span) => span.text === "Jartex")?.bold).toBe(true)
+		expect(rendered).toContain("SAMPLE ANNOUNCEMENT")
+		expect(spans.find((span) => span.text === "Example")?.color).toBe("yellow")
+		expect(spans.find((span) => span.text === "Example")?.bold).toBe(true)
 		expect(spans.find((span) => span.text === "Network")?.color).toBe("gold")
 	})
 

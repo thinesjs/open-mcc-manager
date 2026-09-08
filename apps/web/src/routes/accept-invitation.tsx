@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { z } from "zod"
+import { AffiliationNotice } from "~/components/affiliation-notice"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
@@ -62,6 +63,7 @@ function AcceptInvitationPage() {
 					<Link to="/sign-in" className="text-sm text-primary underline-offset-4 hover:underline">
 						Go to sign in
 					</Link>
+					<AffiliationNotice />
 				</div>
 			</div>
 		)
@@ -128,6 +130,7 @@ function AcceptInvitationPage() {
 						{isSubmitting ? "Creating account…" : "Create account"}
 					</Button>
 				</form>
+				<AffiliationNotice className="text-center" />
 			</div>
 		</div>
 	)

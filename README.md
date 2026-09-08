@@ -184,3 +184,27 @@ buys isolation between instances at the cost of root-equivalent access. See
 [SECURITY.md](./SECURITY.md) for the full trust boundary,
 supported deployment model, current controls, and known limitations, and for
 how to report a vulnerability.
+
+## Licence and the client it manages
+
+This project is licensed under the MIT Licence — see [LICENSE](./LICENSE).
+
+It manages [Minecraft Console Client](https://github.com/MCCTeam/Minecraft-Console-Client),
+which is a separate project under the CDDL-1.0. No client source code or
+executable is included in this repository. Each host downloads the release binary directly from the
+client's own GitHub releases, pinned to one version and verified against a
+recorded SHA-256 before it runs, so the client reaches your hosts from
+upstream rather than from this repository.
+
+One test fixture holds a configuration document captured from a running
+instance, so that the config parser and the drift comparison are exercised
+against the real key surface. It carries the section and key structure and
+representative values — some configured, some pinned by this project rather than
+the client's own defaults — and none of the client's own explanatory text.
+
+This is not an official Minecraft product. It is not approved by or associated
+with Mojang or Microsoft. The
+dashboard displays item renders and player-head avatars fetched from
+third-party services at runtime; neither is bundled or redistributed here. See
+[NOTICE](./NOTICE) for the notices this project's third-party material
+requires.

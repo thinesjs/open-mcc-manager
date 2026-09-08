@@ -1,10 +1,12 @@
-import { generateKeyPair } from "@open-mcc/core"
+import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { Hono } from "hono"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuth } from "./auth"
 import { type ServerHandle, startServer } from "./bootstrap"
 import type { Env } from "./env"
+
+const silent = createLogger({ write: () => undefined })
 
 const DASHBOARD_ORIGIN = "http://localhost:5173"
 const SIGN_IN_BODY = JSON.stringify({
@@ -40,10 +42,9 @@ const startWithAllowedOrigins = async (allowedOrigins: string): Promise<ServerHa
 		NOTIFICATION_ALLOWED_HOSTS: "",
 		NOTIFICATION_ALLOWED_ADDRESSES: "",
 		NOTIFICATION_TEAMS_HOSTS: "",
-		LOG_LEVEL: "info",
 		OTEL_EXPORTER_OTLP_ENDPOINT: "",
 	}
-	handle = await startServer(env, vi.fn())
+	handle = await startServer(env, vi.fn(), silent)
 	return handle
 }
 

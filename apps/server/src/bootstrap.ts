@@ -2,6 +2,7 @@ import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
 import {
 	adminFor,
+	attachQueueWarning,
 	type BuildInfo,
 	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
@@ -27,12 +28,14 @@ import {
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
 	hostList,
+	type Logger,
+	lockLostHandler,
 	profileFrom,
 	readBuildInfo,
 	readConnectionChanges,
 	reconcileQueues,
-	redactError,
 	resolveMinecraftName,
+	runtimeErrorReporter,
 	type SchedulerHandle,
 	type SendJob,
 	startHealthPoller,
@@ -71,13 +74,18 @@ export type ServerHandle = {
 
 export type Serve = typeof serve
 
-export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandle> => {
+export const startServer = async (
+	env: Env,
+	serveFn: Serve,
+	logger: Logger,
+): Promise<ServerHandle> => {
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 
 	const boss = new PgBoss({ connectionString: env.DATABASE_URL, supervise: false })
 	boss.on("error", (error: Error) => {
-		console.error("Job queue error", error.message)
+		logger.error("Job queue error", { detail: error.message })
 	})
+	attachQueueWarning(boss, logger)
 	await boss.start()
 	await boss.createQueue(HOST_TEARDOWN_QUEUE)
 	await reconcileQueues(
@@ -115,12 +123,12 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 	})
 
 	if (usesKnownInsecureKey(env.SEALBOX_KEYS)) {
-		console.warn(
+		logger.warn(
 			"WARNING: SEALBOX_KEYS uses the publicly known development key. Every secret sealed with it is readable by anyone with this repository. Generate a real key before storing any host credential.",
 		)
 	}
 
-	const lock = await acquireSingletonLock(env.DATABASE_URL)
+	const lock = await acquireSingletonLock(env.DATABASE_URL, logger)
 	if (!lock.acquired) {
 		await lock.release()
 		await db.destroy()
@@ -218,11 +226,13 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 
 	const server = serveFn({ fetch: app.fetch, port: env.PORT })
 
-	lock.onLost(() => {
-		console.error("Singleton lock lost; quiescing and exiting")
-		server.close()
-		process.exit(1)
-	})
+	lock.onLost(
+		lockLostHandler(
+			logger,
+			() => server.close(),
+			() => process.exit(1),
+		),
+	)
 
 	const commands = createCommandRepository(db)
 	const scheduler = startScheduler({
@@ -231,9 +241,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 		claimRun: (id, ranAt, notRunSince) => commands.claimRun(id, ranAt, notRunSince),
 		recordRun: (id, ranAt, error) => commands.recordRun(id, ranAt, error),
 		now: () => new Date(),
-		onError: (message, error) => {
-			console.error(message, error instanceof Error ? redactError(error) : message)
-		},
+		onError: runtimeErrorReporter(logger),
 	})
 
 	const healthPoller = startHealthPoller({
@@ -299,9 +307,7 @@ export const startServer = async (env: Env, serveFn: Serve): Promise<ServerHandl
 			}
 		},
 		now: () => new Date(),
-		onError: (message, error) => {
-			console.error(message, error instanceof Error ? redactError(error) : message)
-		},
+		onError: runtimeErrorReporter(logger),
 	})
 
 	return { app, server, lock, db, scheduler, healthPoller, boss, heartbeat, build, schemaVersion }

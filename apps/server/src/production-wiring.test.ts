@@ -1,0 +1,132 @@
+import { createLogger, generateKeyPair, type Logger } from "@open-mcc/core"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Env } from "./env"
+
+type OnError = (message: string, error: Error | string) => void
+
+const captured: {
+	onLost: (() => void) | undefined
+	schedulerError: OnError | undefined
+	pollerError: OnError | undefined
+} = { onLost: undefined, schedulerError: undefined, pollerError: undefined }
+
+vi.mock("./singleton", () => ({
+	acquireSingletonLock: async () => ({
+		acquired: true,
+		onLost: (handler: () => void) => {
+			captured.onLost = handler
+		},
+		release: async () => undefined,
+	}),
+}))
+
+vi.mock("@open-mcc/core", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@open-mcc/core")>()
+	return {
+		...actual,
+		startScheduler: (deps: { onError: OnError }) => {
+			captured.schedulerError = deps.onError
+			return { stop: () => undefined }
+		},
+		startHealthPoller: (deps: { onError: OnError }) => {
+			captured.pollerError = deps.onError
+			return { stop: () => undefined }
+		},
+	}
+})
+
+const capturing = (): { lines: string[]; logger: Logger } => {
+	const lines: string[] = []
+	return { lines, logger: createLogger({ level: "debug", write: (line) => lines.push(line) }) }
+}
+
+const env = async (): Promise<Env> => ({
+	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
+	PORT: 0,
+	STATUS_RETENTION_DAYS: 30,
+	BETTER_AUTH_SECRET: "a-very-long-test-secret-value-000000",
+	BETTER_AUTH_URL: "http://localhost:3000",
+	SEALBOX_KEYS: await generateKeyPair("k1"),
+	ALLOWED_ORIGINS: "http://localhost:5173",
+	NOTIFICATION_ALLOW_HTTP: false,
+	NOTIFICATION_ALLOWED_HOSTS: "",
+	NOTIFICATION_ALLOWED_ADDRESSES: "",
+	NOTIFICATION_TEAMS_HOSTS: "",
+	OTEL_EXPORTER_OTLP_ENDPOINT: "",
+})
+
+const startWithCapture = async () => {
+	const { startServer } = await import("./bootstrap")
+	const { lines, logger } = capturing()
+	const closed = vi.fn()
+	const serveFn = vi.fn()
+	serveFn.mockReturnValue({ close: closed })
+	const handle = await startServer(await env(), serveFn, logger)
+	return { lines, handle, closed }
+}
+
+let stop: (() => Promise<void>) | undefined
+
+beforeEach(() => {
+	captured.onLost = undefined
+	captured.schedulerError = undefined
+	captured.pollerError = undefined
+})
+
+afterEach(async () => {
+	if (stop) await stop()
+	stop = undefined
+	vi.restoreAllMocks()
+})
+
+describe("the reporters the server actually hands to the things it starts", () => {
+	it("wires the lock-loss handler, so losing the lock is announced before the exit", async () => {
+		const exited = vi.spyOn(process, "exit").mockImplementation(() => {
+			throw new Error("process.exit called")
+		})
+		const { lines, handle, closed } = await startWithCapture()
+		stop = async () => {
+			await handle.boss.stop({ graceful: false })
+			await handle.db.destroy()
+		}
+
+		expect(captured.onLost).toBeDefined()
+		lines.length = 0
+
+		expect(() => captured.onLost?.()).toThrow("process.exit called")
+
+		expect(JSON.parse(lines[0] ?? "{}").message).toBe("Singleton lock lost; quiescing and exiting")
+		expect(closed).toHaveBeenCalled()
+		expect(exited).toHaveBeenCalledWith(1)
+	})
+
+	it("wires the scheduler's error reporter, independently of the health poller's", async () => {
+		const { lines, handle } = await startWithCapture()
+		stop = async () => {
+			await handle.boss.stop({ graceful: false })
+			await handle.db.destroy()
+		}
+
+		lines.length = 0
+		captured.schedulerError?.("Scheduled command failed", "the host refused")
+
+		const entry = JSON.parse(lines[0] ?? "{}")
+		expect(entry.level).toBe("error")
+		expect(entry.detail).toBe("the host refused")
+	})
+
+	it("wires the health poller's error reporter, independently of the scheduler's", async () => {
+		const { lines, handle } = await startWithCapture()
+		stop = async () => {
+			await handle.boss.stop({ graceful: false })
+			await handle.db.destroy()
+		}
+
+		lines.length = 0
+		captured.pollerError?.("Health poll failed", "the host refused")
+
+		const entry = JSON.parse(lines[0] ?? "{}")
+		expect(entry.level).toBe("error")
+		expect(entry.detail).toBe("the host refused")
+	})
+})

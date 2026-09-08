@@ -1,7 +1,9 @@
-import { generateKeyPair } from "@open-mcc/core"
+import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { describe, expect, it, vi } from "vitest"
 import { startServer } from "./bootstrap"
 import type { Env } from "./env"
+
+const silent = createLogger({ write: () => undefined })
 
 const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
@@ -15,7 +17,6 @@ const baseEnv = (overrides: Partial<Env> = {}): Env => ({
 	NOTIFICATION_ALLOWED_HOSTS: "",
 	NOTIFICATION_ALLOWED_ADDRESSES: "",
 	NOTIFICATION_TEAMS_HOSTS: "",
-	LOG_LEVEL: "info",
 	OTEL_EXPORTER_OTLP_ENDPOINT: "",
 	...overrides,
 })
@@ -35,7 +36,7 @@ describe("startServer secret store gate", () => {
 		const env = baseEnv({ SEALBOX_KEYS: `k1:${a.pub}:${b.priv}` })
 		const serveFn = vi.fn()
 
-		await expect(startServer(env, serveFn)).rejects.toThrow(/self-test/i)
+		await expect(startServer(env, serveFn, silent)).rejects.toThrow(/self-test/i)
 		expect(serveFn).not.toHaveBeenCalled()
 	})
 
@@ -43,7 +44,7 @@ describe("startServer secret store gate", () => {
 		const env = baseEnv({ SEALBOX_KEYS: "" })
 		const serveFn = vi.fn()
 
-		await expect(startServer(env, serveFn)).rejects.toThrow(/at least one key/i)
+		await expect(startServer(env, serveFn, silent)).rejects.toThrow(/at least one key/i)
 		expect(serveFn).not.toHaveBeenCalled()
 	})
 })

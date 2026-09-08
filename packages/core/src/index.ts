@@ -147,13 +147,28 @@ export {
 } from "./job/queue-setup"
 export { assertExhaustive } from "./lib/exhaustive"
 export type { Fields, Level, Logger, TraceIds } from "./log/logger"
-export { createLogger, readLevel } from "./log/logger"
+export { createLogger, createRootLogger, readLevel } from "./log/logger"
 export { inProcedureSpan } from "./log/procedure-span"
 export { tracedDialect } from "./log/query-span"
+export type { QueueWarningListener } from "./log/queue-warning"
+export { attachQueueWarning } from "./log/queue-warning"
+export type {
+	LockLostHandler,
+	RetentionSweep,
+	RetentionSweepReporter,
+	RuntimeErrorReporter,
+} from "./log/reporters"
+export {
+	lockLostHandler,
+	retentionSweepJob,
+	retentionSweepReporter,
+	runtimeErrorReporter,
+} from "./log/reporters"
 export { inRequestSpan } from "./log/request-span"
 export type { TracingHandle, TracingOptions } from "./log/tracing"
 export { activeTraceIds, startTracing, tracesUrl } from "./log/tracing"
-export { deliverQueuedBatch } from "./notification/delivery.batch"
+export type { MalformedJobReporter } from "./notification/delivery.batch"
+export { deliverQueuedBatch, malformedJobReporter } from "./notification/delivery.batch"
 export type {
 	DeliveryDeps,
 	DeliveryPayload,

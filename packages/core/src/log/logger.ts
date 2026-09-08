@@ -77,3 +77,9 @@ export const createLogger = (deps: LoggerDeps = {}): Logger => {
 	}
 	return logger
 }
+
+export const createRootLogger = (
+	service: string,
+	env: Readonly<Record<string, string | undefined>>,
+	overrides: Omit<LoggerDeps, "level" | "service"> = {},
+): Logger => createLogger({ ...overrides, level: readLevel(env.LOG_LEVEL), service })

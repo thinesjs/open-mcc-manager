@@ -1,3 +1,4 @@
+import type { Logger } from "@open-mcc/core"
 import { Client } from "pg"
 
 const LOCK_KEY = 774_411_902
@@ -8,7 +9,7 @@ export type SingletonLock = {
 	release: () => Promise<void>
 }
 
-export const acquireSingletonLock = async (url: string): Promise<SingletonLock> => {
+export const acquireSingletonLock = async (url: string, logger: Logger): Promise<SingletonLock> => {
 	const client = new Client({ connectionString: url, keepAlive: true })
 	await client.connect()
 
@@ -43,13 +44,13 @@ export const acquireSingletonLock = async (url: string): Promise<SingletonLock> 
 				try {
 					await client.query({ text: "SELECT pg_advisory_unlock($1)", values: [LOCK_KEY] })
 				} catch {
-					console.error("release: connection already lost; nothing left to unlock")
+					logger.warn("release: connection already lost; nothing left to unlock")
 				}
 			}
 			try {
 				await client.end()
 			} catch {
-				console.error("release: client was already disconnected")
+				logger.warn("release: client was already disconnected")
 			}
 		},
 	}

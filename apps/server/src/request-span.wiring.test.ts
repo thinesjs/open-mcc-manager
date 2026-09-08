@@ -1,4 +1,4 @@
-import { generateKeyPair } from "@open-mcc/core"
+import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { SpanStatusCode } from "@opentelemetry/api"
 import {
 	InMemorySpanExporter,
@@ -8,6 +8,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type ServerHandle, startServer } from "./bootstrap"
 import type { Env } from "./env"
+
+const silent = createLogger({ write: () => undefined })
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
@@ -27,7 +29,6 @@ const env = async (): Promise<Env> => ({
 	NOTIFICATION_ALLOWED_HOSTS: "",
 	NOTIFICATION_ALLOWED_ADDRESSES: "",
 	NOTIFICATION_TEAMS_HOSTS: "",
-	LOG_LEVEL: "info",
 	OTEL_EXPORTER_OTLP_ENDPOINT: "",
 })
 
@@ -46,7 +47,7 @@ afterEach(async () => {
 
 describe("the request span is wired into the app the server actually builds", () => {
 	it("spans a request driven through the real app, not a test-assembled one", async () => {
-		handle = await startServer(await env(), vi.fn())
+		handle = await startServer(await env(), vi.fn(), silent)
 		exporter.reset()
 
 		const res = await handle.app.request("/api/avatars/steve")
@@ -64,7 +65,7 @@ describe("the request span is wired into the app the server actually builds", ()
 	})
 
 	it("opens a child span per resolved trpc procedure, nested in the http span", async () => {
-		handle = await startServer(await env(), vi.fn())
+		handle = await startServer(await env(), vi.fn(), silent)
 		exporter.reset()
 
 		const res = await handle.app.request("/trpc/sshKey.list?input=%7B%7D", {
@@ -94,7 +95,7 @@ describe("the request span is wired into the app the server actually builds", ()
 	})
 
 	it("spans a public procedure too, which no protected-only wiring would reach", async () => {
-		handle = await startServer(await env(), vi.fn())
+		handle = await startServer(await env(), vi.fn(), silent)
 		exporter.reset()
 
 		const res = await handle.app.request("/trpc/member.acceptInvitation", {
@@ -120,7 +121,7 @@ describe("the request span is wired into the app the server actually builds", ()
 	})
 
 	it("still leaves the real app's readiness probe unspanned", async () => {
-		handle = await startServer(await env(), vi.fn())
+		handle = await startServer(await env(), vi.fn(), silent)
 		exporter.reset()
 
 		const res = await handle.app.request("/healthz")

@@ -1,6 +1,7 @@
 import {
 	adminFor,
 	asSqlRunner,
+	attachQueueWarning,
 	createAuditRepository,
 	createCleanupHandler,
 	createDeliveryHandler,
@@ -20,6 +21,8 @@ import {
 	type EgressPolicy,
 	egressPolicy,
 	HOST_TEARDOWN_QUEUE,
+	type Logger,
+	malformedJobReporter,
 	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
 	NOTIFICATION_HTTP_QUEUE,
@@ -27,6 +30,8 @@ import {
 	type QueueName,
 	readBuildInfo,
 	reconcileQueues,
+	retentionSweepJob,
+	retentionSweepReporter,
 	type SendJob,
 	STATUS_ESCALATE_QUEUE,
 	startHeartbeat,
@@ -51,7 +56,7 @@ export type WorkerHandle = {
 	boss: PgBoss
 }
 
-export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
+export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<WorkerHandle> => {
 	const db = createDb(env.DATABASE_URL, tracedDialect)
 	const secrets = await createSecretStore(env.SEALBOX_KEYS)
 	const sshKeys = createSshKeyRepository(db)
@@ -73,8 +78,9 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 
 	const boss = new PgBoss({ connectionString: env.DATABASE_URL })
 	boss.on("error", (error: Error) => {
-		console.error("Job queue error", error.message)
+		logger.error("Job queue error", { detail: error.message })
 	})
+	attachQueueWarning(boss, logger)
 	await boss.start()
 	await boss.createQueue(HOST_TEARDOWN_QUEUE)
 	await reconcileQueues(
@@ -158,7 +164,7 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 		})
 
 	const workDeliveries = (queue: QueueName) => async (jobs: Job[]) =>
-		await deliverQueuedBatch(queue, jobs, deliverOn(queue))
+		await deliverQueuedBatch(queue, jobs, deliverOn(queue), malformedJobReporter(logger))
 
 	const instances = createInstanceRepository(db)
 	const statusController = createStatusController({
@@ -196,10 +202,10 @@ export const startWorker = async (env: WorkerEnv): Promise<WorkerHandle> => {
 	})
 
 	await boss.schedule(NOTIFICATION_CLEANUP_QUEUE, "17 3 * * *")
-	await boss.work(NOTIFICATION_CLEANUP_QUEUE, async () => {
-		const removed = await cleanUp()
-		if (removed > 0) console.error(`Removed ${removed} notifications past retention`)
-	})
+	await boss.work(
+		NOTIFICATION_CLEANUP_QUEUE,
+		retentionSweepJob(cleanUp, retentionSweepReporter(logger)),
+	)
 
 	await boss.work(NOTIFICATION_HTTP_QUEUE, workDeliveries(NOTIFICATION_HTTP_QUEUE))
 	await boss.work(NOTIFICATION_EMAIL_QUEUE, workDeliveries(NOTIFICATION_EMAIL_QUEUE))

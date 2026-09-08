@@ -5,8 +5,9 @@ import {
 	SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-node"
 import { afterAll, describe, expect, it } from "vitest"
+import { createLogger } from "../log/logger"
 import { activeTraceIds, carrierForActiveContext } from "../log/tracing"
-import { deliverQueuedBatch } from "./delivery.batch"
+import { deliverQueuedBatch, malformedJobReporter } from "./delivery.batch"
 import type { DeliveryPayload, DeliveryResult } from "./delivery.job"
 
 const exporter = new InMemorySpanExporter()
@@ -18,6 +19,8 @@ const QUEUE = "notification.deliver.http"
 const delivered: DeliveryResult = { settled: "delivered" }
 
 const job = (id: string, data: Record<string, string>) => ({ id, data })
+
+const ignoreMalformed = () => undefined
 
 const payloadFor = (deliveryId: string) => ({
 	organizationId: "org_1",
@@ -35,7 +38,7 @@ describe("delivering a batch of queued jobs", () => {
 		deliver: (payload: DeliveryPayload) => Promise<DeliveryResult> = async () => delivered,
 	) => {
 		exporter.reset()
-		await deliverQueuedBatch(QUEUE, jobs, deliver)
+		await deliverQueuedBatch(QUEUE, jobs, deliver, ignoreMalformed)
 		return exporter.getFinishedSpans().find((each) => each.name === `deliver ${QUEUE}`)
 	}
 
@@ -96,6 +99,7 @@ describe("delivering a batch of queued jobs", () => {
 				sawTraceparent = payload.traceparent
 				return delivered
 			},
+			ignoreMalformed,
 		)
 
 		const span = exporter.getFinishedSpans().find((each) => each.name === `deliver ${QUEUE}`)
@@ -110,9 +114,14 @@ describe("delivering a batch of queued jobs", () => {
 		exporter.reset()
 
 		await expect(
-			deliverQueuedBatch(QUEUE, [job("job_1", payloadFor("dlv_1"))], async () => {
-				throw new Error("the smtp server hung up")
-			}),
+			deliverQueuedBatch(
+				QUEUE,
+				[job("job_1", payloadFor("dlv_1"))],
+				async () => {
+					throw new Error("the smtp server hung up")
+				},
+				ignoreMalformed,
+			),
 		).rejects.toThrow("the smtp server hung up")
 
 		const span = exporter.getFinishedSpans().find((each) => each.name === `deliver ${QUEUE}`)
@@ -129,9 +138,42 @@ describe("delivering a batch of queued jobs", () => {
 				seen.push(payload.deliveryId)
 				return delivered
 			},
+			ignoreMalformed,
 		)
 
 		expect(seen).toEqual(["dlv_2"])
 		expect(exporter.getFinishedSpans().filter((s) => s.name === `deliver ${QUEUE}`)).toHaveLength(1)
+	})
+
+	it("reports a malformed job by queue and id rather than discarding it silently", async () => {
+		const reported: { queue: string; jobId: string }[] = []
+		exporter.reset()
+
+		await deliverQueuedBatch(
+			QUEUE,
+			[job("job_bad", { nothing: "useful" }), job("job_ok", payloadFor("dlv_3"))],
+			async () => delivered,
+			(queue, jobId) => reported.push({ queue, jobId }),
+		)
+
+		expect(reported).toEqual([{ queue: QUEUE, jobId: "job_bad" }])
+	})
+	it("logs the discarded job at warn, with the queue and the job id an operator can chase", async () => {
+		const lines: string[] = []
+		const logger = createLogger({ level: "debug", write: (line) => lines.push(line) })
+		exporter.reset()
+
+		await deliverQueuedBatch(
+			QUEUE,
+			[job("job_bad", { nothing: "useful" })],
+			async () => delivered,
+			malformedJobReporter(logger),
+		)
+
+		const entry = JSON.parse(lines[0] ?? "{}")
+		expect(entry.level).toBe("warn")
+		expect(entry.message).toBe("Discarded a malformed delivery job")
+		expect(entry.queue).toBe(QUEUE)
+		expect(entry.job_id).toBe("job_bad")
 	})
 })

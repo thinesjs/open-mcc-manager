@@ -14,7 +14,6 @@ export const workerEnvSchema = z.object({
 	NOTIFICATION_ALLOW_HTTP: boolean.default("false"),
 	NOTIFICATION_ALLOWED_HOSTS: z.string().default(""),
 	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),
-	LOG_LEVEL: z.string().default("info"),
 	OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),
 })
 

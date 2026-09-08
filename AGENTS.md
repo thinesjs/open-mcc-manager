@@ -606,6 +606,47 @@ reachable from any network, and nothing here may change that.
   *after* joining is reported as `unreachable` drift, because MCC swallows its
   own bind failure.
 
+## Logging
+
+Each daemon owns exactly one root logger, at module scope in its own
+`src/root-logger.ts`, built from `readLevel(process.env.LOG_LEVEL)` **before**
+`loadEnv()` — so a rejected environment is itself reported through it, and so
+the fatal `main().catch(...)` handler, which lives outside `main`, logs through
+the same root. The entrypoint hands that root to `startServer`/`startWorker`
+explicitly; the parameter is required and has no default, because a default
+would conceal the dependency while still letting a caller pass something else.
+
+No bare `console.*` in `apps/server/src` or `apps/worker/src`. The three
+operator-facing CLI paths are the only exceptions — `bootstrap-owner.ts`,
+`bootstrap-owner-cli.ts` and `generate-sealbox-key-cli.ts` — because a person at
+a terminal should not be handed JSON.
+`packages/core/src/log/daemon-console.test.ts` asserts that exact set by file, so
+a new `console.error`, `console?.error` or `console["error"]` in either daemon
+fails the suite. It matches named console methods rather than any `console.`
+text, because `"console.read"` and `"console.write"` are capability names in
+`instance.router.ts` and are not console calls.
+
+**A pg-boss `warning` payload is never logged.** Both apps register the one
+shared `attachQueueWarning` adapter, before `boss.start()` because warnings fire
+during startup, and each app's complete `warning` listener set must be exactly
+that adapter — a second listener beside a safe one is the hole this closes. The
+adapter logs `warning.message` and nothing else: the event type is
+`{ message, data }` with no discriminator, and `data` carries bound query
+parameters, so message-only is forced rather than preferred.
+
+What error text may contain, stated rather than assumed: **addresses and ports
+may appear** in redacted error text. `redact()` has no hostname, IP or port
+pattern, and a self-hoster's own database host in their own diagnostics is the
+same category as the server address they typed into the settings form. Known
+credential syntaxes continue through the redactor, which masks a
+`SEALBOX_KEYS=...` assignment and not a bare key value.
+
+Every deployment path that runs a daemon must forward `LOG_LEVEL` and
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Compose passes only the variables it lists —
+there is no `env_file:` — so an unforwarded variable makes correct code ship a
+feature that silently does nothing. `scripts/compose-secrets.test.ts` pins both,
+per service.
+
 ## Dashboard (apps/web)
 
 - Any UI that establishes or re-establishes trust in a host key (enrolment,

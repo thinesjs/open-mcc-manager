@@ -1,7 +1,9 @@
-import { generateKeyPair } from "@open-mcc/core"
+import { createLogger, generateKeyPair } from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "./env"
+
+const silent = createLogger({ write: () => undefined })
 
 const createdDbs: Db[] = []
 
@@ -35,7 +37,6 @@ const baseEnv = async (): Promise<Env> => ({
 	NOTIFICATION_ALLOWED_HOSTS: "",
 	NOTIFICATION_ALLOWED_ADDRESSES: "",
 	NOTIFICATION_TEAMS_HOSTS: "",
-	LOG_LEVEL: "info",
 	OTEL_EXPORTER_OTLP_ENDPOINT: "",
 })
 
@@ -52,12 +53,12 @@ afterEach(async () => {
 
 describe("startServer singleton lock gate", () => {
 	it("closes the connection pool it opened when another replica already holds the lock", async () => {
-		const holder = await acquireSingletonLock(url)
+		const holder = await acquireSingletonLock(url, silent)
 		expect(holder.acquired).toBe(true)
 		const serveFn = vi.fn()
 
 		try {
-			await expect(startServer(await baseEnv(), serveFn)).rejects.toThrow(/singleton lock/i)
+			await expect(startServer(await baseEnv(), serveFn, silent)).rejects.toThrow(/singleton lock/i)
 		} finally {
 			await holder.release()
 		}

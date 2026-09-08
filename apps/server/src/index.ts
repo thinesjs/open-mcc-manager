@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server"
 import { readBuildInfo, startTracing } from "@open-mcc/core"
 import { startServer } from "./bootstrap"
 import { loadEnv } from "./env"
+import { rootLogger as logger, SERVICE } from "./root-logger"
 import { GENERATE_KEY_FLAG, generateSealboxKeyFromArgv } from "./sealbox-key-argv"
 
 export type { AppRouter } from "./routers/index"
@@ -15,12 +16,12 @@ const main = async (): Promise<void> => {
 	}
 	const env = loadEnv()
 	const tracing = startTracing({
-		service: "open-mcc-server",
+		service: SERVICE,
 		version: readBuildInfo(process.env).version,
 		endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
 	})
 	if (!tracing.active) {
-		console.warn(
+		logger.warn(
 			"OTEL_EXPORTER_OTLP_ENDPOINT is not set, so no traces are being sent. Logs will carry no trace id and a delivery cannot be followed across processes.",
 		)
 	}
@@ -30,10 +31,10 @@ const main = async (): Promise<void> => {
 	process.on("SIGINT", flush)
 	process.on("SIGTERM", flush)
 
-	await startServer(env, serve)
+	await startServer(env, serve, logger)
 }
 
 main().catch((error: Error) => {
-	console.error(error.message)
+	logger.error(error.message)
 	process.exit(1)
 })

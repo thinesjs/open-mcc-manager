@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { egressPolicy } from "./egress"
 import type { DeliveryOutcome } from "./outcome"
 import type { NotificationEnvelope } from "./sender"
+import type { Conversation } from "./smtp.client"
 import { deliverEmail, type EmailSettings, emailMessage } from "./smtp.sender"
 
 const envelope: NotificationEnvelope = {
@@ -27,6 +28,8 @@ const settings: EmailSettings = {
 }
 
 const delivered: DeliveryOutcome = { kind: "delivered", statusCode: 250 }
+
+const settledDelivery: Conversation = { kind: "settled", outcome: delivered }
 
 const nowhere = { pinned: false, reason: "it points at a private network" } as const
 
@@ -66,7 +69,7 @@ describe("who the mail sender is willing to talk to", () => {
 			},
 			speak: async (_socket, credentials) => {
 				spokenTo.push(credentials.hostname)
-				return delivered
+				return settledDelivery
 			},
 		})
 
@@ -90,7 +93,7 @@ describe("who the mail sender is willing to talk to", () => {
 				if (address === "203.0.113.7") throw new Error("refused")
 				return socketStub()
 			},
-			speak: async () => delivered,
+			speak: async () => settledDelivery,
 		})
 
 		expect(dialled).toEqual(["203.0.113.7", "203.0.113.8"])
@@ -130,7 +133,7 @@ describe("who the mail sender is willing to talk to", () => {
 			},
 			speak: async () => {
 				order.push("speak")
-				return delivered
+				return settledDelivery
 			},
 		})
 
@@ -155,7 +158,7 @@ describe("who the mail sender is willing to talk to", () => {
 			},
 			speak: async () => {
 				order.push("speak")
-				return delivered
+				return settledDelivery
 			},
 		})
 
@@ -176,7 +179,7 @@ describe("who the mail sender is willing to talk to", () => {
 				dialled.push(address)
 				return socketStub()
 			},
-			speak: async () => delivered,
+			speak: async () => settledDelivery,
 		})
 
 		expect(dialled).toEqual(["192.168.4.9"])
@@ -190,7 +193,7 @@ describe("who the mail sender is willing to talk to", () => {
 				dialled.push(address)
 				return socketStub()
 			},
-			speak: async () => delivered,
+			speak: async () => settledDelivery,
 		})
 
 		expect(dialled).toEqual([])
@@ -298,5 +301,121 @@ describe("what an operator is told when the connection itself fails", () => {
 
 		const reason = outcome.kind === "retryable" ? outcome.reason : ""
 		expect(reason).not.toMatch(/\d+\.\d+\.\d+\.\d+|:\d{2,5}\b/)
+	})
+})
+
+describe("which conversation outcomes reach a second pinned address", () => {
+	const twoAddresses = {
+		resolve: async () => ({
+			pinned: true as const,
+			addresses: [
+				{ address: "203.0.113.7", family: 4 as const, named: false },
+				{ address: "203.0.113.8", family: 4 as const, named: false },
+			],
+		}),
+	}
+
+	const dialling = () => {
+		const opened: string[] = []
+		return {
+			opened,
+			open: async ({ address }: { address: string }) => {
+				opened.push(address)
+				return socketStub()
+			},
+		}
+	}
+
+	it("tries the next address when the conversation says it is safe", async () => {
+		const { opened, open } = dialling()
+		const refused: DeliveryOutcome = {
+			kind: "retryable",
+			statusCode: 421,
+			reason: "Server answered 421",
+			retryAfterSeconds: undefined,
+		}
+
+		const outcome = await deliverEmail(settings, envelope, {
+			...twoAddresses,
+			open,
+			speak: async () => ({ kind: "tryNextAddress", outcome: refused }),
+		})
+
+		expect(opened).toEqual(["203.0.113.7", "203.0.113.8"])
+		expect(outcome).toEqual(refused)
+	})
+
+	it("stops at the first address when the conversation says it is settled", async () => {
+		const { opened, open } = dialling()
+		const refused: DeliveryOutcome = {
+			kind: "terminal",
+			statusCode: 550,
+			reason: "Server refused with 550",
+			stopSending: false,
+		}
+
+		const outcome = await deliverEmail(settings, envelope, {
+			...twoAddresses,
+			open,
+			speak: async () => ({ kind: "settled", outcome: refused }),
+		})
+
+		expect(opened).toEqual(["203.0.113.7"])
+		expect(outcome).toEqual(refused)
+	})
+
+	it("reports the last conversation's outcome when every address says try the next", async () => {
+		const { opened, open } = dialling()
+		let seen = 0
+		const codes = [421, 450]
+
+		const outcome = await deliverEmail(settings, envelope, {
+			...twoAddresses,
+			open,
+			speak: async () => {
+				const statusCode = codes[seen]
+				seen += 1
+				return {
+					kind: "tryNextAddress" as const,
+					outcome: {
+						kind: "retryable" as const,
+						statusCode,
+						reason: `Server answered ${statusCode}`,
+						retryAfterSeconds: undefined,
+					},
+				}
+			},
+		})
+
+		expect(opened).toEqual(["203.0.113.7", "203.0.113.8"])
+		expect(outcome.kind === "retryable" && outcome.statusCode).toBe(450)
+	})
+
+	it("delivers from the second address after the first says try the next", async () => {
+		const { opened, open } = dialling()
+		let first = true
+
+		const outcome = await deliverEmail(settings, envelope, {
+			...twoAddresses,
+			open,
+			speak: async () => {
+				if (first) {
+					first = false
+					return {
+						kind: "tryNextAddress" as const,
+						outcome: {
+							kind: "retryable" as const,
+							statusCode: 421,
+							reason: "Server answered 421",
+							retryAfterSeconds: undefined,
+						},
+					}
+				}
+				return settledDelivery
+			},
+		})
+
+		expect(opened).toEqual(["203.0.113.7", "203.0.113.8"])
+		expect(outcome.kind).toBe("delivered")
 	})
 })

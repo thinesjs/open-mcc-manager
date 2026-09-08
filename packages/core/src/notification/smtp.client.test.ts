@@ -1,18 +1,18 @@
-import { readFileSync } from "node:fs"
-import { createConnection, createServer, type Server, type Socket } from "node:net"
-import { join } from "node:path"
-import { connect as startTls, TLSSocket } from "node:tls"
 import { afterEach, describe, expect, it } from "vitest"
+import {
+	type Answer,
+	clientUpgrade,
+	dial,
+	EHLO_NO_TLS,
+	EHLO_WITH_TLS,
+	type Fake,
+	HOSTNAME,
+	happyPath,
+	serverSideTls,
+	startFake,
+} from "../test/smtp-fake"
 import { converse, plainCredential, type SmtpCredentials } from "./smtp.client"
-import { secureOptions } from "./smtp.connect"
 import type { SmtpMessage } from "./smtp.message"
-
-const FIXTURES = join(import.meta.dirname, "fixtures")
-
-const cert = readFileSync(join(FIXTURES, "smtp-test-cert.pem"))
-const key = readFileSync(join(FIXTURES, "smtp-test-key.pem"))
-
-const HOSTNAME = "smtp.example.com"
 
 const message: SmtpMessage = {
 	id: "dlv_abc123",
@@ -30,132 +30,29 @@ const credentials: SmtpCredentials = {
 	password: "s3cret",
 }
 
-type Answer = { readonly write?: string; readonly upgrade?: boolean }
-
-type Fake = {
-	readonly port: number
-	readonly transcript: readonly string[]
-	readonly close: () => Promise<void>
-}
-
-const startFake = async (
-	greeting: string,
-	answer: (line: string) => Answer,
-	secureFrom: (socket: Socket) => Socket,
-): Promise<Fake> => {
-	const transcript: string[] = []
-	let server: Server | undefined
-
-	const drive = (socket: Socket) => {
-		let buffer = ""
-		let collecting = false
-
-		const onData = (chunk: Buffer) => {
-			buffer += chunk.toString("utf8")
-
-			if (collecting) {
-				const end = buffer.indexOf("\r\n.\r\n")
-				if (end === -1) return
-				transcript.push("<message>")
-				buffer = buffer.slice(end + 5)
-				collecting = false
-				socket.write("250 queued\r\n")
-			}
-
-			while (true) {
-				const end = buffer.indexOf("\r\n")
-				if (end === -1) return
-				const line = buffer.slice(0, end)
-				buffer = buffer.slice(end + 2)
-				transcript.push(line)
-
-				const reply = answer(line)
-				if (reply.write !== undefined) socket.write(reply.write)
-				if (reply.upgrade === true) {
-					socket.removeListener("data", onData)
-					const secure = secureFrom(socket)
-					drive(secure)
-					return
-				}
-				if (line.toUpperCase().startsWith("DATA")) {
-					collecting = true
-					return
-				}
-			}
-		}
-
-		socket.on("data", onData)
-		socket.on("error", () => undefined)
-	}
-
-	server = createServer((socket) => {
-		socket.write(greeting)
-		drive(socket)
-	})
-
-	await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve))
-	const address = server.address()
-
-	return {
-		port: typeof address === "object" && address !== null ? address.port : 0,
-		transcript,
-		close: () => new Promise<void>((resolve) => server?.close(() => resolve())),
-	}
-}
-
-const serverSideTls = (socket: Socket): Socket =>
-	new TLSSocket(socket, { isServer: true, cert, key })
-
-const clientUpgrade = (socket: Socket) =>
-	new Promise<TLSSocket>((resolve, reject) => {
-		const secure = startTls({ ...secureOptions(socket, HOSTNAME), ca: [cert] })
-		secure.once("secureConnect", () => resolve(secure))
-		secure.once("error", reject)
-	})
-
-const dial = (port: number): Promise<Socket> =>
-	new Promise((resolve, reject) => {
-		const socket = createConnection({ host: "127.0.0.1", port })
-		socket.once("connect", () => resolve(socket))
-		socket.once("error", reject)
-	})
-
-const EHLO_WITH_TLS = "250-mail.example.com\r\n250-STARTTLS\r\n250 AUTH PLAIN LOGIN\r\n"
-
-const EHLO_NO_TLS = "250-mail.example.com\r\n250 AUTH PLAIN LOGIN\r\n"
-
 let fake: Fake | undefined
 
 const run = async (
 	greeting: string,
 	answer: (line: string) => Answer,
 	overrides: Partial<SmtpCredentials> = {},
+	finalReply?: string,
 ) => {
-	fake = await startFake(greeting, answer, serverSideTls)
+	fake = await startFake(greeting, answer, serverSideTls, {
+		...(finalReply === undefined ? {} : { finalReply }),
+	})
 	const socket = await dial(fake.port)
-	const outcome = await converse(socket, { ...credentials, ...overrides }, message, {
+	const conversation = await converse(socket, { ...credentials, ...overrides }, message, {
 		upgrade: clientUpgrade,
 		timeoutMs: 5000,
 	})
-	return { outcome, transcript: fake.transcript }
+	return { outcome: conversation.outcome, conversation, transcript: fake.transcript }
 }
 
 afterEach(async () => {
 	await fake?.close()
 	fake = undefined
 })
-
-const happyPath = (line: string): Answer => {
-	const command = line.toUpperCase()
-	if (command.startsWith("EHLO")) return { write: EHLO_WITH_TLS }
-	if (command.startsWith("STARTTLS")) return { write: "220 go ahead\r\n", upgrade: true }
-	if (command.startsWith("AUTH")) return { write: "235 authenticated\r\n" }
-	if (command.startsWith("MAIL FROM")) return { write: "250 sender ok\r\n" }
-	if (command.startsWith("RCPT TO")) return { write: "250 recipient ok\r\n" }
-	if (command.startsWith("DATA")) return { write: "354 go ahead\r\n" }
-	if (command.startsWith("QUIT")) return { write: "221 bye\r\n" }
-	return { write: "500 unknown\r\n" }
-}
 
 describe("a delivery that works", () => {
 	it("secures the session before signing in, then sends the message", async () => {
@@ -290,11 +187,11 @@ describe("a recipient the server will not take", () => {
 	const runWith = async (codes: readonly string[]) => {
 		fake = await startFake("220 mail.example.com ESMTP\r\n", withRecipients(codes), serverSideTls)
 		const socket = await dial(fake.port)
-		const outcome = await converse(socket, credentials, many, {
+		const conversation = await converse(socket, credentials, many, {
 			upgrade: clientUpgrade,
 			timeoutMs: 5000,
 		})
-		return { outcome, transcript: fake.transcript }
+		return { outcome: conversation.outcome, transcript: fake.transcript }
 	}
 
 	it("gives up permanently when any address is refused for good, and never sends the message", async () => {
@@ -325,5 +222,187 @@ describe("the AUTH PLAIN payload", () => {
 	it("separates the parts with NUL bytes, as the mechanism requires", () => {
 		const encoded = plainCredential("alerts", "s3cret")
 		expect(Buffer.from(encoded, "base64").toString("utf8")).toBe("\0alerts\0s3cret")
+	})
+})
+
+describe("whether a conversation says another address is worth trying", () => {
+	const answering =
+		(overrides: Readonly<Record<string, string>>) =>
+		(line: string): Answer => {
+			const command = line.toUpperCase()
+			for (const [prefix, reply] of Object.entries(overrides)) {
+				if (command.startsWith(prefix)) return { write: reply }
+			}
+			return happyPath(line)
+		}
+
+	it("says try the next address on a transient reply before any data is written", async () => {
+		const { conversation, transcript } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			answering({ "MAIL FROM": "450 mailbox busy, try later\r\n" }),
+		)
+
+		expect(conversation.kind).toBe("tryNextAddress")
+		expect(transcript.some((line) => line.startsWith("DATA"))).toBe(false)
+	})
+
+	it("settles on a permanent reply before any data is written", async () => {
+		const { conversation, transcript } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			answering({ "MAIL FROM": "550 sender rejected\r\n" }),
+		)
+
+		expect(conversation.kind).toBe("settled")
+		expect(transcript.some((line) => line.startsWith("DATA"))).toBe(false)
+	})
+
+	it("says try the next address when DATA is refused transiently, since nothing was sent", async () => {
+		const { conversation } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			answering({ DATA: "451 not now\r\n" }),
+		)
+
+		expect(conversation.kind).toBe("tryNextAddress")
+	})
+
+	it("settles when the server refuses DATA permanently", async () => {
+		const { conversation } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			answering({ DATA: "554 no\r\n" }),
+		)
+
+		expect(conversation.kind).toBe("settled")
+	})
+
+	it("says try the next address on an explicit transient reply after the terminating dot", async () => {
+		const { conversation, transcript } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			happyPath,
+			{},
+			"451 spooling failed, retry\r\n",
+		)
+
+		expect(conversation.kind).toBe("tryNextAddress")
+		expect(conversation.outcome.kind).toBe("retryable")
+		expect(transcript).toContain("<message>")
+	})
+
+	it("settles on an explicit permanent reply after the terminating dot", async () => {
+		const { conversation, transcript } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			happyPath,
+			{},
+			"552 mailbox full\r\n",
+		)
+
+		expect(conversation.kind).toBe("settled")
+		expect(conversation.outcome.kind).toBe("terminal")
+		expect(transcript).toContain("<message>")
+	})
+
+	it("says try the next address when the secure upgrade itself fails", async () => {
+		fake = await startFake("220 mail.example.com ESMTP\r\n", happyPath, serverSideTls)
+		const socket = await dial(fake.port)
+		const conversation = await converse(socket, credentials, message, {
+			upgrade: async () => {
+				throw new Error("the handshake failed")
+			},
+			timeoutMs: 5000,
+		})
+
+		expect(conversation.kind).toBe("tryNextAddress")
+	})
+
+	it("says try the next address when the connection dies waiting for the go-ahead", async () => {
+		const { conversation, transcript } = await run("220 mail.example.com ESMTP\r\n", (line) =>
+			line.toUpperCase().startsWith("DATA") ? { drop: true } : happyPath(line),
+		)
+
+		expect(transcript.some((line) => line.startsWith("DATA"))).toBe(true)
+		expect(transcript).not.toContain("<message>")
+		expect(conversation.kind).toBe("tryNextAddress")
+	})
+
+	it("says try the next address when the connection dies after a recipient was accepted", async () => {
+		let asked = 0
+		fake = await startFake(
+			"220 mail.example.com ESMTP\r\n",
+			(line) => {
+				if (line.toUpperCase().startsWith("RCPT TO")) {
+					asked += 1
+					return asked === 1 ? { write: "250 recipient ok\r\n" } : { drop: true }
+				}
+				return happyPath(line)
+			},
+			serverSideTls,
+		)
+		const socket = await dial(fake.port)
+		const conversation = await converse(
+			socket,
+			credentials,
+			{ ...message, to: ["first@example.com", "second@example.com"] },
+			{ upgrade: clientUpgrade, timeoutMs: 5000 },
+		)
+
+		expect(asked).toBe(2)
+		expect(conversation.kind).toBe("tryNextAddress")
+	})
+
+	it("settles rather than failing over when the connection dies mid-payload", async () => {
+		fake = await startFake("220 mail.example.com ESMTP\r\n", happyPath, serverSideTls, {
+			dropAtPayload: true,
+		})
+		const socket = await dial(fake.port)
+		const conversation = await converse(socket, credentials, message, {
+			upgrade: clientUpgrade,
+			timeoutMs: 5000,
+		})
+
+		expect(fake.transcript).toContain("<dropped>")
+		expect(
+			conversation.kind,
+			"the payload was already on the wire, so retrying elsewhere risks a duplicate",
+		).toBe("settled")
+	})
+
+	it("stays delivered when the message is accepted but QUIT cannot be sent", async () => {
+		fake = await startFake("220 mail.example.com ESMTP\r\n", happyPath, serverSideTls)
+		const socket = await dial(fake.port)
+		const conversation = await converse(socket, credentials, message, {
+			upgrade: async (plain) => {
+				const secure = await clientUpgrade(plain)
+				let seen = ""
+				secure.on("data", (chunk: Buffer) => {
+					seen += chunk.toString("utf8")
+					if (seen.includes("250 queued")) secure.destroy()
+				})
+				return secure
+			},
+			timeoutMs: 5000,
+		})
+
+		expect(fake.transcript).toContain("<message>")
+		expect(fake.transcript).not.toContain("QUIT")
+		expect(conversation.kind).toBe("settled")
+		expect(
+			conversation.outcome.kind,
+			"the server already took the message, so a failed QUIT must not make it retryable",
+		).toBe("delivered")
+	})
+
+	it("settles as delivered on a positive final reply", async () => {
+		const { conversation } = await run("220 mail.example.com ESMTP\r\n", happyPath)
+
+		expect(conversation.kind).toBe("settled")
+		expect(conversation.outcome.kind).toBe("delivered")
+	})
+
+	it("settles when the server does not advertise the STARTTLS we require", async () => {
+		const { conversation } = await run(
+			"220 mail.example.com ESMTP\r\n",
+			answering({ EHLO: "250-mail.example.com\r\n250 PIPELINING\r\n" }),
+		)
+
+		expect(conversation.kind).toBe("settled")
 	})
 })

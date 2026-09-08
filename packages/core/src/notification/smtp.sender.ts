@@ -1,5 +1,6 @@
 import type { Socket } from "node:net"
 import { DELIVERY_TIMEOUT_MS } from "@open-mcc/contracts"
+import { assertExhaustive } from "../lib/exhaustive"
 import { truncateChars } from "./bounds"
 import { bareHostname, type EgressPolicy, PUBLIC_ONLY } from "./egress"
 import { networkReason } from "./failure"
@@ -92,7 +93,7 @@ export const deliverEmail = async (
 			}
 		}
 
-		return await speak(
+		const conversation = await speak(
 			socket,
 			{
 				hostname,
@@ -103,6 +104,16 @@ export const deliverEmail = async (
 			emailMessage(settings, envelope, at),
 			{ upgrade: secure, timeoutMs },
 		)
+
+		switch (conversation.kind) {
+			case "settled":
+				return conversation.outcome
+			case "tryNextAddress":
+				lastFailure = conversation.outcome
+				break
+			default:
+				assertExhaustive(conversation)
+		}
 	}
 
 	return lastFailure

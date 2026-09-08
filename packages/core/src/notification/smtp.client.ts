@@ -114,13 +114,30 @@ const encoded = (value: string): string => Buffer.from(value, "utf8").toString("
 export const plainCredential = (username: string, password: string): string =>
 	encoded(`\0${username}\0${password}`)
 
+export type Conversation =
+	| { readonly kind: "settled"; readonly outcome: DeliveryOutcome }
+	| { readonly kind: "tryNextAddress"; readonly outcome: DeliveryOutcome }
+
+const settled = (outcome: DeliveryOutcome): Conversation => ({ kind: "settled", outcome })
+
+const tryNextAddress = (outcome: DeliveryOutcome): Conversation => ({
+	kind: "tryNextAddress",
+	outcome,
+})
+
+const byReply = (code: number, reason: string): Conversation =>
+	isTransient(code)
+		? tryNextAddress(classifySmtpReply(code, reason))
+		: settled(classifySmtpReply(code, reason))
+
 export const converse = async (
 	connected: Socket,
 	credentials: SmtpCredentials,
 	message: SmtpMessage,
 	deps: ConverseDeps,
-): Promise<DeliveryOutcome> => {
+): Promise<Conversation> => {
 	const name = deps.clientName ?? "openmcc"
+	let dataWritten = false
 	let socket = connected
 	let reader = createReader(socket)
 
@@ -136,17 +153,17 @@ export const converse = async (
 
 	try {
 		const greeting = await reader.read()
-		if (!isPositive(greeting)) return classifySmtpReply(greeting.code, UNEXPECTED)
+		if (!isPositive(greeting)) return byReply(greeting.code, UNEXPECTED)
 
 		let capabilities = await step(`EHLO ${name}\r\n`)
-		if (!isPositive(capabilities)) return classifySmtpReply(capabilities.code, UNEXPECTED)
+		if (!isPositive(capabilities)) return byReply(capabilities.code, UNEXPECTED)
 
 		if (needsStartTls(credentials.port)) {
-			if (!advertises(capabilities, "STARTTLS")) return classifyRefusal(NO_TLS)
+			if (!advertises(capabilities, "STARTTLS")) return settled(classifyRefusal(NO_TLS))
 
 			const ready = await step("STARTTLS\r\n")
-			if (!isPositive(ready)) return classifySmtpReply(ready.code, NO_TLS)
-			if (reader.residual() !== "") return classifyRefusal(INJECTED)
+			if (!isPositive(ready)) return byReply(ready.code, NO_TLS)
+			if (reader.residual() !== "") return settled(classifyRefusal(INJECTED))
 
 			reader.stop()
 			socket.setTimeout(0)
@@ -155,7 +172,7 @@ export const converse = async (
 			reader = createReader(socket)
 
 			capabilities = await step(`EHLO ${name}\r\n`)
-			if (!isPositive(capabilities)) return classifySmtpReply(capabilities.code, UNEXPECTED)
+			if (!isPositive(capabilities)) return byReply(capabilities.code, UNEXPECTED)
 		}
 
 		const mechanisms = authMechanisms(capabilities)
@@ -163,20 +180,20 @@ export const converse = async (
 			const signedIn = await step(
 				`AUTH PLAIN ${plainCredential(credentials.username, credentials.password)}\r\n`,
 			)
-			if (!isPositive(signedIn)) return classifySmtpReply(signedIn.code, NO_AUTH)
+			if (!isPositive(signedIn)) return byReply(signedIn.code, NO_AUTH)
 		} else if (mechanisms.includes("LOGIN")) {
 			const asked = await step("AUTH LOGIN\r\n")
-			if (asked.code !== 334) return classifySmtpReply(asked.code, NO_AUTH)
+			if (asked.code !== 334) return byReply(asked.code, NO_AUTH)
 			const wantsPassword = await step(`${encoded(credentials.username)}\r\n`)
-			if (wantsPassword.code !== 334) return classifySmtpReply(wantsPassword.code, NO_AUTH)
+			if (wantsPassword.code !== 334) return byReply(wantsPassword.code, NO_AUTH)
 			const signedIn = await step(`${encoded(credentials.password)}\r\n`)
-			if (!isPositive(signedIn)) return classifySmtpReply(signedIn.code, NO_AUTH)
+			if (!isPositive(signedIn)) return byReply(signedIn.code, NO_AUTH)
 		} else {
-			return classifyRefusal(NO_AUTH)
+			return settled(classifyRefusal(NO_AUTH))
 		}
 
 		const sender = await step(`MAIL FROM:<${message.from}>\r\n`)
-		if (!isPositive(sender)) return classifySmtpReply(sender.code, REFUSED)
+		if (!isPositive(sender)) return byReply(sender.code, REFUSED)
 
 		const refusals: number[] = []
 		for (const recipient of message.to) {
@@ -185,29 +202,33 @@ export const converse = async (
 		}
 		if (refusals.length > 0) {
 			const permanent = refusals.find((code) => !isTransient(code))
-			return classifySmtpReply(permanent ?? refusals[0] ?? 550, REFUSED_RECIPIENT)
+			return byReply(permanent ?? refusals[0] ?? 550, REFUSED_RECIPIENT)
 		}
 
 		const opened = await step("DATA\r\n")
-		if (opened.code !== 354) return classifySmtpReply(opened.code, REFUSED)
+		if (opened.code !== 354) return byReply(opened.code, REFUSED)
 
+		dataWritten = true
 		const accepted = await step(`${messageBytes(message)}\r\n.\r\n`)
-		if (!isPositive(accepted)) return classifySmtpReply(accepted.code, REFUSED)
+		if (!isPositive(accepted)) return byReply(accepted.code, REFUSED)
+
+		const landed: Conversation = settled({ kind: "delivered", statusCode: accepted.code })
 
 		try {
 			await say(socket, "QUIT\r\n")
 		} catch {
-			return { kind: "delivered", statusCode: accepted.code }
+			return landed
 		}
-		return { kind: "delivered", statusCode: accepted.code }
+		return landed
 	} catch (error) {
 		const raised = error instanceof Error ? error : undefined
-		return {
+		const outcome: DeliveryOutcome = {
 			kind: "retryable",
 			statusCode: undefined,
 			reason: raised?.message === TOO_SLOW ? TOO_SLOW : networkReason(raised),
 			retryAfterSeconds: undefined,
 		}
+		return dataWritten ? settled(outcome) : tryNextAddress(outcome)
 	} finally {
 		reader.stop()
 		socket.destroy()

@@ -124,7 +124,7 @@ describe("mcp wire format", () => {
 
 	it("unwraps the envelope the client wraps every result in", () => {
 		const real =
-			'{"success":true,"data":{"host":"100.83.37.21","port":25566,"username":"LiveBot",' +
+			'{"success":true,"data":{"host":"100.101.102.103","port":25566,"username":"LiveBot",' +
 			'"protocolVersion":760,"terrainEnabled":false,"inventoryEnabled":false,' +
 			'"entityEnabled":false,"location":{"x":-22.5,"y":81,"z":13.5}}}'
 		const response = responseFrom(
@@ -136,7 +136,7 @@ describe("mcp wire format", () => {
 		)
 
 		expect(sessionStatusFrom(response)).toEqual({
-			host: "100.83.37.21",
+			host: "100.101.102.103",
 			port: 25566,
 			username: "LiveBot",
 			protocolVersion: 760,

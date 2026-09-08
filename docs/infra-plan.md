@@ -300,6 +300,17 @@ rather than leaving it to be discovered at the first sync.
   is a one-line change and worth making once someone can confirm.
 - **The `security.yml` Trivy scan stays where it is.** It scans a locally built image on every
   push, which is the right cadence for a scan; tying it to releases would scan less often.
+- **It also stays scoped to the server runtime image, and that is a recorded limitation rather
+  than an oversight.** `docker build -f docker/server/Dockerfile` with no `--target` builds the
+  last stage, `runtime`, so `migrate` and `worker` are not scanned even though the release
+  workflow publishes both. Extending the scan to a three-target matrix would triple the build
+  time and, today, find nothing new: all three stages sit on the same
+  `gcr.io/distroless/nodejs22-debian12:nonroot` base, and a distroless image's findings come
+  from that base — which is exactly what `.trivyignore` is suppressing. The only way the three
+  could diverge is their bundled dependencies, and `check-runtime-deps.mjs` already pins those
+  against `prune-deploy.mjs`'s `runtimeRoots` across both Dockerfiles. Revisit this the moment
+  `worker` stops sharing the server's base image, because `docker/worker/Dockerfile` is a
+  separate file and nothing would otherwise notice it drifting.
 
 ## What this plan does not cover
 

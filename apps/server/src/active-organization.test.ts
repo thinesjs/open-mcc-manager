@@ -16,6 +16,7 @@ beforeAll(async () => {
 	auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
 		trustedOrigins: [ORIGIN],
 		disableSignUp: false,
+		userCreation: "trusted",
 		disableRateLimit: true,
 	})
 

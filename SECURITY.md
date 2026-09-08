@@ -65,9 +65,28 @@ depth, not a substitute for one.
 - **Closed registration; accounts are provisioned, not self-served.** Public
   sign-up is disabled (`emailAndPassword.disableSignUp`) — the `/sign-up/email`
   endpoint refuses every request, regardless of caller, so nobody can create
-  an account by simply reaching the server. The first owner is created by a
-  deployment-time bootstrap (`pnpm --filter @open-mcc/server bootstrap:owner`,
-  reading credentials from environment variables) that refuses to run if any
+  an account by simply reaching the server. That flag covers one method only,
+  and it is read once at construction, so it can neither close a social, OIDC,
+  SAML, passkey, magic-link or OTP path nor express "open until the first
+  account exists". The control that does both is the `user.validateUserInfo`
+  gate (`apps/server/src/security/registration-gate.ts`), which better-auth
+  calls from `internalAdapter.createUser` — the one seam every method's user
+  creation passes through — and which refuses `create-user` whenever any user
+  row exists, without reading the identity or the method. A deployment holding
+  no account admits the first one; a deployment holding one is closed to every
+  method at once, including methods added later, so enabling a social or SSO
+  provider cannot reopen registration by accident. `link-account` and `sign-in`
+  are admitted, so an existing member can still attach a provider and sign
+  back in, and the rejection the client sees names nothing about the
+  deployment. `CreateAuthOptions.userCreation` defaults to `gated`, so a new
+  auth instance is closed unless it declares otherwise; only the non-mounted
+  `signupAuth` used for invitation acceptance is `trusted`, because the router
+  has already verified a specific pending invitation before it creates a user.
+  `apps/server/src/registration-gate.test.ts` proves the closure per method and
+  proves the bootstrap path still works on an empty deployment. The first owner
+  is created by a deployment-time bootstrap
+  (`pnpm --filter @open-mcc/server bootstrap:owner`, reading credentials from
+  environment variables) that refuses to run if any
   user already exists in the database — a bootstrap that succeeds twice would
   be a backdoor, so this is enforced as a hard precondition, not a warning.
   Every subsequent member is added by invitation, issued by an existing

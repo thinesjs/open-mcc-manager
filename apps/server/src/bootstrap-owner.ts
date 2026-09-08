@@ -1,6 +1,7 @@
 import type { Db } from "@open-mcc/db"
 import { Client } from "pg"
 import type { Auth } from "./auth"
+import { anyUserExists } from "./security/registration-gate"
 
 const BOOTSTRAP_LOCK_KEY = 415_260_331
 
@@ -46,8 +47,7 @@ export const bootstrapOwner = (
 	input: BootstrapOwnerInput,
 ): Promise<BootstrapOwnerResult> =>
 	withBootstrapLock(url, async () => {
-		const existingUser = await db.selectFrom("user").select("id").limit(1).executeTakeFirst()
-		if (existingUser) {
+		if (await anyUserExists(db)) {
 			throw new UsersAlreadyExistError(
 				"Refusing to bootstrap: at least one user already exists in this deployment",
 			)

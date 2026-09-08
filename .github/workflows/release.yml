@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   publish:
+    if: vars.PUBLISH_IMAGES == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

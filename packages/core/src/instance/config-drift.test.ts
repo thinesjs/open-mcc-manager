@@ -9,9 +9,10 @@ const base = {
 	minecraftAccount: "OpenMccBot",
 	serverAddress: "100.101.102.103",
 	autoRelogRetries: 3,
-	autoRelogDelaySeconds: 10,
+	autoRelogEnabled: true,
+	autoRelogDelaySeconds: { min: 10, max: 10 },
 	antiAfkEnabled: false,
-	antiAfkIntervalSeconds: 60,
+	antiAfkIntervalSeconds: { min: 60, max: 60 },
 	autoRespawnEnabled: false,
 	liveControlEnabled: false,
 	liveControlPort: 33333,
@@ -190,5 +191,100 @@ describe("instance config drift", () => {
 		expect(drift && describeConfigDrift(drift)).toBe(
 			'Main.General.Server.Host is "elsewhere", expected "100.101.102.103"',
 		)
+	})
+})
+
+describe("comparing delay ranges", () => {
+	const ranged = {
+		...base,
+		accountType: "offline",
+		autoRelogDelaySeconds: { min: 5, max: 20 },
+		antiAfkIntervalSeconds: { min: 90, max: 300 },
+	} as const
+
+	it("sees no drift when the host carries the very same distinct range", () => {
+		const expected = renderInstanceConfig(ranged)
+
+		expect(compareInstanceConfig(expected, expected)).toEqual([])
+	})
+
+	it.each([
+		{
+			named: "the shortest auto-relog bound",
+			from: "{ min = 5.0, max = 20.0 }",
+			to: "{ min = 6.0, max = 20.0 }",
+			key: "ChatBot.AutoRelog.Delay",
+			want: { min: 6, max: 20 },
+			expected: { min: 5, max: 20 },
+		},
+		{
+			named: "the longest auto-relog bound",
+			from: "{ min = 5.0, max = 20.0 }",
+			to: "{ min = 5.0, max = 21.0 }",
+			key: "ChatBot.AutoRelog.Delay",
+			want: { min: 5, max: 21 },
+			expected: { min: 5, max: 20 },
+		},
+		{
+			named: "the shortest anti-AFK bound",
+			from: "{ min = 90.0, max = 300.0 }",
+			to: "{ min = 91.0, max = 300.0 }",
+			key: "ChatBot.AntiAFK.Delay",
+			want: { min: 91, max: 300 },
+			expected: { min: 90, max: 300 },
+		},
+		{
+			named: "the longest anti-AFK bound",
+			from: "{ min = 90.0, max = 300.0 }",
+			to: "{ min = 90.0, max = 301.0 }",
+			key: "ChatBot.AntiAFK.Delay",
+			want: { min: 90, max: 301 },
+			expected: { min: 90, max: 300 },
+		},
+	])("reports drift when the host moves $named", ({ from, to, key, want, expected: wanted }) => {
+		const expected = renderInstanceConfig(ranged)
+		expect(expected).toContain(from)
+		const actual = expected.replace(from, to)
+
+		const drift = compareInstanceConfig(expected, actual).filter(
+			(entry) => entry.kind !== "section",
+		)
+
+		expect(drift).toEqual([{ kind: "managed", key, expected: wanted, actual: want }])
+	})
+
+	it("names both bounds when it tells an operator what a delay drifted to", () => {
+		const expected = renderInstanceConfig(ranged)
+		const actual = expected.replace("{ min = 5.0, max = 20.0 }", "{ min = 6.0, max = 21.0 }")
+		const drift = compareInstanceConfig(expected, actual).filter(
+			(entry) => entry.kind !== "section",
+		)
+
+		expect(drift.map(describeConfigDrift)).toEqual([
+			"ChatBot.AutoRelog.Delay is 6-21, expected 5-20",
+		])
+	})
+
+	it("reports the pinned player-name check as safety drift when a host turns it off", () => {
+		const expected = renderInstanceConfig({ ...base, accountType: "offline" })
+		expect(expected).toContain("IgnoreInvalidPlayerName = true")
+		const actual = expected.replace(
+			"IgnoreInvalidPlayerName = true",
+			"IgnoreInvalidPlayerName = false",
+		)
+
+		const drift = compareInstanceConfig(expected, actual).filter(
+			(entry) => entry.kind !== "section",
+		)
+
+		expect(drift).toEqual([
+			{
+				kind: "fixed",
+				key: "Main.Advanced.IgnoreInvalidPlayerName",
+				expected: true,
+				actual: false,
+			},
+		])
+		expect(drift.every(isSafetyDrift)).toBe(true)
 	})
 })

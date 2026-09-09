@@ -2,8 +2,12 @@ import { parse } from "smol-toml"
 
 export type McConfigScalar = string | number | boolean
 
+export type McConfigRange = { min: number; max: number }
+
+export type McConfigValue = McConfigScalar | McConfigRange
+
 export type McConfigReading = {
-	values: Map<string, McConfigScalar>
+	values: Map<string, McConfigValue>
 	unreadable: string[]
 }
 
@@ -15,13 +19,13 @@ const isScalar = (value: unknown): value is McConfigScalar =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
 
-const collapseRange = (value: Record<string, unknown>): McConfigScalar | undefined => {
+const readRange = (value: Record<string, unknown>): McConfigValue | undefined => {
 	const keys = Object.keys(value)
 	if (keys.length !== 2 || !keys.includes("min") || !keys.includes("max")) return undefined
 	const min = value.min
 	const max = value.max
-	if (typeof min !== "number" || typeof max !== "number" || min !== max) return undefined
-	return min
+	if (typeof min !== "number" || typeof max !== "number") return undefined
+	return min === max ? min : { min, max }
 }
 
 const descend = (root: Record<string, unknown>, path: readonly string[]): unknown => {
@@ -46,7 +50,7 @@ export const parseMccConfig = (text: string): Record<string, unknown> => {
 
 export const readMccConfigKeys = (text: string, keys: readonly string[]): McConfigReading => {
 	const document = parseMccConfig(text)
-	const values = new Map<string, McConfigScalar>()
+	const values = new Map<string, McConfigValue>()
 	const unreadable: string[] = []
 
 	for (const key of keys) {
@@ -57,7 +61,7 @@ export const readMccConfigKeys = (text: string, keys: readonly string[]): McConf
 			continue
 		}
 		if (isRecord(found)) {
-			const collapsed = collapseRange(found)
+			const collapsed = readRange(found)
 			if (collapsed !== undefined) {
 				values.set(key, collapsed)
 				continue

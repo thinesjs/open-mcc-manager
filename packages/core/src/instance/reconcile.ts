@@ -10,7 +10,7 @@ import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl, systemctl } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
-import { CONFIG_PATH_NAME, compareInstanceConfig } from "./config-drift"
+import { CONFIG_PATH_NAME, compareInstanceConfig, formatConfigValue } from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import { instanceDir, unitName } from "./unit"
 
@@ -201,8 +201,8 @@ const configDriftFor = async (
 								instanceId: instance.id,
 								kind: entry.kind,
 								key: entry.key,
-								expected: String(entry.expected),
-								actual: entry.actual === undefined ? null : String(entry.actual),
+								expected: formatConfigValue(entry.expected),
+								actual: entry.actual === undefined ? null : formatConfigValue(entry.actual),
 							},
 			)
 		}

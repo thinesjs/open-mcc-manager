@@ -1,4 +1,9 @@
-import { type AccountType, type InstanceConfigInput, isOfflineAccount } from "@open-mcc/contracts"
+import {
+	type AccountType,
+	type DelaySecondsRange,
+	type InstanceConfigInput,
+	isOfflineAccount,
+} from "@open-mcc/contracts"
 
 export const OFFLINE_PASSWORD = "-"
 
@@ -35,6 +40,7 @@ export const FIXED_CONFIG_KEYS = [
 	"Console.General.ConsoleMode",
 	"Logging.LogToFile",
 	"Main.Advanced.ExitOnFailure",
+	"Main.Advanced.IgnoreInvalidPlayerName",
 	"Main.Advanced.InternalCmdChar",
 	"Main.General.Method",
 	"ChatBot.McpServer.Transport.BindHost",
@@ -104,19 +110,18 @@ const serverLines = (address: string): string[] => {
 		: [`Host = ${tomlString(host)}`, `Port = ${tomlInt(port)}`]
 }
 
-const tomlSecondsRange = (seconds: number): string => {
-	if (!Number.isFinite(seconds) || seconds < 0) {
+const tomlSecondsRange = (range: DelaySecondsRange): string => {
+	if (!Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min < 0) {
 		throw new Error("Config delays must be a non-negative number of seconds")
 	}
-	const asFloat = seconds.toFixed(1)
-	return `{ min = ${asFloat}, max = ${asFloat} }`
+	return `{ min = ${range.min.toFixed(1)}, max = ${range.max.toFixed(1)} }`
 }
 
 export const DEFAULT_AUTO_RELOG_RETRIES = 3
 
-export const DEFAULT_AUTO_RELOG_DELAY_SECONDS = 10
+export const DEFAULT_AUTO_RELOG_DELAY_SECONDS: DelaySecondsRange = { min: 10, max: 10 }
 
-export const DEFAULT_ANTI_AFK_INTERVAL_SECONDS = 60
+export const DEFAULT_ANTI_AFK_INTERVAL_SECONDS: DelaySecondsRange = { min: 60, max: 60 }
 
 export const DEFAULT_LIVE_CONTROL_PORT = 33333
 
@@ -140,6 +145,7 @@ export const defaultInstanceConfig = (values: {
 	minecraftAccount: values.minecraftAccount,
 	serverAddress: values.serverAddress,
 	autoRelogRetries: DEFAULT_AUTO_RELOG_RETRIES,
+	autoRelogEnabled: true,
 	autoRelogDelaySeconds: DEFAULT_AUTO_RELOG_DELAY_SECONDS,
 	antiAfkEnabled: false,
 	antiAfkIntervalSeconds: DEFAULT_ANTI_AFK_INTERVAL_SECONDS,
@@ -177,6 +183,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[Main.Advanced]",
 		`EnableSentry = ${tomlBool(false)}`,
 		`ExitOnFailure = ${tomlBool(true)}`,
+		`IgnoreInvalidPlayerName = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		`ShowGithubStarReminder = ${tomlBool(false)}`,
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
@@ -189,7 +196,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[Main.Advanced.ServerList]",
 		"",
 		"[ChatBot.AutoRelog]",
-		`Enabled = ${tomlBool(true)}`,
+		`Enabled = ${tomlBool(config.autoRelogEnabled)}`,
 		`Retries = ${tomlInt(config.autoRelogRetries)}`,
 		`Delay = ${tomlSecondsRange(config.autoRelogDelaySeconds)}`,
 		"",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
 	ALLOWED_CONFIG_KEYS,
+	defaultInstanceConfig,
 	EMPTIED_CONFIG_SECTIONS,
 	FIXED_CONFIG_KEYS,
 	freeLiveControlPorts,
@@ -13,9 +14,10 @@ const base = {
 	minecraftAccount: "afk@example.com",
 	serverAddress: "play.example.com:25566",
 	autoRelogRetries: 3,
-	autoRelogDelaySeconds: 10,
+	autoRelogEnabled: true,
+	autoRelogDelaySeconds: { min: 10, max: 10 },
 	antiAfkEnabled: true,
-	antiAfkIntervalSeconds: 60,
+	antiAfkIntervalSeconds: { min: 60, max: 60 },
 	autoRespawnEnabled: false,
 	liveControlEnabled: false,
 	liveControlPort: 33333,
@@ -62,6 +64,7 @@ describe("instance config rendering", () => {
 			"Host",
 			"EnableSentry",
 			"ExitOnFailure",
+			"IgnoreInvalidPlayerName",
 			"InternalCmdChar",
 			"ShowGithubStarReminder",
 			"AutoRespawn",
@@ -420,5 +423,75 @@ describe("instance config rendering", () => {
 
 		expect(rendered).toContain("Inventory = false")
 		expect(rendered).toContain("EntityWorld = false")
+	})
+})
+
+const valueInSection = (rendered: string, section: string, key: string): string | undefined => {
+	const lines = rendered.split("\n")
+	const start = lines.indexOf(section)
+	if (start < 0) return undefined
+	for (const line of lines.slice(start + 1)) {
+		if (line.startsWith("[")) return undefined
+		if (line.startsWith(`${key} = `)) return line.slice(`${key} = `.length)
+	}
+	return undefined
+}
+
+describe("delay ranges and the auto-relog toggle", () => {
+	it("renders a distinct range into each delay, section-qualified so neither can stand in for the other", () => {
+		const rendered = renderInstanceConfig({
+			...base,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkIntervalSeconds: { min: 90, max: 300 },
+		})
+
+		expect(valueInSection(rendered, "[ChatBot.AutoRelog]", "Delay")).toBe(
+			"{ min = 5.0, max = 20.0 }",
+		)
+		expect(valueInSection(rendered, "[ChatBot.AntiAFK]", "Delay")).toBe(
+			"{ min = 90.0, max = 300.0 }",
+		)
+	})
+
+	it("renders equal bounds exactly as it did before ranges existed, in both sections", () => {
+		const rendered = renderInstanceConfig(base)
+
+		expect(valueInSection(rendered, "[ChatBot.AutoRelog]", "Delay")).toBe(
+			"{ min = 10.0, max = 10.0 }",
+		)
+		expect(valueInSection(rendered, "[ChatBot.AntiAFK]", "Delay")).toBe(
+			"{ min = 60.0, max = 60.0 }",
+		)
+	})
+
+	it.each([
+		{ named: "on", autoRelogEnabled: true, want: "true" },
+		{ named: "off", autoRelogEnabled: false, want: "false" },
+	])(
+		"renders the auto-relog toggle when the operator sets it $named",
+		({ autoRelogEnabled, want }) => {
+			const rendered = renderInstanceConfig({ ...base, autoRelogEnabled })
+
+			expect(valueInSection(rendered, "[ChatBot.AutoRelog]", "Enabled")).toBe(want)
+		},
+	)
+
+	it("pins the player-name check the players readout depends on", () => {
+		const rendered = renderInstanceConfig(base)
+
+		expect(valueInSection(rendered, "[Main.Advanced]", "IgnoreInvalidPlayerName")).toBe("true")
+		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.IgnoreInvalidPlayerName")
+	})
+
+	it("starts a new instance with auto-relog on, which is what the client did before the toggle", () => {
+		const config = defaultInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "AfkBot",
+			serverAddress: "play.example.com",
+		})
+
+		expect(config.autoRelogEnabled).toBe(true)
+		expect(config.autoRelogDelaySeconds).toEqual({ min: 10, max: 10 })
+		expect(config.antiAfkIntervalSeconds).toEqual({ min: 60, max: 60 })
 	})
 })

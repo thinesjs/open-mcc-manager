@@ -3,7 +3,7 @@ import {
 	type CreateInstanceInput,
 	can,
 	type InstanceConfigInput,
-	instanceConfigInput,
+	instanceConfigStored,
 	minuteOfDay,
 	needsInteractiveSignIn,
 	type Role,
@@ -253,7 +253,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<string | undefined> => {
 		const saved = await deps.instances.latestConfig(scope, instance.id)
 		if (!saved) return undefined
-		const parsed = instanceConfigInput.safeParse(saved.document)
+		const parsed = instanceConfigStored.safeParse(saved.document)
 		if (!parsed.success) return undefined
 		return renderInstanceConfig({ ...parsed.data, liveControlPort: instance.liveControlPort })
 	}
@@ -290,7 +290,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
 		const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
 		if (!saved) return undefined
-		const config = instanceConfigInput.safeParse(saved.document)
+		const config = instanceConfigStored.safeParse(saved.document)
 		if (!config.success || !config.data.liveControlEnabled) return undefined
 
 		const token = deps.secrets.open(
@@ -828,7 +828,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const instance = await requireInstance(ctx, instanceId)
 			const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
 			if (!row) return undefined
-			const parsed = instanceConfigInput.safeParse(row.document)
+			const parsed = instanceConfigStored.safeParse(row.document)
 			if (!parsed.success) return undefined
 			return { ...parsed.data, liveControlPort: instance.liveControlPort }
 		},

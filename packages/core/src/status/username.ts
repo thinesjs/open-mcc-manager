@@ -1,4 +1,4 @@
-import { instanceConfigInput, minecraftNameOf } from "@open-mcc/contracts"
+import { instanceConfigStored, minecraftNameOf } from "@open-mcc/contracts"
 import type { InstanceConfigRow, InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { LIVE_CONTROL_ROUTE } from "../instance/config"
@@ -20,7 +20,7 @@ export const resolveMinecraftName = async (
 	if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
 	const saved = await deps.latestConfig(instance.id)
 	if (!saved) return undefined
-	const config = instanceConfigInput.safeParse(saved.document)
+	const config = instanceConfigStored.safeParse(saved.document)
 	if (!config.success || !config.data.liveControlEnabled) return undefined
 
 	try {

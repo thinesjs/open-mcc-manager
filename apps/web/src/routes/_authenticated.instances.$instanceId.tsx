@@ -30,6 +30,7 @@ import { ConfirmDialog } from "~/components/ui/dialog"
 import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
+import { formatDelaySeconds } from "~/lib/delay-range"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { consoleLines } from "~/lib/minecraft-text"
@@ -526,6 +527,12 @@ function InstanceDetailPage() {
 											<dd className="text-sm text-foreground">{configQuery.data.serverAddress}</dd>
 										</div>
 										<div className="flex justify-between gap-4">
+											<dt className="text-sm text-muted-foreground">Rejoin after a disconnect</dt>
+											<dd className="text-sm text-foreground">
+												{configQuery.data.autoRelogEnabled ? "On" : "Off"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
 											<dt className="text-sm text-muted-foreground">Rejoin attempts</dt>
 											<dd className="text-sm tabular-nums text-foreground">
 												{configQuery.data.autoRelogRetries}
@@ -533,7 +540,9 @@ function InstanceDetailPage() {
 										</div>
 										<div className="flex justify-between gap-4">
 											<dt className="text-sm text-muted-foreground">Wait between attempts</dt>
-											<dd className="text-sm tabular-nums text-foreground">{`${configQuery.data.autoRelogDelaySeconds}s`}</dd>
+											<dd className="text-sm tabular-nums text-foreground">
+												{formatDelaySeconds(configQuery.data.autoRelogDelaySeconds)}
+											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
 											<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
@@ -545,7 +554,7 @@ function InstanceDetailPage() {
 											<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
 											<dd className="text-sm text-foreground">
 												{configQuery.data.antiAfkEnabled
-													? `Every ${configQuery.data.antiAfkIntervalSeconds}s`
+													? `Every ${formatDelaySeconds(configQuery.data.antiAfkIntervalSeconds)}`
 													: "Off"}
 											</dd>
 										</div>

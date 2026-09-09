@@ -66,15 +66,30 @@ export type CreateInstanceInput = z.infer<typeof createInstanceInput>
 export const instanceIdInput = z.object({ instanceId: z.string().min(1) })
 export type InstanceIdInput = z.infer<typeof instanceIdInput>
 
+export const DELAY_SECONDS_MINIMUM = 1
+
+export const DELAY_SECONDS_MAXIMUM = 3600
+
+const delayBound = z.number().int().min(DELAY_SECONDS_MINIMUM).max(DELAY_SECONDS_MAXIMUM)
+
+export const delaySecondsRange = z
+	.object({ min: delayBound, max: delayBound })
+	.strict()
+	.refine((value) => value.min <= value.max, {
+		message: "The shortest delay must not exceed the longest",
+	})
+export type DelaySecondsRange = z.infer<typeof delaySecondsRange>
+
 export const instanceConfigInput = z
 	.object({
 		accountType: accountTypeSchema,
 		minecraftAccount: z.string().min(1).max(255),
 		serverAddress: z.string().min(1).max(253),
 		autoRelogRetries: z.number().int().min(0).max(1000),
-		autoRelogDelaySeconds: z.number().int().min(1).max(3600),
+		autoRelogEnabled: z.boolean(),
+		autoRelogDelaySeconds: delaySecondsRange,
 		antiAfkEnabled: z.boolean(),
-		antiAfkIntervalSeconds: z.number().int().min(1).max(3600),
+		antiAfkIntervalSeconds: delaySecondsRange,
 		autoRespawnEnabled: z.boolean().default(false),
 		liveControlEnabled: z.boolean().default(false),
 		liveControlPort: z.number().int().min(1024).max(65535).default(33333),
@@ -84,6 +99,17 @@ export const instanceConfigInput = z
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>
+
+const storedDelaySeconds = z.union([
+	delayBound.transform((value) => ({ min: value, max: value })),
+	delaySecondsRange,
+])
+
+export const instanceConfigStored = instanceConfigInput.extend({
+	autoRelogEnabled: z.boolean().default(true),
+	autoRelogDelaySeconds: storedDelaySeconds,
+	antiAfkIntervalSeconds: storedDelaySeconds,
+})
 
 export const updateInstanceConfigInput = z.object({
 	instanceId: z.string().min(1),

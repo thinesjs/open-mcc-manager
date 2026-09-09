@@ -1,4 +1,4 @@
-import type { InstanceConfigInput } from "@open-mcc/contracts"
+import type { DelaySecondsRange, InstanceConfigInput } from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -28,6 +28,49 @@ const boundedInt = (raw: string, fallback: number): number => {
 	const parsed = Number.parseInt(raw, 10)
 	return Number.isFinite(parsed) ? parsed : fallback
 }
+
+type DelayRangeFieldProps = {
+	id: string
+	label: string
+	value: DelaySecondsRange
+	onChange: (value: DelaySecondsRange) => void
+}
+
+const DelayRangeField = ({ id, label, value, onChange }: DelayRangeFieldProps) => (
+	<div className="space-y-1.5">
+		<Label htmlFor={`${id}-min`} className="text-xs font-normal">
+			{label}
+		</Label>
+		<div className="grid grid-cols-2 gap-2">
+			<div className="space-y-1">
+				<Label htmlFor={`${id}-min`} className="text-xs font-normal text-muted-foreground">
+					Shortest
+				</Label>
+				<Input
+					id={`${id}-min`}
+					inputMode="numeric"
+					value={String(value.min)}
+					onChange={(event) =>
+						onChange({ ...value, min: boundedInt(event.target.value, value.min) })
+					}
+				/>
+			</div>
+			<div className="space-y-1">
+				<Label htmlFor={`${id}-max`} className="text-xs font-normal text-muted-foreground">
+					Longest
+				</Label>
+				<Input
+					id={`${id}-max`}
+					inputMode="numeric"
+					value={String(value.max)}
+					onChange={(event) =>
+						onChange({ ...value, max: boundedInt(event.target.value, value.max) })
+					}
+				/>
+			</div>
+		</div>
+	</div>
+)
 
 export const InstanceSettingsForm = ({
 	instanceId,
@@ -74,43 +117,41 @@ export const InstanceSettingsForm = ({
 
 			<div className="space-y-1.5">
 				<Label>Rejoin after a disconnect</Label>
-				<div className="grid gap-3 sm:grid-cols-2">
-					<div className="space-y-1.5">
-						<Label htmlFor="settings-retries" className="text-xs font-normal">
-							Attempts
-						</Label>
-						<Input
-							id="settings-retries"
-							inputMode="numeric"
-							value={String(draft.autoRelogRetries)}
-							onChange={(event) =>
-								setDraft({
-									...draft,
-									autoRelogRetries: boundedInt(event.target.value, draft.autoRelogRetries),
-								})
-							}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor="settings-delay" className="text-xs font-normal">
-							Wait between attempts (seconds)
-						</Label>
-						<Input
+				<Choice
+					label="Rejoin after a disconnect"
+					value={draft.autoRelogEnabled ? "on" : "off"}
+					options={ON_OFF}
+					onChange={(value) => setDraft({ ...draft, autoRelogEnabled: value === "on" })}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Turn this off for a bot that should stay offline once it drops.
+				</p>
+				{draft.autoRelogEnabled ? (
+					<div className="grid gap-3 pt-1 sm:grid-cols-2">
+						<div className="space-y-1.5">
+							<Label htmlFor="settings-retries" className="text-xs font-normal">
+								Attempts
+							</Label>
+							<Input
+								id="settings-retries"
+								inputMode="numeric"
+								value={String(draft.autoRelogRetries)}
+								onChange={(event) =>
+									setDraft({
+										...draft,
+										autoRelogRetries: boundedInt(event.target.value, draft.autoRelogRetries),
+									})
+								}
+							/>
+						</div>
+						<DelayRangeField
 							id="settings-delay"
-							inputMode="numeric"
-							value={String(draft.autoRelogDelaySeconds)}
-							onChange={(event) =>
-								setDraft({
-									...draft,
-									autoRelogDelaySeconds: boundedInt(
-										event.target.value,
-										draft.autoRelogDelaySeconds,
-									),
-								})
-							}
+							label="Wait between attempts (seconds)"
+							value={draft.autoRelogDelaySeconds}
+							onChange={(autoRelogDelaySeconds) => setDraft({ ...draft, autoRelogDelaySeconds })}
 						/>
 					</div>
-				</div>
+				) : null}
 			</div>
 
 			<div className="space-y-1.5">
@@ -136,23 +177,12 @@ export const InstanceSettingsForm = ({
 					onChange={(value) => setDraft({ ...draft, antiAfkEnabled: value === "on" })}
 				/>
 				{draft.antiAfkEnabled ? (
-					<div className="space-y-1.5 pt-1">
-						<Label htmlFor="settings-afk" className="text-xs font-normal">
-							Act every (seconds)
-						</Label>
-						<Input
+					<div className="pt-1">
+						<DelayRangeField
 							id="settings-afk"
-							inputMode="numeric"
-							value={String(draft.antiAfkIntervalSeconds)}
-							onChange={(event) =>
-								setDraft({
-									...draft,
-									antiAfkIntervalSeconds: boundedInt(
-										event.target.value,
-										draft.antiAfkIntervalSeconds,
-									),
-								})
-							}
+							label="Act every (seconds)"
+							value={draft.antiAfkIntervalSeconds}
+							onChange={(antiAfkIntervalSeconds) => setDraft({ ...draft, antiAfkIntervalSeconds })}
 						/>
 					</div>
 				) : null}

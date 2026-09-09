@@ -63,10 +63,20 @@ describe("reading a client config", () => {
 		expect(reading.values.get("ChatBot.AntiAFK.Delay")).toBe(60)
 	})
 
-	it("refuses to collapse a range whose ends differ", () => {
+	it("reads a range whose ends differ as a range rather than calling it unreadable", () => {
 		const reading = readMccConfigKeys("[ChatBot.AutoRelog]\nDelay = { min = 1.0, max = 9.0 }\n", [
 			"ChatBot.AutoRelog.Delay",
 		])
+
+		expect(reading.values.get("ChatBot.AutoRelog.Delay")).toEqual({ min: 1, max: 9 })
+		expect(reading.unreadable).toEqual([])
+	})
+
+	it("still refuses a min-max pair whose bounds are not numbers", () => {
+		const reading = readMccConfigKeys(
+			'[ChatBot.AutoRelog]\nDelay = { min = "1.0", max = "9.0" }\n',
+			["ChatBot.AutoRelog.Delay"],
+		)
 
 		expect(reading.values.has("ChatBot.AutoRelog.Delay")).toBe(false)
 		expect(reading.unreadable).toEqual(["ChatBot.AutoRelog.Delay"])

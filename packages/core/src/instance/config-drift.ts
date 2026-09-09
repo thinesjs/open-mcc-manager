@@ -1,4 +1,4 @@
-import type { McConfigScalar } from "@open-mcc/contracts/boundary/mcc-config"
+import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys, readMccConfigSections } from "@open-mcc/contracts/boundary/mcc-config"
 import { ALLOWED_CONFIG_KEYS, EMPTIED_CONFIG_SECTIONS, FIXED_CONFIG_KEYS } from "./config"
 
@@ -6,8 +6,8 @@ export type ConfigDrift =
 	| {
 			kind: "managed" | "fixed"
 			key: string
-			expected: McConfigScalar
-			actual: McConfigScalar | undefined
+			expected: McConfigValue
+			actual: McConfigValue | undefined
 	  }
 	| { kind: "section"; section: string; entries: number }
 	| { kind: "unreadable"; key: string }
@@ -17,6 +17,15 @@ export const CONFIG_PATH_NAME = "MinecraftClient.ini"
 const MANAGED_KEYS: readonly string[] = ALLOWED_CONFIG_KEYS
 const FIXED_KEYS: readonly string[] = FIXED_CONFIG_KEYS
 const ALL_KEYS: readonly string[] = [...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS]
+
+export const formatConfigValue = (value: McConfigValue): string =>
+	typeof value === "object" ? `${value.min}-${value.max}` : String(value)
+
+const sameConfigValue = (want: McConfigValue, have: McConfigValue | undefined): boolean => {
+	if (want === have) return true
+	if (typeof want !== "object" || typeof have !== "object") return false
+	return want.min === have.min && want.max === have.max
+}
 
 export const compareInstanceConfig = (
 	expectedDocument: string,
@@ -30,7 +39,7 @@ export const compareInstanceConfig = (
 		const want = expected.values.get(key)
 		if (want === undefined) continue
 		const have = actual.values.get(key)
-		if (have === want) continue
+		if (sameConfigValue(want, have)) continue
 		drift.push({
 			kind: FIXED_KEYS.includes(key) ? "fixed" : "managed",
 			key,
@@ -63,8 +72,10 @@ export const describeConfigDrift = (drift: ConfigDrift): string => {
 	if (drift.kind === "unreadable") {
 		return `${drift.key} holds a value this manager cannot read`
 	}
-	const actual = drift.actual === undefined ? "nothing" : JSON.stringify(drift.actual)
-	return `${drift.key} is ${actual}, expected ${JSON.stringify(drift.expected)}`
+	const describeValue = (value: McConfigValue): string =>
+		typeof value === "object" ? formatConfigValue(value) : JSON.stringify(value)
+	const actual = drift.actual === undefined ? "nothing" : describeValue(drift.actual)
+	return `${drift.key} is ${actual}, expected ${describeValue(drift.expected)}`
 }
 
 export const isSafetyDrift = (drift: ConfigDrift): boolean =>

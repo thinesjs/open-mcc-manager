@@ -484,9 +484,10 @@ describe("comparing a host's client config", () => {
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
 			autoRelogRetries: 3,
-			autoRelogDelaySeconds: 10,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 10, max: 10 },
 			antiAfkEnabled: false,
-			antiAfkIntervalSeconds: 60,
+			antiAfkIntervalSeconds: { min: 60, max: 60 },
 			autoRespawnEnabled: false,
 			liveControlEnabled: false,
 			liveControlPort: 33333,
@@ -529,6 +530,59 @@ describe("comparing a host's client config", () => {
 		])
 	})
 
+	it("shows an operator both bounds of a drifted delay, never the object itself", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkEnabled: false,
+			antiAfkIntervalSeconds: { min: 60, max: 60 },
+			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace("{ min = 5.0, max = 20.0 }", "{ min = 7.0, max = 30.0 }"),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toEqual([
+			{
+				instanceId: "abc123",
+				kind: "managed",
+				key: "ChatBot.AutoRelog.Delay",
+				expected: "5-20",
+				actual: "7-30",
+			},
+		])
+	})
+
 	it("says the config is missing rather than reporting every key as drifted", async () => {
 		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const transport = await connected({
@@ -561,9 +615,10 @@ describe("comparing a host's client config", () => {
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
 			autoRelogRetries: 3,
-			autoRelogDelaySeconds: 10,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 10, max: 10 },
 			antiAfkEnabled: false,
-			antiAfkIntervalSeconds: 60,
+			antiAfkIntervalSeconds: { min: 60, max: 60 },
 			autoRespawnEnabled: false,
 			liveControlEnabled: true,
 			liveControlPort: 33401,
@@ -615,9 +670,10 @@ describe("comparing a host's client config", () => {
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
 			autoRelogRetries: 3,
-			autoRelogDelaySeconds: 10,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 10, max: 10 },
 			antiAfkEnabled: false,
-			antiAfkIntervalSeconds: 60,
+			antiAfkIntervalSeconds: { min: 60, max: 60 },
 			autoRespawnEnabled: false,
 			liveControlEnabled: true,
 			liveControlPort: 33401,

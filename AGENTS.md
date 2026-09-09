@@ -96,6 +96,26 @@ against.
 self-hosted deployment should not phone home, and the key is not in
 `ALLOWED_CONFIG_KEYS`, so an operator could not have turned it off.
 
+### The pinned player-name check, and what depends on it
+
+`renderInstanceConfig` writes `Main.Advanced.IgnoreInvalidPlayerName = true` as a
+fixed literal, and the key is in `FIXED_CONFIG_KEYS`, so a host that turns it off
+reports safety drift.
+
+Pinning it changes no behaviour today, because `true` is already the client's own
+default. It is pinned because otherwise a bound this manager relies on would rest
+on a default this project does not own. With the check on, the client drops a
+joining player whose name is not a real Minecraft name — the decorated
+placeholders some servers put in their tab list. With it off, those names reach
+the client's player list and then any readout built on it.
+
+That makes the pin load-bearing for the player-name shape a reader on this side
+may assume: unpin it and a strict parser rejects **the entire players readout**
+rather than the one bad entry. The manager pins and rejects rather than silently
+filtering such an entry, because filtering here would hide either fixed-config
+drift or an upstream change to what the client promises. Do not relax the pin to
+make a player-name test pass, and do not add filtering in its place.
+
 ## Prohibitions
 
 - No Next.js, in any form, ever.

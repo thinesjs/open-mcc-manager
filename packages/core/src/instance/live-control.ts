@@ -23,6 +23,15 @@ import {
 	sessionStatusFrom,
 	worldStateFrom,
 } from "@open-mcc/contracts/boundary/mcp"
+import {
+	loadedBotsFrom,
+	type McpLoadedBot,
+	type McpPlayerStats,
+	type McpStatusEffect,
+	playerStatsFrom,
+	playersListFrom,
+	statusEffectsFrom,
+} from "@open-mcc/contracts/boundary/mcp-readouts"
 import type { HostTransport } from "@open-mcc/transport"
 import { LiveChannelUnavailableError } from "@open-mcc/transport"
 
@@ -194,6 +203,28 @@ export const readWorldState = (
 	target: LiveControlTarget,
 	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpWorldState> => callLiveTool(target, "mcc_world_state", worldStateFrom, {}, timeoutMs)
+
+export const readPlayerStats = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpPlayerStats> =>
+	callLiveTool(target, "mcc_player_stats", playerStatsFrom, {}, timeoutMs)
+
+export const readStatusEffects = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpStatusEffect[]> =>
+	callLiveTool(target, "mcc_status_effects", statusEffectsFrom, {}, timeoutMs)
+
+export const readLoadedBots = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<McpLoadedBot[]> => callLiveTool(target, "mcc_loaded_bots", loadedBotsFrom, {}, timeoutMs)
+
+export const readPlayersList = (
+	target: LiveControlTarget,
+	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+): Promise<string[]> => callLiveTool(target, "mcc_players_list", playersListFrom, {}, timeoutMs)
 
 export const LIVE_ENTITY_MAX = 25
 

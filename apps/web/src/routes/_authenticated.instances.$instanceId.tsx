@@ -21,6 +21,7 @@ import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { LiveChat } from "~/components/live-chat"
 import { LiveEvents } from "~/components/live-events"
 import { LiveInventory } from "~/components/live-inventory"
+import { LiveReadouts } from "~/components/live-readouts"
 import { PlayerAvatar } from "~/components/player-avatar"
 import { ScheduledCommands } from "~/components/scheduled-commands"
 import { SleepWindow } from "~/components/sleep-window"
@@ -73,6 +74,30 @@ function InstanceDetailPage() {
 	const liveInventoryQuery = useQuery({
 		...trpc.instance.readLiveInventory.queryOptions({ instanceId }),
 		enabled: configQuery.data?.inventoryDataEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
+	const livePlayerStatsQuery = useQuery({
+		...trpc.instance.readLivePlayerStats.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
+	const liveStatusEffectsQuery = useQuery({
+		...trpc.instance.readLiveStatusEffects.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
+	const liveBotsQuery = useQuery({
+		...trpc.instance.readLiveBots.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
+		retry: false,
+		refetchInterval: 5000,
+	})
+	const livePlayersQuery = useQuery({
+		...trpc.instance.readLivePlayers.queryOptions({ instanceId }),
+		enabled: configQuery.data?.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
@@ -404,6 +429,13 @@ function InstanceDetailPage() {
 											</div>
 										</dl>
 									) : null}
+
+									<LiveReadouts
+										stats={livePlayerStatsQuery.data}
+										effects={liveStatusEffectsQuery.data}
+										bots={liveBotsQuery.data}
+										players={livePlayersQuery.data}
+									/>
 
 									{liveEntitiesQuery.data ? (
 										<div className="space-y-2">

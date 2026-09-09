@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
+import type {
+	McpLoadedBot,
+	McpPlayerStats,
+	McpStatusEffect,
+} from "@open-mcc/contracts/boundary/mcp-readouts"
 import {
 	createHostController,
 	createHostControllerTransaction,
@@ -235,6 +240,23 @@ describe("live reads with no channel", () => {
 		expect(body.success).toBe(true)
 	})
 
+	it.each(["readLivePlayerStats", "readLiveStatusEffects", "readLiveBots", "readLivePlayers"])(
+		"answers %s with null rather than nothing",
+		async (procedure) => {
+			const { cookie, orgId } = await signUpAndActivate()
+			const instanceId = await seedInstance(orgId)
+
+			const res = await app.request(
+				`/trpc/instance.${procedure}?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+				{ headers: { Origin: ORIGIN, Cookie: cookie } },
+			)
+
+			expect(res.status).toBe(200)
+			const body = z.object({ result: z.object({ data: z.null() }) }).safeParse(await res.json())
+			expect(body.success).toBe(true)
+		},
+	)
+
 	it("answers getConfig with null when the instance has no saved config", async () => {
 		const { cookie, orgId } = await signUpAndActivate()
 		const instanceId = await seedInstance(orgId)
@@ -316,4 +338,173 @@ describe("instance router capability boundaries", () => {
 		})
 		expect(res.status).toBe(401)
 	})
+})
+
+describe("which controller method each readout route reaches", () => {
+	const SENTINELS: {
+		readLivePlayerStats: McpPlayerStats
+		readLiveStatusEffects: McpStatusEffect[]
+		readLiveBots: McpLoadedBot[]
+		readLivePlayers: string[]
+	} = {
+		readLivePlayerStats: {
+			health: 3,
+			foodLevel: 4,
+			level: 5,
+			totalExperience: 6,
+			gamemode: 2,
+			currentSlot: 8,
+			yaw: 9,
+			pitch: 10,
+			tps: 11,
+		},
+		readLiveStatusEffects: [
+			{ id: "Glowing", amplifier: 1, remainingSeconds: 5, isInfinite: false },
+		],
+		readLiveBots: [{ name: "RouteSentinel", isScript: false }],
+		readLivePlayers: ["RoutePlayer"],
+	}
+
+	const seen: Array<{ method: string; instanceId: string }> = []
+	const refusedMethods = new Set<string>()
+	let linked: Hono
+
+	beforeAll(async () => {
+		const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000", {
+			trustedOrigins: [ORIGIN],
+			disableSignUp: false,
+			userCreation: "trusted",
+			disableRateLimit: true,
+			allowOrganizationCreation: true,
+		})
+		const secrets = await createSecretStore(await generateKeyPair("k2"))
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const real = await createTestInstanceController(db)
+
+		linked = new Hono()
+		linked.use("*", requireSameOrigin([ORIGIN]))
+		linked.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+		linked.use(
+			"/trpc/*",
+			trpcServer({
+				router: appRouter,
+				createContext: createRequestContext({
+					auth,
+					signupAuth: auth,
+					db,
+					hostController: createHostController({
+						hosts,
+						sshKeys,
+						secrets,
+						probeHostKey: async () => Buffer.alloc(0),
+						createTransport: () => createFakeTransport(),
+						instanceIdsOnHost: async () => [],
+						now: () => new Date(),
+						withTransaction: createHostControllerTransaction(db, async () => null),
+					}),
+					processIdentities: {
+						announce: async () => undefined,
+						heartbeat: async () => undefined,
+						find: async () => undefined,
+					},
+					build: { version: "0.0.0-test", commit: "testsha" },
+					schemaVersion: "test",
+					instanceController: {
+						...real,
+						readLivePlayerStats: async (_actor, instanceId) => {
+							if (refusedMethods.has("readLivePlayerStats"))
+								throw new Error("readLivePlayerStats refused")
+							seen.push({ method: "readLivePlayerStats", instanceId })
+							return SENTINELS.readLivePlayerStats
+						},
+						readLiveStatusEffects: async (_actor, instanceId) => {
+							if (refusedMethods.has("readLiveStatusEffects"))
+								throw new Error("readLiveStatusEffects refused")
+							seen.push({ method: "readLiveStatusEffects", instanceId })
+							return SENTINELS.readLiveStatusEffects
+						},
+						readLiveBots: async (_actor, instanceId) => {
+							if (refusedMethods.has("readLiveBots")) throw new Error("readLiveBots refused")
+							seen.push({ method: "readLiveBots", instanceId })
+							return SENTINELS.readLiveBots
+						},
+						readLivePlayers: async (_actor, instanceId) => {
+							if (refusedMethods.has("readLivePlayers")) throw new Error("readLivePlayers refused")
+							seen.push({ method: "readLivePlayers", instanceId })
+							return SENTINELS.readLivePlayers
+						},
+					},
+					statusController: createTestStatusController(db),
+					destinationController: createTestDestinationController(db, secrets),
+					sshKeyController: createSshKeyController({
+						sshKeys,
+						secrets,
+						generateKeyPair: generateSshKeyPair,
+						withTransaction: createSshKeyControllerTransaction(db),
+					}),
+				}),
+			}),
+		)
+	})
+
+	it.each([
+		"readLivePlayerStats",
+		"readLiveStatusEffects",
+		"readLiveBots",
+		"readLivePlayers",
+	] as const)(
+		"one failing readout leaves the other three routes answering, not %s alone",
+		async (failing) => {
+			const { cookie, orgId } = await signUpAndActivate()
+			const instanceId = await seedInstance(orgId)
+			refusedMethods.clear()
+			refusedMethods.add(failing)
+
+			const routes = [
+				"readLivePlayerStats",
+				"readLiveStatusEffects",
+				"readLiveBots",
+				"readLivePlayers",
+			] as const
+			const statuses = await Promise.all(
+				routes.map(async (route) => {
+					const res = await linked.request(
+						`/trpc/instance.${route}?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+						{ headers: { Origin: ORIGIN, Cookie: cookie } },
+					)
+					return { route, status: res.status }
+				}),
+			)
+			refusedMethods.clear()
+
+			expect(statuses.filter((entry) => entry.status === 200)).toHaveLength(3)
+			expect(statuses.filter((entry) => entry.status !== 200).map((entry) => entry.route)).toEqual([
+				failing,
+			])
+		},
+	)
+
+	it.each([
+		"readLivePlayerStats",
+		"readLiveStatusEffects",
+		"readLiveBots",
+		"readLivePlayers",
+	] as const)(
+		"route %s reaches that same controller method with the instance id",
+		async (route) => {
+			const { cookie, orgId } = await signUpAndActivate()
+			const instanceId = await seedInstance(orgId)
+			seen.length = 0
+
+			const res = await linked.request(
+				`/trpc/instance.${route}?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+				{ headers: { Origin: ORIGIN, Cookie: cookie } },
+			)
+
+			expect(res.status).toBe(200)
+			expect(seen).toEqual([{ method: route, instanceId }])
+			expect(await res.json()).toMatchObject({ result: { data: SENTINELS[route] } })
+		},
+	)
 })

@@ -1,4 +1,5 @@
 import { isErrorCode } from "@open-mcc/contracts"
+import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
 import * as core from "@open-mcc/core"
 import {
 	FingerprintMismatchError,
@@ -61,6 +62,40 @@ describe("mapKnownError", () => {
 		expect(mapped?.code).toBe("BAD_REQUEST")
 		expect(mapped?.message).not.toContain(secretFingerprint)
 		expect(mapped?.message).not.toContain("SHA256:")
+	})
+
+	it("maps McpProtocolError to CONFLICT without echoing the address the client named", () => {
+		const address = "10.42.0.7:33333"
+		const mapped = mapKnownError(new McpProtocolError(`connect ${address} refused`))
+
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.errorCode).toBe("INSTANCE_LIVE_CONTROL_UNREADABLE")
+		expect(mapped?.message).not.toContain(address)
+		expect(mapped?.message).not.toContain("10.42.0.7")
+		expect(mapped?.message).not.toContain("33333")
+	})
+
+	it("maps McpProtocolError to CONFLICT without echoing a credential the client named", () => {
+		const credential = "MCC_MCP_AUTH_TOKEN=s3cr3t-value"
+		const mapped = mapKnownError(new McpProtocolError(`rejected ${credential}`))
+
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.message).not.toContain(credential)
+		expect(mapped?.message).not.toContain("s3cr3t-value")
+	})
+
+	it("gives every unreadable client answer the same words, so no readout can leak through its own", () => {
+		const messages = [
+			"player stats broke at 10.42.0.7",
+			"status effects broke at 10.42.0.7",
+			"loaded bots broke at 10.42.0.7",
+			"players list broke at 10.42.0.7",
+		]
+
+		const mapped = messages.map((message) => mapKnownError(new McpProtocolError(message))?.message)
+
+		expect(new Set(mapped).size).toBe(1)
+		expect(mapped[0]).toBe("The client answered in a way this manager could not read")
 	})
 
 	it("maps HostMisconfiguredError to BAD_REQUEST", () => {

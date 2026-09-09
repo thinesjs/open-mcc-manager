@@ -97,6 +97,26 @@ export const instanceRouter = router({
 		return nullWhenAbsent(ctx.instanceController.readLiveInventory(ctx.actor, input.instanceId))
 	}),
 
+	readLivePlayerStats: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return nullWhenAbsent(ctx.instanceController.readLivePlayerStats(ctx.actor, input.instanceId))
+	}),
+
+	readLiveStatusEffects: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return nullWhenAbsent(ctx.instanceController.readLiveStatusEffects(ctx.actor, input.instanceId))
+	}),
+
+	readLiveBots: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return nullWhenAbsent(ctx.instanceController.readLiveBots(ctx.actor, input.instanceId))
+	}),
+
+	readLivePlayers: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return nullWhenAbsent(ctx.instanceController.readLivePlayers(ctx.actor, input.instanceId))
+	}),
+
 	dropInventoryItem: protectedProcedure.input(dropInventoryItemInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "console.write")
 		return ctx.instanceController.dropInventoryItem(

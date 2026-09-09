@@ -21,6 +21,11 @@ import type {
 	McpSessionStatus,
 	McpWorldState,
 } from "@open-mcc/contracts/boundary/mcp"
+import type {
+	McpLoadedBot,
+	McpPlayerStats,
+	McpStatusEffect,
+} from "@open-mcc/contracts/boundary/mcp-readouts"
 import {
 	constraintViolationOf,
 	type Db,
@@ -56,8 +61,12 @@ import {
 	readChatHistory,
 	readEntities,
 	readInventory,
+	readLoadedBots,
+	readPlayerStats,
+	readPlayersList,
 	readRecentEvents,
 	readSessionStatus,
+	readStatusEffects,
 	readWorldState,
 	selectHeldItem as selectItemOverChannel,
 } from "./live-control"
@@ -761,6 +770,74 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			if (!target) return undefined
 			try {
 				return await readInventory(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLivePlayerStats: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpPlayerStats | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readPlayerStats(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLiveStatusEffects: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpStatusEffect[] | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readStatusEffects(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLiveBots: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<McpLoadedBot[] | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readLoadedBots(target.target)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return undefined
+				throw error
+			} finally {
+				await target.close()
+			}
+		},
+
+		readLivePlayers: async (
+			ctx: ActorContext,
+			instanceId: string,
+		): Promise<string[] | undefined> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			const target = await liveControlTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await readPlayersList(target.target)
 			} catch (error) {
 				if (error instanceof LiveChannelUnavailableError) return undefined
 				throw error

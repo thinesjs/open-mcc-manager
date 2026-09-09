@@ -11,6 +11,41 @@ import type {
 import { DatabaseError } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+
+const READER_RESULTS = {
+	readPlayerStats: {
+		health: 11,
+		foodLevel: 12,
+		level: 13,
+		totalExperience: 14,
+		gamemode: 1,
+		currentSlot: 5,
+		yaw: 6,
+		pitch: 7,
+		tps: 18,
+	},
+	readStatusEffects: [{ id: "Wither", amplifier: 4, remainingSeconds: 44, isInfinite: false }],
+	readLoadedBots: [{ name: "SentinelBot", isScript: true }],
+	readPlayersList: ["SentinelPlayer"],
+} as const
+
+const refusedReaders = new Set<string>()
+
+vi.mock("./live-control", async (importOriginal) => {
+	const real = await importOriginal<typeof import("./live-control")>()
+	const stub = (name: keyof typeof READER_RESULTS) => async () => {
+		if (refusedReaders.has(name)) throw new Error(`${name} refused`)
+		return READER_RESULTS[name]
+	}
+	return {
+		...real,
+		readPlayerStats: stub("readPlayerStats"),
+		readStatusEffects: stub("readStatusEffects"),
+		readLoadedBots: stub("readLoadedBots"),
+		readPlayersList: stub("readPlayersList"),
+	}
+})
+
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -911,5 +946,82 @@ describe("running several instances on one host", () => {
 			(entry) => entry.kind !== "section" && entry.key === "ChatBot.McpServer.Transport.Port",
 		)
 		expect(portDrift?.expected).not.toBe("33333")
+	})
+})
+
+describe("the four readouts a controller hands back", () => {
+	const liveInstance = () => {
+		const { deps } = makeDeps()
+		deps.instances.findById = async () =>
+			instanceRow({
+				liveControlPort: 33350,
+				liveControlTokenEncrypted: "sealed(32)",
+				liveControlTokenKeyId: "k1",
+			})
+		deps.instances.latestConfig = async () =>
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 33350,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+				},
+			})
+		return createInstanceController(deps)
+	}
+
+	it("returns what its own player-stats reader returned, not a shape of its own", async () => {
+		expect(await liveInstance().readLivePlayerStats(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayerStats,
+		)
+	})
+
+	it("returns what its own status-effects reader returned", async () => {
+		expect(await liveInstance().readLiveStatusEffects(owner, "abc123")).toEqual(
+			READER_RESULTS.readStatusEffects,
+		)
+	})
+
+	it("returns what its own loaded-bots reader returned", async () => {
+		expect(await liveInstance().readLiveBots(owner, "abc123")).toEqual(
+			READER_RESULTS.readLoadedBots,
+		)
+	})
+
+	it("returns what its own players reader returned", async () => {
+		expect(await liveInstance().readLivePlayers(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayersList,
+		)
+	})
+
+	it.each([
+		{ named: "the player stats", reader: "readPlayerStats" },
+		{ named: "the status effects", reader: "readStatusEffects" },
+		{ named: "the loaded bots", reader: "readLoadedBots" },
+		{ named: "the players list", reader: "readPlayersList" },
+	])("still answers the other three when $named reader fails", async ({ reader }) => {
+		refusedReaders.clear()
+		refusedReaders.add(reader)
+		const controller = liveInstance()
+
+		const outcomes = await Promise.allSettled([
+			controller.readLivePlayerStats(owner, "abc123"),
+			controller.readLiveStatusEffects(owner, "abc123"),
+			controller.readLiveBots(owner, "abc123"),
+			controller.readLivePlayers(owner, "abc123"),
+		])
+		refusedReaders.clear()
+
+		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1)
+		expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(3)
 	})
 })

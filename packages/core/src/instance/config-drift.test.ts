@@ -20,6 +20,7 @@ const base = {
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
 	advancedKeys: {},
+	botConfig: {},
 } as const
 
 const realConfig = readFileSync(

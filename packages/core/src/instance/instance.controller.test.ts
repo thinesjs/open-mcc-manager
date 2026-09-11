@@ -660,6 +660,7 @@ describe("running several instances on one host", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: {},
+			botConfig: {},
 		})
 
 		expect(documents).toHaveLength(1)
@@ -685,6 +686,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -714,6 +716,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -746,6 +749,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -774,6 +778,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -914,6 +919,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -943,6 +949,7 @@ describe("running several instances on one host", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -982,6 +989,7 @@ describe("the four readouts a controller hands back", () => {
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
 					advancedKeys: {},
+					botConfig: {},
 				},
 			})
 		return createInstanceController(deps)

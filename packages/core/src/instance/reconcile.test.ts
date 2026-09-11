@@ -495,6 +495,7 @@ describe("comparing a host's client config", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: {},
+			botConfig: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -549,6 +550,7 @@ describe("comparing a host's client config", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: {},
+			botConfig: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -628,6 +630,7 @@ describe("comparing a host's client config", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: { "ChatBot.AutoAttack.Mode": "single" },
+			botConfig: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -686,6 +689,7 @@ describe("comparing a host's client config", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: {},
+			botConfig: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -742,6 +746,7 @@ describe("comparing a host's client config", () => {
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
 			advancedKeys: {},
+			botConfig: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { advancedKeysSchema } from "./boundary/mcc-config-keys"
+import { advancedKeysSchema, botConfigSchema } from "./boundary/mcc-config-keys"
 
 export const instanceStatusSchema = z.enum(["created", "needs_auth", "stopped", "running", "error"])
 export type InstanceStatus = z.infer<typeof instanceStatusSchema>
@@ -98,6 +98,7 @@ export const instanceConfigInput = z
 		inventoryDataEnabled: z.boolean().default(false),
 		entityDataEnabled: z.boolean().default(false),
 		advancedKeys: advancedKeysSchema.default({}),
+		botConfig: botConfigSchema.default({}),
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>

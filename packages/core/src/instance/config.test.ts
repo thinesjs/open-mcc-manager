@@ -25,6 +25,7 @@ const base = {
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
 	advancedKeys: {},
+	botConfig: {},
 } as const
 
 describe("instance config rendering", () => {
@@ -51,6 +52,7 @@ describe("instance config rendering", () => {
 			"[ChatBot.ScriptScheduler]",
 			"[ChatBot.DiscordBridge]",
 			"[ChatBot.TelegramBridge]",
+			"[ChatBot.Map]",
 		])
 
 		const hostLines = rendered.split("\n").filter((line) => line.startsWith("Host = "))
@@ -99,6 +101,8 @@ describe("instance config rendering", () => {
 			"Enabled",
 			"Enabled",
 			"Enabled",
+			"Send_Rendered_To_Discord",
+			"Send_Rendered_To_Telegram",
 		])
 	})
 
@@ -434,6 +438,7 @@ describe("instance config rendering", () => {
 			liveControlEnabled: true,
 			entityDataEnabled: true,
 			advancedKeys: {},
+			botConfig: {},
 		})
 
 		expect(rendered).toContain("EntityHandling = true")
@@ -447,6 +452,7 @@ describe("instance config rendering", () => {
 			inventoryDataEnabled: true,
 			entityDataEnabled: true,
 			advancedKeys: {},
+			botConfig: {},
 		})
 
 		expect(rendered).toContain("Inventory = false")

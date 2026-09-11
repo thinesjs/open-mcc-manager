@@ -4,8 +4,11 @@ import {
 	type InstanceConfigInput,
 	isOfflineAccount,
 } from "@open-mcc/contracts"
-import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
-import { ADVANCED_ENUM_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
+import type { AdvancedKeys, BotConfig } from "@open-mcc/contracts/boundary/mcc-config-keys"
+import {
+	LIST_CONFIG_NAMES,
+	QUOTED_CONFIG_NAMES,
+} from "@open-mcc/contracts/boundary/mcc-config-keys"
 
 export const OFFLINE_PASSWORD = "-"
 
@@ -52,6 +55,8 @@ export const FIXED_CONFIG_KEYS = [
 	"ChatBot.McpServer.Capabilities.ChatAndCommands",
 	"ChatBot.McpServer.Capabilities.Movement",
 	"Main.Advanced.BotOwners",
+	"ChatBot.Map.Send_Rendered_To_Discord",
+	"ChatBot.Map.Send_Rendered_To_Telegram",
 	"ChatBot.AutoRespond.Enabled",
 	"ChatBot.ScriptScheduler.Enabled",
 	"ChatBot.DiscordBridge.Enabled",
@@ -163,6 +168,7 @@ export const defaultInstanceConfig = (values: {
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
 	advancedKeys: {},
+	botConfig: {},
 })
 
 export type ServerAddress = { host: string; port: number | undefined }
@@ -175,14 +181,33 @@ export const splitServerAddress = (value: string): ServerAddress => {
 	return { host: value.slice(0, separator), port }
 }
 
-const renderAdvancedKeys = (advancedKeys: AdvancedKeys): readonly string[] => {
+const PINNED_BOT_CONFIG: Readonly<Record<string, string>> = {
+	"ChatBot.Map.Send_Rendered_To_Discord": "false",
+	"ChatBot.Map.Send_Rendered_To_Telegram": "false",
+}
+
+const renderConfigValue = (key: string, value: string | readonly string[]): string => {
+	if (LIST_CONFIG_NAMES.includes(key)) {
+		const entries = typeof value === "string" ? [value] : value
+		return entries.length === 0 ? "[]" : `[ ${entries.map(tomlString).join(", ")} ]`
+	}
+	const single = typeof value === "string" ? value : (value[0] ?? "")
+	return QUOTED_CONFIG_NAMES.includes(key) ? tomlString(single) : single
+}
+
+const renderConfigTables = (
+	advancedKeys: AdvancedKeys,
+	botConfig: BotConfig,
+): readonly string[] => {
 	const tables = new Map<string, string[]>()
-	for (const [key, value] of Object.entries(advancedKeys)) {
-		if (value === undefined) continue
+	const entries: [string, string | readonly string[]][] = [
+		...Object.entries(advancedKeys),
+		...Object.entries(botConfig),
+		...Object.entries(PINNED_BOT_CONFIG),
+	].flatMap(([key, value]) => (value === undefined ? [] : [[key, value]]))
+	for (const [key, value] of entries) {
 		const separator = key.lastIndexOf(".")
-		const assignment = `${key.slice(separator + 1)} = ${
-			ADVANCED_ENUM_NAMES.includes(key) ? tomlString(value) : value
-		}`
+		const assignment = `${key.slice(separator + 1)} = ${renderConfigValue(key, value)}`
 		const table = key.slice(0, separator)
 		const lines = tables.get(table)
 		if (lines === undefined) tables.set(table, [assignment])
@@ -267,5 +292,5 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[ChatBot.TelegramBridge]",
 		`Enabled = ${tomlBool(false)}`,
 		"",
-		...renderAdvancedKeys(config.advancedKeys),
+		...renderConfigTables(config.advancedKeys, config.botConfig),
 	].join("\n")

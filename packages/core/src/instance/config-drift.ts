@@ -1,6 +1,6 @@
 import type { McConfigScalar, McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys, readMccConfigSections } from "@open-mcc/contracts/boundary/mcc-config"
-import { ADVANCED_KEY_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
+import { ADVANCED_KEY_NAMES, BOT_CONFIG_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { ALLOWED_CONFIG_KEYS, EMPTIED_CONFIG_SECTIONS, FIXED_CONFIG_KEYS } from "./config"
 
 export type ConfigDrift =
@@ -23,12 +23,13 @@ export const CONFIG_PATH_NAME = "MinecraftClient.ini"
 
 const MANAGED_KEYS: readonly string[] = ALLOWED_CONFIG_KEYS
 const FIXED_KEYS: readonly string[] = FIXED_CONFIG_KEYS
-const OPERATOR_KEYS: readonly string[] = ADVANCED_KEY_NAMES
+const OPERATOR_KEYS: readonly string[] = [...ADVANCED_KEY_NAMES, ...BOT_CONFIG_NAMES]
 export const isOperatorKey = (key: string): boolean => OPERATOR_KEYS.includes(key)
 const ALL_KEYS: readonly string[] = [
 	...ALLOWED_CONFIG_KEYS,
 	...FIXED_CONFIG_KEYS,
 	...ADVANCED_KEY_NAMES,
+	...BOT_CONFIG_NAMES,
 ]
 
 const isConfigList = (value: McConfigValue | undefined): value is readonly McConfigScalar[] =>

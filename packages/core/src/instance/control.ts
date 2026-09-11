@@ -23,6 +23,7 @@ export const INTERNAL_COMMANDS = [
 	"enchant",
 	"entity",
 	"exit",
+	"follow",
 	"health",
 	"help",
 	"inventory",

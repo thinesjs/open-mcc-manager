@@ -167,3 +167,23 @@ describe("instance control channel", () => {
 		expect(() => controlLine("!setrnd x 1 9")).toThrow(DisallowedInternalCommandError)
 	})
 })
+
+describe("following a player from the manager", () => {
+	it("runs the follow command in the form the client actually accepts", () => {
+		expect(controlLine("!follow start Steve")).toBe("/follow start Steve")
+	})
+
+	it("carries the client's own risk flag through untouched", () => {
+		expect(controlLine("!follow start Steve -f")).toBe("/follow start Steve -f")
+	})
+
+	it("lets the operator stop following", () => {
+		expect(controlLine("!follow stop")).toBe("/follow stop")
+	})
+
+	it("still refuses the commands that reach the client's own escalating surface", () => {
+		for (const denied of ["!script pwn", "!set a b", "!reload"]) {
+			expect(() => controlLine(denied)).toThrow(DisallowedInternalCommandError)
+		}
+	})
+})

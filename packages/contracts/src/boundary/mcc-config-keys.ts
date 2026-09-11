@@ -27,6 +27,43 @@ const floatWhere = (accepts: (value: number) => boolean, message: string) =>
 		message,
 	})
 
+const PATH_SHAPE = /^[^/\\%]+$/
+const CHAT_LOG_PATH_SHAPE = /^[^/\\]+$/
+const CHAT_LOG_TOKENS = /%username%|%serverip%/g
+
+const isPlainText = (value: string): boolean => {
+	for (const character of value) {
+		const code = character.codePointAt(0) ?? 0
+		if (code < 0x20 || code === 0x7f) return false
+	}
+	return true
+}
+
+const A_FILE_NAME = "A file name, not a path"
+
+const pathSchema = z
+	.string()
+	.min(1)
+	.regex(PATH_SHAPE, A_FILE_NAME)
+	.refine((value) => value !== "." && value !== ".." && isPlainText(value), {
+		message: A_FILE_NAME,
+	})
+
+const chatLogPathSchema = z
+	.string()
+	.min(1)
+	.regex(CHAT_LOG_PATH_SHAPE, A_FILE_NAME)
+	.refine((value) => value !== "." && value !== ".." && isPlainText(value), {
+		message: A_FILE_NAME,
+	})
+	.refine((value) => !value.replace(CHAT_LOG_TOKENS, "").includes("%"), {
+		message: "Only %username% and %serverip% can be used here",
+	})
+
+const alertWordsSchema = z.array(
+	z.string().min(1).refine(isPlainText, { message: "One line per entry" }),
+)
+
 export const ADVANCED_ENUM_SHAPE = {
 	"ChatBot.AutoAttack.Mode": z.enum(["single", "multi"], CHOOSE_A_VALUE),
 	"ChatBot.AutoAttack.Priority": z.enum(["distance", "health"], CHOOSE_A_VALUE),
@@ -118,3 +155,73 @@ export const advancedKeyRowSchema = z.object({
 	value: z.string(),
 })
 export type AdvancedKeyRow = z.infer<typeof advancedKeyRowSchema>
+
+export const BOT_CONFIG_QUOTED_SHAPE = {
+	"ChatBot.Alerts.Log_File": pathSchema,
+	"ChatBot.Mailer.DatabaseFile": pathSchema,
+	"ChatBot.Mailer.IgnoreListFile": pathSchema,
+	"ChatBot.PlayerListLogger.File": pathSchema,
+	"ChatBot.ChatLog.Log_File": chatLogPathSchema,
+	"ChatBot.ChatLog.Filter": z.enum(
+		["all", "messages", "chat", "private_chat", "internal_msg"],
+		CHOOSE_A_VALUE,
+	),
+}
+
+export const BOT_CONFIG_LIST_SHAPE = {
+	"ChatBot.Alerts.Matches": alertWordsSchema,
+	"ChatBot.Alerts.Excludes": alertWordsSchema,
+}
+
+export const BOT_CONFIG_BARE_SHAPE = {
+	"ChatBot.Alerts.Enabled": advancedBooleanSchema,
+	"ChatBot.Alerts.Beep_Enabled": advancedBooleanSchema,
+	"ChatBot.Alerts.Trigger_By_Words": advancedBooleanSchema,
+	"ChatBot.Alerts.Trigger_By_Rain": advancedBooleanSchema,
+	"ChatBot.Alerts.Trigger_By_Thunderstorm": advancedBooleanSchema,
+	"ChatBot.Alerts.Log_To_File": advancedBooleanSchema,
+	"ChatBot.Map.Enabled": advancedBooleanSchema,
+	"ChatBot.Map.Render_In_Console": advancedBooleanSchema,
+	"ChatBot.Map.Save_To_File": advancedBooleanSchema,
+	"ChatBot.Map.Auto_Render_On_Update": advancedBooleanSchema,
+	"ChatBot.Map.Delete_All_On_Unload": advancedBooleanSchema,
+	"ChatBot.Map.Notify_On_First_Update": advancedBooleanSchema,
+	"ChatBot.Map.Rasize_Rendered_Image": advancedBooleanSchema,
+	"ChatBot.Map.Resize_To": integerWithin(1, INT32.max),
+	"ChatBot.Mailer.Enabled": advancedBooleanSchema,
+	"ChatBot.Mailer.PublicInteractions": advancedBooleanSchema,
+	"ChatBot.Mailer.MaxMailsPerPlayer": integerWithin(1, INT32.max),
+	"ChatBot.Mailer.MaxDatabaseSize": integerWithin(1, INT32.max),
+	"ChatBot.Mailer.MailRetentionDays": integerWithin(1, INT32.max),
+	"ChatBot.ChatLog.Enabled": advancedBooleanSchema,
+	"ChatBot.ChatLog.Add_DateTime": advancedBooleanSchema,
+	"ChatBot.PlayerListLogger.Enabled": advancedBooleanSchema,
+	"ChatBot.PlayerListLogger.Delay": floatWhere((value) => value >= 1, "1 or more"),
+	"ChatBot.FollowPlayer.Enabled": advancedBooleanSchema,
+	"ChatBot.FollowPlayer.Update_Limit": floatWhere((value) => value >= 0, "0 or more"),
+	"ChatBot.FollowPlayer.Stop_At_Distance": floatWhere((value) => value >= 0, "0 or more"),
+	"ChatBot.RemoteControl.Enabled": advancedBooleanSchema,
+	"ChatBot.RemoteControl.AutoTpaccept": advancedBooleanSchema,
+	"ChatBot.RemoteControl.AutoTpaccept_Everyone": advancedBooleanSchema,
+	"ChatBot.ReplayCapture.Enabled": advancedBooleanSchema,
+	"ChatBot.ReplayCapture.Backup_Interval": floatWhere((value) => value >= -1, "-1 or more"),
+}
+
+export const BOT_CONFIG_SHAPE = {
+	...BOT_CONFIG_QUOTED_SHAPE,
+	...BOT_CONFIG_LIST_SHAPE,
+	...BOT_CONFIG_BARE_SHAPE,
+}
+
+export const botConfigSchema = z.object(BOT_CONFIG_SHAPE).partial().strict()
+export type BotConfig = z.infer<typeof botConfigSchema>
+export type BotConfigName = keyof BotConfig
+
+export const BOT_CONFIG_NAMES: readonly string[] = z.object(BOT_CONFIG_SHAPE).keyof().options
+
+export const QUOTED_CONFIG_NAMES: readonly string[] = [
+	...z.object(ADVANCED_ENUM_SHAPE).keyof().options,
+	...z.object(BOT_CONFIG_QUOTED_SHAPE).keyof().options,
+]
+
+export const LIST_CONFIG_NAMES: readonly string[] = z.object(BOT_CONFIG_LIST_SHAPE).keyof().options

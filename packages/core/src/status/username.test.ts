@@ -38,6 +38,7 @@ const LEGACY_DOCUMENT = {
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
 	advancedKeys: {},
+	botConfig: {},
 }
 
 const configRow = (document: InstanceConfigRow["document"]): InstanceConfigRow => ({

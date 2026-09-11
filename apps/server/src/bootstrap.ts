@@ -47,20 +47,18 @@ import {
 import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
 import { createSshTransport, probeHostKey } from "@open-mcc/transport"
 import { Hono } from "hono"
-import { bodyLimit } from "hono/body-limit"
 import { PgBoss } from "pg-boss"
 import { createAuth } from "./auth"
 import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { defaultIconFetch, itemIconHandler } from "./item-icon"
+import { applyRequestLimits } from "./request-limits"
 import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
 import { acquireSingletonLock, type SingletonLock } from "./singleton"
-
-export const REQUEST_BODY_LIMIT_BYTES = 256 * 1024
 
 export type ServerHandle = {
 	app: Hono
@@ -202,13 +200,7 @@ export const startServer = async (
 	app.use("*", securityHeaders())
 	app.use("*", strictCors(allowed))
 	app.use("*", requireSameOrigin(allowed))
-	app.use(
-		"*",
-		bodyLimit({
-			maxSize: REQUEST_BODY_LIMIT_BYTES,
-			onError: (c) => c.json({ message: "That request was too large." }, 413),
-		}),
-	)
+	applyRequestLimits(app)
 
 	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
 	app.get("/api/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))

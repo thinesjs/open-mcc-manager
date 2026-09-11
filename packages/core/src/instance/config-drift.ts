@@ -1,4 +1,4 @@
-import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
+import type { McConfigScalar, McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys, readMccConfigSections } from "@open-mcc/contracts/boundary/mcc-config"
 import { ADVANCED_KEY_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { ALLOWED_CONFIG_KEYS, EMPTIED_CONFIG_SECTIONS, FIXED_CONFIG_KEYS } from "./config"
@@ -31,10 +31,19 @@ const ALL_KEYS: readonly string[] = [
 	...ADVANCED_KEY_NAMES,
 ]
 
-export const formatConfigValue = (value: McConfigValue): string =>
-	typeof value === "object" ? `${value.min}-${value.max}` : String(value)
+const isConfigList = (value: McConfigValue | undefined): value is readonly McConfigScalar[] =>
+	Array.isArray(value)
+
+export const formatConfigValue = (value: McConfigValue): string => {
+	if (isConfigList(value)) return `[${value.map(String).join(", ")}]`
+	return typeof value === "object" ? `${value.min}-${value.max}` : String(value)
+}
 
 const sameConfigValue = (want: McConfigValue, have: McConfigValue | undefined): boolean => {
+	if (isConfigList(want) || isConfigList(have)) {
+		if (!isConfigList(want) || !isConfigList(have)) return false
+		return want.length === have.length && want.every((entry, index) => entry === have[index])
+	}
 	if (want === have) return true
 	if (typeof want !== "object" || typeof have !== "object") return false
 	return want.min === have.min && want.max === have.max

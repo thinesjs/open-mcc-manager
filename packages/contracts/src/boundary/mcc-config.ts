@@ -4,7 +4,7 @@ export type McConfigScalar = string | number | boolean
 
 export type McConfigRange = { min: number; max: number }
 
-export type McConfigValue = McConfigScalar | McConfigRange
+export type McConfigValue = McConfigScalar | McConfigRange | readonly McConfigScalar[]
 
 export type McConfigReading = {
 	values: Map<string, McConfigValue>
@@ -15,6 +15,9 @@ export class McConfigUnparseableError extends Error {}
 
 const isScalar = (value: unknown): value is McConfigScalar =>
 	typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+
+const isScalarList = (value: unknown): value is readonly McConfigScalar[] =>
+	Array.isArray(value) && value.every(isScalar)
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
@@ -57,6 +60,10 @@ export const readMccConfigKeys = (text: string, keys: readonly string[]): McConf
 		const found = descend(document, key.split("."))
 		if (found === undefined) continue
 		if (isScalar(found)) {
+			values.set(key, found)
+			continue
+		}
+		if (isScalarList(found)) {
 			values.set(key, found)
 			continue
 		}

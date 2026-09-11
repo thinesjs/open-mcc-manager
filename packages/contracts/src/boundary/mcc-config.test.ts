@@ -107,3 +107,34 @@ describe("reading a client config", () => {
 		expect(() => parseMccConfig("this is = = not toml")).toThrow(McConfigUnparseableError)
 	})
 })
+
+describe("a list the client wrote", () => {
+	it("reads a list of plain values as the list it is", () => {
+		const reading = readMccConfigKeys('[Main.Advanced]\nBotOwners = [ "a", "b" ]\n', [
+			"Main.Advanced.BotOwners",
+		])
+
+		expect(reading.values.get("Main.Advanced.BotOwners")).toEqual(["a", "b"])
+		expect(reading.unreadable).toEqual([])
+	})
+
+	it("reads an empty list as an empty list, not as nothing", () => {
+		const reading = readMccConfigKeys("[Main.Advanced]\nBotOwners = []\n", [
+			"Main.Advanced.BotOwners",
+		])
+
+		expect(reading.values.get("Main.Advanced.BotOwners")).toEqual([])
+		expect(reading.unreadable).toEqual([])
+	})
+
+	it.each([
+		{ named: "entries that are tables", written: 'BotOwners = [ { name = "a" } ]' },
+		{ named: "entries that are themselves lists", written: 'BotOwners = [ [ "a" ] ]' },
+		{ named: "a mix of values and tables", written: 'BotOwners = [ "a", { name = "b" } ]' },
+	])("refuses to call $named a list of values", ({ written }) => {
+		const reading = readMccConfigKeys(`[Main.Advanced]\n${written}\n`, ["Main.Advanced.BotOwners"])
+
+		expect(reading.values.has("Main.Advanced.BotOwners")).toBe(false)
+		expect(reading.unreadable).toEqual(["Main.Advanced.BotOwners"])
+	})
+})

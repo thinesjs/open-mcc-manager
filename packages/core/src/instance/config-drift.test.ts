@@ -47,6 +47,12 @@ describe("instance config drift", () => {
 				expected: false,
 				actual: true,
 			},
+			{
+				kind: "fixed",
+				key: "Main.Advanced.BotOwners",
+				expected: [],
+				actual: ["player1", "player2"],
+			},
 		])
 	})
 

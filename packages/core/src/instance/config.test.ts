@@ -47,6 +47,10 @@ describe("instance config rendering", () => {
 			"[ChatBot.McpServer.Capabilities]",
 			"[Console.General]",
 			"[Logging]",
+			"[ChatBot.AutoRespond]",
+			"[ChatBot.ScriptScheduler]",
+			"[ChatBot.DiscordBridge]",
+			"[ChatBot.TelegramBridge]",
 		])
 
 		const hostLines = rendered.split("\n").filter((line) => line.startsWith("Host = "))
@@ -68,6 +72,7 @@ describe("instance config rendering", () => {
 			"IgnoreInvalidPlayerName",
 			"InternalCmdChar",
 			"ShowGithubStarReminder",
+			"BotOwners",
 			"AutoRespawn",
 			"TerrainAndMovements",
 			"InventoryHandling",
@@ -90,14 +95,34 @@ describe("instance config rendering", () => {
 			"EntityWorld",
 			"ConsoleMode",
 			"LogToFile",
+			"Enabled",
+			"Enabled",
+			"Enabled",
+			"Enabled",
 		])
 	})
 
 	it("emits no script-referencing key for any input", () => {
 		const rendered = renderInstanceConfig(base)
-		for (const forbidden of ["Script", "Task_File", ".cs", "CSharpRunner", "ScriptScheduler"]) {
+		for (const forbidden of [
+			"Task_File",
+			".cs",
+			"CSharpRunner",
+			"Script_File",
+			"TaskList",
+			"Action",
+		]) {
 			expect(rendered).not.toContain(forbidden)
 		}
+	})
+
+	it("names the script scheduler only to turn it off, and says nothing else about it", () => {
+		const lines = renderInstanceConfig(base).split("\n")
+		const start = lines.indexOf("[ChatBot.ScriptScheduler]")
+		const section = lines.slice(start + 1, lines.indexOf("", start))
+
+		expect(start).toBeGreaterThan(-1)
+		expect(section).toEqual(["Enabled = false"])
 	})
 
 	it("escapes a value containing a quote rather than terminating the string", () => {

@@ -51,6 +51,11 @@ export const FIXED_CONFIG_KEYS = [
 	"ChatBot.McpServer.Transport.AuthTokenEnvVar",
 	"ChatBot.McpServer.Capabilities.ChatAndCommands",
 	"ChatBot.McpServer.Capabilities.Movement",
+	"Main.Advanced.BotOwners",
+	"ChatBot.AutoRespond.Enabled",
+	"ChatBot.ScriptScheduler.Enabled",
+	"ChatBot.DiscordBridge.Enabled",
+	"ChatBot.TelegramBridge.Enabled",
 ] as const
 
 export const LIVE_CONTROL_BIND_HOST = "127.0.0.1"
@@ -208,6 +213,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`IgnoreInvalidPlayerName = ${tomlBool(true)}`,
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		`ShowGithubStarReminder = ${tomlBool(false)}`,
+		"BotOwners = []",
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
 		`TerrainAndMovements = ${tomlBool(config.worldDataEnabled)}`,
 		`InventoryHandling = ${tomlBool(config.inventoryDataEnabled)}`,
@@ -248,6 +254,18 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"",
 		"[Logging]",
 		`LogToFile = ${tomlBool(false)}`,
+		"",
+		"[ChatBot.AutoRespond]",
+		`Enabled = ${tomlBool(false)}`,
+		"",
+		"[ChatBot.ScriptScheduler]",
+		`Enabled = ${tomlBool(false)}`,
+		"",
+		"[ChatBot.DiscordBridge]",
+		`Enabled = ${tomlBool(false)}`,
+		"",
+		"[ChatBot.TelegramBridge]",
+		`Enabled = ${tomlBool(false)}`,
 		"",
 		...renderAdvancedKeys(config.advancedKeys),
 	].join("\n")

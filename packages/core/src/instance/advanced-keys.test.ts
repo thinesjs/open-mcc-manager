@@ -178,8 +178,9 @@ describe("how a saved key reaches the client's config file", () => {
 	it("writes nothing at all for an instance that has saved none, which is every existing one", () => {
 		const rendered = renderInstanceConfig({ ...BASE, advancedKeys: {} })
 
-		expect(rendered.trimEnd().endsWith("LogToFile = false")).toBe(true)
-		expect(rendered).not.toContain("[ChatBot.AutoEat]")
+		const tables = new Set(ADVANCED_KEY_NAMES.map((name) => name.slice(0, name.indexOf(".", 8))))
+
+		expect([...tables].filter((table) => rendered.includes(`[${table}]`))).toEqual([])
 	})
 
 	it("survives render, parse and compare with no drift, across all four value forms", () => {

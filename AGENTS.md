@@ -620,8 +620,25 @@ reachable from any network, and nothing here may change that.
 - The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
   are rendered `false` as `FIXED` keys, which is what keeps
   `mcc_run_internal_command` — MCC's entire internal command surface, `script`
-  included — out of reach. The control FIFO and its allowlist remain the only
-  write path. Never enable those two to make a feature easier.
+  included — out of reach. Never enable those two to make a feature easier.
+- **That capability pair is not the only door to the internal command surface.**
+  Five of the client's own bots reach it too, each from a different trigger: a
+  whisper from a listed bot owner (`ChatBot.RemoteControl`), a chat message
+  matching a rule file (`ChatBot.AutoRespond`), a scheduled task's action string
+  (`ChatBot.ScriptScheduler`), and a bridged message from either chat bridge
+  (`ChatBot.DiscordBridge`, `ChatBot.TelegramBridge`). **All five are now pinned
+  shut as `FIXED` keys** — the four bots by `Enabled = false`, and
+  `RemoteControl` by rendering `Main.Advanced.BotOwners` as an EMPTY list,
+  because the client's own default for that list is two guessable player names,
+  and any of them could otherwise whisper the bot a command. With those pinned,
+  the control FIFO and its allowlist are the only write path.
+- **An absent key is not a safe key.** For the four `Enabled` flags, a host that
+  drops the line falls back to `false` and stays shut. For `BotOwners` it falls
+  back to the client's two default names, so ABSENCE IS THE VULNERABILITY —
+  which is why it is rendered explicitly and why a host that deletes it reports
+  `fixed` drift like any other tampering. Before pinning any future list, check
+  which way its consumer reads an empty one: at least one list in this client
+  treats empty as "allow everyone" rather than "allow nobody".
 - `Inventory` and `EntityWorld` do grant mutation alongside the reads Stage 4
   wants, and the ratio is worse than it sounds: `Inventory` unlocks ten tools
   of which six write (`InventoryWindowAction`, `DropInventoryItem`,

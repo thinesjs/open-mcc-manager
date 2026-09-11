@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils"
 export type ChoiceOption<Value extends string> = {
 	value: Value
 	label: string
-	description: string
+	description?: string
 }
 
 export type ChoiceProps<Value extends string> = {
@@ -59,9 +59,11 @@ export const Choice = <Value extends string>({
 							/>
 						) : null}
 						<span className="block text-sm font-medium text-foreground">{option.label}</span>
-						<span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-							{option.description}
-						</span>
+						{option.description === undefined ? null : (
+							<span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+								{option.description}
+							</span>
+						)}
 					</label>
 				)
 			})}

@@ -588,6 +588,35 @@ reachable from any network, and nothing here may change that.
   round of "verified against the client" had been checked against a version
   that never had it. The instance console prints the running build, e.g.
   `GitHub build 511, built on 2026-08-29 from commit fbfae5b`.
+- **The advanced-key editor is an AUDITED registry, not an escape hatch.** The
+  59 keys an operator may set live in one Zod shape,
+  `ADVANCED_KEY_SHAPE` in `packages/contracts/src/boundary/mcc-config-keys.ts`.
+  Arbitrary keys, and keys MCC introduces later, are **refused by design** — the
+  schema is `.strict()`, so an unregistered key is rejected at the write
+  contract. A new key gets registered only after someone audits it: that it
+  exists at the deployed tag, its C# scalar type, its enum members, and the
+  table it renders under. Do not widen this to "any `ChatBot.*` key".
+- **Bumping `MCC_VERSION` in `packages/core/src/host/mcc-release.ts` requires
+  re-auditing all 59 registered keys** — their existence, their scalar C# types,
+  their enum members, their table shapes, **and the value ranges the client
+  rewrites**. No test can catch a key that MCC RETYPES or RE-CLAMPS between
+  releases: the registry would keep validating against the old form, render a
+  value the new client rejects or silently rewrites, and nothing here would fail.
+  The re-audit is the only thing that closes that gap.
+- **A registered key must refuse any value the client would rewrite.** Each
+  `ChatBot` module's `OnSettingUpdate()` clamps its own fields, and
+  `Program.cs` calls `WriteBackSettings(true)` right after loading, so a clamped
+  value is persisted to the host's file. An out-of-range value would therefore
+  drift forever and "Restart to fix" would never fix it. 18 of the 59 keys carry
+  such a bound; `ChatBot.AutoAttack.Cooldown_Time.Min`/`.Max` are swapped rather
+  than clamped, so their order is checked across rows instead. This is the same
+  rule `DELAY_SECONDS_MINIMUM` already follows for AntiAFK.
+- `operator` config drift means **a key we saved is no longer what the host
+  holds**. It deliberately does NOT report a registered key the host sets but we
+  never saved: MCC writes its own defaults for all 59 on first expansion, so
+  that signal is indistinguishable from operator action without a per-version
+  table of every default. Its public payload carries `actual: null` by type, so
+  a host value never reaches the browser.
 - The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
   are rendered `false` as `FIXED` keys, which is what keeps
   `mcc_run_internal_command` — MCC's entire internal command surface, `script`

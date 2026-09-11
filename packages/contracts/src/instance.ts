@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { advancedKeysSchema } from "./boundary/mcc-config-keys"
 
 export const instanceStatusSchema = z.enum(["created", "needs_auth", "stopped", "running", "error"])
 export type InstanceStatus = z.infer<typeof instanceStatusSchema>
@@ -96,6 +97,7 @@ export const instanceConfigInput = z
 		worldDataEnabled: z.boolean().default(false),
 		inventoryDataEnabled: z.boolean().default(false),
 		entityDataEnabled: z.boolean().default(false),
+		advancedKeys: advancedKeysSchema.default({}),
 	})
 	.strict()
 export type InstanceConfigInput = z.infer<typeof instanceConfigInput>
@@ -177,13 +179,22 @@ export const stateDriftSchema = z.object({
 })
 export type StateDrift = z.infer<typeof stateDriftSchema>
 
-export const configDriftSchema = z.object({
-	instanceId: z.string(),
-	kind: z.enum(["managed", "fixed", "section", "unreadable", "unreachable"]),
-	key: z.string(),
-	expected: z.string().nullable(),
-	actual: z.string().nullable(),
-})
+export const configDriftSchema = z.discriminatedUnion("kind", [
+	z.object({
+		instanceId: z.string(),
+		kind: z.enum(["managed", "fixed", "section", "unreadable", "unreachable"]),
+		key: z.string(),
+		expected: z.string().nullable(),
+		actual: z.string().nullable(),
+	}),
+	z.object({
+		instanceId: z.string(),
+		kind: z.literal("operator"),
+		key: z.string(),
+		expected: z.string(),
+		actual: z.null(),
+	}),
+])
 export type ConfigDriftPublic = z.infer<typeof configDriftSchema>
 
 export const hostReconciliationSchema = z.union([

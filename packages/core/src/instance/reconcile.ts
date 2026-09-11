@@ -10,6 +10,7 @@ import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl, systemctl } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
+import type { ConfigDrift } from "./config-drift"
 import { CONFIG_PATH_NAME, compareInstanceConfig, formatConfigValue } from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import { instanceDir, unitName } from "./unit"
@@ -145,6 +146,37 @@ const readInstanceConfig = async (
 	return text.trim().length === 0 ? undefined : text
 }
 
+const toPublicDrift = (instanceId: string, entry: ConfigDrift): ConfigDriftPublic => {
+	if (entry.kind === "section") {
+		return {
+			instanceId,
+			kind: "section",
+			key: entry.section,
+			expected: "empty",
+			actual: String(entry.entries),
+		}
+	}
+	if (entry.kind === "unreadable") {
+		return { instanceId, kind: "unreadable", key: entry.key, expected: null, actual: null }
+	}
+	if (entry.kind === "operator") {
+		return {
+			instanceId,
+			kind: "operator",
+			key: entry.key,
+			expected: formatConfigValue(entry.expected),
+			actual: null,
+		}
+	}
+	return {
+		instanceId,
+		kind: entry.kind,
+		key: entry.key,
+		expected: formatConfigValue(entry.expected),
+		actual: entry.actual === undefined ? null : formatConfigValue(entry.actual),
+	}
+}
+
 const configDriftFor = async (
 	transport: HostTransport,
 	profile: HostProfile,
@@ -180,31 +212,7 @@ const configDriftFor = async (
 			continue
 		}
 		for (const entry of found) {
-			drift.push(
-				entry.kind === "section"
-					? {
-							instanceId: instance.id,
-							kind: "section",
-							key: entry.section,
-							expected: "empty",
-							actual: String(entry.entries),
-						}
-					: entry.kind === "unreadable"
-						? {
-								instanceId: instance.id,
-								kind: "unreadable",
-								key: entry.key,
-								expected: null,
-								actual: null,
-							}
-						: {
-								instanceId: instance.id,
-								kind: entry.kind,
-								key: entry.key,
-								expected: formatConfigValue(entry.expected),
-								actual: entry.actual === undefined ? null : formatConfigValue(entry.actual),
-							},
-			)
+			drift.push(toPublicDrift(instance.id, entry))
 		}
 	}
 	return drift

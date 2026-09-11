@@ -46,19 +46,21 @@ export const describeStateDrift = (drift: StateDrift): string =>
 		: `Expected ${drift.desired}, found ${drift.observed}.`
 
 export const describeConfigDrift = (drift: ConfigDriftPublic): string => {
-	if (drift.kind === "section") {
-		return `Should hold nothing, holds ${drift.actual}.`
+	switch (drift.kind) {
+		case "section":
+			return `Should hold nothing, holds ${drift.actual}.`
+		case "unreadable":
+			return "Holds a value the control plane cannot read."
+		case "unreachable":
+			return `Live control is on, but nothing answers on port ${drift.expected}. The client could not claim it.`
+		case "operator":
+			return "Does not match the saved value. Restart to restore it."
+		case "managed":
+		case "fixed":
+			return drift.actual === null
+				? `Missing from the host, expected ${drift.expected}.`
+				: `Set to ${drift.actual} on the host, expected ${drift.expected}.`
 	}
-	if (drift.kind === "unreadable") {
-		return "Holds a value the control plane cannot read."
-	}
-	if (drift.kind === "unreachable") {
-		return `Live control is on, but nothing answers on port ${drift.expected}. The client could not claim it.`
-	}
-	if (drift.actual === null) {
-		return `Missing from the host, expected ${drift.expected}.`
-	}
-	return `Set to ${drift.actual} on the host, expected ${drift.expected}.`
 }
 
 export const configDriftDefeatsSafety = (drift: ConfigDriftPublic): boolean =>

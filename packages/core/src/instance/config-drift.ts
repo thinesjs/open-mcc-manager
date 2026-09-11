@@ -1,10 +1,17 @@
 import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys, readMccConfigSections } from "@open-mcc/contracts/boundary/mcc-config"
+import { ADVANCED_KEY_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { ALLOWED_CONFIG_KEYS, EMPTIED_CONFIG_SECTIONS, FIXED_CONFIG_KEYS } from "./config"
 
 export type ConfigDrift =
 	| {
 			kind: "managed" | "fixed"
+			key: string
+			expected: McConfigValue
+			actual: McConfigValue | undefined
+	  }
+	| {
+			kind: "operator"
 			key: string
 			expected: McConfigValue
 			actual: McConfigValue | undefined
@@ -16,7 +23,13 @@ export const CONFIG_PATH_NAME = "MinecraftClient.ini"
 
 const MANAGED_KEYS: readonly string[] = ALLOWED_CONFIG_KEYS
 const FIXED_KEYS: readonly string[] = FIXED_CONFIG_KEYS
-const ALL_KEYS: readonly string[] = [...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS]
+const OPERATOR_KEYS: readonly string[] = ADVANCED_KEY_NAMES
+export const isOperatorKey = (key: string): boolean => OPERATOR_KEYS.includes(key)
+const ALL_KEYS: readonly string[] = [
+	...ALLOWED_CONFIG_KEYS,
+	...FIXED_CONFIG_KEYS,
+	...ADVANCED_KEY_NAMES,
+]
 
 export const formatConfigValue = (value: McConfigValue): string =>
 	typeof value === "object" ? `${value.min}-${value.max}` : String(value)
@@ -37,9 +50,13 @@ export const compareInstanceConfig = (
 
 	for (const key of ALL_KEYS) {
 		const want = expected.values.get(key)
-		if (want === undefined) continue
 		const have = actual.values.get(key)
+		if (want === undefined) continue
 		if (sameConfigValue(want, have)) continue
+		if (isOperatorKey(key)) {
+			drift.push({ kind: "operator", key, expected: want, actual: have })
+			continue
+		}
 		drift.push({
 			kind: FIXED_KEYS.includes(key) ? "fixed" : "managed",
 			key,
@@ -71,6 +88,9 @@ export const describeConfigDrift = (drift: ConfigDrift): string => {
 	}
 	if (drift.kind === "unreadable") {
 		return `${drift.key} holds a value this manager cannot read`
+	}
+	if (drift.kind === "operator") {
+		return `${drift.key} does not match the saved value`
 	}
 	const describeValue = (value: McConfigValue): string =>
 		typeof value === "object" ? formatConfigValue(value) : JSON.stringify(value)

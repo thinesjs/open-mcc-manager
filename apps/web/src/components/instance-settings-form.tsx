@@ -1,4 +1,5 @@
 import type { DelaySecondsRange, InstanceConfigInput } from "@open-mcc/contracts"
+import type { AdvancedKeyRow } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -9,8 +10,14 @@ import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
+import {
+	advancedKeyRowsFrom,
+	advancedKeysFromRows,
+	validateAdvancedKeyRows,
+} from "~/lib/advanced-key-rows"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
+import { AdvancedKeys } from "./advanced-keys"
 
 export type InstanceSettingsFormProps = {
 	instanceId: string
@@ -82,11 +89,16 @@ export const InstanceSettingsForm = ({
 	const queryClient = useQueryClient()
 	const saveMutation = useMutation(trpc.instance.updateConfig.mutationOptions())
 	const [draft, setDraft] = useState<InstanceConfigInput>(config)
+	const [rows, setRows] = useState<readonly AdvancedKeyRow[]>(() =>
+		advancedKeyRowsFrom(config.advancedKeys),
+	)
+	const issues = validateAdvancedKeyRows(rows)
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
+		if (issues.some((issue) => issue !== null)) return
 		saveMutation.mutate(
-			{ instanceId, config: draft },
+			{ instanceId, config: { ...draft, advancedKeys: advancedKeysFromRows(rows) } },
 			{
 				onSuccess: async () => {
 					await queryClient.invalidateQueries()
@@ -253,11 +265,23 @@ export const InstanceSettingsForm = ({
 				</div>
 			) : null}
 
+			<div className="space-y-1.5">
+				<Label>Advanced keys</Label>
+				<AdvancedKeys rows={rows} issues={issues} onChange={setRows} />
+				<p className="text-xs text-muted-foreground">
+					Audited client settings this manager can write. They apply on the next restart.
+				</p>
+			</div>
+
 			<div className="flex justify-end gap-2">
 				<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
 					Cancel
 				</Button>
-				<Button type="submit" size="sm" disabled={saveMutation.isPending}>
+				<Button
+					type="submit"
+					size="sm"
+					disabled={saveMutation.isPending || issues.some((issue) => issue !== null)}
+				>
 					{saveMutation.isPending ? <Spinner label="Saving" /> : "Save settings"}
 				</Button>
 			</div>

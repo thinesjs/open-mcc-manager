@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+	configDriftDefeatsSafety,
+	describeConfigDrift,
 	describeStateDrift,
 	describeUnitDrift,
 	groupConfigDrift,
@@ -118,5 +120,44 @@ describe("grouping config drift by instance", () => {
 
 	it("returns nothing when there is no config drift", () => {
 		expect(groupConfigDrift([])).toEqual([])
+	})
+})
+
+describe("what the browser is told about a key the operator saved", () => {
+	it("names neither the host's value nor anything about it", () => {
+		const said = describeConfigDrift({
+			instanceId: "i1",
+			kind: "operator",
+			key: "ChatBot.AutoAttack.Mode",
+			expected: "single",
+			actual: null,
+		})
+
+		expect(said).toBe("Does not match the saved value. Restart to restore it.")
+	})
+
+	it("does not claim the key was changed, which would be false when the host simply lost it", () => {
+		const said = describeConfigDrift({
+			instanceId: "i1",
+			kind: "operator",
+			key: "ChatBot.AutoEat.Threshold",
+			expected: "5",
+			actual: null,
+		})
+
+		expect(said).not.toContain("Changed")
+		expect(said).not.toContain("Missing from the host")
+	})
+
+	it("does not treat it as a safety failure, because the operator chose the value", () => {
+		expect(
+			configDriftDefeatsSafety({
+				instanceId: "i1",
+				kind: "operator",
+				key: "ChatBot.AutoAttack.Mode",
+				expected: "single",
+				actual: null,
+			}),
+		).toBe(false)
 	})
 })

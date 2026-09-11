@@ -494,6 +494,7 @@ describe("comparing a host's client config", () => {
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
+			advancedKeys: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -547,6 +548,7 @@ describe("comparing a host's client config", () => {
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
+			advancedKeys: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -608,6 +610,64 @@ describe("comparing a host's client config", () => {
 		expect(reconciliation.configDrift[0]?.actual).toBeNull()
 	})
 
+	it("withholds the host's own value when a key the operator saved has drifted", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com:25566",
+			autoRelogRetries: 3,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkEnabled: true,
+			antiAfkIntervalSeconds: { min: 90, max: 300 },
+			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+			advancedKeys: { "ChatBot.AutoAttack.Mode": "single" },
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace('Mode = "single"', 'Mode = "10.0.0.7:25565 hunter2"'),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		expect(reconciliation.configDrift).toEqual([
+			{
+				instanceId: "abc123",
+				kind: "operator",
+				key: "ChatBot.AutoAttack.Mode",
+				expected: "single",
+				actual: null,
+			},
+		])
+		const serialised = JSON.stringify(reconciliation.configDrift)
+		expect(serialised).not.toContain("10.0.0.7")
+		expect(serialised).not.toContain("25565")
+		expect(serialised).not.toContain("hunter2")
+	})
+
 	it("reports a live control endpoint that never claimed its port", async () => {
 		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
@@ -625,6 +685,7 @@ describe("comparing a host's client config", () => {
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
+			advancedKeys: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),
@@ -680,6 +741,7 @@ describe("comparing a host's client config", () => {
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
+			advancedKeys: {},
 		})
 		const transport = await connected({
 			...fileReplies(expected),

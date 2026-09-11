@@ -24,6 +24,7 @@ const base = {
 	worldDataEnabled: false,
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
+	advancedKeys: {},
 } as const
 
 describe("instance config rendering", () => {
@@ -407,6 +408,7 @@ describe("instance config rendering", () => {
 			...base,
 			liveControlEnabled: true,
 			entityDataEnabled: true,
+			advancedKeys: {},
 		})
 
 		expect(rendered).toContain("EntityHandling = true")
@@ -419,6 +421,7 @@ describe("instance config rendering", () => {
 			liveControlEnabled: false,
 			inventoryDataEnabled: true,
 			entityDataEnabled: true,
+			advancedKeys: {},
 		})
 
 		expect(rendered).toContain("Inventory = false")

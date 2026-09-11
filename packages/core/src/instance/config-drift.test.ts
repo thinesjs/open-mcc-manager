@@ -19,6 +19,7 @@ const base = {
 	worldDataEnabled: false,
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
+	advancedKeys: {},
 } as const
 
 const realConfig = readFileSync(

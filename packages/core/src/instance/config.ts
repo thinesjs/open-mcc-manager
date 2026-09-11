@@ -4,6 +4,8 @@ import {
 	type InstanceConfigInput,
 	isOfflineAccount,
 } from "@open-mcc/contracts"
+import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
+import { ADVANCED_ENUM_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
 
 export const OFFLINE_PASSWORD = "-"
 
@@ -155,6 +157,7 @@ export const defaultInstanceConfig = (values: {
 	worldDataEnabled: false,
 	inventoryDataEnabled: false,
 	entityDataEnabled: false,
+	advancedKeys: {},
 })
 
 export type ServerAddress = { host: string; port: number | undefined }
@@ -165,6 +168,25 @@ export const splitServerAddress = (value: string): ServerAddress => {
 	const port = Number(value.slice(separator + 1))
 	if (!Number.isInteger(port) || port < 1 || port > 65535) return { host: value, port: undefined }
 	return { host: value.slice(0, separator), port }
+}
+
+const renderAdvancedKeys = (advancedKeys: AdvancedKeys): readonly string[] => {
+	const tables = new Map<string, string[]>()
+	for (const [key, value] of Object.entries(advancedKeys)) {
+		if (value === undefined) continue
+		const separator = key.lastIndexOf(".")
+		const assignment = `${key.slice(separator + 1)} = ${
+			ADVANCED_ENUM_NAMES.includes(key) ? tomlString(value) : value
+		}`
+		const table = key.slice(0, separator)
+		const lines = tables.get(table)
+		if (lines === undefined) tables.set(table, [assignment])
+		else lines.push(assignment)
+	}
+	return [...tables.keys()].sort().flatMap((table) => {
+		const lines = tables.get(table) ?? []
+		return [`[${table}]`, ...[...lines].sort(), ""]
+	})
 }
 
 export const renderInstanceConfig = (config: InstanceConfigInput): string =>
@@ -227,4 +249,5 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		"[Logging]",
 		`LogToFile = ${tomlBool(false)}`,
 		"",
+		...renderAdvancedKeys(config.advancedKeys),
 	].join("\n")

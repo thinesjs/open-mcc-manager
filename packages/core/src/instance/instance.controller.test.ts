@@ -659,6 +659,7 @@ describe("running several instances on one host", () => {
 			worldDataEnabled: false,
 			inventoryDataEnabled: false,
 			entityDataEnabled: false,
+			advancedKeys: {},
 		})
 
 		expect(documents).toHaveLength(1)
@@ -683,6 +684,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: true,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -711,6 +713,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -742,6 +745,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -769,6 +773,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -908,6 +913,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -936,6 +942,7 @@ describe("running several instances on one host", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		const controller = createInstanceController(deps)
@@ -974,6 +981,7 @@ describe("the four readouts a controller hands back", () => {
 					worldDataEnabled: false,
 					inventoryDataEnabled: false,
 					entityDataEnabled: false,
+					advancedKeys: {},
 				},
 			})
 		return createInstanceController(deps)

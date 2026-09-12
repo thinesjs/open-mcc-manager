@@ -93,8 +93,11 @@ the renderer pins. This is the surface that already burned this project once.
 
 ## Audits
 
-Newest first. One entry per deployed version; the bullet labels are the five
-surfaces above and the test requires all of them.
+Newest first. One entry per deployed version; the bullet labels are the six
+surfaces above and the test requires a finding under every one. Start each
+finding with `- Label:` at the left margin — wrapped prose and indented
+sub-bullets belong to the finding above them, and a dash at the left margin
+starts a new one.
 
 ### 20260829-511
 
@@ -136,6 +139,11 @@ bump must recheck:
   wedged instance as supervised. If `CHAT_MARKER` moves, chat stops being
   filtered out of the journal and a player who types one of the stuck phrases
   in chat can drive an instance to `stuck` — a marker drift becomes an
-  injection. A renumbered exit code is not safe either way, because
+  injection. Confirm the marker still prefixes **every** chat line the client
+  emits, not merely that the codepoint is unchanged: a build that keeps `\u258c`
+  but stops emitting it on one chat path opens the same hole without touching
+  the constant. That filter is what separates client prose from player text in
+  the journal, so it is load-bearing in the current build too, not only across a
+  bump. A renumbered exit code is not safe either way, because
   `RestartPreventExitStatus=4` in `unit-template.ts` would then park the unit on
   the wrong condition.

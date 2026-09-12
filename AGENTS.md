@@ -149,6 +149,7 @@ here and adding the test that proves it.
 | No code comments | `check-type-policy.mjs` — any comment trivia in a scanned file |
 | No commit descriptions, Conventional Commits subject | `check-commit-subjects.mjs`, in CI, on pull requests only |
 | Imperative mood in subjects | nothing — review only |
+| A client version bump is recorded as audited | `mcc-compat.test.ts` — the newest entry in `docs/mcc-compat.md` names `MCC_VERSION` and carries a finding on all six surfaces, and the captured fixture names the same build. It proves a record exists, NOT that the audit happened |
 | No `any` | Biome `suspicious/noExplicitAny` |
 | No non-null `!` | Biome `style/noNonNullAssertion` |
 | No definite-assignment `!` | `check-type-policy.mjs` |
@@ -597,7 +598,8 @@ reachable from any network, and nothing here may change that.
   exists at the deployed tag, its C# scalar type, its enum members, and the
   table it renders under. Do not widen this to "any `ChatBot.*` key".
 - **Bumping `MCC_VERSION` in `packages/core/src/host/mcc-release.ts` requires
-  re-auditing all 59 registered keys** — their existence, their scalar C# types,
+  re-auditing every surface named in `docs/mcc-compat.md` and recording what you
+  found there, or the build fails** — including all 59 registered keys — their existence, their scalar C# types,
   their enum members, their table shapes, **and the value ranges the client
   rewrites**. No test can catch a key that MCC RETYPES or RE-CLAMPS between
   releases: the registry would keep validating against the old form, render a

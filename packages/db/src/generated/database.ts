@@ -107,6 +107,17 @@ export interface Instance {
 	status: Generated<string>
 }
 
+export interface InstanceArtifact {
+	byteSize: number
+	collectedAt: Generated<Timestamp>
+	content: Buffer
+	digest: string
+	id: string
+	instanceId: string
+	kind: string
+	organizationId: string
+}
+
 export interface InstanceCommand {
 	command: string
 	createdAt: Generated<Timestamp>
@@ -358,6 +369,7 @@ export interface DB {
 	auditEvent: AuditEvent
 	host: Host
 	instance: Instance
+	instanceArtifact: InstanceArtifact
 	instanceCommand: InstanceCommand
 	instanceConfig: InstanceConfig
 	instanceSchedule: InstanceSchedule

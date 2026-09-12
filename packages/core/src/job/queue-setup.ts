@@ -10,6 +10,8 @@ export const NOTIFICATION_HTTP_QUEUE = "notification.deliver.http"
 
 export const NOTIFICATION_EMAIL_QUEUE = "notification.deliver.email"
 
+export const INSTANCE_ARTIFACT_QUEUE = "instance.artifact.collect"
+
 const DAY_SECONDS = 24 * 60 * 60
 
 const DELIVERY_RETENTION_SECONDS = 14 * DAY_SECONDS
@@ -59,6 +61,20 @@ export const STATUS_ESCALATE_POLICY = {
 	notify: false,
 } as const
 
+export const INSTANCE_ARTIFACT_POLICY = {
+	retryLimit: 0,
+	retryDelay: 0,
+	retryBackoff: false,
+	retryDelayMax: null,
+	expireInSeconds: 30 * 60,
+	retentionSeconds: DELIVERY_RETENTION_SECONDS,
+	deleteAfterSeconds: DELIVERY_RETENTION_SECONDS,
+	deadLetter: null,
+	warningQueueSize: 10,
+	heartbeatSeconds: null,
+	notify: false,
+} as const
+
 export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	{
 		name: NOTIFICATION_DEADLETTER_QUEUE,
@@ -78,6 +94,7 @@ export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	{ name: NOTIFICATION_EMAIL_QUEUE, ...DELIVERY_POLICY },
 	{ name: STATUS_ESCALATE_QUEUE, ...STATUS_ESCALATE_POLICY },
 	{ name: NOTIFICATION_CLEANUP_QUEUE, ...STATUS_ESCALATE_POLICY },
+	{ name: INSTANCE_ARTIFACT_QUEUE, ...INSTANCE_ARTIFACT_POLICY },
 ]
 
 export const orderedForCreation = (policies: readonly QueuePolicy[]): readonly QueuePolicy[] => [

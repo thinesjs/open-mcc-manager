@@ -6,6 +6,8 @@ import {
 	BOT_CONFIG_ENUM_SHAPE,
 	BOT_CONFIG_NAMES,
 	type BotConfigName,
+	SETTING_NAMES,
+	SETTING_SHAPE,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { describe, expect, it } from "vitest"
 import {
@@ -144,13 +146,23 @@ describe("the one description that carries a risk", () => {
 		expect(field.description).toContain("Accept teleport requests")
 	})
 
-	it("is one of only three fields carrying a description, so the rest stay lean", () => {
+	it("is one of the few fields carrying a description, so the rest stay lean", () => {
 		const described = Object.entries(BOT_CONFIG_FIELDS)
 			.filter(([, entry]) => entry.description !== undefined)
 			.map(([key]) => key)
 			.sort()
 
 		expect(described).toEqual([
+			"ChatBot.AutoAttack.List_Mode",
+			"ChatBot.AutoDig.Auto_Start_Delay",
+			"ChatBot.AutoDig.Dig_Timeout",
+			"ChatBot.AutoDig.Durability_Limit",
+			"ChatBot.AutoDig.List_Type",
+			"ChatBot.AutoDrop.Mode",
+			"ChatBot.AutoEat.Threshold",
+			"ChatBot.AutoFishing.Durability_Limit",
+			"ChatBot.AutoFishing.Enable_Move",
+			"ChatBot.ItemsCollector.Collect_All_Item_Types",
 			"ChatBot.RemoteControl.AutoTpaccept",
 			"ChatBot.RemoteControl.AutoTpaccept_Everyone",
 			"ChatBot.ReplayCapture.Backup_Interval",
@@ -235,5 +247,19 @@ describe("★ every default the editor shows, against the client's own captured 
 
 	it("checked a real number of them, not an empty set", () => {
 		expect(clientDefaults.size).toBeGreaterThan(30)
+	})
+})
+
+describe("★ the client defaults the table claims", () => {
+	it("★ every one parses under its own schema, so no field starts out invalid", () => {
+		const refused = SETTING_NAMES.filter(
+			(name) => !SETTING_SHAPE[name].safeParse(BOT_CONFIG_FIELDS[name].clientDefault).success,
+		)
+
+		expect(refused).toEqual([])
+	})
+
+	it("★ names every registered setting, so none reaches the editor without copy", () => {
+		expect(Object.keys(BOT_CONFIG_FIELDS).sort()).toEqual([...SETTING_NAMES].sort())
 	})
 })

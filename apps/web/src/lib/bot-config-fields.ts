@@ -4,6 +4,7 @@ import {
 	BOT_CONFIG_LIST_SHAPE,
 	BOT_CONFIG_SHAPE,
 	type BotConfigName,
+	type SettingName,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { z } from "zod"
 
@@ -13,7 +14,192 @@ export type BotConfigField = {
 	readonly clientDefault: string | readonly string[]
 }
 
-export const BOT_CONFIG_FIELDS: Record<BotConfigName, BotConfigField> = {
+export const BOT_CONFIG_FIELDS: Record<SettingName, BotConfigField> = {
+	"ChatBot.AutoAttack.Attack_Hostile": { label: "Attack hostile creatures", clientDefault: "true" },
+	"ChatBot.AutoAttack.Attack_Passive": {
+		label: "Attack passive creatures",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoAttack.Attack_Range": { label: "How far to reach (blocks)", clientDefault: "4.0" },
+	"ChatBot.AutoAttack.Cooldown_Time.Custom": {
+		label: "Set the delay between swings yourself",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoAttack.Cooldown_Time.Max": {
+		label: "Longest delay (seconds)",
+		clientDefault: "2.5",
+	},
+	"ChatBot.AutoAttack.Cooldown_Time.Min": {
+		label: "Shortest delay (seconds)",
+		clientDefault: "1.5",
+	},
+	"ChatBot.AutoAttack.Cooldown_Time.RandomMode": {
+		label: "Vary the delay between swings",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoAttack.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoAttack.Interaction": { label: "What to do to it", clientDefault: "Attack" },
+	"ChatBot.AutoAttack.List_Mode": {
+		label: "Treat the creature list as",
+		description:
+			"The list cannot be edited here. When it is non-empty, whitelist mode overrides the hostile and passive choices.",
+		clientDefault: "whitelist",
+	},
+	"ChatBot.AutoAttack.Mode": { label: "Targets per swing", clientDefault: "single" },
+	"ChatBot.AutoAttack.Priority": { label: "Choose a target by", clientDefault: "distance" },
+	"ChatBot.AutoCraft.CraftingTable.X": { label: "Crafting table X", clientDefault: "123.0" },
+	"ChatBot.AutoCraft.CraftingTable.Y": { label: "Crafting table Y", clientDefault: "65.0" },
+	"ChatBot.AutoCraft.CraftingTable.Z": { label: "Crafting table Z", clientDefault: "456.0" },
+	"ChatBot.AutoCraft.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoCraft.OnFailure": { label: "If a craft fails", clientDefault: "abort" },
+	"ChatBot.AutoDig.Apply_Efficiency_Enchantments": {
+		label: "Count tool enchantments when timing a dig",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoDig.Apply_Haste_Effects": {
+		label: "Count speed effects when timing a dig",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoDig.Auto_Start_Delay": {
+		label: "Auto-start delay (seconds)",
+		description: "Use -1 to never start on its own.",
+		clientDefault: "3.0",
+	},
+	"ChatBot.AutoDig.Auto_Tool_Switch": { label: "Switch to the right tool", clientDefault: "false" },
+	"ChatBot.AutoDig.Dig_Timeout": {
+		label: "Dig timeout (seconds)",
+		description:
+			"It then picks a target again, which may be the same block. A negative value times out on the next update.",
+		clientDefault: "60.0",
+	},
+	"ChatBot.AutoDig.Drop_Low_Durability_Tools": {
+		label: "Drop worn tools",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoDig.Durability_Limit": {
+		label: "Lowest tool durability to use",
+		description: "Zero turns the check off.",
+		clientDefault: "2",
+	},
+	"ChatBot.AutoDig.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoDig.List_Type": {
+		label: "Treat the block list as",
+		description: "The list itself is the client's own and cannot be edited here.",
+		clientDefault: "whitelist",
+	},
+	"ChatBot.AutoDig.Location_Order": {
+		label: "Order to work through positions",
+		clientDefault: "distance",
+	},
+	"ChatBot.AutoDig.Log_Block_Dig": { label: "Log each block dug", clientDefault: "true" },
+	"ChatBot.AutoDig.Mode": { label: "What to dig", clientDefault: "lookat" },
+	"ChatBot.AutoDrop.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoDrop.Mode": {
+		label: "What to drop",
+		description: "The item list is the client's own and cannot be edited here.",
+		clientDefault: "include",
+	},
+	"ChatBot.AutoEat.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoEat.Threshold": {
+		label: "Eat when hunger drops to",
+		description: "Out of 20. The client also eats whenever hunger and health are both below 20.",
+		clientDefault: "6",
+	},
+	"ChatBot.AutoFishing.Antidespawn": {
+		label: "Cast again if the bobber vanishes",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoFishing.Auto_Rod_Switch": {
+		label: "Swap rods automatically",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoFishing.Auto_Start": {
+		label: "Start fishing automatically",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoFishing.Cast_Delay": {
+		label: "Delay between casts (seconds)",
+		clientDefault: "0.4",
+	},
+	"ChatBot.AutoFishing.Detection_Warmup": {
+		label: "Bite detection warm-up (seconds)",
+		clientDefault: "1.0",
+	},
+	"ChatBot.AutoFishing.Durability_Limit": {
+		label: "Lowest rod durability (of 64)",
+		description: "Zero turns the check off. A full rod is 64.",
+		clientDefault: "2.0",
+	},
+	"ChatBot.AutoFishing.Enable_Move": {
+		label: "Move between spots",
+		description: "The spots are the client's own and cannot be edited here.",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoFishing.Enable_Sound_Detection": {
+		label: "Detect bites from the splash sound",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoFishing.Enable_Velocity_Detection": {
+		label: "Detect bites from bobber movement",
+		clientDefault: "true",
+	},
+	"ChatBot.AutoFishing.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.AutoFishing.Fishing_Delay": {
+		label: "Delay before the first cast (seconds)",
+		clientDefault: "3.0",
+	},
+	"ChatBot.AutoFishing.Fishing_Timeout": {
+		label: "Cast timeout (seconds)",
+		clientDefault: "300.0",
+	},
+	"ChatBot.AutoFishing.Hook_Threshold": {
+		label: "Vertical movement that counts as a bite",
+		clientDefault: "0.2",
+	},
+	"ChatBot.AutoFishing.Log_Fish_Bobber": {
+		label: "Log the bobber's movement",
+		clientDefault: "false",
+	},
+	"ChatBot.AutoFishing.Mainhand": { label: "Hold the rod in the main hand", clientDefault: "true" },
+	"ChatBot.AutoFishing.Sound_Distance": {
+		label: "Splash distance (blocks)",
+		clientDefault: "5.0",
+	},
+	"ChatBot.AutoFishing.Stationary_Threshold": {
+		label: "Sideways movement still counted as still",
+		clientDefault: "0.001",
+	},
+	"ChatBot.AutoFishing.Velocity_Hook_Threshold": {
+		label: "Falling speed that counts as a bite",
+		clientDefault: "-0.2",
+	},
+	"ChatBot.Farmer.Delay_Between_Tasks": {
+		label: "Delay between tasks (seconds)",
+		clientDefault: "1.0",
+	},
+	"ChatBot.Farmer.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.ItemsCollector.Always_Return_To_Start": {
+		label: "Return to the starting point",
+		clientDefault: "true",
+	},
+	"ChatBot.ItemsCollector.Collect_All_Item_Types": {
+		label: "Pick up everything",
+		description: "Turn off to use the client's own item list instead.",
+		clientDefault: "true",
+	},
+	"ChatBot.ItemsCollector.Collection_Radius": {
+		label: "Search radius (blocks)",
+		clientDefault: "30.0",
+	},
+	"ChatBot.ItemsCollector.Delay_Between_Tasks": {
+		label: "Delay between sweeps (milliseconds)",
+		clientDefault: "300",
+	},
+	"ChatBot.ItemsCollector.Enabled": { label: "Enabled", clientDefault: "false" },
+	"ChatBot.ItemsCollector.Prioritize_Clusters": {
+		label: "Prefer clustered items",
+		clientDefault: "false",
+	},
 	"ChatBot.Alerts.Enabled": { label: "Enabled", clientDefault: "false" },
 	"ChatBot.Alerts.Beep_Enabled": { label: "Beep on alert", clientDefault: "true" },
 	"ChatBot.Alerts.Trigger_By_Words": { label: "Alert on matched words", clientDefault: "false" },

@@ -260,6 +260,16 @@ export type BotConfigName = keyof BotConfig
 
 export const BOT_CONFIG_NAMES: readonly string[] = z.object(BOT_CONFIG_SHAPE).keyof().options
 
+export const SETTING_SHAPE = { ...BOT_CONFIG_SHAPE, ...ADVANCED_KEY_SHAPE }
+
+export type SettingName = BotConfigName | AdvancedKeyName
+
+export const SETTING_NAMES: readonly SettingName[] = z
+	.object(SETTING_SHAPE)
+	.keyof()
+	.options.slice()
+	.sort((left, right) => left.localeCompare(right))
+
 export const BOT_CONFIG_BOOLEAN_NAMES: readonly string[] = z
 	.object(BOT_CONFIG_BOOLEAN_SHAPE)
 	.keyof().options

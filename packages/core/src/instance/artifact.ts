@@ -15,6 +15,8 @@ export const REPLAYS_PER_SWEEP = 8
 
 export const REPLAY_KEEP_DAYS = 7
 
+export const REPLAY_SETTLE_MINUTES = 15
+
 export const ORPHANED_CACHE_MINUTES = 24 * 60
 
 export const ARTIFACT_RETENTION_DAYS = 30
@@ -252,18 +254,19 @@ const collectPlayerList = async (
 	tally.kindsCollected.add("playerList")
 }
 
-const listReplayNames = async (
+const listSettledReplays = async (
 	transport: HostTransport,
 	directory: string,
 ): Promise<readonly string[] | undefined> => {
 	try {
 		const result = await transport.exec(
-			`ls -1 ${shellQuote(directory)} 2>/dev/null || true`,
+			`find ${shellQuote(directory)} -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		return result.stdout
 			.split("\n")
 			.map((line) => line.trim())
+			.map((line) => line.slice(line.lastIndexOf("/") + 1))
 			.filter(isReplayName)
 			.slice(0, REPLAYS_PER_SWEEP)
 	} catch {
@@ -278,7 +281,7 @@ const collectReplays = async (
 	keep: KeepArtifact,
 	tally: Tally,
 ): Promise<void> => {
-	const names = await listReplayNames(transport, directory)
+	const names = await listSettledReplays(transport, directory)
 	if (names === undefined) {
 		tally.failed += 1
 		return
@@ -327,7 +330,7 @@ const pruneReplays = async (
 ): Promise<void> => {
 	try {
 		const result = await transport.exec(
-			`find ${shellQuote(directory)} -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -print -delete 2>/dev/null | wc -l`,
+			`find ${shellQuote(directory)} -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		tally.replaysPruned += countFrom(result.stdout)
@@ -344,7 +347,7 @@ const pruneRecordingCache = async (
 	const quoted = shellQuote(directory)
 	try {
 		const result = await transport.exec(
-			`find ${quoted} -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${quoted} -mindepth 1 -type d -empty -print -delete 2>/dev/null | wc -l`,
+			`find ${quoted} -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${quoted} -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		tally.cacheDirectoriesPruned += countFrom(result.stdout)

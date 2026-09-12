@@ -739,6 +739,32 @@ what it is called:
   the directories they left empty. Prune by file mtime, not directory mtime —
   a directory's mtime does not move while a recording writes into it, so
   pruning by directory would delete a live recording.
+- **A `.mcpr` that looks finished may still be being written, and taking it
+  destroys it.** `ReplayHandler.WriteReplayArchiveUnsafe` opens the FINAL path
+  with `FileMode.Create` and streams the whole raw recording through Deflate
+  into it — there is no temp-then-rename, so a partial archive sits at its
+  final name for the entire write. Collecting one stores bytes that are
+  unreadable by construction, because a ZIP's central directory is written last;
+  worse, the `rm` that follows unlinks a file whose `FileStream` MCC still
+  holds, so the client finishes writing into an inode with no name and the
+  operator is left with a recording that reported success and does not exist.
+  So an archive is collectable only once its own mtime has been still for
+  `REPLAY_SETTLE_MINUTES`, which `find -mmin` applies on the host — the same
+  file-mtime rule the recording cache uses, for the same reason. That is enough
+  on its own because `GetReplayDefaultName()` stamps a UTC millisecond, the pid
+  and a random token into every name, so a path is never written twice and the
+  only race is with the write in flight. **The margin is not derivable from MCC
+  source**: how long the write takes is a function of the recording's size and
+  Deflate's throughput, and nothing bounds either. Fifteen minutes is a choice,
+  anchored at three times the 300-second default of
+  `ChatBot.ReplayCapture.Backup_Interval` — the only duration the feature's own
+  source offers, being the cadence `Update()` assumes a full archive write fits
+  inside. It errs large deliberately: too large costs one hourly sweep of
+  latency, too small destroys a recording.
+- A prune is counted only when the host actually deleted something. `find`
+  evaluates predicates left to right and `-delete` is false when removal fails,
+  so the order is `-delete -print`; written `-print -delete` the name is
+  printed first and a deletion the host refused is still counted.
 - **`ChatBot.Mailer`'s `DatabaseFile` and `IgnoreListFile` cannot be collected
   at all, and the sweep only measures them.** They are bot state rather than
   output: `Initialize()` reads both into memory and a `FileMonitor` re-reads

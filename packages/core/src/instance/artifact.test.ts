@@ -13,7 +13,10 @@ import {
 	MAILER_IGNORE_LIST_DEFAULT,
 	MAX_ARTIFACT_BYTES,
 	mailerStateBytesFrom,
+	ORPHANED_CACHE_MINUTES,
 	PLAYER_LIST_FILE_DEFAULT,
+	REPLAY_KEEP_DAYS,
+	REPLAY_SETTLE_MINUTES,
 	REPLAYS_PER_SWEEP,
 	sweepHostArtifacts,
 } from "./artifact"
@@ -43,11 +46,19 @@ const instance: InstanceRow = {
 	createdAt: new Date(),
 }
 
+const MCC_BACKUP_INTERVAL_DEFAULT_MINUTES = 300 / 60
+
 const encoded = (text: string) => Buffer.from(text).toString("base64")
 
 const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' 2>/dev/null | base64 | tr -d '\\n'`
 
-const replayList = `ls -1 '${DIRECTORY}/replay_recordings' 2>/dev/null || true`
+const REPLAY_DIR = `${DIRECTORY}/replay_recordings`
+
+const replayList = `find '${REPLAY_DIR}' -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`
+
+const replayPrune = `find '${REPLAY_DIR}' -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`
+
+const cachePrune = `find '${DIRECTORY}/recording_cache' -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find '${DIRECTORY}/recording_cache' -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`
 
 const replayRead = (name: string) =>
 	`head -c ${MAX_ARTIFACT_BYTES + 1} '${DIRECTORY}/replay_recordings/${name}' 2>/dev/null | base64 | tr -d '\\n'`
@@ -214,7 +225,7 @@ describe("draining the player list log", () => {
 		)
 
 		expect(sweeps[0]?.refused).toBeGreaterThan(0)
-		expect(transport.commands.some((command) => command.startsWith("ls -1"))).toBe(true)
+		expect(transport.commands.some((command) => command.startsWith("find "))).toBe(true)
 		expect(transport.commands.some((command) => command.includes("%username%"))).toBe(false)
 	})
 })
@@ -224,7 +235,7 @@ describe("collecting finished replays", () => {
 
 	it("takes the archive and deletes it from the host", async () => {
 		const { sweep, kept, commands } = await sweepWith({
-			[replayList]: { stdout: `${name}\n`, stderr: "", exitCode: 0 },
+			[replayList]: { stdout: `${REPLAY_DIR}/${name}\n`, stderr: "", exitCode: 0 },
 			[replayRead(name)]: { stdout: encoded("PKreplay"), stderr: "", exitCode: 0 },
 		})
 
@@ -235,7 +246,7 @@ describe("collecting finished replays", () => {
 
 	it("leaves an archive too large to carry where it is, and says so", async () => {
 		const { sweep, commands } = await sweepWith({
-			[replayList]: { stdout: `${name}\n`, stderr: "", exitCode: 0 },
+			[replayList]: { stdout: `${REPLAY_DIR}/${name}\n`, stderr: "", exitCode: 0 },
 			[replayRead(name)]: {
 				stdout: Buffer.alloc(MAX_ARTIFACT_BYTES + 1).toString("base64"),
 				stderr: "",
@@ -251,7 +262,7 @@ describe("collecting finished replays", () => {
 	it("ignores anything in the directory that is not a replay the client named", async () => {
 		const { commands } = await sweepWith({
 			[replayList]: {
-				stdout: "recording.tmcpr\n../MinecraftClient.ini\nnotes.txt\n",
+				stdout: `${REPLAY_DIR}/recording.tmcpr\n${REPLAY_DIR}/../MinecraftClient.ini\n${REPLAY_DIR}/notes.txt\n`,
 				stderr: "",
 				exitCode: 0,
 			},
@@ -267,12 +278,66 @@ describe("collecting finished replays", () => {
 			(_unused, index) => `2026_09_13_10_00_00_00${index}_1_21_4_8123_ab12cd34ef5.mcpr`,
 		)
 		const { commands } = await sweepWith({
-			[replayList]: { stdout: `${names.join("\n")}\n`, stderr: "", exitCode: 0 },
+			[replayList]: {
+				stdout: `${names.map((each) => `${REPLAY_DIR}/${each}`).join("\n")}\n`,
+				stderr: "",
+				exitCode: 0,
+			},
 		})
 
 		expect(commands.filter((command) => command.includes("replay_recordings/2026"))).toHaveLength(
 			REPLAYS_PER_SWEEP,
 		)
+	})
+
+	it("asks only for archives that have stopped changing, because the client writes them in place", async () => {
+		const { commands } = await sweepWith({})
+		const listing = commands.find((command) => command.includes("-name '*.mcpr'")) ?? ""
+
+		expect(listing).toContain("-mmin +")
+		expect(REPLAY_SETTLE_MINUTES).toBeGreaterThanOrEqual(MCC_BACKUP_INTERVAL_DEFAULT_MINUTES)
+	})
+
+	it("never follows a path the host handed back, only the name inside the directory it asked about", async () => {
+		const { commands } = await sweepWith({
+			[replayList]: { stdout: `/etc/${name}\n`, stderr: "", exitCode: 0 },
+		})
+
+		expect(commands.some((command) => command.includes(`/etc/${name}`))).toBe(false)
+		expect(commands).toContain(replayRead(name))
+	})
+
+	it("does not count an archive the host refused to delete as collected", async () => {
+		const { sweep } = await sweepWith({
+			[replayList]: { stdout: `${REPLAY_DIR}/${name}\n`, stderr: "", exitCode: 0 },
+			[replayRead(name)]: { stdout: encoded("PKreplay"), stderr: "", exitCode: 0 },
+			[`rm -f '${REPLAY_DIR}/${name}'`]: { stdout: "", stderr: "", exitCode: 1 },
+		})
+
+		expect(sweep.collected).toBe(0)
+		expect(sweep.failed).toBe(1)
+	})
+})
+
+describe("counting what was pruned", () => {
+	it("counts an archive only once the host has actually deleted it", async () => {
+		const { sweep, commands } = await sweepWith({
+			[replayPrune]: { stdout: "4\n", stderr: "", exitCode: 0 },
+		})
+		const prune = commands.find((command) => command.includes("-mtime +")) ?? ""
+
+		expect(sweep.replaysPruned).toBe(4)
+		expect(prune.indexOf("-delete")).toBeLessThan(prune.indexOf("-print"))
+	})
+
+	it("counts a recording cache only once the host has actually deleted it", async () => {
+		const { sweep, commands } = await sweepWith({
+			[cachePrune]: { stdout: "2\n", stderr: "", exitCode: 0 },
+		})
+		const prune = commands.find((command) => command.includes("-type d -empty")) ?? ""
+
+		expect(prune.lastIndexOf("-delete")).toBeLessThan(prune.lastIndexOf("-print"))
+		expect(sweep.cacheDirectoriesPruned).toBe(2)
 	})
 })
 
@@ -297,8 +362,7 @@ describe("what the sweep never fetches", () => {
 
 	it("prunes an orphaned recording cache but never reads one", async () => {
 		const { sweep, commands } = await sweepWith({
-			[`find '${DIRECTORY}/recording_cache' -type f -mmin +1440 -delete 2>/dev/null; find '${DIRECTORY}/recording_cache' -mindepth 1 -type d -empty -print -delete 2>/dev/null | wc -l`]:
-				{ stdout: "2\n", stderr: "", exitCode: 0 },
+			[cachePrune]: { stdout: "2\n", stderr: "", exitCode: 0 },
 		})
 
 		expect(sweep.cacheDirectoriesPruned).toBe(2)

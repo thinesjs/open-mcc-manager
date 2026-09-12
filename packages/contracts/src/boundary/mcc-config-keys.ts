@@ -181,19 +181,12 @@ export const advancedKeyRowSchema = z.object({
 export type AdvancedKeyRow = z.infer<typeof advancedKeyRowSchema>
 
 export const BOT_CONFIG_PATH_SHAPE = {
-	"ChatBot.Alerts.Log_File": pathSchema,
 	"ChatBot.Mailer.DatabaseFile": pathSchema,
 	"ChatBot.Mailer.IgnoreListFile": pathSchema,
 	"ChatBot.PlayerListLogger.File": expandedPathSchema,
-	"ChatBot.ChatLog.Log_File": expandedPathSchema,
 }
 
-export const BOT_CONFIG_ENUM_SHAPE = {
-	"ChatBot.ChatLog.Filter": z.enum(
-		["all", "messages", "chat", "private_chat", "internal_msg"],
-		CHOOSE_A_VALUE,
-	),
-}
+export const BOT_CONFIG_ENUM_SHAPE = {}
 
 export const BOT_CONFIG_QUOTED_SHAPE = { ...BOT_CONFIG_PATH_SHAPE, ...BOT_CONFIG_ENUM_SHAPE }
 
@@ -208,18 +201,13 @@ export const BOT_CONFIG_BOOLEAN_SHAPE = {
 	"ChatBot.Alerts.Trigger_By_Words": advancedBooleanSchema,
 	"ChatBot.Alerts.Trigger_By_Rain": advancedBooleanSchema,
 	"ChatBot.Alerts.Trigger_By_Thunderstorm": advancedBooleanSchema,
-	"ChatBot.Alerts.Log_To_File": advancedBooleanSchema,
 	"ChatBot.Map.Enabled": advancedBooleanSchema,
 	"ChatBot.Map.Render_In_Console": advancedBooleanSchema,
-	"ChatBot.Map.Save_To_File": advancedBooleanSchema,
 	"ChatBot.Map.Auto_Render_On_Update": advancedBooleanSchema,
 	"ChatBot.Map.Delete_All_On_Unload": advancedBooleanSchema,
 	"ChatBot.Map.Notify_On_First_Update": advancedBooleanSchema,
-	"ChatBot.Map.Rasize_Rendered_Image": advancedBooleanSchema,
 	"ChatBot.Mailer.Enabled": advancedBooleanSchema,
 	"ChatBot.Mailer.PublicInteractions": advancedBooleanSchema,
-	"ChatBot.ChatLog.Enabled": advancedBooleanSchema,
-	"ChatBot.ChatLog.Add_DateTime": advancedBooleanSchema,
 	"ChatBot.PlayerListLogger.Enabled": advancedBooleanSchema,
 	"ChatBot.FollowPlayer.Enabled": advancedBooleanSchema,
 	"ChatBot.RemoteControl.Enabled": advancedBooleanSchema,
@@ -229,7 +217,6 @@ export const BOT_CONFIG_BOOLEAN_SHAPE = {
 }
 
 export const BOT_CONFIG_INTEGER_SHAPE = {
-	"ChatBot.Map.Resize_To": integerWithin(1, INT32.max),
 	"ChatBot.Mailer.MaxMailsPerPlayer": integerWithin(1, INT32.max),
 	"ChatBot.Mailer.MaxDatabaseSize": integerWithin(1, INT32.max),
 	"ChatBot.Mailer.MailRetentionDays": integerWithin(1, INT32.max),

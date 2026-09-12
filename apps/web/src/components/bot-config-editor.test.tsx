@@ -39,7 +39,6 @@ describe("what the page shows before anything is opened", () => {
 			"Alerts",
 			"Maps",
 			"Mail",
-			"Chat log",
 			"Player list log",
 			"Follow a player",
 			"Teleport requests",
@@ -60,14 +59,18 @@ describe("what the page shows before anything is opened", () => {
 	it("keeps a bot's settings out of sight until it is switched on", () => {
 		mount({})
 
-		expect(within(cardFor("Maps")).queryByLabelText("Image size in pixels")).toBeNull()
+		expect(
+			within(cardFor("Maps")).queryByRole("group", { name: "Notify on the first map received" }),
+		).toBeNull()
 		expect(within(cardFor("Maps")).getAllByRole("radio")).toHaveLength(2)
 	})
 
 	it("shows them once it is on", () => {
 		mount({ "ChatBot.Map.Enabled": "true" })
 
-		expect(within(cardFor("Maps")).getByLabelText("Image size in pixels")).toBeDefined()
+		expect(
+			within(cardFor("Maps")).getByRole("group", { name: "Notify on the first map received" }),
+		).toBeDefined()
 	})
 })
 
@@ -75,7 +78,7 @@ describe("switching a bot off", () => {
 	it("★ keeps every value the operator set inside it", () => {
 		const onChange = mount({
 			"ChatBot.Alerts.Enabled": "true",
-			"ChatBot.Alerts.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 			"ChatBot.Alerts.Matches": ["admin"],
 		})
 		const off = within(cardFor("Alerts"))
@@ -87,7 +90,7 @@ describe("switching a bot off", () => {
 
 		expect(onChange).toHaveBeenCalledWith({
 			"ChatBot.Alerts.Enabled": "false",
-			"ChatBot.Alerts.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 			"ChatBot.Alerts.Matches": ["admin"],
 		})
 	})
@@ -95,7 +98,7 @@ describe("switching a bot off", () => {
 
 describe("going back to what the client would do", () => {
 	it("offers that only for a setting the operator has actually set", () => {
-		mount({ "ChatBot.Map.Enabled": "true", "ChatBot.Map.Resize_To": "256" })
+		mount({ "ChatBot.Map.Enabled": "true", "ChatBot.Map.Notify_On_First_Update": "true" })
 
 		expect(within(cardFor("Maps")).getAllByText("Use client default")).toHaveLength(1)
 	})
@@ -155,15 +158,15 @@ describe("a bot switched off with a problem still inside it", () => {
 	it("★ says so on the card, so a blocked save is never a mystery", () => {
 		render(
 			<BotConfigEditor
-				draft={{ "ChatBot.Map.Enabled": "false", "ChatBot.Map.Resize_To": "0" }}
-				issues={{ "ChatBot.Map.Resize_To": "Between 1 and 2147483647" }}
+				draft={{ "ChatBot.Mailer.Enabled": "false", "ChatBot.Mailer.MaxMailsPerPlayer": "0" }}
+				issues={{ "ChatBot.Mailer.MaxMailsPerPlayer": "Between 1 and 2147483647" }}
 				instance={INSTANCE}
 				onChange={vi.fn()}
 			/>,
 		)
 
 		expect(
-			within(cardFor("Maps")).getByText("Turn this back on to fix 1 setting before saving."),
+			within(cardFor("Mail")).getByText("Turn this back on to fix 1 setting before saving."),
 		).toBeDefined()
 	})
 
@@ -183,14 +186,14 @@ describe("a bot switched off with a problem still inside it", () => {
 	it("shows the field's own error instead once the bot is open", () => {
 		render(
 			<BotConfigEditor
-				draft={{ "ChatBot.Map.Enabled": "true", "ChatBot.Map.Resize_To": "0" }}
-				issues={{ "ChatBot.Map.Resize_To": "Between 1 and 2147483647" }}
+				draft={{ "ChatBot.Mailer.Enabled": "true", "ChatBot.Mailer.MaxMailsPerPlayer": "0" }}
+				issues={{ "ChatBot.Mailer.MaxMailsPerPlayer": "Between 1 and 2147483647" }}
 				instance={INSTANCE}
 				onChange={vi.fn()}
 			/>,
 		)
 
-		expect(within(cardFor("Maps")).queryByText(/Turn this back on/)).toBeNull()
-		expect(within(cardFor("Maps")).getByText("Between 1 and 2147483647")).toBeDefined()
+		expect(within(cardFor("Mail")).queryByText(/Turn this back on/)).toBeNull()
+		expect(within(cardFor("Mail")).getByText("Between 1 and 2147483647")).toBeDefined()
 	})
 })

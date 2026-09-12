@@ -13,12 +13,7 @@ import {
 	LIST_CONFIG_NAMES,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { describe, expect, it } from "vitest"
-import {
-	CHAT_LOG_FILE_WHEN_UNSET,
-	defaultInstanceConfig,
-	FIXED_CONFIG_KEYS,
-	renderInstanceConfig,
-} from "./config"
+import { defaultInstanceConfig, FIXED_CONFIG_KEYS, renderInstanceConfig } from "./config"
 import {
 	type ConfigDrift,
 	compareInstanceConfig,
@@ -65,16 +60,15 @@ const refusalFor = (name: string, value: string | readonly string[]): readonly s
 
 const rendered = (botConfig: BotConfig) => renderInstanceConfig({ ...BASE, botConfig })
 
-const chatLogFileDrift = (entry: ConfigDrift): boolean =>
-	entry.kind !== "section" && entry.key === "ChatBot.ChatLog.Log_File"
+const expandedFileDrift = (entry: ConfigDrift): boolean =>
+	entry.kind !== "section" && entry.key === "ChatBot.PlayerListLogger.File"
 
 const LITERAL_PATH_FIELDS = [
-	"ChatBot.Alerts.Log_File",
 	"ChatBot.Mailer.DatabaseFile",
 	"ChatBot.Mailer.IgnoreListFile",
 ] as const
 
-const EXPANDED_PATH_FIELDS = ["ChatBot.ChatLog.Log_File", "ChatBot.PlayerListLogger.File"] as const
+const EXPANDED_PATH_FIELDS = ["ChatBot.PlayerListLogger.File"] as const
 
 const PATH_FIELDS = [...LITERAL_PATH_FIELDS, ...EXPANDED_PATH_FIELDS] as const
 
@@ -87,7 +81,6 @@ describe("the settings an operator may change on the client's own bots", () => {
 
 		expect([...sections].sort()).toEqual([
 			"Alerts",
-			"ChatLog",
 			"FollowPlayer",
 			"Mailer",
 			"Map",
@@ -136,111 +129,38 @@ describe("a file name the operator gives a bot", () => {
 		}
 	})
 
-	it("★ writes a file name of its own when the chat log is on, so the client's token-bearing default never applies", () => {
-		const document = rendered({ "ChatBot.ChatLog.Enabled": "true" })
-
-		expect(document).toContain(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`)
-		expect(document).not.toContain("%serverip%")
-	})
-
-	it("★ still redacts the host value when the operator chose the same name we would have", () => {
-		const expected = rendered({
-			"ChatBot.ChatLog.Enabled": "true",
-			"ChatBot.ChatLog.Log_File": CHAT_LOG_FILE_WHEN_UNSET,
-		})
-		const host = expected.replace(
-			`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
-			'Log_File = "theirs.txt"',
-		)
-		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
-
-		expect(drift[0]?.kind).toBe("operator")
-	})
-
-	it("★ treats the file name being DELETED on the host as a safety matter, because the client restores its own", () => {
-		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
-		const host = expected.replace(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"\n`, "")
-		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
-
-		expect(drift).toHaveLength(1)
-		expect(drift[0]?.kind).toBe("fixed")
-		expect(drift.filter(isSafetyDrift)).toHaveLength(1)
-	})
-
-	it("★ catches the refused token however the host spelled its case, which the client ignores", () => {
-		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
-		for (const spelling of ["%SERVERIP%", "%ServerIp%", "%serverip%"]) {
-			const host = expected.replace(
-				`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
-				`Log_File = "chatlog-${spelling}.txt"`,
-			)
-			const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
-			expect(drift[0]?.kind).toBe("fixed")
-		}
-	})
-
 	it("★ accepts an allowed token however the operator spelled its case, because the client lowercases it", () => {
 		for (const spelling of ["%USERNAME%", "%UserName%", "%username%"]) {
-			expect(refusalFor("ChatBot.ChatLog.Log_File", `chatlog-${spelling}.txt`)).toEqual([])
+			expect(refusalFor("ChatBot.PlayerListLogger.File", `chatlog-${spelling}.txt`)).toEqual([])
 		}
 	})
 
 	it("★ still refuses the DNS-controlled token whatever its case", () => {
 		for (const spelling of ["%SERVERIP%", "%ServerIp%", "%serverip%"]) {
-			expect(refusalFor("ChatBot.ChatLog.Log_File", `chatlog-${spelling}.txt`)).not.toEqual([])
+			expect(refusalFor("ChatBot.PlayerListLogger.File", `chatlog-${spelling}.txt`)).not.toEqual([])
 		}
 	})
 
 	it("★ does NOT call an operator's own allowed token a safety failure", () => {
 		const expected = rendered({
-			"ChatBot.ChatLog.Enabled": "true",
-			"ChatBot.ChatLog.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.Enabled": "true",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 		})
-		const host = expected.replace('Log_File = "mine.txt"', 'Log_File = "theirs-%username%.txt"')
-		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+		const host = expected.replace('File = "mine.txt"', 'Log_File = "theirs-%username%.txt"')
+		const drift = compareInstanceConfig(expected, host).filter(expandedFileDrift)
 
 		expect(drift[0]?.kind).toBe("operator")
-	})
-
-	it("★ reports a host still on the client's token-bearing default as a SAFETY matter, not a preference", () => {
-		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
-		const host = expected.replace(
-			`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
-			'Log_File = "chatlog-%username%-%serverip%.txt"',
-		)
-		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
-
-		expect(drift).toHaveLength(1)
-		expect(drift[0]?.kind).toBe("fixed")
-		expect(drift.filter(isSafetyDrift)).toHaveLength(1)
 	})
 
 	it("still treats a file name the operator chose as their own preference", () => {
 		const expected = rendered({
-			"ChatBot.ChatLog.Enabled": "true",
-			"ChatBot.ChatLog.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.Enabled": "true",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 		})
-		const host = expected.replace('Log_File = "mine.txt"', 'Log_File = "theirs.txt"')
-		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+		const host = expected.replace('File = "mine.txt"', 'Log_File = "theirs.txt"')
+		const drift = compareInstanceConfig(expected, host).filter(expandedFileDrift)
 
 		expect(drift[0]?.kind).toBe("operator")
-	})
-
-	it("leaves the operator's own file name alone when they have set one", () => {
-		const document = rendered({
-			"ChatBot.ChatLog.Enabled": "true",
-			"ChatBot.ChatLog.Log_File": "mine-%username%.txt",
-		})
-
-		expect(document).toContain('Log_File = "mine-%username%.txt"')
-		expect(document).not.toContain(`"${CHAT_LOG_FILE_WHEN_UNSET}"`)
-	})
-
-	it("★ writes the safe file name even while the chat log is OFF, so enabling it on the host cannot use the client's default", () => {
-		const document = rendered({})
-
-		expect(document).toContain(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`)
-		expect(document).not.toContain("%serverip%")
 	})
 
 	it.each(EXPANDED_PATH_FIELDS)("refuses a variable the client does not know on %s", (name) => {
@@ -257,7 +177,7 @@ describe("a file name the operator gives a bot", () => {
 	)
 
 	it("★ allows %players% only because the manager pins the client's invalid-name filter on", () => {
-		expect(refusalFor("ChatBot.ChatLog.Log_File", "chatlog-%players%.txt")).toEqual([])
+		expect(refusalFor("ChatBot.PlayerListLogger.File", "chatlog-%players%.txt")).toEqual([])
 		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.IgnoreInvalidPlayerName")
 		expect(rendered({})).toContain("IgnoreInvalidPlayerName = true")
 	})
@@ -268,7 +188,7 @@ describe("a file name the operator gives a bot", () => {
 			"utf8",
 		)
 		const clientDefaults = readMccConfigKeys(fixture, BOT_CONFIG_NAMES).values
-		const alwaysRendered = ["ChatBot.ChatLog.Log_File"]
+		const alwaysRendered = ["ChatBot.PlayerListLogger.File"]
 
 		const hiding = BOT_CONFIG_NAMES.filter((name) => {
 			if (alwaysRendered.includes(name)) return false
@@ -280,7 +200,7 @@ describe("a file name the operator gives a bot", () => {
 	})
 
 	it("★ allows %login% only because we always write the account, so the client never fills it in", () => {
-		expect(refusalFor("ChatBot.ChatLog.Log_File", "chatlog-%login%.txt")).toEqual([])
+		expect(refusalFor("ChatBot.PlayerListLogger.File", "chatlog-%login%.txt")).toEqual([])
 		expect(rendered({})).toContain(`Login = ${JSON.stringify(BASE.minecraftAccount)}`)
 		expect(instanceConfigInput.safeParse({ ...BASE, minecraftAccount: "a/../b" }).success).toBe(
 			false,
@@ -304,7 +224,7 @@ describe("the words that trigger an alert", () => {
 
 describe("numbers the client would otherwise rewrite", () => {
 	it.each([
-		{ key: "ChatBot.Map.Resize_To", value: "0", says: "Between 1 and 2147483647" },
+		{ key: "ChatBot.Mailer.MaxMailsPerPlayer", value: "0", says: "Between 1 and 2147483647" },
 		{ key: "ChatBot.PlayerListLogger.Delay", value: "0.5", says: "1 or more" },
 		{ key: "ChatBot.FollowPlayer.Update_Limit", value: "-1.0", says: "0 or more" },
 		{ key: "ChatBot.FollowPlayer.Stop_At_Distance", value: "-1.0", says: "0 or more" },
@@ -329,21 +249,24 @@ describe("numbers the client would otherwise rewrite", () => {
 })
 
 describe("how these settings reach the client's config file", () => {
-	it("quotes a file name and an enum, which bare would not parse", () => {
+	it("quotes a file name, which bare would not parse", () => {
 		const document = rendered({
-			"ChatBot.Alerts.Log_File": "alerts-log.txt",
-			"ChatBot.ChatLog.Filter": "messages",
+			"ChatBot.Mailer.DatabaseFile": "alerts-log.txt",
+			"ChatBot.Alerts.Beep_Enabled": "true",
 		})
 
-		expect(document).toContain('Log_File = "alerts-log.txt"')
-		expect(document).toContain('Filter = "messages"')
+		expect(document).toContain('DatabaseFile = "alerts-log.txt"')
+		expect(document).toContain("Beep_Enabled = true")
 		expect(() => parseMccConfig(document)).not.toThrow()
 	})
 
 	it("leaves a number and a boolean bare, which quoted would change their type", () => {
-		const document = rendered({ "ChatBot.Map.Resize_To": "256", "ChatBot.Map.Enabled": "true" })
+		const document = rendered({
+			"ChatBot.Mailer.MaxMailsPerPlayer": "256",
+			"ChatBot.Map.Enabled": "true",
+		})
 
-		expect(document).toContain("Resize_To = 256")
+		expect(document).toContain("MaxMailsPerPlayer = 256")
 		expect(document).toContain("Enabled = true")
 	})
 
@@ -363,7 +286,10 @@ describe("how these settings reach the client's config file", () => {
 	})
 
 	it("★ puts the pinned map fields and the operator's own under ONE header, which is the only way the document parses", () => {
-		const document = rendered({ "ChatBot.Map.Enabled": "true", "ChatBot.Map.Resize_To": "256" })
+		const document = rendered({
+			"ChatBot.Map.Enabled": "true",
+			"ChatBot.Mailer.MaxMailsPerPlayer": "256",
+		})
 		const headers = document.split("\n").filter((line) => line === "[ChatBot.Map]")
 
 		expect(headers).toHaveLength(1)
@@ -379,10 +305,10 @@ describe("how these settings reach the client's config file", () => {
 
 	it("survives render, parse and compare with no drift across every value kind", () => {
 		const document = rendered({
-			"ChatBot.Alerts.Log_File": "alerts-log.txt",
+			"ChatBot.Mailer.DatabaseFile": "alerts-log.txt",
 			"ChatBot.Alerts.Matches": ["admin"],
-			"ChatBot.ChatLog.Filter": "private_chat",
-			"ChatBot.Map.Resize_To": "256",
+			"ChatBot.Alerts.Beep_Enabled": "false",
+			"ChatBot.Mailer.MaxMailsPerPlayer": "256",
 			"ChatBot.FollowPlayer.Stop_At_Distance": "3.5",
 		})
 
@@ -392,14 +318,14 @@ describe("how these settings reach the client's config file", () => {
 
 describe("when a host changes one of these behind the manager's back", () => {
 	it("reports the operator's own setting without carrying the host value out", () => {
-		const document = rendered({ "ChatBot.Map.Resize_To": "256" })
+		const document = rendered({ "ChatBot.Mailer.MaxMailsPerPlayer": "256" })
 		const drift = compareInstanceConfig(
 			document,
-			document.replace("Resize_To = 256", "Resize_To = 64"),
+			document.replace("MaxMailsPerPlayer = 256", "MaxMailsPerPlayer = 64"),
 		)
 
 		expect(drift).toEqual([
-			{ kind: "operator", key: "ChatBot.Map.Resize_To", expected: 256, actual: 64 },
+			{ kind: "operator", key: "ChatBot.Mailer.MaxMailsPerPlayer", expected: 256, actual: 64 },
 		])
 	})
 
@@ -464,7 +390,7 @@ describe("every registered key at once, which is the only way a table clash show
 
 describe("sizes the client itself does not limit", () => {
 	it("accepts a file name far longer than any cap this manager once invented", () => {
-		expect(refusalFor("ChatBot.Alerts.Log_File", `${"a".repeat(300)}.txt`)).toEqual([])
+		expect(refusalFor("ChatBot.Mailer.DatabaseFile", `${"a".repeat(300)}.txt`)).toEqual([])
 	})
 
 	it("accepts an alert phrase far longer than any cap this manager once invented", () => {

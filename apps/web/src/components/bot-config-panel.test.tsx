@@ -32,7 +32,10 @@ const BASE = {
 const configWith = (logFile: string): InstanceConfigInput =>
 	instanceConfigInput.parse({
 		...BASE,
-		botConfig: { "ChatBot.ChatLog.Enabled": "true", "ChatBot.ChatLog.Log_File": logFile },
+		botConfig: {
+			"ChatBot.PlayerListLogger.Enabled": "true",
+			"ChatBot.PlayerListLogger.File": logFile,
+		},
 	})
 
 const mount = (instanceId: string, config: InstanceConfigInput) => {
@@ -198,8 +201,8 @@ describe("discarding an edit to the bots", () => {
 			instanceConfigInput.parse({
 				...BASE,
 				botConfig: {
-					"ChatBot.ChatLog.Enabled": "true",
-					"ChatBot.ChatLog.Log_File": "first.txt",
+					"ChatBot.PlayerListLogger.Enabled": "true",
+					"ChatBot.PlayerListLogger.File": "first.txt",
 					"ChatBot.Alerts.Enabled": "true",
 				},
 			}),
@@ -215,7 +218,7 @@ describe("discarding an edit to the bots", () => {
 		fireEvent.click(screen.getByText("Use client default"))
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
 
-		fireEvent.change(screen.getByLabelText("Chat log file"), { target: { value: "first.txt" } })
+		fireEvent.change(screen.getByLabelText("Player list file"), { target: { value: "first.txt" } })
 
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 	})
@@ -256,25 +259,25 @@ describe("saving the bots an operator has configured", () => {
 		await act(async () => undefined)
 
 		expect(sent()?.instanceId).toBe("i1")
-		expect(sent()?.botConfig["ChatBot.ChatLog.Log_File"]).toBe("first.txt")
+		expect(sent()?.botConfig["ChatBot.PlayerListLogger.File"]).toBe("first.txt")
 	})
 })
 
 describe("moving to another instance without the page being rebuilt", () => {
 	it("★ shows the instance now on screen, not the draft left over from the last one", () => {
 		const { rerender } = mount("i1", configWith("first.txt"))
-		fireEvent.change(screen.getByLabelText("Chat log file"), {
+		fireEvent.change(screen.getByLabelText("Player list file"), {
 			target: { value: "typed-but-never-saved.txt" },
 		})
 
 		remount(rerender, "i2", configWith("second.txt"))
 
-		expect(screen.getByLabelText("Chat log file")).toHaveProperty("value", "second.txt")
+		expect(screen.getByLabelText("Player list file")).toHaveProperty("value", "second.txt")
 	})
 
 	it("★ saves the second instance's values, never the first one's", async () => {
 		const { rerender } = mount("i1", configWith("first.txt"))
-		fireEvent.change(screen.getByLabelText("Chat log file"), {
+		fireEvent.change(screen.getByLabelText("Player list file"), {
 			target: { value: "typed-but-never-saved.txt" },
 		})
 
@@ -283,17 +286,20 @@ describe("moving to another instance without the page being rebuilt", () => {
 		await act(async () => undefined)
 
 		expect(sent()?.instanceId).toBe("i2")
-		expect(sent()?.botConfig["ChatBot.ChatLog.Log_File"]).toBe("second.txt")
+		expect(sent()?.botConfig["ChatBot.PlayerListLogger.File"]).toBe("second.txt")
 	})
 
 	it("keeps an edit while the operator stays on the same instance", () => {
 		const { rerender } = mount("i1", configWith("first.txt"))
-		fireEvent.change(screen.getByLabelText("Chat log file"), {
+		fireEvent.change(screen.getByLabelText("Player list file"), {
 			target: { value: "still-being-typed.txt" },
 		})
 
 		remount(rerender, "i1", configWith("first.txt"))
 
-		expect(screen.getByLabelText("Chat log file")).toHaveProperty("value", "still-being-typed.txt")
+		expect(screen.getByLabelText("Player list file")).toHaveProperty(
+			"value",
+			"still-being-typed.txt",
+		)
 	})
 })

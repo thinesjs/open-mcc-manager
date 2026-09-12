@@ -57,6 +57,9 @@ export const FIXED_CONFIG_KEYS = [
 	"Main.Advanced.BotOwners",
 	"ChatBot.Map.Send_Rendered_To_Discord",
 	"ChatBot.Map.Send_Rendered_To_Telegram",
+	"ChatBot.ChatLog.Enabled",
+	"ChatBot.Alerts.Log_To_File",
+	"ChatBot.Map.Save_To_File",
 	"ChatBot.AutoRespond.Enabled",
 	"ChatBot.ScriptScheduler.Enabled",
 	"ChatBot.DiscordBridge.Enabled",
@@ -184,14 +187,10 @@ export const splitServerAddress = (value: string): ServerAddress => {
 const PINNED_BOT_CONFIG: Readonly<Record<string, string>> = {
 	"ChatBot.Map.Send_Rendered_To_Discord": "false",
 	"ChatBot.Map.Send_Rendered_To_Telegram": "false",
+	"ChatBot.ChatLog.Enabled": "false",
+	"ChatBot.Alerts.Log_To_File": "false",
+	"ChatBot.Map.Save_To_File": "false",
 }
-
-export const CHAT_LOG_FILE_WHEN_UNSET = "chatlog.txt"
-
-const chatLogFileLine = (botConfig: BotConfig): readonly [string, string][] =>
-	botConfig["ChatBot.ChatLog.Log_File"] === undefined
-		? [["ChatBot.ChatLog.Log_File", CHAT_LOG_FILE_WHEN_UNSET]]
-		: []
 
 const renderConfigValue = (key: string, value: string | readonly string[]): string => {
 	if (LIST_CONFIG_NAMES.includes(key)) {
@@ -210,7 +209,6 @@ const renderConfigTables = (
 	const entries: [string, string | readonly string[]][] = [
 		...Object.entries(advancedKeys),
 		...Object.entries(botConfig),
-		...chatLogFileLine(botConfig),
 		...Object.entries(PINNED_BOT_CONFIG),
 	].flatMap(([key, value]) => (value === undefined ? [] : [[key, value]]))
 	for (const [key, value] of entries) {

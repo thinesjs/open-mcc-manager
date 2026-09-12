@@ -3,7 +3,6 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
-	BOT_CONFIG_ENUM_SHAPE,
 	BOT_CONFIG_NAMES,
 	type BotConfigName,
 	SETTING_NAMES,
@@ -12,7 +11,6 @@ import {
 import { describe, expect, it } from "vitest"
 import {
 	BOT_CONFIG_DEPENDENCIES,
-	BOT_CONFIG_ENUM_OPTIONS,
 	BOT_CONFIG_FIELDS,
 	BOT_CONFIG_SECTIONS,
 } from "./bot-config-fields"
@@ -31,12 +29,11 @@ describe("the field table against the registry it is written for", () => {
 describe("the sections an operator reads the fields under", () => {
 	const sectioned: readonly string[] = BOT_CONFIG_SECTIONS.flatMap((section) => [...section.keys])
 
-	it("names eight sections", () => {
+	it("names seven sections", () => {
 		expect(BOT_CONFIG_SECTIONS.map((section) => section.name)).toEqual([
 			"Alerts",
 			"Map",
 			"Mailer",
-			"ChatLog",
 			"PlayerListLogger",
 			"FollowPlayer",
 			"RemoteControl",
@@ -76,10 +73,10 @@ describe("the fields that do nothing until another setting is on", () => {
 	}
 
 	it("names the prerequisite nearest each field, not a distant one that leaves a step out", () => {
-		expect(nearestFor("ChatBot.Alerts.Log_File")).toBe("ChatBot.Alerts.Log_To_File")
-		expect(nearestFor("ChatBot.Alerts.Log_To_File")).toBe("ChatBot.Alerts.Trigger_By_Words")
-		expect(nearestFor("ChatBot.Map.Resize_To")).toBe("ChatBot.Map.Rasize_Rendered_Image")
-		expect(nearestFor("ChatBot.Map.Rasize_Rendered_Image")).toBe("ChatBot.Map.Save_To_File")
+		expect(nearestFor("ChatBot.Alerts.Matches")).toBe("ChatBot.Alerts.Trigger_By_Words")
+		expect(nearestFor("ChatBot.RemoteControl.AutoTpaccept_Everyone")).toBe(
+			"ChatBot.RemoteControl.AutoTpaccept",
+		)
 	})
 
 	it("claims each field once and ends every chain, which is what lets the walk terminate", () => {
@@ -190,29 +187,8 @@ describe("the defaults the client itself declares", () => {
 	})
 
 	it("keeps the defaults a reader would otherwise get wrong", () => {
-		expect(BOT_CONFIG_FIELDS["ChatBot.Map.Resize_To"].clientDefault).toBe("512")
 		expect(BOT_CONFIG_FIELDS["ChatBot.RemoteControl.AutoTpaccept"].clientDefault).toBe("true")
 		expect(BOT_CONFIG_FIELDS["ChatBot.ReplayCapture.Backup_Interval"].clientDefault).toBe("300.0")
-	})
-})
-
-describe("the one enum an operator picks from", () => {
-	const options = BOT_CONFIG_ENUM_OPTIONS["ChatBot.ChatLog.Filter"]
-
-	it("offers every value the client accepts, in the client's order", () => {
-		expect(options.map((option) => option.value)).toEqual(
-			BOT_CONFIG_ENUM_SHAPE["ChatBot.ChatLog.Filter"].options,
-		)
-	})
-
-	it("shows no member name, so nothing reaches the operator in the client's spelling", () => {
-		expect(options.filter((option) => option.label === option.value)).toEqual([])
-		expect(options.filter((option) => option.label.includes("_"))).toEqual([])
-	})
-
-	it("says what the client actually writes for the two that a name would mislead on", () => {
-		expect(options.find((option) => option.value === "messages")?.label).toBe("Chat and whispers")
-		expect(options.find((option) => option.value === "private_chat")?.label).toBe("Whispers")
 	})
 })
 
@@ -246,7 +222,7 @@ describe("★ every default the editor shows, against the client's own captured 
 	})
 
 	it("checked a real number of them, not an empty set", () => {
-		expect(clientDefaults.size).toBeGreaterThan(30)
+		expect(clientDefaults.size).toBeGreaterThan(20)
 	})
 })
 

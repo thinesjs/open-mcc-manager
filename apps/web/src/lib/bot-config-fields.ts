@@ -1,6 +1,6 @@
 import type { InstanceConfigInput } from "@open-mcc/contracts"
 import {
-	BOT_CONFIG_ENUM_SHAPE,
+	type BOT_CONFIG_ENUM_SHAPE,
 	BOT_CONFIG_LIST_SHAPE,
 	BOT_CONFIG_SHAPE,
 	type BotConfigName,
@@ -211,8 +211,6 @@ export const BOT_CONFIG_FIELDS: Record<SettingName, BotConfigField> = {
 		label: "Alert when a thunderstorm starts or ends",
 		clientDefault: "false",
 	},
-	"ChatBot.Alerts.Log_To_File": { label: "Write alerts to a file", clientDefault: "false" },
-	"ChatBot.Alerts.Log_File": { label: "Alert log file", clientDefault: "alerts-log.txt" },
 	"ChatBot.Alerts.Matches": {
 		label: "Words to alert on",
 		clientDefault: ["Yourname", " whispers ", "-> me", "admin", ".com"],
@@ -232,7 +230,6 @@ export const BOT_CONFIG_FIELDS: Record<SettingName, BotConfigField> = {
 	},
 	"ChatBot.Map.Enabled": { label: "Enabled", clientDefault: "false" },
 	"ChatBot.Map.Render_In_Console": { label: "Draw maps in the console", clientDefault: "true" },
-	"ChatBot.Map.Save_To_File": { label: "Save maps as images", clientDefault: "false" },
 	"ChatBot.Map.Auto_Render_On_Update": {
 		label: "Draw each map as it arrives",
 		clientDefault: "false",
@@ -245,8 +242,6 @@ export const BOT_CONFIG_FIELDS: Record<SettingName, BotConfigField> = {
 		label: "Notify on the first map received",
 		clientDefault: "true",
 	},
-	"ChatBot.Map.Rasize_Rendered_Image": { label: "Resize saved images", clientDefault: "false" },
-	"ChatBot.Map.Resize_To": { label: "Image size in pixels", clientDefault: "512" },
 	"ChatBot.Mailer.Enabled": { label: "Enabled", clientDefault: "false" },
 	"ChatBot.Mailer.DatabaseFile": {
 		label: "Mail database file",
@@ -263,13 +258,6 @@ export const BOT_CONFIG_FIELDS: Record<SettingName, BotConfigField> = {
 	"ChatBot.Mailer.MaxMailsPerPlayer": { label: "Most mails held per player", clientDefault: "10" },
 	"ChatBot.Mailer.MaxDatabaseSize": { label: "Most mails held in total", clientDefault: "10000" },
 	"ChatBot.Mailer.MailRetentionDays": { label: "Days to keep a mail", clientDefault: "30" },
-	"ChatBot.ChatLog.Enabled": { label: "Enabled", clientDefault: "false" },
-	"ChatBot.ChatLog.Add_DateTime": { label: "Timestamp each line", clientDefault: "true" },
-	"ChatBot.ChatLog.Log_File": {
-		label: "Chat log file",
-		clientDefault: "chatlog.txt",
-	},
-	"ChatBot.ChatLog.Filter": { label: "Messages to log", clientDefault: "messages" },
 	"ChatBot.PlayerListLogger.Enabled": { label: "Enabled", clientDefault: "false" },
 	"ChatBot.PlayerListLogger.File": { label: "Player list file", clientDefault: "playerlog.txt" },
 	"ChatBot.PlayerListLogger.Delay": { label: "Seconds between entries", clientDefault: "60.0" },
@@ -308,17 +296,6 @@ export type BotConfigEnumOption = {
 	readonly label: string
 }
 
-const CHAT_LOG_FILTER_LABEL: Record<
-	z.infer<(typeof BOT_CONFIG_ENUM_SHAPE)["ChatBot.ChatLog.Filter"]>,
-	string
-> = {
-	all: "Everything",
-	messages: "Chat and whispers",
-	chat: "Public chat",
-	private_chat: "Whispers",
-	internal_msg: "Client messages",
-}
-
 export const BOT_CONFIG_LIST_NAMES: readonly BotConfigName[] = z
 	.object(BOT_CONFIG_LIST_SHAPE)
 	.keyof().options
@@ -326,11 +303,7 @@ export const BOT_CONFIG_LIST_NAMES: readonly BotConfigName[] = z
 export const BOT_CONFIG_ENUM_OPTIONS: Record<
 	keyof typeof BOT_CONFIG_ENUM_SHAPE,
 	readonly BotConfigEnumOption[]
-> = {
-	"ChatBot.ChatLog.Filter": BOT_CONFIG_ENUM_SHAPE["ChatBot.ChatLog.Filter"].options.map(
-		(member) => ({ value: member, label: CHAT_LOG_FILTER_LABEL[member] }),
-	),
-}
+> = {}
 
 const DECLARED_ORDER: readonly string[] = Object.keys(BOT_CONFIG_FIELDS)
 
@@ -338,7 +311,6 @@ const SECTION_ORDER = [
 	"Alerts",
 	"Map",
 	"Mailer",
-	"ChatLog",
 	"PlayerListLogger",
 	"FollowPlayer",
 	"RemoteControl",
@@ -351,7 +323,6 @@ export const BOT_CONFIG_SECTION_LABEL: Record<BotConfigSectionName, string> = {
 	Alerts: "Alerts",
 	Map: "Maps",
 	Mailer: "Mail",
-	ChatLog: "Chat log",
 	PlayerListLogger: "Player list log",
 	FollowPlayer: "Follow a player",
 	RemoteControl: "Teleport requests",
@@ -389,7 +360,6 @@ export const BOT_CONFIG_SECTION_PURPOSE: Record<BotConfigSectionName, string> = 
 	Alerts: "Sound an alert on chosen words, rain or thunder.",
 	Map: "Render in-game maps to the console or to image files.",
 	Mailer: "Let players leave mail for each other through the bot.",
-	ChatLog: "Write chat to a file on the host.",
 	PlayerListLogger: "Record who is online, at a set interval.",
 	FollowPlayer: "Walk the bot after a named player.",
 	RemoteControl: "Let players teleport the bot to them.",
@@ -418,23 +388,8 @@ export type BotConfigDependency =
 export const BOT_CONFIG_DEPENDENCIES: readonly BotConfigDependency[] = [
 	{
 		kind: "sibling",
-		keys: ["ChatBot.Alerts.Matches", "ChatBot.Alerts.Excludes", "ChatBot.Alerts.Log_To_File"],
+		keys: ["ChatBot.Alerts.Matches", "ChatBot.Alerts.Excludes"],
 		requires: "ChatBot.Alerts.Trigger_By_Words",
-	},
-	{
-		kind: "sibling",
-		keys: ["ChatBot.Alerts.Log_File"],
-		requires: "ChatBot.Alerts.Log_To_File",
-	},
-	{
-		kind: "sibling",
-		keys: ["ChatBot.Map.Rasize_Rendered_Image"],
-		requires: "ChatBot.Map.Save_To_File",
-	},
-	{
-		kind: "sibling",
-		keys: ["ChatBot.Map.Resize_To"],
-		requires: "ChatBot.Map.Rasize_Rendered_Image",
 	},
 	{
 		kind: "sibling",

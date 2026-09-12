@@ -35,7 +35,7 @@ describe("what the operator has actually chosen", () => {
 	})
 
 	it("falls back to the client's own default for an unset key", () => {
-		expect(effectiveValue({}, "ChatBot.Map.Resize_To")).toBe("512")
+		expect(effectiveValue({}, "ChatBot.Mailer.MaxMailsPerPlayer")).toBe("10")
 		expect(effectiveValue({}, "ChatBot.RemoteControl.AutoTpaccept")).toBe("true")
 	})
 
@@ -47,11 +47,14 @@ describe("what the operator has actually chosen", () => {
 	})
 
 	it("removes the key entirely when the operator goes back to the client's default", () => {
-		const draft = storeValue({}, "ChatBot.Map.Resize_To", "256")
+		const draft = storeValue({}, "ChatBot.Mailer.MaxMailsPerPlayer", "256")
 
-		expect(Object.hasOwn(clearValue(draft, "ChatBot.Map.Resize_To"), "ChatBot.Map.Resize_To")).toBe(
-			false,
-		)
+		expect(
+			Object.hasOwn(
+				clearValue(draft, "ChatBot.Mailer.MaxMailsPerPlayer"),
+				"ChatBot.Mailer.MaxMailsPerPlayer",
+			),
+		).toBe(false)
 	})
 
 	it("carries a saved config into a draft and back again", () => {
@@ -63,22 +66,25 @@ describe("what the operator has actually chosen", () => {
 
 describe("what the operator is told is wrong", () => {
 	it("says nothing when every value is good", () => {
-		expect(validateBotConfig({ "ChatBot.Map.Resize_To": "256" })).toEqual({})
+		expect(validateBotConfig({ "ChatBot.Mailer.MaxMailsPerPlayer": "256" })).toEqual({})
 	})
 
 	it("names the field and what it wants", () => {
-		expect(validateBotConfig({ "ChatBot.Map.Resize_To": "0" })).toEqual({
-			"ChatBot.Map.Resize_To": "Between 1 and 2147483647",
+		expect(validateBotConfig({ "ChatBot.Mailer.MaxMailsPerPlayer": "0" })).toEqual({
+			"ChatBot.Mailer.MaxMailsPerPlayer": "Between 1 and 2147483647",
 		})
 	})
 
 	it("reports every bad field, not just the first", () => {
 		const issues = validateBotConfig({
-			"ChatBot.Map.Resize_To": "0",
-			"ChatBot.Alerts.Log_File": "../escape",
+			"ChatBot.Mailer.MaxMailsPerPlayer": "0",
+			"ChatBot.PlayerListLogger.File": "../escape",
 		})
 
-		expect(Object.keys(issues).sort()).toEqual(["ChatBot.Alerts.Log_File", "ChatBot.Map.Resize_To"])
+		expect(Object.keys(issues).sort()).toEqual([
+			"ChatBot.Mailer.MaxMailsPerPlayer",
+			"ChatBot.PlayerListLogger.File",
+		])
 	})
 })
 
@@ -99,27 +105,6 @@ describe("a setting that does nothing until another is on", () => {
 		expect(
 			unmetDependency({}, INSTANCE, "ChatBot.RemoteControl.AutoTpaccept_Everyone"),
 		).toBeUndefined()
-	})
-
-	it("★ names the nearest unmet link, so the operator is told the next switch to reach for", () => {
-		expect(unmetDependency({}, INSTANCE, "ChatBot.Alerts.Log_File")).toEqual({
-			requires: "Write alerts to a file",
-		})
-	})
-
-	it("★ walks past a link already on and names the one still off further up the chain", () => {
-		const draft = storeValue({}, "ChatBot.Alerts.Log_To_File", "true")
-
-		expect(unmetDependency(draft, INSTANCE, "ChatBot.Alerts.Log_File")).toEqual({
-			requires: "Alert on matched words",
-		})
-	})
-
-	it("stays quiet only once every link in the chain is on", () => {
-		const partly = storeValue({}, "ChatBot.Alerts.Log_To_File", "true")
-		const fully = storeValue(partly, "ChatBot.Alerts.Trigger_By_Words", "true")
-
-		expect(unmetDependency(fully, INSTANCE, "ChatBot.Alerts.Log_File")).toBeUndefined()
 	})
 
 	it("names both instance settings the follow bot needs when neither is on", () => {
@@ -143,7 +128,7 @@ describe("switching a section off", () => {
 	it("★ keeps every value the operator set inside it, so nothing is lost by hiding it", () => {
 		const configured: BotConfigDraft = {
 			"ChatBot.Alerts.Enabled": "true",
-			"ChatBot.Alerts.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 			"ChatBot.Alerts.Matches": ["admin"],
 		}
 
@@ -151,7 +136,7 @@ describe("switching a section off", () => {
 
 		expect(off).toEqual({
 			"ChatBot.Alerts.Enabled": "false",
-			"ChatBot.Alerts.Log_File": "mine.txt",
+			"ChatBot.PlayerListLogger.File": "mine.txt",
 			"ChatBot.Alerts.Matches": ["admin"],
 		})
 	})

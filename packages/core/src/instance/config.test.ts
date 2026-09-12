@@ -52,6 +52,7 @@ describe("instance config rendering", () => {
 			"[ChatBot.ScriptScheduler]",
 			"[ChatBot.DiscordBridge]",
 			"[ChatBot.TelegramBridge]",
+			"[ChatBot.Alerts]",
 			"[ChatBot.ChatLog]",
 			"[ChatBot.Map]",
 		])
@@ -102,7 +103,9 @@ describe("instance config rendering", () => {
 			"Enabled",
 			"Enabled",
 			"Enabled",
-			"Log_File",
+			"Log_To_File",
+			"Enabled",
+			"Save_To_File",
 			"Send_Rendered_To_Discord",
 			"Send_Rendered_To_Telegram",
 		])
@@ -148,9 +151,7 @@ describe("instance config rendering", () => {
 			const match = /^([A-Za-z_][A-Za-z0-9_]*) = /.exec(line)
 			if (match) emitted.push(`${section}.${match[1]}`)
 		}
-		expect(emitted.sort()).toEqual(
-			[...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS, "ChatBot.ChatLog.Log_File"].sort(),
-		)
+		expect(emitted.sort()).toEqual([...ALLOWED_CONFIG_KEYS, ...FIXED_CONFIG_KEYS].sort())
 	})
 
 	it("pins the three keys the client would otherwise choose for itself", () => {

@@ -7,6 +7,7 @@ const CHECKS = [
 	{ name: "type-policy", command: "node", args: ["scripts/check-type-policy.mjs"] },
 	{ name: "control-sizing", command: "node", args: ["scripts/check-control-sizing.mjs"] },
 	{ name: "runtime-deps", command: "node", args: ["scripts/check-runtime-deps.mjs"] },
+	{ name: "image-notices", command: "node", args: ["scripts/check-image-notices.mjs"] },
 ]
 
 export const runCheck = (check, run = defaultRun) => {

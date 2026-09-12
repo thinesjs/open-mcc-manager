@@ -1,6 +1,6 @@
 {
 	"$schema": "https://turbo.build/schema.json",
-	"globalDependencies": [".env"],
+	"globalDependencies": [".env", "docs/mcc-compat.md"],
 	"tasks": {
 		"build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
 		"typecheck": { "dependsOn": ["^build"] },

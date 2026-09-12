@@ -34,6 +34,20 @@ services:
       NOTIFICATION_TEAMS_HOSTS: ${NOTIFICATION_TEAMS_HOSTS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      SELF_HOST_NAME: ${SELF_HOST_NAME:-}
+      SELF_HOST_HOSTNAME: ${SELF_HOST_HOSTNAME:-}
+      SELF_HOST_PORT: ${SELF_HOST_PORT:-}
+      SELF_HOST_USERNAME: ${SELF_HOST_USERNAME:-}
+      SELF_HOST_MODE: ${SELF_HOST_MODE:-}
+      SELF_HOST_FINGERPRINT: ${SELF_HOST_FINGERPRINT:-}
+      SELF_HOST_PUBLIC_KEY: ${SELF_HOST_PUBLIC_KEY:-}
+      SELF_HOST_PRIVATE_KEY_SEALED: ${SELF_HOST_PRIVATE_KEY_SEALED:-}
+      SELF_HOST_PRIVATE_KEY_ID: ${SELF_HOST_PRIVATE_KEY_ID:-}
+      SELF_HOST_REACH: ${SELF_HOST_REACH:-}
+      SELF_HOST_SYSTEMD: ${SELF_HOST_SYSTEMD:-}
+      SELF_HOST_LINGER: ${SELF_HOST_LINGER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:${SERVER_PORT:-3000}:3000"
     restart: unless-stopped
@@ -64,6 +78,8 @@ services:
       NOTIFICATION_TEAMS_HOSTS: ${NOTIFICATION_TEAMS_HOSTS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     read_only: true
     tmpfs:

@@ -61,6 +61,17 @@ export type {
 	ArtifactValues,
 } from "./instance/artifact.repository"
 export { createArtifactRepository } from "./instance/artifact.repository"
+export type {
+	ArtifactCollect,
+	ArtifactCollectDeps,
+	ArtifactCollectReporter,
+	ArtifactCollectRun,
+} from "./instance/artifact-collect.job"
+export {
+	artifactCollectJob,
+	artifactCollectReporter,
+	createArtifactCollector,
+} from "./instance/artifact-collect.job"
 export {
 	beginAuthentication,
 	DEVICE_CODE_PATTERN,
@@ -145,6 +156,7 @@ export type { QueueAdmin, QueuePolicy, StoredQueue } from "./job/queue-setup"
 export {
 	adminFor,
 	DEADLETTER_RETENTION_SECONDS,
+	INSTANCE_ARTIFACT_QUEUE,
 	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,

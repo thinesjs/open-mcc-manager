@@ -1,7 +1,11 @@
 import {
 	adminFor,
+	artifactCollectJob,
+	artifactCollectReporter,
 	asSqlRunner,
 	attachQueueWarning,
+	createArtifactCollector,
+	createArtifactRepository,
 	createAuditRepository,
 	createCleanupHandler,
 	createDeliveryHandler,
@@ -21,6 +25,7 @@ import {
 	type EgressPolicy,
 	egressPolicy,
 	HOST_TEARDOWN_QUEUE,
+	INSTANCE_ARTIFACT_QUEUE,
 	type Logger,
 	malformedJobReporter,
 	NOTIFICATION_CLEANUP_QUEUE,
@@ -32,6 +37,7 @@ import {
 	reconcileQueues,
 	retentionSweepJob,
 	retentionSweepReporter,
+	runtimeErrorReporter,
 	type SendJob,
 	STATUS_ESCALATE_QUEUE,
 	startHeartbeat,
@@ -205,6 +211,48 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 	await boss.work(
 		NOTIFICATION_CLEANUP_QUEUE,
 		retentionSweepJob(cleanUp, retentionSweepReporter(logger)),
+	)
+
+	const artifacts = createArtifactRepository(db)
+	const collectArtifacts = createArtifactCollector({
+		organizationIds: async () => await createOrganizationRepository(db).listIds(),
+		hosts: async (scope) => await hosts.list(scope),
+		instancesOn: async (scope, hostId) =>
+			(await instances.list(scope)).filter((row) => row.hostId === hostId),
+		savedDocument: async (scope, instanceId) => {
+			const saved = await instances.latestConfig(scope, instanceId)
+			return typeof saved?.document === "string" ? saved.document : undefined
+		},
+		connect: async (host) => {
+			if (!host.sshKeyId || !host.hostKeyFingerprint) {
+				throw new Error(`Host ${host.id} is not ready to be collected from`)
+			}
+			const key = await sshKeys.findById({ organizationId: host.organizationId }, host.sshKeyId)
+			if (!key) throw new Error(`Ssh key missing for host ${host.id}`)
+			const transport = createSshTransport()
+			await transport.connect({
+				hostname: host.hostname,
+				port: host.port,
+				username: host.username,
+				privateKey: secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
+				expectedFingerprint: host.hostKeyFingerprint,
+				timeoutMs: CONNECT_TIMEOUT_MS,
+			})
+			return transport
+		},
+		store: async (scope, values) => await artifacts.store(scope, values),
+		deleteBeyondKept: async (scope, instanceId, kind, kept) =>
+			await artifacts.deleteBeyondKept(scope, instanceId, kind, kept),
+		deleteCollectedBefore: async (scope, cutoff) =>
+			await artifacts.deleteCollectedBefore(scope, cutoff),
+		now: () => new Date(),
+		onError: runtimeErrorReporter(logger),
+	})
+
+	await boss.schedule(INSTANCE_ARTIFACT_QUEUE, "23 * * * *")
+	await boss.work(
+		INSTANCE_ARTIFACT_QUEUE,
+		artifactCollectJob(collectArtifacts, artifactCollectReporter(logger)),
 	)
 
 	await boss.work(NOTIFICATION_HTTP_QUEUE, workDeliveries(NOTIFICATION_HTTP_QUEUE))

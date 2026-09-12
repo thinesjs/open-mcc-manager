@@ -710,6 +710,74 @@ reachable from any network, and nothing here may change that.
   *after* joining is reported as `unreachable` drift, because MCC swallows its
   own bind failure.
 
+## What the bots write on a host
+
+Three of the client's bots write files the console does not carry, so turning
+them off would lose the feature rather than duplicate it.
+`packages/core/src/instance/artifact.ts` reaches a host over the same SSH
+transport reconciliation uses and takes those files back, and
+`artifact-collect.job.ts` runs it hourly from the worker on
+`INSTANCE_ARTIFACT_QUEUE`. Each writer is handled by what the file *is*, not by
+what it is called:
+
+- `ChatBot.PlayerListLogger.File` is append-only text. The sweep reads up to
+  `MAX_ARTIFACT_BYTES`, stores those bytes, and only then removes exactly that
+  many from the head of the file. The order is load-bearing: storing first
+  risks a duplicate if the drain fails, draining first loses the rows outright,
+  and the digest unique constraint makes the duplicate free. The bytes removed
+  are counted from the buffer actually received, never from a size the host
+  reported, so a drain can never discard more than was collected.
+- `ChatBot.ReplayCapture` writes finished `.mcpr` archives to
+  `replay_recordings/` and a raw packet stream to
+  `recording_cache/<run>/recording.tmcpr`. The archives are collected whole and
+  deleted; a prefix of a ZIP is worthless, so one over `MAX_ARTIFACT_BYTES` is
+  left alone, counted as oversize, and removed by age after
+  `REPLAY_KEEP_DAYS` — the host stops growing either way, and the drop is
+  reported rather than silent. The cache is **never** collected: it is scratch
+  that the client deletes on a clean shutdown and leaks on every hard kill, so
+  the sweep prunes files in it untouched for `ORPHANED_CACHE_MINUTES` and then
+  the directories they left empty. Prune by file mtime, not directory mtime —
+  a directory's mtime does not move while a recording writes into it, so
+  pruning by directory would delete a live recording.
+- **`ChatBot.Mailer`'s `DatabaseFile` and `IgnoreListFile` cannot be collected
+  at all, and the sweep only measures them.** They are bot state rather than
+  output: `Initialize()` reads both into memory and a `FileMonitor` re-reads
+  both on any external change, so truncating the database does not free space —
+  the bot reloads an empty one and every undelivered mail is destroyed, and
+  emptying the ignore list un-ignores everyone. Neither file is appended to;
+  `SaveToFile` rewrites the whole collection, so there is no tail to drain and a
+  partial read is a torn read. The content is also third-party private
+  correspondence, which the control plane has no business republishing. Growth
+  is already bounded by the client itself — `Update()` drops delivered and
+  expired mail every ten seconds, and writes are refused past
+  `MaxDatabaseSize` and `MaxMailsPerPlayer`. What is missing is an upper bound
+  on those two registered keys, which admit up to `INT32.max`; until one exists
+  the sweep reports the byte size and warns past `MAILER_STATE_WARN_BYTES`, so
+  the growth is visible rather than silent.
+
+A file on a host is attacker-influenced — a player's chat reaches
+`PlayerListLogger` through the tab list and `Mailer` through a private message —
+so **the collector never interprets what it carries**. Content is validated as
+base64 and nothing else, decoded straight into a `Buffer`, and stored as
+`bytea`; it never becomes a string, never reaches a log, and never appears in
+the sweep result. Every other remote-derived value is refused unless it matches
+a closed shape: a replay file name must be `[A-Za-z0-9_]+.mcpr`, an operator's
+configured file name must be a bare name with no separator and no `%` the
+client would expand, and a count must be digits alone. A name that fails is
+counted as refused and left where it is — the sweep would rather collect
+nothing than delete a path it did not configure. `InstanceArtifactSweep` and
+`ArtifactCollectRun` carry numbers and ids this side owns, so no transport
+error text can ride out of the sweep; per-file transport failures are caught
+and counted rather than propagated, and only a failure to reach the host at all
+goes to the logger, through the redactor the health poller already uses.
+
+What the control plane holds is bounded twice, because retention alone does not
+bound a busy fleet: `ARTIFACTS_KEPT_PER_KIND` newest rows per instance per
+kind, each at most `MAX_ARTIFACT_BYTES`, and everything past
+`ARTIFACT_RETENTION_DAYS` regardless. An unreachable host costs nothing — it is
+counted, skipped, and retried on the next hour, which is why the queue's
+`retryLimit` is `0` — and retention still runs for its organization.
+
 ## Logging
 
 Each daemon owns exactly one root logger, at module scope in its own

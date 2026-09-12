@@ -11,7 +11,13 @@ import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, journalctl, systemctl } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
-import { CONFIG_PATH_NAME, compareInstanceConfig, formatConfigValue } from "./config-drift"
+import {
+	CONFIG_PATH_NAME,
+	compareInstanceConfig,
+	formatConfigValue,
+	isOperatorKey,
+	isSecretKey,
+} from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import { instanceDir, unitName } from "./unit"
 
@@ -146,6 +152,8 @@ const readInstanceConfig = async (
 	return text.trim().length === 0 ? undefined : text
 }
 
+export const WITHHELD_VALUE = "something else"
+
 const toPublicDrift = (instanceId: string, entry: ConfigDrift): ConfigDriftPublic => {
 	if (entry.kind === "section") {
 		return {
@@ -166,6 +174,15 @@ const toPublicDrift = (instanceId: string, entry: ConfigDrift): ConfigDriftPubli
 			key: entry.key,
 			expected: formatConfigValue(entry.expected),
 			actual: null,
+		}
+	}
+	if (isSecretKey(entry.key) || isOperatorKey(entry.key)) {
+		return {
+			instanceId,
+			kind: entry.kind,
+			key: entry.key,
+			expected: formatConfigValue(entry.expected),
+			actual: entry.actual === undefined ? null : WITHHELD_VALUE,
 		}
 	}
 	return {

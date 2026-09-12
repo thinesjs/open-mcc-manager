@@ -24,6 +24,22 @@ export const advancedKeysFromRows = (rows: readonly AdvancedKeyRow[]): AdvancedK
 	return advancedKeysSchema.parse(carried)
 }
 
+const byKey = (given: readonly AdvancedKeyRow[]): readonly AdvancedKeyRow[] =>
+	[...given].sort((left, right) => (left.key ?? "").localeCompare(right.key ?? ""))
+
+export const sameAdvancedKeyRows = (
+	left: readonly AdvancedKeyRow[],
+	right: readonly AdvancedKeyRow[],
+): boolean => {
+	if (left.length !== right.length) return false
+	const sortedLeft = byKey(left)
+	const sortedRight = byKey(right)
+	return sortedLeft.every((row, index) => {
+		const other = sortedRight[index]
+		return other !== undefined && row.key === other.key && row.value === other.value
+	})
+}
+
 export const addAdvancedKeyRow = (rows: readonly AdvancedKeyRow[]): readonly AdvancedKeyRow[] => [
 	...rows,
 	{ key: null, value: "" },

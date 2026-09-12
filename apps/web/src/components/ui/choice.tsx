@@ -22,10 +22,12 @@ export const Choice = <Value extends string>({
 	onChange,
 }: ChoiceProps<Value>) => {
 	const name = useId()
+	const compact =
+		options.length === 2 && options.every((option) => option.description === undefined)
 	const reduced = useReducedMotion()
 
 	return (
-		<fieldset className="grid gap-2 sm:grid-cols-2">
+		<fieldset className={cn("grid gap-2", compact ? "w-fit grid-cols-2" : "sm:grid-cols-2")}>
 			<legend className="sr-only">{label}</legend>
 			{options.map((option) => {
 				const selected = option.value === value
@@ -34,6 +36,7 @@ export const Choice = <Value extends string>({
 						key={option.value}
 						className={cn(
 							"relative isolate cursor-pointer rounded-[var(--radius)] border p-3 transition-colors",
+							compact ? "min-w-16 text-center" : "",
 							"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background",
 							selected
 								? "border-foreground/24"

@@ -83,6 +83,7 @@ export {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
+	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,

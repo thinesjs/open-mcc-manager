@@ -150,8 +150,31 @@ describe("the shapes a value has to take", () => {
 		expect(refusalFor(key, "-1")).not.toEqual([])
 	})
 
-	it.each(["12345678901234567.5", "1.1234567"])("refuses the float %s as too long", (value) => {
-		expect(refusalFor("ChatBot.AutoFishing.Hook_Threshold", value)).not.toEqual([])
+	it.each([
+		"1.1234567",
+		"1234567890123456.7",
+		"0.00000000000000001",
+		"100000000000000000.0",
+		"1.12345678901234567",
+		"1000000000000000000000000000000.0",
+	])("accepts the float %s, because nothing here compares float text", (value) => {
+		expect(refusalFor("ChatBot.AutoFishing.Hook_Threshold", value)).toEqual([])
+	})
+
+	it("still refuses something that is not a decimal at all", () => {
+		for (const value of ["1.", ".5", "1e9", "01.5", "--1.0", ""]) {
+			expect(refusalFor("ChatBot.AutoFishing.Hook_Threshold", value)).toEqual(["Decimal number"])
+		}
+	})
+
+	it("★ refuses a decimal so long the client could not hold it as a number", () => {
+		expect(refusalFor("ChatBot.AutoFishing.Hook_Threshold", `${"9".repeat(400)}.0`)).toEqual([
+			"Decimal number",
+		])
+	})
+
+	it("says one thing at a time, so a malformed number never reads as a range problem", () => {
+		expect(refusalFor("ChatBot.AutoDig.Auto_Start_Delay", "nonsense")).toEqual(["Decimal number"])
 	})
 
 	it("refuses a float where a boolean belongs", () => {

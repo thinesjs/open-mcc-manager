@@ -615,8 +615,27 @@ reachable from any network, and nothing here may change that.
   holds**. It deliberately does NOT report a registered key the host sets but we
   never saved: MCC writes its own defaults for all 59 on first expansion, so
   that signal is indistinguishable from operator action without a per-version
-  table of every default. Its public payload carries `actual: null` by type, so
-  a host value never reaches the browser.
+  table of every default. A host value never reaches the browser for any key the
+  operator owns, but that is no longer a guarantee of the type: an operator key
+  can reach the public payload as `kind: "fixed"` — either because the value the
+  host holds would expand to something unsafe on the client, or because the host
+  DELETED the key and the client's own default carries the token, which is the
+  "an absent key is not a safe key" case — and that member types `actual` as
+  `string | null`. The guarantee is a runtime branch in `toPublicDrift`, which
+  substitutes `WITHHELD_VALUE` for anything the host actually held and leaves
+  `null` to mean genuinely absent. The same branch covers `SECRET_KEYS` —
+  `Main.General.Account.Password` is allowlisted and rendered, so without it the
+  host's password would be echoed verbatim.
+- **Before registering any new key, ask whether the host's value for it could be
+  a secret the control plane has no business republishing.** Password qualifies
+  by construction: we only ever write `""` or `"-"`, so any non-empty host value
+  is something we did not put there. `Main.General.Account.Login` deliberately
+  does NOT qualify — it is an identifier the operator owns, already shown as
+  `instancePublic.minecraftAccount`, and withholding it would cost real drift
+  information. The live risk is additions, not the current set: `DiscordBridge`
+  and `TelegramBridge` are pinned shut as `FIXED` keys, and each carries a
+  `Token` field one line away in the same config table. Register either bot's
+  other keys and that token becomes reachable.
 - The channel is **read-only by capability**. `ChatAndCommands` and `Movement`
   are rendered `false` as `FIXED` keys, which is what keeps
   `mcc_run_internal_command` — MCC's entire internal command surface, `script`

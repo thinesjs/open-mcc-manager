@@ -45,13 +45,21 @@ export const accountIdentifier = (accountType: AccountType) =>
 				)
 		: z.string().email("This login method signs in with an email address")
 
+const NO_PATH_IN_IT = "Cannot contain a slash, a backslash or .."
+
+const withoutPathParts = (value: string): boolean =>
+	!value.includes("/") &&
+	!value.includes("\\") &&
+	!value.includes("..") &&
+	[...value].every((character) => (character.codePointAt(0) ?? 0) >= 0x20)
+
 export const createInstanceInput = z
 	.object({
 		hostId: z.string().min(1),
 		name: z.string().min(1).max(64),
 		accountType: accountTypeSchema.default("microsoft"),
 		minecraftAccount: z.string().min(1).max(255),
-		serverAddress: z.string().min(1).max(253),
+		serverAddress: z.string().min(1).max(253).refine(withoutPathParts, NO_PATH_IN_IT),
 	})
 	.superRefine((value, ctx) => {
 		const result = accountIdentifier(value.accountType).safeParse(value.minecraftAccount)
@@ -84,8 +92,8 @@ export type DelaySecondsRange = z.infer<typeof delaySecondsRange>
 export const instanceConfigInput = z
 	.object({
 		accountType: accountTypeSchema,
-		minecraftAccount: z.string().min(1).max(255),
-		serverAddress: z.string().min(1).max(253),
+		minecraftAccount: z.string().min(1).max(255).refine(withoutPathParts, NO_PATH_IN_IT),
+		serverAddress: z.string().min(1).max(253).refine(withoutPathParts, NO_PATH_IN_IT),
 		autoRelogRetries: z.number().int().min(0).max(1000),
 		autoRelogEnabled: z.boolean(),
 		autoRelogDelaySeconds: delaySecondsRange,
@@ -109,16 +117,27 @@ const storedDelaySeconds = z.union([
 ])
 
 export const instanceConfigStored = instanceConfigInput.extend({
+	minecraftAccount: z.string().min(1).max(255),
+	serverAddress: z.string().min(1).max(253),
 	autoRelogEnabled: z.boolean().default(true),
 	autoRelogDelaySeconds: storedDelaySeconds,
 	antiAfkIntervalSeconds: storedDelaySeconds,
 })
 
+export const instanceSettingsInput = instanceConfigInput.omit({ botConfig: true })
+export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>
+
 export const updateInstanceConfigInput = z.object({
 	instanceId: z.string().min(1),
-	config: instanceConfigInput,
+	config: instanceSettingsInput,
 })
 export type UpdateInstanceConfigInput = z.infer<typeof updateInstanceConfigInput>
+
+export const updateBotConfigInput = z.object({
+	instanceId: z.string().min(1),
+	botConfig: botConfigSchema,
+})
+export type UpdateBotConfigInput = z.infer<typeof updateBotConfigInput>
 
 export const sendInstanceCommandInput = z.object({
 	instanceId: z.string().min(1),

@@ -14,6 +14,7 @@ import {
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 	STUCK_MARKERS,
+	WITHHELD_VALUE,
 } from "./reconcile"
 
 const PROFILE = systemProfile()
@@ -610,6 +611,156 @@ describe("comparing a host's client config", () => {
 		if (!reconciliation.reachable) throw new Error("expected a reachable host")
 		expect(reconciliation.configDrift).toHaveLength(1)
 		expect(reconciliation.configDrift[0]?.actual).toBeNull()
+	})
+
+	it("★ withholds the host's own value even when the drift is a SAFETY one on an operator key", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkEnabled: true,
+			antiAfkIntervalSeconds: { min: 90, max: 300 },
+			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+			advancedKeys: {},
+			botConfig: { "ChatBot.ChatLog.Enabled": "true" },
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace('Log_File = "chatlog.txt"', 'Log_File = "chatlog-%serverip%.txt"'),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		const entry = reconciliation.configDrift.find((each) => each.key === "ChatBot.ChatLog.Log_File")
+		expect(entry?.kind).toBe("fixed")
+		expect(entry?.actual).toBe(WITHHELD_VALUE)
+		expect(JSON.stringify(entry)).not.toContain("serverip")
+	})
+
+	it("★ never puts a password the host holds into the browser", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkEnabled: true,
+			antiAfkIntervalSeconds: { min: 90, max: 300 },
+			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+			advancedKeys: {},
+			botConfig: {},
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace('Password = "-"', 'Password = "hunter2"'),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		const entry = reconciliation.configDrift.find(
+			(each) => each.key === "Main.General.Account.Password",
+		)
+		expect(entry?.actual).toBe(WITHHELD_VALUE)
+		expect(JSON.stringify(reconciliation.configDrift)).not.toContain("hunter2")
+	})
+
+	it("★ still calls an absent operator key absent, rather than withholding a value it never saw", async () => {
+		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const document = renderInstanceConfig({
+			accountType: "offline",
+			minecraftAccount: "Steve",
+			serverAddress: "play.example.net",
+			autoRelogRetries: 3,
+			autoRelogEnabled: true,
+			autoRelogDelaySeconds: { min: 5, max: 20 },
+			antiAfkEnabled: true,
+			antiAfkIntervalSeconds: { min: 90, max: 300 },
+			autoRespawnEnabled: false,
+			liveControlEnabled: false,
+			liveControlPort: 33333,
+			worldDataEnabled: false,
+			inventoryDataEnabled: false,
+			entityDataEnabled: false,
+			advancedKeys: {},
+			botConfig: { "ChatBot.ChatLog.Enabled": "true" },
+		})
+		const transport = await connected({
+			...fileReplies(expected),
+			"systemctl is-active 'open-mcc@abc123.service' || true": {
+				stdout: "active",
+				stderr: "",
+				exitCode: 0,
+			},
+			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
+				stdout: document.replace('Log_File = "chatlog.txt"\n', ""),
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+
+		const { reconciliation } = await reconcileHostOverTransport(
+			transport,
+			PROFILE,
+			"host-1",
+			[instance()],
+			expected,
+			new Map([["abc123", document]]),
+		)
+
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+		const entry = reconciliation.configDrift.find((each) => each.key === "ChatBot.ChatLog.Log_File")
+		expect(entry?.kind).toBe("fixed")
+		expect(entry?.actual).toBeNull()
 	})
 
 	it("withholds the host's own value when a key the operator saved has drifted", async () => {

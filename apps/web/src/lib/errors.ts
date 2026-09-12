@@ -56,6 +56,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	HOST_NAME_TAKEN: "A host with that name already exists. Choose a different name.",
 	SSH_KEY_NAME_TAKEN: "An SSH key with that name already exists. Choose a different name.",
 	INSTANCE_NOT_FOUND: "That instance no longer exists. Refresh the list.",
+	INSTANCE_CONFIG_UNUSABLE:
+		"These settings cannot be used as they are. Open Settings, correct them, and save.",
 	INSTANCE_HOST_NOT_READY:
 		"That instance's host is not ready yet. Enroll and provision the host first.",
 	INSTANCE_LIVE_CONTROL_UNREADABLE:

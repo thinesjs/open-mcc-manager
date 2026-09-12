@@ -54,6 +54,12 @@ describe("instance config drift", () => {
 				expected: [],
 				actual: ["player1", "player2"],
 			},
+			{
+				kind: "fixed",
+				key: "ChatBot.ChatLog.Log_File",
+				expected: "chatlog.txt",
+				actual: "chatlog-%username%-%serverip%.txt",
+			},
 		])
 	})
 

@@ -217,7 +217,7 @@ const seedInstance = async (orgId: string): Promise<string> => {
 const call = async (
 	path: string,
 	cookie: string,
-	input: Record<string, string>,
+	input: Record<string, string | Record<string, string>>,
 ): Promise<Response> =>
 	await app.request(`/trpc/${path}`, {
 		method: "POST",
@@ -329,6 +329,56 @@ describe("instance router capability boundaries", () => {
 
 		const refused = await call("instance.sendCommand", cookie, { instanceId, command: "/say hi" })
 		expect(refused.status).toBe(403)
+	})
+
+	it("★ refuses a viewer's attempt to save the client's bots, leaving nothing written", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+		await demoteToRole(orgId, "viewer")
+
+		const res = await call("instance.updateBotConfig", cookie, {
+			instanceId,
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+		})
+
+		expect(res.status).toBe(403)
+		const versions = await db
+			.selectFrom("instanceConfig")
+			.select("id")
+			.where("instanceId", "=", instanceId)
+			.execute()
+		expect(versions).toEqual([])
+	})
+
+	it("★ refuses an instance belonging to another organization, before any write", async () => {
+		const mine = await signUpAndActivate()
+		const theirs = await signUpAndActivate()
+		const instanceId = await seedInstance(theirs.orgId)
+
+		const res = await call("instance.updateBotConfig", mine.cookie, {
+			instanceId,
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+		})
+
+		expect(res.status).not.toBe(200)
+		const versions = await db
+			.selectFrom("instanceConfig")
+			.select("id")
+			.where("instanceId", "=", instanceId)
+			.execute()
+		expect(versions).toEqual([])
+	})
+
+	it("★ refuses a key the registry does not hold, so the strict schema reaches the wire", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await call("instance.updateBotConfig", cookie, {
+			instanceId,
+			botConfig: { "ChatBot.Script.Script_File": "evil" },
+		})
+
+		expect(res.status).toBe(400)
 	})
 
 	it("refuses an unauthenticated caller outright", async () => {

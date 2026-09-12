@@ -12,6 +12,7 @@ import {
 	Terminal,
 } from "lucide-react"
 import { useState } from "react"
+import { BotConfigPanel } from "~/components/bot-config-panel"
 import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
@@ -28,10 +29,8 @@ import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
-import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
-import { formatDelaySeconds } from "~/lib/delay-range"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { consoleLines } from "~/lib/minecraft-text"
@@ -48,7 +47,6 @@ function InstanceDetailPage() {
 	const queryClient = useQueryClient()
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
-	const [editingSettings, setEditingSettings] = useState(false)
 
 	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
@@ -297,6 +295,7 @@ function InstanceDetailPage() {
 							<TabsTab value="console">Console</TabsTab>
 							<TabsTab value="schedule">Schedule</TabsTab>
 							<TabsTab value="settings">Settings</TabsTab>
+							<TabsTab value="bots">Bots</TabsTab>
 							<TabsTab value="danger">Danger zone</TabsTab>
 						</TabsList>
 
@@ -529,96 +528,48 @@ function InstanceDetailPage() {
 						</TabsPanel>
 
 						<TabsPanel value="settings">
-							<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-								<div className="flex items-start justify-between gap-4">
+							{configQuery.isPending ? (
+								<Spinner label="Loading settings" />
+							) : !configQuery.data ? (
+								<p className="text-sm text-muted-foreground">
+									No saved settings for this instance.
+								</p>
+							) : (
+								<section className="space-y-4 rounded-[var(--radius)] border border-border bg-card p-4">
 									<div>
 										<h2 className="text-sm font-semibold text-foreground">Settings</h2>
 										<p className="text-xs text-muted-foreground">
-											What this client connects to, and how it behaves while it is there.
+											What this client connects to, and how it behaves while it is there. Takes
+											effect the next time the bot starts.
 										</p>
 									</div>
-									<Button
-										size="sm"
-										variant="secondary"
-										disabled={!configQuery.data}
-										onClick={() => setEditingSettings(true)}
-									>
-										Edit
-									</Button>
-								</div>
-								{configQuery.isPending ? (
-									<Spinner label="Loading settings" />
-								) : !configQuery.data ? (
-									<p className="text-sm text-muted-foreground">
-										No saved settings for this instance.
-									</p>
-								) : (
-									<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Server</dt>
-											<dd className="text-sm text-foreground">{configQuery.data.serverAddress}</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Rejoin after a disconnect</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.autoRelogEnabled ? "On" : "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Rejoin attempts</dt>
-											<dd className="text-sm tabular-nums text-foreground">
-												{configQuery.data.autoRelogRetries}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Wait between attempts</dt>
-											<dd className="text-sm tabular-nums text-foreground">
-												{formatDelaySeconds(configQuery.data.autoRelogDelaySeconds)}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Respawn after dying</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.autoRespawnEnabled ? "On" : "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Anti-AFK</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.antiAfkEnabled
-													? `Every ${formatDelaySeconds(configQuery.data.antiAfkIntervalSeconds)}`
-													: "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Live control</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.liveControlEnabled
-													? `On, port ${configQuery.data.liveControlPort}`
-													: "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">World and position</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.worldDataEnabled ? "Tracked" : "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Inventory</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.inventoryDataEnabled ? "Tracked" : "Off"}
-											</dd>
-										</div>
-										<div className="flex justify-between gap-4">
-											<dt className="text-sm text-muted-foreground">Nearby entities</dt>
-											<dd className="text-sm text-foreground">
-												{configQuery.data.entityDataEnabled ? "Tracked" : "Off"}
-											</dd>
-										</div>
-									</dl>
-								)}
-							</section>
+									<InstanceSettingsForm
+										instanceId={instanceId}
+										config={configQuery.data}
+										onSaved={async () => {
+											await configQuery.refetch()
+										}}
+									/>
+								</section>
+							)}
+						</TabsPanel>
+
+						<TabsPanel value="bots">
+							{configQuery.isPending ? (
+								<Spinner label="Loading bots" />
+							) : !configQuery.data ? (
+								<p className="text-sm text-muted-foreground">
+									No saved settings for this instance.
+								</p>
+							) : (
+								<BotConfigPanel
+									instanceId={instanceId}
+									config={configQuery.data}
+									onSaved={async () => {
+										await configQuery.refetch()
+									}}
+								/>
+							)}
 						</TabsPanel>
 
 						<TabsPanel value="danger">
@@ -698,25 +649,6 @@ function InstanceDetailPage() {
 					</Tabs>
 				</>
 			) : null}
-
-			{!configQuery.data ? null : (
-				<Modal
-					open={editingSettings}
-					title="Instance settings"
-					description="Takes effect the next time the bot starts."
-					onClose={() => setEditingSettings(false)}
-				>
-					<InstanceSettingsForm
-						instanceId={instanceId}
-						config={configQuery.data}
-						onSaved={async () => {
-							setEditingSettings(false)
-							await configQuery.refetch()
-						}}
-						onCancel={() => setEditingSettings(false)}
-					/>
-				</Modal>
-			)}
 
 			<ConfirmDialog
 				open={confirmingRemove}

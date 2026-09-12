@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { InstanceConfigInput } from "@open-mcc/contracts"
 import { instanceConfigInput, updateInstanceConfigInput } from "@open-mcc/contracts"
 import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -18,11 +19,33 @@ const detail = readFileSync(
 const DELAY_FIELDS = ["autoRelogDelaySeconds", "antiAfkIntervalSeconds"] as const
 
 describe("editing a delay range", () => {
-	it.each(DELAY_FIELDS)(
-		"gives %s its own two-bound field, so the two cannot cross-wire",
-		(field) => {
-			expect(form).toContain(`value={draft.${field}}`)
-			expect(form).toContain(`onChange={(${field}) => setDraft({ ...draft, ${field} })}`)
+	const DELAY_ROWS = [
+		{
+			field: "autoRelogDelaySeconds",
+			id: "settings-delay",
+			other: "antiAfkIntervalSeconds",
+			untouched: { min: 90, max: 300 },
+		},
+		{
+			field: "antiAfkIntervalSeconds",
+			id: "settings-afk",
+			other: "autoRelogDelaySeconds",
+			untouched: { min: 5, max: 20 },
+		},
+	] as const
+
+	it.each(DELAY_ROWS)(
+		"★ edits only $field, leaving $other alone, so the two cannot cross-wire",
+		async ({ field, id, other, untouched }) => {
+			const { container } = mount({})
+			const shortest = container.querySelector(`#${id}-min`)
+			if (shortest === null) throw new Error(`expected a shortest bound for ${id}`)
+
+			fireEvent.change(shortest, { target: { value: "42" } })
+			await save()
+
+			expect(sentConfig()?.[field]?.min).toBe(42)
+			expect(sentConfig()?.[other]).toEqual(untouched)
 		},
 	)
 
@@ -51,17 +74,18 @@ describe("switching auto-relog off", () => {
 	})
 })
 
-describe("the saved-settings summary", () => {
-	it.each(DELAY_FIELDS)("shows %s through the range formatter", (field) => {
-		expect(detail).toContain(`formatDelaySeconds(configQuery.data.${field})`)
+describe("where the operator edits these settings", () => {
+	it("★ puts the form on the page itself, so it has room to grow and works on a phone", () => {
+		expect(detail).toContain("<InstanceSettingsForm")
+		expect(detail).not.toContain("<Modal")
 	})
 
-	it.each(DELAY_FIELDS)("never interpolates %s straight into the summary text", (field) => {
-		expect(detail).not.toContain(`\${configQuery.data.${field}}`)
+	it("keeps no second read-only copy of the same values to drift out of step", () => {
+		expect(detail).not.toContain("formatDelaySeconds(configQuery.data.")
 	})
 
-	it("tells an operator whether rejoining is on at all", () => {
-		expect(detail).toContain('{configQuery.data.autoRelogEnabled ? "On" : "Off"}')
+	it("gives the bots their own page too, rather than burying them in the same form", () => {
+		expect(detail).toContain("<BotConfigPanel")
 	})
 })
 
@@ -92,7 +116,23 @@ const mount = (advancedKeys: AdvancedKeys) => {
 				instanceId="i1"
 				config={{ ...CONFIG, advancedKeys }}
 				onSaved={async () => undefined}
-				onCancel={() => undefined}
+			/>
+		</QueryClientProvider>,
+	)
+}
+
+const remount = (
+	rerender: (element: React.ReactElement) => void,
+	instanceId: string,
+	config: InstanceConfigInput,
+) => {
+	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+	rerender(
+		<QueryClientProvider client={client}>
+			<InstanceSettingsForm
+				instanceId={instanceId}
+				config={config}
+				onSaved={async () => undefined}
 			/>
 		</QueryClientProvider>,
 	)
@@ -230,5 +270,154 @@ describe("the submission itself, not merely the button that starts it", () => {
 		})
 
 		expect(mutate).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe("moving to another instance without the page being rebuilt", () => {
+	it("★ shows the instance now on screen, not the draft left over from the last one", () => {
+		const { rerender } = mount({ "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "typed-but-never-saved.example.com" },
+		})
+
+		const other = instanceConfigInput.parse({
+			...CONFIG,
+			serverAddress: "second.example.com",
+			advancedKeys: { "ChatBot.AutoEat.Threshold": "9" },
+		})
+		remount(rerender, "i2", other)
+
+		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "second.example.com")
+		expect(screen.getByLabelText("Value")).toHaveProperty("value", "9")
+	})
+
+	it("keeps an edit while the operator stays on the same instance", () => {
+		const { rerender } = mount({})
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "still-being-typed.example.com" },
+		})
+
+		remount(rerender, "i1", instanceConfigInput.parse({ ...CONFIG, advancedKeys: {} }))
+
+		expect(screen.getByLabelText("Server address")).toHaveProperty(
+			"value",
+			"still-being-typed.example.com",
+		)
+	})
+})
+
+describe("★ what the settings save is allowed to carry", () => {
+	it("sends no bot config at all, so saving settings cannot undo a bot change", async () => {
+		mount({})
+
+		await save()
+
+		expect(mutate.mock.calls[0]?.[0]?.config).not.toHaveProperty("botConfig")
+		expect(updateInstanceConfigInput.safeParse(mutate.mock.calls[0]?.[0]).success).toBe(true)
+	})
+
+	it("★ submits the instance now on screen after the operator moved to it", async () => {
+		const { rerender } = mount({ "ChatBot.AutoEat.Threshold": "5" })
+		const other = instanceConfigInput.parse({
+			...CONFIG,
+			serverAddress: "second.example.com",
+			advancedKeys: { "ChatBot.AutoEat.Threshold": "9" },
+		})
+
+		remount(rerender, "i2", other)
+		await save()
+
+		expect(mutate.mock.calls[0]?.[0]?.instanceId).toBe("i2")
+		expect(sentConfig()?.serverAddress).toBe("second.example.com")
+		expect(sentConfig()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
+	})
+})
+
+describe("discarding an edit", () => {
+	it("is offered only once something has actually changed", () => {
+		mount({})
+
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
+
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "elsewhere.example.com" },
+		})
+
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
+	})
+
+	it("★ goes quiet again after a successful save, rather than claiming unsaved work forever", async () => {
+		const { rerender } = mount({ "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
+
+		await save()
+		remount(
+			rerender,
+			"i1",
+			instanceConfigInput.parse({ ...CONFIG, advancedKeys: { "ChatBot.AutoEat.Threshold": "9" } }),
+		)
+
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
+	})
+
+	it("★ goes quiet once the saved keys arrive, even if they were added out of alphabetical order", async () => {
+		const { rerender } = mount({ "ChatBot.AutoFishing.Enabled": "true" })
+		fireEvent.click(screen.getByText("Add a key"))
+		const added = advancedRowOf("Choose a key")
+		if (added === undefined) throw new Error("expected a new row")
+		fireEvent.click(added)
+		const option = await screen.findByRole("option", { name: "ChatBot.AutoEat.Threshold" })
+		fireEvent.pointerDown(option)
+		fireEvent.pointerUp(option)
+		fireEvent.click(option)
+		const values = screen.getAllByLabelText("Value")
+		const addedValue = values[values.length - 1]
+		if (addedValue === undefined) throw new Error("expected the added row's value box")
+		fireEvent.change(addedValue, { target: { value: "5" } })
+
+		remount(
+			rerender,
+			"i1",
+			instanceConfigInput.parse({
+				...CONFIG,
+				advancedKeys: {
+					"ChatBot.AutoFishing.Enabled": "true",
+					"ChatBot.AutoEat.Threshold": "5",
+				},
+			}),
+		)
+
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
+	})
+
+	it("★ stays quiet when the bots change elsewhere, which is not an edit to these settings", () => {
+		const { rerender } = mount({})
+
+		remount(
+			rerender,
+			"i1",
+			instanceConfigInput.parse({
+				...CONFIG,
+				advancedKeys: {},
+				botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			}),
+		)
+
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
+	})
+
+	it("puts the saved values back, advanced keys included", () => {
+		mount({ "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "elsewhere.example.com" },
+		})
+		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+
+		fireEvent.click(screen.getByText("Discard changes"))
+
+		expect(screen.getByLabelText("Server address")).toHaveProperty("value", CONFIG.serverAddress)
+		expect(screen.getByLabelText("Value")).toHaveProperty("value", "5")
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 	})
 })

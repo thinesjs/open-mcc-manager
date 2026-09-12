@@ -1,4 +1,8 @@
-import type { DelaySecondsRange, InstanceConfigInput } from "@open-mcc/contracts"
+import type {
+	DelaySecondsRange,
+	InstanceConfigInput,
+	InstanceSettingsInput,
+} from "@open-mcc/contracts"
 import type { AdvancedKeyRow } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
@@ -13,22 +17,29 @@ import { Tooltip } from "~/components/ui/tooltip"
 import {
 	advancedKeyRowsFrom,
 	advancedKeysFromRows,
+	sameAdvancedKeyRows,
 	validateAdvancedKeyRows,
 } from "~/lib/advanced-key-rows"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 import { AdvancedKeys } from "./advanced-keys"
 
+type InstanceScalarSettings = Omit<InstanceSettingsInput, "advancedKeys">
+
+const scalarsFrom = (config: InstanceConfigInput): InstanceScalarSettings => {
+	const { botConfig: _bots, advancedKeys: _keys, ...scalars } = config
+	return scalars
+}
+
 export type InstanceSettingsFormProps = {
 	instanceId: string
 	config: InstanceConfigInput
 	onSaved: () => Promise<void>
-	onCancel: () => void
 }
 
 const ON_OFF = [
-	{ value: "on", label: "On", description: "" },
-	{ value: "off", label: "Off", description: "" },
+	{ value: "on", label: "On" },
+	{ value: "off", label: "Off" },
 ] as const
 
 const boundedInt = (raw: string, fallback: number): number => {
@@ -83,16 +94,31 @@ export const InstanceSettingsForm = ({
 	instanceId,
 	config,
 	onSaved,
-	onCancel,
 }: InstanceSettingsFormProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const saveMutation = useMutation(trpc.instance.updateConfig.mutationOptions())
-	const [draft, setDraft] = useState<InstanceConfigInput>(config)
+	const saved = scalarsFrom(config)
+	const [draft, setDraft] = useState<InstanceScalarSettings>(saved)
 	const [rows, setRows] = useState<readonly AdvancedKeyRow[]>(() =>
 		advancedKeyRowsFrom(config.advancedKeys),
 	)
+	const [boundTo, setBoundTo] = useState(instanceId)
+	if (boundTo !== instanceId) {
+		setBoundTo(instanceId)
+		setDraft(saved)
+		setRows(advancedKeyRowsFrom(config.advancedKeys))
+	}
 	const issues = validateAdvancedKeyRows(rows)
+
+	const edited =
+		JSON.stringify(draft) !== JSON.stringify(saved) ||
+		!sameAdvancedKeyRows(rows, advancedKeyRowsFrom(config.advancedKeys))
+
+	const discard = () => {
+		setDraft(saved)
+		setRows(advancedKeyRowsFrom(config.advancedKeys))
+	}
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
@@ -116,166 +142,175 @@ export const InstanceSettingsForm = ({
 				</Alert>
 			) : null}
 
-			<div className="space-y-1.5">
-				<Label htmlFor="settings-server">Server address</Label>
-				<Input
-					id="settings-server"
-					required
-					maxLength={253}
-					value={draft.serverAddress}
-					onChange={(event) => setDraft({ ...draft, serverAddress: event.target.value })}
-				/>
-			</div>
+			<div className="gap-4 lg:columns-2">
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label htmlFor="settings-server">Server address</Label>
+					<Input
+						id="settings-server"
+						required
+						maxLength={253}
+						value={draft.serverAddress}
+						onChange={(event) => setDraft({ ...draft, serverAddress: event.target.value })}
+					/>
+				</div>
 
-			<div className="space-y-1.5">
-				<Label>Rejoin after a disconnect</Label>
-				<Choice
-					label="Rejoin after a disconnect"
-					value={draft.autoRelogEnabled ? "on" : "off"}
-					options={ON_OFF}
-					onChange={(value) => setDraft({ ...draft, autoRelogEnabled: value === "on" })}
-				/>
-				<p className="text-xs text-muted-foreground">
-					Turn this off for a bot that should stay offline once it drops.
-				</p>
-				{draft.autoRelogEnabled ? (
-					<div className="grid gap-3 pt-1 sm:grid-cols-2">
-						<div className="space-y-1.5">
-							<Label htmlFor="settings-retries" className="text-xs font-normal">
-								Attempts
-							</Label>
-							<Input
-								id="settings-retries"
-								inputMode="numeric"
-								value={String(draft.autoRelogRetries)}
-								onChange={(event) =>
-									setDraft({
-										...draft,
-										autoRelogRetries: boundedInt(event.target.value, draft.autoRelogRetries),
-									})
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label>Rejoin after a disconnect</Label>
+					<Choice
+						label="Rejoin after a disconnect"
+						value={draft.autoRelogEnabled ? "on" : "off"}
+						options={ON_OFF}
+						onChange={(value) => setDraft({ ...draft, autoRelogEnabled: value === "on" })}
+					/>
+					<p className="text-xs text-muted-foreground">
+						Turn this off for a bot that should stay offline once it drops.
+					</p>
+					{draft.autoRelogEnabled ? (
+						<div className="grid items-end gap-3 pt-1 sm:grid-cols-2">
+							<div className="space-y-1">
+								<Label
+									htmlFor="settings-retries"
+									className="text-xs font-normal text-muted-foreground"
+								>
+									Attempts
+								</Label>
+								<Input
+									id="settings-retries"
+									inputMode="numeric"
+									value={String(draft.autoRelogRetries)}
+									onChange={(event) =>
+										setDraft({
+											...draft,
+											autoRelogRetries: boundedInt(event.target.value, draft.autoRelogRetries),
+										})
+									}
+								/>
+							</div>
+							<DelayRangeField
+								id="settings-delay"
+								label="Wait between attempts (seconds)"
+								value={draft.autoRelogDelaySeconds}
+								onChange={(autoRelogDelaySeconds) => setDraft({ ...draft, autoRelogDelaySeconds })}
+							/>
+						</div>
+					) : null}
+				</div>
+
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label>Respawn after dying</Label>
+					<Choice
+						label="Respawn after dying"
+						value={draft.autoRespawnEnabled ? "on" : "off"}
+						options={ON_OFF}
+						onChange={(value) => setDraft({ ...draft, autoRespawnEnabled: value === "on" })}
+					/>
+					<p className="text-xs text-muted-foreground">
+						Leave this off unless the spawn point is safe. A lethal spawn turns respawning into a
+						loop.
+					</p>
+				</div>
+
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label>Anti-AFK</Label>
+					<Choice
+						label="Anti-AFK"
+						value={draft.antiAfkEnabled ? "on" : "off"}
+						options={ON_OFF}
+						onChange={(value) => setDraft({ ...draft, antiAfkEnabled: value === "on" })}
+					/>
+					{draft.antiAfkEnabled ? (
+						<div className="pt-1">
+							<DelayRangeField
+								id="settings-afk"
+								label="Act every (seconds)"
+								value={draft.antiAfkIntervalSeconds}
+								onChange={(antiAfkIntervalSeconds) =>
+									setDraft({ ...draft, antiAfkIntervalSeconds })
 								}
 							/>
 						</div>
-						<DelayRangeField
-							id="settings-delay"
-							label="Wait between attempts (seconds)"
-							value={draft.autoRelogDelaySeconds}
-							onChange={(autoRelogDelaySeconds) => setDraft({ ...draft, autoRelogDelaySeconds })}
-						/>
-					</div>
-				) : null}
-			</div>
-
-			<div className="space-y-1.5">
-				<Label>Respawn after dying</Label>
-				<Choice
-					label="Respawn after dying"
-					value={draft.autoRespawnEnabled ? "on" : "off"}
-					options={ON_OFF}
-					onChange={(value) => setDraft({ ...draft, autoRespawnEnabled: value === "on" })}
-				/>
-				<p className="text-xs text-muted-foreground">
-					Leave this off unless the spawn point is safe. A lethal spawn turns respawning into a
-					loop.
-				</p>
-			</div>
-
-			<div className="space-y-1.5">
-				<Label>Anti-AFK</Label>
-				<Choice
-					label="Anti-AFK"
-					value={draft.antiAfkEnabled ? "on" : "off"}
-					options={ON_OFF}
-					onChange={(value) => setDraft({ ...draft, antiAfkEnabled: value === "on" })}
-				/>
-				{draft.antiAfkEnabled ? (
-					<div className="pt-1">
-						<DelayRangeField
-							id="settings-afk"
-							label="Act every (seconds)"
-							value={draft.antiAfkIntervalSeconds}
-							onChange={(antiAfkIntervalSeconds) => setDraft({ ...draft, antiAfkIntervalSeconds })}
-						/>
-					</div>
-				) : null}
-			</div>
-
-			<div className="space-y-1.5">
-				<Label>Live control</Label>
-				<Choice
-					label="Live control"
-					value={draft.liveControlEnabled ? "on" : "off"}
-					options={ON_OFF}
-					onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
-				/>
-				<p className="text-xs text-muted-foreground">
-					Lets you watch chat and see what the bot is doing.{" "}
-					<Tooltip content="Only this dashboard can reach it, and it can only read. Anything you send still goes through the console.">
-						Read-only
-					</Tooltip>
-					, on port {draft.liveControlPort}.
-				</p>
-			</div>
-
-			{draft.liveControlEnabled ? (
-				<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
-					<div>
-						<Label>Live details to show</Label>
-						<p className="text-xs text-muted-foreground">
-							Turn on only the live details you want to see.
-						</p>
-					</div>
-
-					<div className="space-y-1.5">
-						<Label>World and position</Label>
-						<Choice
-							label="World and position"
-							value={draft.worldDataEnabled ? "on" : "off"}
-							options={ON_OFF}
-							onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
-						/>
-						<p className="text-xs text-muted-foreground">View only.</p>
-					</div>
-
-					<div className="space-y-1.5">
-						<Label>Inventory</Label>
-						<Choice
-							label="Inventory"
-							value={draft.inventoryDataEnabled ? "on" : "off"}
-							options={ON_OFF}
-							onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Turning this on also lets OpenMCC move and drop items.
-						</p>
-					</div>
-
-					<div className="space-y-1.5">
-						<Label>Nearby entities</Label>
-						<Choice
-							label="Nearby entities"
-							value={draft.entityDataEnabled ? "on" : "off"}
-							options={ON_OFF}
-							onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Turning this on also lets OpenMCC attack and interact with nearby creatures.
-						</p>
-					</div>
+					) : null}
 				</div>
-			) : null}
 
-			<div className="space-y-1.5">
-				<Label>Advanced keys</Label>
-				<AdvancedKeys rows={rows} issues={issues} onChange={setRows} />
-				<p className="text-xs text-muted-foreground">
-					Audited client settings this manager can write. They apply on the next restart.
-				</p>
+				<div className="mb-4 break-inside-avoid space-y-4">
+					<div className="space-y-1.5">
+						<Label>Live control</Label>
+						<Choice
+							label="Live control"
+							value={draft.liveControlEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Lets you watch chat and see what the bot is doing.{" "}
+							<Tooltip content="Only this dashboard can reach it, and it can only read. Anything you send still goes through the console.">
+								Read-only
+							</Tooltip>
+							, on port {draft.liveControlPort}.
+						</p>
+					</div>
+
+					{draft.liveControlEnabled ? (
+						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
+							<div>
+								<Label>Live details to show</Label>
+								<p className="text-xs text-muted-foreground">
+									Turn on only the live details you want to see.
+								</p>
+							</div>
+
+							<div className="space-y-1.5">
+								<Label>World and position</Label>
+								<Choice
+									label="World and position"
+									value={draft.worldDataEnabled ? "on" : "off"}
+									options={ON_OFF}
+									onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
+								/>
+								<p className="text-xs text-muted-foreground">View only.</p>
+							</div>
+
+							<div className="space-y-1.5">
+								<Label>Inventory</Label>
+								<Choice
+									label="Inventory"
+									value={draft.inventoryDataEnabled ? "on" : "off"}
+									options={ON_OFF}
+									onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
+								/>
+								<p className="text-xs text-muted-foreground">
+									Turning this on also lets OpenMCC move and drop items.
+								</p>
+							</div>
+
+							<div className="space-y-1.5">
+								<Label>Nearby entities</Label>
+								<Choice
+									label="Nearby entities"
+									value={draft.entityDataEnabled ? "on" : "off"}
+									options={ON_OFF}
+									onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
+								/>
+								<p className="text-xs text-muted-foreground">
+									Turning this on also lets OpenMCC attack and interact with nearby creatures.
+								</p>
+							</div>
+						</div>
+					) : null}
+				</div>
+
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label>Advanced keys</Label>
+					<AdvancedKeys rows={rows} issues={issues} onChange={setRows} />
+					<p className="text-xs text-muted-foreground">
+						Audited client settings this manager can write. They apply on the next restart.
+					</p>
+				</div>
 			</div>
 
 			<div className="flex justify-end gap-2">
-				<Button type="button" size="sm" variant="secondary" onClick={onCancel}>
-					Cancel
+				<Button type="button" size="sm" variant="secondary" disabled={!edited} onClick={discard}>
+					Discard changes
 				</Button>
 				<Button
 					type="submit"

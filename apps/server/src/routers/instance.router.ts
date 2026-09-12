@@ -8,6 +8,7 @@ import {
 	selectHeldItemInput,
 	sendInstanceCommandInput,
 	sleepWindowInput,
+	updateBotConfigInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
 import { sampleManagerMetrics } from "@open-mcc/core"
@@ -141,7 +142,15 @@ export const instanceRouter = router({
 		.input(updateInstanceConfigInput)
 		.mutation(async ({ ctx, input }) => {
 			requireCapability(ctx.actor.role, "config.edit")
-			await ctx.instanceController.updateConfig(ctx.actor, input.instanceId, input.config)
+			await ctx.instanceController.updateSettings(ctx.actor, input.instanceId, input.config)
+			return { updated: true }
+		}),
+
+	updateBotConfig: protectedProcedure
+		.input(updateBotConfigInput)
+		.mutation(async ({ ctx, input }) => {
+			requireCapability(ctx.actor.role, "config.edit")
+			await ctx.instanceController.updateBotConfig(ctx.actor, input.instanceId, input.botConfig)
 			return { updated: true }
 		}),
 

@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto"
 import {
 	type CreateInstanceInput,
 	can,
+	createInstanceInput,
 	type InstanceConfigInput,
+	type InstanceSettingsInput,
+	instanceConfigInput,
 	instanceConfigStored,
 	minuteOfDay,
 	needsInteractiveSignIn,
@@ -13,6 +16,7 @@ import {
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
+import type { BotConfig } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type {
 	McpChatEntry,
 	McpEntityList,
@@ -49,6 +53,7 @@ import {
 	LiveControlPortsExhaustedError,
 	renderInstanceConfig,
 } from "./config"
+import { CONFIG_PATH_NAME } from "./config-drift"
 import { readConsole, sendCommand } from "./control"
 import {
 	createInstanceRepository,
@@ -143,6 +148,7 @@ export class InstanceNotFoundError extends Error {}
 export class InstanceNotRunningError extends Error {}
 export { HostUnreachableError }
 
+export class InstanceConfigUnusableError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceHostNotProvisionedError extends Error {}
 
@@ -263,12 +269,32 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const saved = await deps.instances.latestConfig(scope, instance.id)
 		if (!saved) return undefined
 		const parsed = instanceConfigStored.safeParse(saved.document)
-		if (!parsed.success) return undefined
-		return renderInstanceConfig({ ...parsed.data, liveControlPort: instance.liveControlPort })
+		const usable = parsed.success ? instanceConfigInput.safeParse(parsed.data) : parsed
+		if (!usable.success) {
+			throw new InstanceConfigUnusableError(
+				`Saved settings for instance ${instance.id} are unusable`,
+			)
+		}
+		return renderInstanceConfig({ ...usable.data, liveControlPort: instance.liveControlPort })
 	}
 
-	const writeSavedConfig = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
-		const document = await expectedDocumentFor(scopeOf(ctx), instance)
+	const savedBotConfig = async (ctx: ActorContext, instanceId: string): Promise<BotConfig> => {
+		const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
+		if (!row) return {}
+		const parsed = instanceConfigStored.safeParse(row.document)
+		if (!parsed.success) {
+			throw new InstanceConfigUnusableError(
+				`Saved settings for instance ${instanceId} are unusable`,
+			)
+		}
+		return parsed.data.botConfig
+	}
+
+	const writeConfigDocument = async (
+		ctx: ActorContext,
+		instance: InstanceRow,
+		document: string | undefined,
+	): Promise<void> => {
 		if (document === undefined) return
 
 		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
@@ -421,7 +447,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		}
 	}
 
-	return {
+	const controller = {
 		list: async (ctx: ActorContext): Promise<InstanceRow[]> => {
 			requireCapabilityFor(ctx.role, "instance.read")
 			return await deps.instances.list(scopeOf(ctx))
@@ -432,8 +458,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			return await requireInstance(ctx, instanceId)
 		},
 
-		create: async (ctx: ActorContext, input: CreateInstanceInput): Promise<InstanceRow> => {
+		create: async (ctx: ActorContext, given: CreateInstanceInput): Promise<InstanceRow> => {
 			requireCapabilityFor(ctx.role, "instance.create")
+			const input = createInstanceInput.parse(given)
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
 
@@ -554,8 +581,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
+			const document = await expectedDocumentFor(scopeOf(ctx), instance)
 			const rotated = await rotateLiveControlToken(ctx, instance)
-			await writeSavedConfig(ctx, rotated)
+			await writeConfigDocument(ctx, rotated, document)
 			await unitCommand(ctx, rotated, "start")
 
 			const updated = await deps.withTransaction(async (repos) => {
@@ -587,9 +615,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
+			const document = await expectedDocumentFor(scopeOf(ctx), instance)
 			await unitCommand(ctx, instance, "stop")
 			const rotated = await rotateLiveControlToken(ctx, instance)
-			await writeSavedConfig(ctx, rotated)
+			await writeConfigDocument(ctx, rotated, document)
 			await unitCommand(ctx, rotated, "start")
 
 			return await deps.withTransaction(async (repos) => {
@@ -916,9 +945,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			config: InstanceConfigInput,
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "config.edit")
+			const checked = instanceConfigInput.parse(config)
 			const instance = await requireInstance(ctx, instanceId)
 			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
-			const settled = { ...config, liveControlPort: instance.liveControlPort }
+			const settled = { ...checked, liveControlPort: instance.liveControlPort }
 			const document = renderInstanceConfig(settled)
 
 			try {
@@ -957,6 +987,30 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			})
 		},
 
+		updateSettings: async (
+			ctx: ActorContext,
+			instanceId: string,
+			settings: InstanceSettingsInput,
+		): Promise<void> => {
+			requireCapabilityFor(ctx.role, "config.edit")
+			await requireInstance(ctx, instanceId)
+			await controller.updateConfig(ctx, instanceId, {
+				...settings,
+				botConfig: await savedBotConfig(ctx, instanceId),
+			})
+		},
+
+		updateBotConfig: async (
+			ctx: ActorContext,
+			instanceId: string,
+			botConfig: BotConfig,
+		): Promise<void> => {
+			requireCapabilityFor(ctx.role, "config.edit")
+			const saved = await controller.getConfig(ctx, instanceId)
+			if (!saved) throw new Error(`No saved settings for instance ${instanceId}`)
+			await controller.updateConfig(ctx, instanceId, { ...saved, botConfig })
+		},
+
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
 			requireCapabilityFor(ctx.role, "instance.read")
 			const { transport, profile } = await connectToHost(scopeOf(ctx), hostId)
@@ -990,21 +1044,37 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			const { transport, profile } = connection
 			const expected = expectedUnits(profile, instances, schedules, renderScheduleUnits)
-			const expectedConfigs = new Map<string, string>()
-			for (const instance of instances) {
-				const document = await expectedDocumentFor(scope, instance)
-				if (document !== undefined) expectedConfigs.set(instance.id, document)
-			}
 
 			try {
-				const observed = await reconcileHostOverTransport(
-					transport,
-					profile,
-					hostId,
-					instances,
-					expected,
-					expectedConfigs,
-				)
+				const expectedConfigs = new Map<string, string>()
+				const unusable: string[] = []
+				for (const instance of instances) {
+					try {
+						const document = await expectedDocumentFor(scope, instance)
+						if (document !== undefined) expectedConfigs.set(instance.id, document)
+					} catch (error) {
+						if (!(error instanceof InstanceConfigUnusableError)) throw error
+						unusable.push(instance.id)
+					}
+				}
+
+				let observed: Awaited<ReturnType<typeof reconcileHostOverTransport>>
+				try {
+					observed = await reconcileHostOverTransport(
+						transport,
+						profile,
+						hostId,
+						instances,
+						expected,
+						expectedConfigs,
+					)
+				} catch (error) {
+					return {
+						hostId,
+						reachable: false,
+						reason: error instanceof Error ? error.message : "Host stopped responding",
+					}
+				}
 				for (const [id, player] of observed.seenPlayers) {
 					const known = instances.find((each) => each.id === id)
 					if (known && known.minecraftUsername !== player) {
@@ -1013,12 +1083,20 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 							.catch(() => undefined)
 					}
 				}
-				return observed.reconciliation
-			} catch (error) {
+				const reconciliation = observed.reconciliation
+				if (!reconciliation.reachable || unusable.length === 0) return reconciliation
 				return {
-					hostId,
-					reachable: false,
-					reason: error instanceof Error ? error.message : "Host stopped responding",
+					...reconciliation,
+					configDrift: [
+						...reconciliation.configDrift,
+						...unusable.map((instanceId) => ({
+							instanceId,
+							kind: "unreadable" as const,
+							key: CONFIG_PATH_NAME,
+							expected: null,
+							actual: null,
+						})),
+					],
 				}
 			} finally {
 				await transport.close().catch(() => undefined)
@@ -1250,6 +1328,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			})
 		},
 	}
+
+	return controller
 }
 
 export type InstanceController = ReturnType<typeof createInstanceController>

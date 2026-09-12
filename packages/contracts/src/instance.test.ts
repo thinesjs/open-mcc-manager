@@ -347,6 +347,13 @@ describe("reading a stored config document", () => {
 		expect(parsed.data?.autoRelogEnabled).toBe(true)
 	})
 
+	it("reads a document written before advanced keys and bots as holding neither, not as holding nothing", () => {
+		const parsed = instanceConfigStored.safeParse(VALID_CONFIG)
+
+		expect(parsed.data?.advancedKeys).toEqual({})
+		expect(parsed.data?.botConfig).toEqual({})
+	})
+
 	it("passes a canonical document through unchanged", () => {
 		const parsed = instanceConfigStored.safeParse({ ...VALID_CONFIG, autoRelogEnabled: false })
 
@@ -367,5 +374,53 @@ describe("reading a stored config document", () => {
 		},
 	])("stays strict about $named", ({ config }) => {
 		expect(instanceConfigStored.safeParse({ ...VALID_CONFIG, ...config }).success).toBe(false)
+	})
+})
+
+describe("★ what stops a client filename escaping the instance directory once the client expands it", () => {
+	it.each([
+		"play.example.com/../../etc",
+		"play.example.com\\..\\etc",
+		"../play.example.com",
+		"play.example\u0000com",
+	])("refuses the server address %j, which %%serverip%% would carry into a file name", (value) => {
+		expect(instanceConfigInput.safeParse({ ...VALID_CONFIG, serverAddress: value }).success).toBe(
+			false,
+		)
+		expect(
+			createInstanceInput.safeParse({
+				hostId: "h1",
+				name: "n",
+				accountType: "offline",
+				minecraftAccount: "AfkBot",
+				serverAddress: value,
+			}).success,
+		).toBe(false)
+	})
+
+	it.each(["Afk/Bot", "Afk\\Bot", "..", "Afk..Bot"])(
+		"refuses the account %j, which %%username%% and %%login%% would carry into a file name",
+		(value) => {
+			expect(
+				instanceConfigInput.safeParse({ ...VALID_CONFIG, minecraftAccount: value }).success,
+			).toBe(false)
+		},
+	)
+
+	it("★ still READS a document saved before that rule, so a bad value stays fixable", () => {
+		const legacy = { ...VALID_CONFIG, serverAddress: "play.example.com/../etc" }
+
+		expect(instanceConfigStored.safeParse(legacy).success).toBe(true)
+		expect(instanceConfigInput.safeParse(legacy).success).toBe(false)
+	})
+
+	it("still accepts the ordinary address and account an operator actually types", () => {
+		expect(
+			instanceConfigInput.safeParse({
+				...VALID_CONFIG,
+				serverAddress: "play.example.com:25565",
+				minecraftAccount: "AfkBot_01",
+			}).success,
+		).toBe(true)
 	})
 })

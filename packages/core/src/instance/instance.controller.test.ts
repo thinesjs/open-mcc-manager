@@ -1,4 +1,4 @@
-import type { SleepWindowInput } from "@open-mcc/contracts"
+import { instanceConfigInput, type SleepWindowInput } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
 	HostRow,
@@ -55,6 +55,7 @@ import {
 	createInstanceController,
 	ForbiddenError,
 	InstanceAuthInProgressError,
+	InstanceConfigUnusableError,
 	type InstanceControllerDeps,
 	InstanceNotFoundError,
 	InstanceNotRunningError,
@@ -126,6 +127,25 @@ const hostRow: HostRow = {
 	memoryMb: null,
 	lastSeenAt: null,
 	createdAt: new Date(),
+}
+
+const SAVED_DOCUMENT = {
+	accountType: "microsoft",
+	minecraftAccount: "a@b.com",
+	serverAddress: "play.example.net",
+	autoRelogRetries: 3,
+	autoRelogEnabled: true,
+	autoRelogDelaySeconds: { min: 10, max: 10 },
+	antiAfkEnabled: false,
+	antiAfkIntervalSeconds: { min: 60, max: 60 },
+	autoRespawnEnabled: false,
+	liveControlEnabled: false,
+	liveControlPort: 33333,
+	worldDataEnabled: false,
+	inventoryDataEnabled: false,
+	entityDataEnabled: false,
+	advancedKeys: {},
+	botConfig: {},
 }
 
 const configRow = (overrides: Partial<InstanceConfigRow> = {}): InstanceConfigRow => ({
@@ -798,7 +818,7 @@ describe("running several instances on one host", () => {
 
 	it("mints a new live control token on every start, so a leaked one expires", async () => {
 		const { deps, transport } = makeDeps()
-		deps.instances.latestConfig = async () => configRow()
+		deps.instances.latestConfig = async () => configRow({ document: { ...SAVED_DOCUMENT } })
 		const controller = createInstanceController(deps)
 		await controller.start(owner, "abc123")
 
@@ -809,7 +829,7 @@ describe("running several instances on one host", () => {
 
 	it("seals the rotated token rather than writing it to the database in the clear", async () => {
 		const { deps } = makeDeps()
-		deps.instances.latestConfig = async () => configRow()
+		deps.instances.latestConfig = async () => configRow({ document: { ...SAVED_DOCUMENT } })
 		const sealedTokens: string[] = []
 		deps.instances.update = vi.fn(async (_scope, _id, patch) => {
 			if (patch.liveControlTokenEncrypted !== undefined) {
@@ -1039,5 +1059,287 @@ describe("the four readouts a controller hands back", () => {
 
 		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1)
 		expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(3)
+	})
+})
+
+describe("saving the client's own bots, which reuses the config write", () => {
+	const SAVED = instanceConfigInput.parse({
+		accountType: "microsoft",
+		minecraftAccount: "a@b.com",
+		serverAddress: "play.example.net",
+		autoRelogRetries: 3,
+		autoRelogEnabled: true,
+		autoRelogDelaySeconds: { min: 10, max: 10 },
+		antiAfkEnabled: false,
+		antiAfkIntervalSeconds: { min: 60, max: 60 },
+		autoRespawnEnabled: false,
+		liveControlEnabled: true,
+		liveControlPort: 33333,
+		worldDataEnabled: true,
+		inventoryDataEnabled: false,
+		entityDataEnabled: false,
+		advancedKeys: { "ChatBot.AutoEat.Enabled": "true" },
+		botConfig: { "ChatBot.Alerts.Enabled": "false" },
+	})
+
+	const withSavedConfig = () => {
+		const made = makeDeps()
+		vi.mocked(made.instances.latestConfig).mockResolvedValue(
+			configRow({ document: JSON.parse(JSON.stringify(SAVED)) }),
+		)
+		return made
+	}
+
+	const writtenDocument = (instances: InstanceRepository) => {
+		const call = vi.mocked(instances.insertConfigVersion).mock.calls[0]
+		return JSON.parse(String(call?.[2] ?? "{}"))
+	}
+
+	it("★ writes the bots it was given and keeps every setting it was not", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+
+		const document = writtenDocument(instances)
+		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "true" })
+		expect(document.serverAddress).toBe("play.example.net")
+		expect(document.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
+		expect(document.worldDataEnabled).toBe(true)
+	})
+
+	it("★ writes the config to the host as well, not only to the database", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+
+		const written = transport.stdins.find((each) => each.includes("[ChatBot.Alerts]"))
+		expect(written).toBeDefined()
+		expect(written).toContain("Enabled = true")
+	})
+
+	it("★ records the write in the audit log, as the config change it is", async () => {
+		const { deps, audit } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+
+		expect(audit.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: "instance.config.update", subjectId: "abc123" }),
+		)
+	})
+
+	it("★ refuses a viewer before reading anything, not only before writing it", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.updateBotConfig(viewer, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+		).rejects.toThrow(ForbiddenError)
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+		expect(instances.findById).not.toHaveBeenCalled()
+		expect(instances.latestConfig).not.toHaveBeenCalled()
+	})
+
+	it("★ refuses an instance this organization cannot see, before reading any config", async () => {
+		const { deps, instances } = withSavedConfig()
+		vi.mocked(instances.findById).mockResolvedValue(undefined)
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+		).rejects.toThrow(InstanceNotFoundError)
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("★ keeps the saved bots when the operator saves the settings that sit beside them", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", {
+			...settings,
+			serverAddress: "moved.example.net",
+		})
+
+		const document = writtenDocument(instances)
+		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "false" })
+		expect(document.serverAddress).toBe("moved.example.net")
+	})
+
+	it("writes an empty bot config for an instance saving its settings for the first time", async () => {
+		const { deps, instances } = makeDeps()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", settings)
+
+		expect(writtenDocument(instances).botConfig).toEqual({})
+	})
+
+	it("★ refuses to START an instance whose saved settings the contract would not accept", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "stopped" }))
+		vi.mocked(instances.latestConfig).mockResolvedValue(
+			configRow({
+				document: { ...JSON.parse(JSON.stringify(SAVED)), serverAddress: "x/../../tmp" },
+			}),
+		)
+		const controller = createInstanceController(deps)
+
+		await expect(controller.start(owner, "abc123")).rejects.toThrow(InstanceConfigUnusableError)
+		expect(transport.stdins.find((each) => each.includes("[Main.General]"))).toBeUndefined()
+	})
+
+	const withUnusableSavedConfig = () => {
+		const made = makeDeps()
+		vi.mocked(made.instances.latestConfig).mockResolvedValue(
+			configRow({
+				document: { ...JSON.parse(JSON.stringify(SAVED)), serverAddress: "x/../../tmp" },
+			}),
+		)
+		return made
+	}
+
+	it("★ refuses a create the contract would not accept, before it touches the host or the database", async () => {
+		const { deps, transport, instances } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.create(owner, {
+				hostId: "host-1",
+				name: "afk",
+				accountType: "offline",
+				minecraftAccount: "OpenMccBot",
+				serverAddress: "play.example.com/../../etc",
+			}),
+		).rejects.toThrow()
+		expect(instances.insert).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+	})
+
+	it("★ refuses to start on a saved row it cannot even read, not just one it can read and reject", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "stopped" }))
+		vi.mocked(instances.latestConfig).mockResolvedValue(configRow({ document: { nonsense: true } }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.start(owner, "abc123")).rejects.toThrow(InstanceConfigUnusableError)
+		expect(transport.stdins.find((each) => each.includes("[Main.General]"))).toBeUndefined()
+	})
+
+	it("★ checks the saved settings BEFORE rotating the live-control token", async () => {
+		const { deps, instances } = withUnusableSavedConfig()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "stopped" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.start(owner, "abc123")).rejects.toThrow(InstanceConfigUnusableError)
+		expect(instances.update).not.toHaveBeenCalled()
+	})
+
+	it("★ checks the saved settings BEFORE stopping a running unit on restart", async () => {
+		const { deps, transport, instances } = withUnusableSavedConfig()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.restart(owner, "abc123")).rejects.toThrow(InstanceConfigUnusableError)
+		expect(transport.commands.filter((each) => each.includes("stop"))).toEqual([])
+	})
+
+	it("★ reports an unusable saved document as drift on THAT instance, not as a failed host", async () => {
+		const { deps } = withUnusableSavedConfig()
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(true)
+		if (!result.reachable) throw new Error("reachable expected")
+		expect(result.configDrift.filter((entry) => entry.kind === "unreadable")).toHaveLength(1)
+	})
+
+	it("★ still HANDS BACK a document it would refuse to render, so the operator can repair it", async () => {
+		const { deps } = withUnusableSavedConfig()
+		const controller = createInstanceController(deps)
+
+		const readable = await controller.getConfig(owner, "abc123")
+
+		expect(readable?.serverAddress).toBe("x/../../tmp")
+	})
+
+	it("★ and lets the next settings save replace that bad value", async () => {
+		const { deps, instances } = withUnusableSavedConfig()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", {
+			...settings,
+			serverAddress: "play.example.net",
+		})
+
+		expect(writtenDocument(instances).serverAddress).toBe("play.example.net")
+	})
+
+	it("★ lets a database failure surface as itself, not as a host outage", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.latestConfig).mockRejectedValue(new Error("connection terminated"))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.reconcileHost(owner, "host-1")).rejects.toThrow("connection terminated")
+		expect(transport.state()).toBe("disconnected")
+	})
+
+	it("★ still reports a transport failure as an unreachable host", async () => {
+		const { deps, transport } = withUnusableSavedConfig()
+		transport.exec = async () => {
+			throw new Error("Connection reset by peer")
+		}
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+	})
+
+	it("★ closes the host connection even when a saved document is unusable", async () => {
+		const { deps, transport } = withUnusableSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.reconcileHost(owner, "host-1")
+
+		expect(transport.state()).toBe("disconnected")
+	})
+
+	it("★ refuses a settings save rather than silently emptying bots it could not read", async () => {
+		const { deps, instances } = makeDeps()
+		vi.mocked(instances.latestConfig).mockResolvedValue(configRow({ document: { nonsense: true } }))
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, ...settings } = SAVED
+
+		await expect(controller.updateSettings(owner, "abc123", settings)).rejects.toThrow(
+			InstanceConfigUnusableError,
+		)
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("★ refuses a config an in-process caller composed that the contract would not accept", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.updateConfig(owner, "abc123", { ...SAVED, serverAddress: "a/../../etc" }),
+		).rejects.toThrow()
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("refuses an instance with nothing saved rather than inventing a config around the bots", async () => {
+		const { deps, instances } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+		).rejects.toThrow("No saved settings")
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
 })

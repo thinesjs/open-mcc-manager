@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { instanceConfigInput } from "@open-mcc/contracts"
 import { parseMccConfig, readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
 	ADVANCED_KEY_NAMES,
@@ -10,8 +13,18 @@ import {
 	LIST_CONFIG_NAMES,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { describe, expect, it } from "vitest"
-import { defaultInstanceConfig, FIXED_CONFIG_KEYS, renderInstanceConfig } from "./config"
-import { compareInstanceConfig, isOperatorKey, isSafetyDrift } from "./config-drift"
+import {
+	CHAT_LOG_FILE_WHEN_UNSET,
+	defaultInstanceConfig,
+	FIXED_CONFIG_KEYS,
+	renderInstanceConfig,
+} from "./config"
+import {
+	type ConfigDrift,
+	compareInstanceConfig,
+	isOperatorKey,
+	isSafetyDrift,
+} from "./config-drift"
 
 const BASE = defaultInstanceConfig({
 	accountType: "offline",
@@ -52,12 +65,21 @@ const refusalFor = (name: string, value: string | readonly string[]): readonly s
 
 const rendered = (botConfig: BotConfig) => renderInstanceConfig({ ...BASE, botConfig })
 
-const PATH_FIELDS = [
+const chatLogFileDrift = (entry: ConfigDrift): boolean =>
+	entry.kind !== "section" && entry.key === "ChatBot.ChatLog.Log_File"
+
+const LITERAL_PATH_FIELDS = [
 	"ChatBot.Alerts.Log_File",
 	"ChatBot.Mailer.DatabaseFile",
 	"ChatBot.Mailer.IgnoreListFile",
-	"ChatBot.PlayerListLogger.File",
 ] as const
+
+const EXPANDED_PATH_FIELDS = ["ChatBot.ChatLog.Log_File", "ChatBot.PlayerListLogger.File"] as const
+
+const PATH_FIELDS = [...LITERAL_PATH_FIELDS, ...EXPANDED_PATH_FIELDS] as const
+
+const EXPANDS_TO_NO_SEPARATOR =
+	"The client fills in %username%, %login%, %serverport%, %datetime%, %date% and %players%"
 
 describe("the settings an operator may change on the client's own bots", () => {
 	it("registers the sections that were audited and nothing else", () => {
@@ -95,27 +117,178 @@ describe("a file name the operator gives a bot", () => {
 		}
 	})
 
-	it.each(PATH_FIELDS)("refuses a variable the client would expand on %s", (name) => {
-		expect(refusalFor(name, "log-%username%.txt")).toEqual(["A file name, not a path"])
-	})
-
-	it("keeps the chat log's own default working, tokens and all", () => {
-		expect(refusalFor("ChatBot.ChatLog.Log_File", "chatlog-%username%-%serverip%.txt")).toEqual([])
-	})
-
-	it.each(["x-%appdata%.txt", "x-%date%.txt", "x-%.txt"])(
-		"refuses %s on the chat log, which only knows two variables",
-		(value) => {
-			expect(refusalFor("ChatBot.ChatLog.Log_File", value)).toEqual([
-				"Only %username% and %serverip% can be used here",
-			])
+	it.each(LITERAL_PATH_FIELDS)(
+		"refuses a variable on %s, where the client writes the name it is given",
+		(name) => {
+			expect(refusalFor(name, "log-%username%.txt")).toEqual(["A file name, not a path"])
 		},
 	)
 
-	it("refuses a path on the chat log even when its variables are present", () => {
-		expect(refusalFor("ChatBot.ChatLog.Log_File", "logs/%username%.txt")).toEqual([
-			"A file name, not a path",
-		])
+	it.each(EXPANDED_PATH_FIELDS)("accepts every variable the client expands on %s", (name) => {
+		for (const token of ["username", "login", "serverport", "datetime", "date", "players"]) {
+			expect(refusalFor(name, `log-%${token}%.txt`)).toEqual([])
+		}
+	})
+
+	it("★ refuses %serverip%, which is the SRV target and so belongs to whoever runs the domain", () => {
+		for (const name of EXPANDED_PATH_FIELDS) {
+			expect(refusalFor(name, `log-%serverip%.txt`)).toEqual([EXPANDS_TO_NO_SEPARATOR])
+		}
+	})
+
+	it("★ writes a file name of its own when the chat log is on, so the client's token-bearing default never applies", () => {
+		const document = rendered({ "ChatBot.ChatLog.Enabled": "true" })
+
+		expect(document).toContain(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`)
+		expect(document).not.toContain("%serverip%")
+	})
+
+	it("★ still redacts the host value when the operator chose the same name we would have", () => {
+		const expected = rendered({
+			"ChatBot.ChatLog.Enabled": "true",
+			"ChatBot.ChatLog.Log_File": CHAT_LOG_FILE_WHEN_UNSET,
+		})
+		const host = expected.replace(
+			`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
+			'Log_File = "theirs.txt"',
+		)
+		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+
+		expect(drift[0]?.kind).toBe("operator")
+	})
+
+	it("★ treats the file name being DELETED on the host as a safety matter, because the client restores its own", () => {
+		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
+		const host = expected.replace(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"\n`, "")
+		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+
+		expect(drift).toHaveLength(1)
+		expect(drift[0]?.kind).toBe("fixed")
+		expect(drift.filter(isSafetyDrift)).toHaveLength(1)
+	})
+
+	it("★ catches the refused token however the host spelled its case, which the client ignores", () => {
+		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
+		for (const spelling of ["%SERVERIP%", "%ServerIp%", "%serverip%"]) {
+			const host = expected.replace(
+				`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
+				`Log_File = "chatlog-${spelling}.txt"`,
+			)
+			const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+			expect(drift[0]?.kind).toBe("fixed")
+		}
+	})
+
+	it("★ accepts an allowed token however the operator spelled its case, because the client lowercases it", () => {
+		for (const spelling of ["%USERNAME%", "%UserName%", "%username%"]) {
+			expect(refusalFor("ChatBot.ChatLog.Log_File", `chatlog-${spelling}.txt`)).toEqual([])
+		}
+	})
+
+	it("★ still refuses the DNS-controlled token whatever its case", () => {
+		for (const spelling of ["%SERVERIP%", "%ServerIp%", "%serverip%"]) {
+			expect(refusalFor("ChatBot.ChatLog.Log_File", `chatlog-${spelling}.txt`)).not.toEqual([])
+		}
+	})
+
+	it("★ does NOT call an operator's own allowed token a safety failure", () => {
+		const expected = rendered({
+			"ChatBot.ChatLog.Enabled": "true",
+			"ChatBot.ChatLog.Log_File": "mine.txt",
+		})
+		const host = expected.replace('Log_File = "mine.txt"', 'Log_File = "theirs-%username%.txt"')
+		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+
+		expect(drift[0]?.kind).toBe("operator")
+	})
+
+	it("★ reports a host still on the client's token-bearing default as a SAFETY matter, not a preference", () => {
+		const expected = rendered({ "ChatBot.ChatLog.Enabled": "true" })
+		const host = expected.replace(
+			`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`,
+			'Log_File = "chatlog-%username%-%serverip%.txt"',
+		)
+		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+
+		expect(drift).toHaveLength(1)
+		expect(drift[0]?.kind).toBe("fixed")
+		expect(drift.filter(isSafetyDrift)).toHaveLength(1)
+	})
+
+	it("still treats a file name the operator chose as their own preference", () => {
+		const expected = rendered({
+			"ChatBot.ChatLog.Enabled": "true",
+			"ChatBot.ChatLog.Log_File": "mine.txt",
+		})
+		const host = expected.replace('Log_File = "mine.txt"', 'Log_File = "theirs.txt"')
+		const drift = compareInstanceConfig(expected, host).filter(chatLogFileDrift)
+
+		expect(drift[0]?.kind).toBe("operator")
+	})
+
+	it("leaves the operator's own file name alone when they have set one", () => {
+		const document = rendered({
+			"ChatBot.ChatLog.Enabled": "true",
+			"ChatBot.ChatLog.Log_File": "mine-%username%.txt",
+		})
+
+		expect(document).toContain('Log_File = "mine-%username%.txt"')
+		expect(document).not.toContain(`"${CHAT_LOG_FILE_WHEN_UNSET}"`)
+	})
+
+	it("★ writes the safe file name even while the chat log is OFF, so enabling it on the host cannot use the client's default", () => {
+		const document = rendered({})
+
+		expect(document).toContain(`Log_File = "${CHAT_LOG_FILE_WHEN_UNSET}"`)
+		expect(document).not.toContain("%serverip%")
+	})
+
+	it.each(EXPANDED_PATH_FIELDS)("refuses a variable the client does not know on %s", (name) => {
+		for (const value of ["x-%appdata%.txt", "x-%home%.txt", "x-%.txt"]) {
+			expect(refusalFor(name, value)).toEqual([EXPANDS_TO_NO_SEPARATOR])
+		}
+	})
+
+	it.each(EXPANDED_PATH_FIELDS)(
+		"refuses a path on %s even when its variables are present",
+		(name) => {
+			expect(refusalFor(name, "logs/%username%.txt")).toEqual(["A file name, not a path"])
+		},
+	)
+
+	it("★ allows %players% only because the manager pins the client's invalid-name filter on", () => {
+		expect(refusalFor("ChatBot.ChatLog.Log_File", "chatlog-%players%.txt")).toEqual([])
+		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.IgnoreInvalidPlayerName")
+		expect(rendered({})).toContain("IgnoreInvalidPlayerName = true")
+	})
+
+	it("★ leaves no OTHER bot key whose client default hides a variable we never render", () => {
+		const fixture = readFileSync(
+			join(__dirname, "../../../contracts/src/boundary/mcc-config-fixture.ini"),
+			"utf8",
+		)
+		const clientDefaults = readMccConfigKeys(fixture, BOT_CONFIG_NAMES).values
+		const alwaysRendered = ["ChatBot.ChatLog.Log_File"]
+
+		const hiding = BOT_CONFIG_NAMES.filter((name) => {
+			if (alwaysRendered.includes(name)) return false
+			const value = clientDefaults.get(name)
+			return typeof value === "string" && value.includes("%")
+		})
+
+		expect(hiding).toEqual([])
+	})
+
+	it("★ allows %login% only because we always write the account, so the client never fills it in", () => {
+		expect(refusalFor("ChatBot.ChatLog.Log_File", "chatlog-%login%.txt")).toEqual([])
+		expect(rendered({})).toContain(`Login = ${JSON.stringify(BASE.minecraftAccount)}`)
+		expect(instanceConfigInput.safeParse({ ...BASE, minecraftAccount: "a/../b" }).success).toBe(
+			false,
+		)
+	})
+
+	it("★ refuses a server address that could reach a file name, even though %serverip% is now gone", () => {
+		expect(instanceConfigInput.safeParse({ ...BASE, serverAddress: "a/../b" }).success).toBe(false)
 	})
 })
 
@@ -142,6 +315,16 @@ describe("numbers the client would otherwise rewrite", () => {
 
 	it("accepts the replay interval's own off switch, which is negative on purpose", () => {
 		expect(refusalFor("ChatBot.ReplayCapture.Backup_Interval", "-1.0")).toEqual([])
+	})
+
+	it("accepts a negative fraction, which is why the sign sits before the whole number", () => {
+		expect(refusalFor("ChatBot.ReplayCapture.Backup_Interval", "-0.2")).toEqual([])
+	})
+
+	it("★ accepts any decimal the client accepts, because nothing here compares float text", () => {
+		for (const value of ["1.1234567", "1234567890123456.7", "1.12345678901234567"]) {
+			expect(refusalFor("ChatBot.FollowPlayer.Update_Limit", value)).toEqual([])
+		}
 	})
 })
 

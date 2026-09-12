@@ -25,6 +25,7 @@ import {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceConcurrentlyModifiedError,
+	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
@@ -167,6 +168,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 
 	if (cause instanceof SshKeyInUseError) {
 		return mapped("CONFLICT", "SSH_KEY_IN_USE", "SSH key is still in use by an enrolled host")
+	}
+	if (cause instanceof InstanceConfigUnusableError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_CONFIG_UNUSABLE",
+			"These settings must be corrected before the bot can start",
+		)
 	}
 	if (cause instanceof InstanceNotFoundError) {
 		return mapped("NOT_FOUND", "INSTANCE_NOT_FOUND", "Instance not found")

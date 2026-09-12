@@ -186,6 +186,13 @@ const PINNED_BOT_CONFIG: Readonly<Record<string, string>> = {
 	"ChatBot.Map.Send_Rendered_To_Telegram": "false",
 }
 
+export const CHAT_LOG_FILE_WHEN_UNSET = "chatlog.txt"
+
+const chatLogFileLine = (botConfig: BotConfig): readonly [string, string][] =>
+	botConfig["ChatBot.ChatLog.Log_File"] === undefined
+		? [["ChatBot.ChatLog.Log_File", CHAT_LOG_FILE_WHEN_UNSET]]
+		: []
+
 const renderConfigValue = (key: string, value: string | readonly string[]): string => {
 	if (LIST_CONFIG_NAMES.includes(key)) {
 		const entries = typeof value === "string" ? [value] : value
@@ -203,6 +210,7 @@ const renderConfigTables = (
 	const entries: [string, string | readonly string[]][] = [
 		...Object.entries(advancedKeys),
 		...Object.entries(botConfig),
+		...chatLogFileLine(botConfig),
 		...Object.entries(PINNED_BOT_CONFIG),
 	].flatMap(([key, value]) => (value === undefined ? [] : [[key, value]]))
 	for (const [key, value] of entries) {

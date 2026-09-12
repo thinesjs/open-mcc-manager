@@ -25,6 +25,24 @@ const MANAGED_KEYS: readonly string[] = ALLOWED_CONFIG_KEYS
 const FIXED_KEYS: readonly string[] = FIXED_CONFIG_KEYS
 const OPERATOR_KEYS: readonly string[] = [...ADVANCED_KEY_NAMES, ...BOT_CONFIG_NAMES]
 export const isOperatorKey = (key: string): boolean => OPERATOR_KEYS.includes(key)
+
+const SECRET_KEYS: readonly string[] = ["Main.General.Account.Password"]
+export const isSecretKey = (key: string): boolean => SECRET_KEYS.includes(key)
+
+const EXPANDS_ON_THE_CLIENT: readonly string[] = [
+	"ChatBot.ChatLog.Log_File",
+	"ChatBot.PlayerListLogger.File",
+]
+
+const DEFAULT_CARRIES_A_TOKEN: readonly string[] = ["ChatBot.ChatLog.Log_File"]
+
+const REFUSED_TOKEN = /%serverip%/i
+
+const unsafeExpansion = (key: string, have: McConfigValue | undefined): boolean => {
+	if (!EXPANDS_ON_THE_CLIENT.includes(key)) return false
+	if (have === undefined) return DEFAULT_CARRIES_A_TOKEN.includes(key)
+	return typeof have === "string" && REFUSED_TOKEN.test(have)
+}
 const ALL_KEYS: readonly string[] = [
 	...ALLOWED_CONFIG_KEYS,
 	...FIXED_CONFIG_KEYS,
@@ -63,6 +81,10 @@ export const compareInstanceConfig = (
 		const have = actual.values.get(key)
 		if (want === undefined) continue
 		if (sameConfigValue(want, have)) continue
+		if (unsafeExpansion(key, have)) {
+			drift.push({ kind: "fixed", key, expected: want, actual: have })
+			continue
+		}
 		if (isOperatorKey(key)) {
 			drift.push({ kind: "operator", key, expected: want, actual: have })
 			continue

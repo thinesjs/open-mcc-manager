@@ -144,6 +144,9 @@ bump must recheck:
   but stops emitting it on one chat path opens the same hole without touching
   the constant. That filter is what separates client prose from player text in
   the journal, so it is load-bearing in the current build too, not only across a
-  bump. A renumbered exit code is not safe either way, because
+  bump. `STUCK_MARKERS` has the same shape: a build that keeps a string but
+  stops printing it on one wedge path leaves the constant correct and the
+  detector blind. Check that each marker is still emitted where it matters, not
+  merely that the literal is unchanged. A renumbered exit code is not safe either way, because
   `RestartPreventExitStatus=4` in `unit-template.ts` would then park the unit on
   the wrong condition.

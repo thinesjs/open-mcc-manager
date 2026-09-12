@@ -212,68 +212,64 @@ export const InstanceSettingsForm = ({
 					) : null}
 				</div>
 
-				<div className="mb-4 break-inside-avoid space-y-4">
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label>Live control</Label>
+					<Choice
+						label="Live control"
+						value={draft.liveControlEnabled ? "on" : "off"}
+						options={ON_OFF}
+						onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
+					/>
+					<p className="text-xs text-muted-foreground">
+						Lets you watch chat and see what the bot is doing.{" "}
+						<Tooltip content="Only this dashboard can reach it, and it can only read. Anything you send still goes through the console.">
+							Read-only
+						</Tooltip>
+						, on port {draft.liveControlPort}.
+					</p>
+				</div>
+
+				<div className="mb-4 break-inside-avoid space-y-3">
 					<div className="space-y-1.5">
-						<Label>Live control</Label>
+						<Label>What the client tracks</Label>
+						<p className="text-xs text-muted-foreground">Bots and live details both need these.</p>
+					</div>
+
+					<div className="space-y-1.5">
+						<Label>World and position</Label>
 						<Choice
-							label="Live control"
-							value={draft.liveControlEnabled ? "on" : "off"}
+							label="World and position"
+							value={draft.worldDataEnabled ? "on" : "off"}
 							options={ON_OFF}
-							onChange={(value) => setDraft({ ...draft, liveControlEnabled: value === "on" })}
+							onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">View only.</p>
+					</div>
+
+					<div className="space-y-1.5">
+						<Label>Inventory</Label>
+						<Choice
+							label="Inventory"
+							value={draft.inventoryDataEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Lets you watch chat and see what the bot is doing.{" "}
-							<Tooltip content="Only this dashboard can reach it, and it can only read. Anything you send still goes through the console.">
-								Read-only
-							</Tooltip>
-							, on port {draft.liveControlPort}.
+							Turning this on also lets OpenMCC move and drop items.
 						</p>
 					</div>
 
-					<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
-						<div>
-							<Label>What the client tracks</Label>
-							<p className="text-xs text-muted-foreground">
-								Bots and live details both need these.
-							</p>
-						</div>
-
-						<div className="space-y-1.5">
-							<Label>World and position</Label>
-							<Choice
-								label="World and position"
-								value={draft.worldDataEnabled ? "on" : "off"}
-								options={ON_OFF}
-								onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
-							/>
-							<p className="text-xs text-muted-foreground">View only.</p>
-						</div>
-
-						<div className="space-y-1.5">
-							<Label>Inventory</Label>
-							<Choice
-								label="Inventory"
-								value={draft.inventoryDataEnabled ? "on" : "off"}
-								options={ON_OFF}
-								onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
-							/>
-							<p className="text-xs text-muted-foreground">
-								Turning this on also lets OpenMCC move and drop items.
-							</p>
-						</div>
-
-						<div className="space-y-1.5">
-							<Label>Nearby entities</Label>
-							<Choice
-								label="Nearby entities"
-								value={draft.entityDataEnabled ? "on" : "off"}
-								options={ON_OFF}
-								onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
-							/>
-							<p className="text-xs text-muted-foreground">
-								Turning this on also lets OpenMCC attack and interact with nearby creatures.
-							</p>
-						</div>
+					<div className="space-y-1.5">
+						<Label>Nearby entities</Label>
+						<Choice
+							label="Nearby entities"
+							value={draft.entityDataEnabled ? "on" : "off"}
+							options={ON_OFF}
+							onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Turning this on also lets OpenMCC attack and interact with nearby creatures.
+						</p>
 					</div>
 				</div>
 			</div>

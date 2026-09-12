@@ -176,6 +176,7 @@ describe("★ the three client-data toggles the bots depend on", () => {
 		remount(rerender, "i2", instanceConfigInput.parse({ ...CONFIG, liveControlEnabled: true }))
 
 		expect(screen.getByRole("group", { name: "World and position" })).toBeDefined()
+		expect(screen.getByRole("group", { name: "Inventory" })).toBeDefined()
 		expect(screen.getByRole("group", { name: "Nearby entities" })).toBeDefined()
 	})
 })

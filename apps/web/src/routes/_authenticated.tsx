@@ -7,6 +7,7 @@ import {
 	KeyRound,
 	LayoutDashboard,
 	LogOut,
+	Menu,
 	Search,
 	Server,
 } from "lucide-react"
@@ -17,7 +18,9 @@ import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-statu
 import { ThemeToggle } from "~/components/theme-toggle"
 import { authClient } from "~/lib/auth-client"
 import { navItemVisible } from "~/lib/nav-access"
+import { useNavDrawer } from "~/lib/nav-drawer"
 import { decideFromSession } from "~/lib/session-guard"
+import { sidebarClasses } from "~/lib/sidebar"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated")({
@@ -62,6 +65,7 @@ function AuthenticatedLayout() {
 	const me = useQuery(trpc.member.me.queryOptions())
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [paletteInstant, setPaletteInstant] = useState(false)
+	const nav = useNavDrawer()
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -86,7 +90,20 @@ function AuthenticatedLayout() {
 				instant={paletteInstant}
 				onClose={() => setPaletteOpen(false)}
 			/>
-			<aside className="flex h-full w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+			{nav.open ? (
+				<button
+					type="button"
+					aria-label="Close menu"
+					className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+					onClick={nav.close}
+				/>
+			) : null}
+			<aside
+				ref={nav.panelRef}
+				tabIndex={-1}
+				aria-label="Main"
+				className={sidebarClasses(nav.open)}
+			>
 				<div>
 					<div className="flex items-center gap-2 px-5 py-4">
 						<img
@@ -129,6 +146,7 @@ function AuthenticatedLayout() {
 										<Link
 											key={item.to}
 											to={item.to}
+											onClick={nav.close}
 											className={NAV_LINK_CLASSES}
 											activeProps={{ className: NAV_LINK_ACTIVE_CLASSES }}
 										>
@@ -163,8 +181,22 @@ function AuthenticatedLayout() {
 					<AffiliationNotice className="mt-3 border-t border-sidebar-border px-3 pt-3" />
 				</div>
 			</aside>
-			<main className="h-full min-w-0 flex-1 overflow-y-auto px-8 py-6">
+			<main
+				inert={nav.open}
+				className="h-full min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-6"
+			>
 				<div className="space-y-6">
+					<button
+						ref={nav.openerRef}
+						type="button"
+						aria-label="Open menu"
+						aria-expanded={nav.open}
+						className="inline-flex items-center gap-2 rounded-[var(--radius)] border border-border px-3 py-2 text-sm text-foreground lg:hidden"
+						onClick={nav.show}
+					>
+						<Menu className="size-4" />
+						Menu
+					</button>
 					<ControlPlaneStatus />
 					<Outlet />
 				</div>

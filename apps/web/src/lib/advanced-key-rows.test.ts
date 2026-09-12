@@ -1,6 +1,7 @@
 import type { AdvancedKeyRow } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { describe, expect, it } from "vitest"
 import {
+	ADVANCED_KEY_OPTIONS,
 	addAdvancedKeyRow,
 	advancedKeyRowsFrom,
 	advancedKeysFromRows,
@@ -255,5 +256,25 @@ describe("a cooldown row whose neighbour is not even a number yet", () => {
 				{ key: "ChatBot.AutoAttack.Cooldown_Time.Max", value: "abc" },
 			]),
 		).toEqual([null, null, "Decimal number"])
+	})
+})
+
+describe("the order the key chooser offers", () => {
+	const botOf = (key: string): string => key.split(".")[1] ?? ""
+
+	it("★ keeps every bot's keys together, so a setting sits beside its own Enabled", () => {
+		const seen: string[] = []
+		for (const key of ADVANCED_KEY_OPTIONS) {
+			const bot = botOf(key)
+			if (seen[seen.length - 1] !== bot) seen.push(bot)
+		}
+
+		expect(seen).toEqual([...new Set(seen)])
+	})
+
+	it("★ does not inherit its order from the registry's declaration order", () => {
+		expect([...ADVANCED_KEY_OPTIONS]).toEqual(
+			[...ADVANCED_KEY_OPTIONS].sort((left, right) => left.localeCompare(right)),
+		)
 	})
 })

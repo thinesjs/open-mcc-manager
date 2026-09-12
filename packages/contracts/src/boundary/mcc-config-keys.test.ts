@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
+	ADVANCED_BOOLEAN_NAMES,
+	ADVANCED_BOOLEAN_SHAPE,
 	ADVANCED_ENUM_NAMES,
 	ADVANCED_ENUM_SHAPE,
 	ADVANCED_KEY_NAMES,
 	ADVANCED_KEY_SHAPE,
 	ADVANCED_LITERAL_SHAPE,
+	ADVANCED_NUMBER_SHAPE,
 	advancedKeysSchema,
 } from "./mcc-config-keys"
 
@@ -95,6 +98,45 @@ describe("the registry the operator may write to", () => {
 
 		expect(enumNames.filter((name) => literalNames.includes(name))).toEqual([])
 		expect([...enumNames, ...literalNames].sort()).toEqual([...GOLDEN_KEYS].sort())
+	})
+
+	it("★ splits the literal half into booleans and numbers that do not overlap and miss nothing", () => {
+		const booleanNames = Object.keys(ADVANCED_BOOLEAN_SHAPE)
+		const numberNames = Object.keys(ADVANCED_NUMBER_SHAPE)
+
+		expect(booleanNames.filter((name) => numberNames.includes(name))).toEqual([])
+		expect([...booleanNames, ...numberNames].sort()).toEqual(
+			Object.keys(ADVANCED_LITERAL_SHAPE).sort(),
+		)
+	})
+
+	it("★ names every advanced boolean, so a toggle is never rendered as a text box", () => {
+		expect([...ADVANCED_BOOLEAN_NAMES].sort()).toEqual(Object.keys(ADVANCED_BOOLEAN_SHAPE).sort())
+	})
+
+	it("★ every key called a boolean takes true and false, and refuses a number", () => {
+		const wrong = Object.entries(ADVANCED_BOOLEAN_SHAPE).filter(
+			([, schema]) =>
+				!schema.safeParse("true").success ||
+				!schema.safeParse("false").success ||
+				schema.safeParse("1.5").success,
+		)
+
+		expect(wrong.map(([name]) => name)).toEqual([])
+	})
+
+	it("★ every key called a number refuses true, so a text box is never rendered as a toggle", () => {
+		const wrong = Object.entries(ADVANCED_NUMBER_SHAPE).filter(
+			([, schema]) => schema.safeParse("true").success,
+		)
+
+		expect(wrong.map(([name]) => name)).toEqual([])
+	})
+
+	it("★ orders the audited names itself, so no consumer inherits the declaration order", () => {
+		expect([...ADVANCED_KEY_NAMES]).toEqual(
+			[...ADVANCED_KEY_NAMES].sort((left, right) => left.localeCompare(right)),
+		)
 	})
 
 	it("names the enum half as the renderer's quoting list", () => {

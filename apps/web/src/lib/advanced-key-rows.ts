@@ -7,7 +7,11 @@ import {
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { z } from "zod"
 
-export const ADVANCED_KEY_OPTIONS = z.object(ADVANCED_KEY_SHAPE).keyof().options
+export const ADVANCED_KEY_OPTIONS = z
+	.object(ADVANCED_KEY_SHAPE)
+	.keyof()
+	.options.slice()
+	.sort((left, right) => left.localeCompare(right))
 
 export const advancedKeyRowsFrom = (keys: AdvancedKeys): readonly AdvancedKeyRow[] =>
 	ADVANCED_KEY_OPTIONS.flatMap((name) => {

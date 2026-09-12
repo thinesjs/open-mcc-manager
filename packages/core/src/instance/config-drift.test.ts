@@ -175,6 +175,30 @@ describe("instance config drift", () => {
 		expect(drift[0]).toMatchObject({ kind: "fixed", actual: undefined })
 	})
 
+	it("★ reports several drifted bot keys in a stable order, grouped by the bot they belong to", () => {
+		const expected = renderInstanceConfig({
+			...base,
+			advancedKeys: {
+				"ChatBot.AutoFishing.Enabled": "true",
+				"ChatBot.AutoEat.Enabled": "true",
+				"ChatBot.AutoEat.Threshold": "6",
+				"ChatBot.AutoAttack.Enabled": "true",
+			},
+		})
+		const actual = expected
+			.replace("Threshold = 6", "Threshold = 9")
+			.replace("[ChatBot.AutoFishing]\nEnabled = true", "[ChatBot.AutoFishing]\nEnabled = false")
+			.replace("[ChatBot.AutoAttack]\nEnabled = true", "[ChatBot.AutoAttack]\nEnabled = false")
+			.replace("[ChatBot.AutoEat]\nEnabled = true", "[ChatBot.AutoEat]\nEnabled = false")
+
+		const keys = compareInstanceConfig(expected, actual).flatMap((entry) =>
+			entry.kind === "section" ? [] : [entry.key],
+		)
+
+		expect(keys).toHaveLength(4)
+		expect(keys).toEqual([...keys].sort((left, right) => left.localeCompare(right)))
+	})
+
 	it("notices an alias list that is no longer empty", () => {
 		const expected = renderInstanceConfig(base)
 		const actual = expected.replace(

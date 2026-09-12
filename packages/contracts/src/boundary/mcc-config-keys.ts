@@ -84,28 +84,48 @@ export const ADVANCED_ENUM_SHAPE = {
 	"ChatBot.AutoDrop.Mode": z.enum(["include", "exclude", "everything"], CHOOSE_A_VALUE),
 }
 
-export const ADVANCED_LITERAL_SHAPE = {
+export const ADVANCED_BOOLEAN_SHAPE = {
 	"ChatBot.AutoAttack.Enabled": advancedBooleanSchema,
 	"ChatBot.AutoAttack.Cooldown_Time.Custom": advancedBooleanSchema,
 	"ChatBot.AutoAttack.Cooldown_Time.RandomMode": advancedBooleanSchema,
+	"ChatBot.AutoAttack.Attack_Hostile": advancedBooleanSchema,
+	"ChatBot.AutoAttack.Attack_Passive": advancedBooleanSchema,
+	"ChatBot.AutoCraft.Enabled": advancedBooleanSchema,
+	"ChatBot.AutoDig.Enabled": advancedBooleanSchema,
+	"ChatBot.AutoDig.Auto_Tool_Switch": advancedBooleanSchema,
+	"ChatBot.AutoDig.Apply_Efficiency_Enchantments": advancedBooleanSchema,
+	"ChatBot.AutoDig.Apply_Haste_Effects": advancedBooleanSchema,
+	"ChatBot.AutoDig.Drop_Low_Durability_Tools": advancedBooleanSchema,
+	"ChatBot.AutoDig.Log_Block_Dig": advancedBooleanSchema,
+	"ChatBot.AutoDrop.Enabled": advancedBooleanSchema,
+	"ChatBot.AutoEat.Enabled": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Enabled": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Antidespawn": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Mainhand": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Auto_Start": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Auto_Rod_Switch": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Enable_Velocity_Detection": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Enable_Sound_Detection": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Log_Fish_Bobber": advancedBooleanSchema,
+	"ChatBot.AutoFishing.Enable_Move": advancedBooleanSchema,
+	"ChatBot.Farmer.Enabled": advancedBooleanSchema,
+	"ChatBot.ItemsCollector.Enabled": advancedBooleanSchema,
+	"ChatBot.ItemsCollector.Collect_All_Item_Types": advancedBooleanSchema,
+	"ChatBot.ItemsCollector.Always_Return_To_Start": advancedBooleanSchema,
+	"ChatBot.ItemsCollector.Prioritize_Clusters": advancedBooleanSchema,
+}
+
+export const ADVANCED_NUMBER_SHAPE = {
 	"ChatBot.AutoAttack.Cooldown_Time.Min": advancedFloatSchema,
 	"ChatBot.AutoAttack.Cooldown_Time.Max": advancedFloatSchema,
 	"ChatBot.AutoAttack.Attack_Range": floatWhere(
 		(value) => value >= 1 && value <= 4,
 		"Between 1 and 4",
 	),
-	"ChatBot.AutoAttack.Attack_Hostile": advancedBooleanSchema,
-	"ChatBot.AutoAttack.Attack_Passive": advancedBooleanSchema,
-	"ChatBot.AutoCraft.Enabled": advancedBooleanSchema,
 	"ChatBot.AutoCraft.CraftingTable.X": advancedFloatSchema,
 	"ChatBot.AutoCraft.CraftingTable.Y": advancedFloatSchema,
 	"ChatBot.AutoCraft.CraftingTable.Z": advancedFloatSchema,
-	"ChatBot.AutoDig.Enabled": advancedBooleanSchema,
-	"ChatBot.AutoDig.Auto_Tool_Switch": advancedBooleanSchema,
-	"ChatBot.AutoDig.Apply_Efficiency_Enchantments": advancedBooleanSchema,
-	"ChatBot.AutoDig.Apply_Haste_Effects": advancedBooleanSchema,
 	"ChatBot.AutoDig.Durability_Limit": integerWithin(0, INT32.max),
-	"ChatBot.AutoDig.Drop_Low_Durability_Tools": advancedBooleanSchema,
 	"ChatBot.AutoDig.Auto_Start_Delay": floatWhere(
 		(value) => value < 0 || value >= 0.1,
 		"0.1 or more, or negative",
@@ -114,14 +134,7 @@ export const ADVANCED_LITERAL_SHAPE = {
 		(value) => value < 0 || value >= 0.1,
 		"0.1 or more, or negative",
 	),
-	"ChatBot.AutoDig.Log_Block_Dig": advancedBooleanSchema,
-	"ChatBot.AutoDrop.Enabled": advancedBooleanSchema,
-	"ChatBot.AutoEat.Enabled": advancedBooleanSchema,
 	"ChatBot.AutoEat.Threshold": integerWithin(0, 20),
-	"ChatBot.AutoFishing.Enabled": advancedBooleanSchema,
-	"ChatBot.AutoFishing.Antidespawn": advancedBooleanSchema,
-	"ChatBot.AutoFishing.Mainhand": advancedBooleanSchema,
-	"ChatBot.AutoFishing.Auto_Start": advancedBooleanSchema,
 	"ChatBot.AutoFishing.Cast_Delay": floatWhere((value) => value >= 0, "0 or more"),
 	"ChatBot.AutoFishing.Fishing_Delay": floatWhere((value) => value >= 0, "0 or more"),
 	"ChatBot.AutoFishing.Fishing_Timeout": floatWhere((value) => value >= 0, "0 or more"),
@@ -129,24 +142,19 @@ export const ADVANCED_LITERAL_SHAPE = {
 		(value) => value >= 0 && value <= 64,
 		"Between 0 and 64",
 	),
-	"ChatBot.AutoFishing.Auto_Rod_Switch": advancedBooleanSchema,
 	"ChatBot.AutoFishing.Stationary_Threshold": floatWhere((value) => value >= 0, "0 or more"),
 	"ChatBot.AutoFishing.Hook_Threshold": floatWhere((value) => value >= 0, "0 or more"),
-	"ChatBot.AutoFishing.Enable_Velocity_Detection": advancedBooleanSchema,
 	"ChatBot.AutoFishing.Velocity_Hook_Threshold": floatWhere((value) => value <= 0, "0 or less"),
-	"ChatBot.AutoFishing.Enable_Sound_Detection": advancedBooleanSchema,
 	"ChatBot.AutoFishing.Sound_Distance": floatWhere((value) => value >= 0, "0 or more"),
 	"ChatBot.AutoFishing.Detection_Warmup": floatWhere((value) => value >= 0, "0 or more"),
-	"ChatBot.AutoFishing.Log_Fish_Bobber": advancedBooleanSchema,
-	"ChatBot.AutoFishing.Enable_Move": advancedBooleanSchema,
-	"ChatBot.Farmer.Enabled": advancedBooleanSchema,
 	"ChatBot.Farmer.Delay_Between_Tasks": floatWhere((value) => value >= 1, "1 or more"),
-	"ChatBot.ItemsCollector.Enabled": advancedBooleanSchema,
-	"ChatBot.ItemsCollector.Collect_All_Item_Types": advancedBooleanSchema,
 	"ChatBot.ItemsCollector.Delay_Between_Tasks": integerWithin(100, INT32.max),
 	"ChatBot.ItemsCollector.Collection_Radius": advancedFloatSchema,
-	"ChatBot.ItemsCollector.Always_Return_To_Start": advancedBooleanSchema,
-	"ChatBot.ItemsCollector.Prioritize_Clusters": advancedBooleanSchema,
+}
+
+export const ADVANCED_LITERAL_SHAPE = {
+	...ADVANCED_BOOLEAN_SHAPE,
+	...ADVANCED_NUMBER_SHAPE,
 }
 
 export const ADVANCED_KEY_SHAPE = { ...ADVANCED_ENUM_SHAPE, ...ADVANCED_LITERAL_SHAPE }
@@ -155,8 +163,16 @@ export const advancedKeysSchema = z.object(ADVANCED_KEY_SHAPE).partial().strict(
 export type AdvancedKeys = z.infer<typeof advancedKeysSchema>
 export type AdvancedKeyName = keyof AdvancedKeys
 
-export const ADVANCED_KEY_NAMES: readonly string[] = z.object(ADVANCED_KEY_SHAPE).keyof().options
+export const ADVANCED_KEY_NAMES: readonly string[] = z
+	.object(ADVANCED_KEY_SHAPE)
+	.keyof()
+	.options.slice()
+	.sort((left, right) => left.localeCompare(right))
 export const ADVANCED_ENUM_NAMES: readonly string[] = z.object(ADVANCED_ENUM_SHAPE).keyof().options
+
+export const ADVANCED_BOOLEAN_NAMES: readonly string[] = z
+	.object(ADVANCED_BOOLEAN_SHAPE)
+	.keyof().options
 
 export const advancedKeyRowSchema = z.object({
 	key: z.object(ADVANCED_KEY_SHAPE).keyof().nullable(),

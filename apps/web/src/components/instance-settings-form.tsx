@@ -230,53 +230,51 @@ export const InstanceSettingsForm = ({
 						</p>
 					</div>
 
-					{draft.liveControlEnabled ? (
-						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
-							<div>
-								<Label>Live details to show</Label>
-								<p className="text-xs text-muted-foreground">
-									Turn on only the live details you want to see.
-								</p>
-							</div>
-
-							<div className="space-y-1.5">
-								<Label>World and position</Label>
-								<Choice
-									label="World and position"
-									value={draft.worldDataEnabled ? "on" : "off"}
-									options={ON_OFF}
-									onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
-								/>
-								<p className="text-xs text-muted-foreground">View only.</p>
-							</div>
-
-							<div className="space-y-1.5">
-								<Label>Inventory</Label>
-								<Choice
-									label="Inventory"
-									value={draft.inventoryDataEnabled ? "on" : "off"}
-									options={ON_OFF}
-									onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
-								/>
-								<p className="text-xs text-muted-foreground">
-									Turning this on also lets OpenMCC move and drop items.
-								</p>
-							</div>
-
-							<div className="space-y-1.5">
-								<Label>Nearby entities</Label>
-								<Choice
-									label="Nearby entities"
-									value={draft.entityDataEnabled ? "on" : "off"}
-									options={ON_OFF}
-									onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
-								/>
-								<p className="text-xs text-muted-foreground">
-									Turning this on also lets OpenMCC attack and interact with nearby creatures.
-								</p>
-							</div>
+					<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
+						<div>
+							<Label>What the client tracks</Label>
+							<p className="text-xs text-muted-foreground">
+								Bots and live details both need these.
+							</p>
 						</div>
-					) : null}
+
+						<div className="space-y-1.5">
+							<Label>World and position</Label>
+							<Choice
+								label="World and position"
+								value={draft.worldDataEnabled ? "on" : "off"}
+								options={ON_OFF}
+								onChange={(value) => setDraft({ ...draft, worldDataEnabled: value === "on" })}
+							/>
+							<p className="text-xs text-muted-foreground">View only.</p>
+						</div>
+
+						<div className="space-y-1.5">
+							<Label>Inventory</Label>
+							<Choice
+								label="Inventory"
+								value={draft.inventoryDataEnabled ? "on" : "off"}
+								options={ON_OFF}
+								onChange={(value) => setDraft({ ...draft, inventoryDataEnabled: value === "on" })}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Turning this on also lets OpenMCC move and drop items.
+							</p>
+						</div>
+
+						<div className="space-y-1.5">
+							<Label>Nearby entities</Label>
+							<Choice
+								label="Nearby entities"
+								value={draft.entityDataEnabled ? "on" : "off"}
+								options={ON_OFF}
+								onChange={(value) => setDraft({ ...draft, entityDataEnabled: value === "on" })}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Turning this on also lets OpenMCC attack and interact with nearby creatures.
+							</p>
+						</div>
+					</div>
 				</div>
 			</div>
 

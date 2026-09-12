@@ -7,6 +7,7 @@ import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { INSTANCE_SETTING_LABELS } from "~/lib/bot-config-fields"
 import { InstanceSettingsForm } from "./instance-settings-form"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -151,6 +152,32 @@ const advancedRowOf = (label: string) =>
 afterEach(() => {
 	cleanup()
 	mutate.mockReset()
+})
+
+describe("★ the three client-data toggles the bots depend on", () => {
+	it("★ shows them with live control off, because bots need them and live control does not gate them", () => {
+		mount({})
+
+		expect(screen.getByRole("group", { name: "World and position" })).toBeDefined()
+		expect(screen.getByRole("group", { name: "Inventory" })).toBeDefined()
+		expect(screen.getByRole("group", { name: "Nearby entities" })).toBeDefined()
+	})
+
+	it("★ renders a control for every setting the bots' dependency copy names", () => {
+		mount({})
+
+		for (const label of Object.values(INSTANCE_SETTING_LABELS)) {
+			expect(screen.getByRole("group", { name: label })).toBeDefined()
+		}
+	})
+
+	it("keeps showing them when live control is on", () => {
+		const { rerender } = mount({})
+		remount(rerender, "i2", instanceConfigInput.parse({ ...CONFIG, liveControlEnabled: true }))
+
+		expect(screen.getByRole("group", { name: "World and position" })).toBeDefined()
+		expect(screen.getByRole("group", { name: "Nearby entities" })).toBeDefined()
+	})
 })
 
 describe("moving to another instance without the page being rebuilt", () => {

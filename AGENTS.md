@@ -611,6 +611,23 @@ reachable from any network, and nothing here may change that.
   such a bound; `ChatBot.AutoAttack.Cooldown_Time.Min`/`.Max` are swapped rather
   than clamped, so their order is checked across rows instead. This is the same
   rule `DELAY_SECONDS_MINIMUM` already follows for AntiAFK.
+- **A dependency is a hint; a bound is a refusal.** The rule that an over-strict
+  bound is a defect applies only to bounds, because only a bound rejects a value
+  the client would have accepted. A dependency refuses nothing — it tells the
+  operator that a setting will do nothing until something else is on — so the
+  test for it is simply whether the thing genuinely stops working. That is why
+  `ChatBot.AutoEat` gets a declared dependency on inventory handling even though
+  the client never checks for it, while `ChatBot.AutoFishing.Detection_Warmup`
+  gets none: it is read on every catch path, including the default positional
+  one, so no condition is true of it.
+- The three client-data settings (`TerrainAndMovements`, `InventoryHandling`,
+  `EntityHandling`) are **not** part of live control and must never be presented
+  as though they were. The client's own bots read them directly
+  (`McClient.cs:1350/1358/1368`), and seven of the eight `ChatBot.*` bots do
+  nothing without one. What keeps them from widening the MCP surface is the
+  renderer, not the form: `config.ts` emits `Inventory` and `EntityWorld` as
+  `liveControlEnabled && <setting>`, pinned by a test that turns both settings on
+  with live control off and asserts both capabilities stay `false`.
 - `operator` config drift means **a key we saved is no longer what the host
   holds**. It deliberately does NOT report a registered key the host sets but we
   never saved: MCC writes its own defaults for all 59 on first expansion, so

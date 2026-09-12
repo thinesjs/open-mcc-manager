@@ -205,6 +205,30 @@ describe("instance config drift", () => {
 		expect(drift.every(isSafetyDrift)).toBe(true)
 	})
 
+	it("accepts an alias list the client rewrote as an empty inline table", () => {
+		const expected = renderInstanceConfig(base)
+		const actual = expected.replace(
+			"\n[Main.Advanced.AccountList]\n\n[Main.Advanced.ServerList]\n",
+			"AccountList = {}\nServerList = {}\n",
+		)
+
+		expect(actual).not.toContain("[Main.Advanced.AccountList]")
+		expect(compareInstanceConfig(expected, actual)).toEqual([])
+	})
+
+	it("notices an alias list the client rewrote as a populated inline table", () => {
+		const expected = renderInstanceConfig(base)
+		const actual = expected.replace(
+			"\n[Main.Advanced.AccountList]\n\n[Main.Advanced.ServerList]\n",
+			'AccountList = { Other = { Login = "TestBot", Password = "-" } }\nServerList = {}\n',
+		)
+		const drift = compareInstanceConfig(expected, actual)
+
+		expect(actual).not.toContain("[Main.Advanced.AccountList]")
+		expect(drift).toEqual([{ kind: "section", section: "Main.Advanced.AccountList", entries: 1 }])
+		expect(drift.every(isSafetyDrift)).toBe(true)
+	})
+
 	it("treats the two spellings of a delay as the same value", () => {
 		const expected = renderInstanceConfig(base)
 		const actual = expected.replace(

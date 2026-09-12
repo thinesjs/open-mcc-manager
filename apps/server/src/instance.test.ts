@@ -16,7 +16,7 @@ import {
 	generateKeyPair,
 	generateSshKeyPair,
 } from "@open-mcc/core"
-import { createDb, type Db } from "@open-mcc/db"
+import { createDb, type Db, type JsonObject } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -214,11 +214,7 @@ const seedInstance = async (orgId: string): Promise<string> => {
 	return instanceId
 }
 
-const call = async (
-	path: string,
-	cookie: string,
-	input: Record<string, string | Record<string, string>>,
-): Promise<Response> =>
+const call = async (path: string, cookie: string, input: JsonObject): Promise<Response> =>
 	await app.request(`/trpc/${path}`, {
 		method: "POST",
 		headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: cookie },
@@ -339,6 +335,7 @@ describe("instance router capability boundaries", () => {
 		const res = await call("instance.updateBotConfig", cookie, {
 			instanceId,
 			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: {},
 		})
 
 		expect(res.status).toBe(403)
@@ -358,6 +355,7 @@ describe("instance router capability boundaries", () => {
 		const res = await call("instance.updateBotConfig", mine.cookie, {
 			instanceId,
 			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: {},
 		})
 
 		expect(res.status).not.toBe(200)
@@ -369,6 +367,54 @@ describe("instance router capability boundaries", () => {
 		expect(versions).toEqual([])
 	})
 
+	it("★ lets a settings save without advanced keys reach the controller, which is now the only shape", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: {
+				accountType: "offline",
+				minecraftAccount: "OpenMccBot",
+				serverAddress: "play.example.com",
+				autoRelogRetries: 3,
+				autoRelogEnabled: true,
+				autoRelogDelaySeconds: { min: 5, max: 20 },
+				antiAfkEnabled: true,
+				antiAfkIntervalSeconds: { min: 90, max: 300 },
+			},
+		})
+
+		const body = await res.text()
+		expect(body).not.toContain("unrecognized_keys")
+		expect(body).toContain("INSTANCE_HOST_NOT_READY")
+	})
+
+	it("★ refuses a settings save that tries to carry the advanced keys, which now travel with the bots", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: {
+				accountType: "offline",
+				minecraftAccount: "OpenMccBot",
+				serverAddress: "play.example.com",
+				autoRelogRetries: 3,
+				autoRelogEnabled: true,
+				autoRelogDelaySeconds: { min: 5, max: 20 },
+				antiAfkEnabled: true,
+				antiAfkIntervalSeconds: { min: 90, max: 300 },
+				advancedKeys: { "ChatBot.AutoEat.Enabled": "true" },
+			},
+		})
+
+		expect(res.status).toBe(400)
+		const body = await res.text()
+		expect(body).toContain("unrecognized_keys")
+		expect(body).toContain("advancedKeys")
+	})
+
 	it("★ refuses a key the registry does not hold, so the strict schema reaches the wire", async () => {
 		const { cookie, orgId } = await signUpAndActivate()
 		const instanceId = await seedInstance(orgId)
@@ -376,6 +422,7 @@ describe("instance router capability boundaries", () => {
 		const res = await call("instance.updateBotConfig", cookie, {
 			instanceId,
 			botConfig: { "ChatBot.Script.Script_File": "evil" },
+			advancedKeys: {},
 		})
 
 		expect(res.status).toBe(400)

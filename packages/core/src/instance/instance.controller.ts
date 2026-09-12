@@ -3,6 +3,7 @@ import {
 	type CreateInstanceInput,
 	can,
 	createInstanceInput,
+	type InstanceBotsInput,
 	type InstanceConfigInput,
 	type InstanceSettingsInput,
 	instanceConfigInput,
@@ -16,7 +17,6 @@ import {
 	type SleepWindowPublic,
 	timeOfDay,
 } from "@open-mcc/contracts"
-import type { BotConfig } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type {
 	McpChatEntry,
 	McpEntityList,
@@ -278,16 +278,16 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return renderInstanceConfig({ ...usable.data, liveControlPort: instance.liveControlPort })
 	}
 
-	const savedBotConfig = async (ctx: ActorContext, instanceId: string): Promise<BotConfig> => {
+	const savedBots = async (ctx: ActorContext, instanceId: string): Promise<InstanceBotsInput> => {
 		const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
-		if (!row) return {}
+		if (!row) return { botConfig: {}, advancedKeys: {} }
 		const parsed = instanceConfigStored.safeParse(row.document)
 		if (!parsed.success) {
 			throw new InstanceConfigUnusableError(
 				`Saved settings for instance ${instanceId} are unusable`,
 			)
 		}
-		return parsed.data.botConfig
+		return { botConfig: parsed.data.botConfig, advancedKeys: parsed.data.advancedKeys }
 	}
 
 	const writeConfigDocument = async (
@@ -996,19 +996,19 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			await requireInstance(ctx, instanceId)
 			await controller.updateConfig(ctx, instanceId, {
 				...settings,
-				botConfig: await savedBotConfig(ctx, instanceId),
+				...(await savedBots(ctx, instanceId)),
 			})
 		},
 
 		updateBotConfig: async (
 			ctx: ActorContext,
 			instanceId: string,
-			botConfig: BotConfig,
+			bots: InstanceBotsInput,
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const saved = await controller.getConfig(ctx, instanceId)
 			if (!saved) throw new Error(`No saved settings for instance ${instanceId}`)
-			await controller.updateConfig(ctx, instanceId, { ...saved, botConfig })
+			await controller.updateConfig(ctx, instanceId, { ...saved, ...bots })
 		},
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {

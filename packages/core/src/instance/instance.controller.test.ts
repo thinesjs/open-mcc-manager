@@ -1099,7 +1099,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, instances } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+		await controller.updateBotConfig(owner, "abc123", {
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: SAVED.advancedKeys,
+		})
 
 		const document = writtenDocument(instances)
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "true" })
@@ -1112,7 +1115,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, transport } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+		await controller.updateBotConfig(owner, "abc123", {
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: SAVED.advancedKeys,
+		})
 
 		const written = transport.stdins.find((each) => each.includes("[ChatBot.Alerts]"))
 		expect(written).toBeDefined()
@@ -1123,7 +1129,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, audit } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" })
+		await controller.updateBotConfig(owner, "abc123", {
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: SAVED.advancedKeys,
+		})
 
 		expect(audit.record).toHaveBeenCalledWith(
 			expect.anything(),
@@ -1136,7 +1145,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(viewer, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+			controller.updateBotConfig(viewer, "abc123", {
+				botConfig: { "ChatBot.Alerts.Enabled": "true" },
+				advancedKeys: SAVED.advancedKeys,
+			}),
 		).rejects.toThrow(ForbiddenError)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 		expect(instances.findById).not.toHaveBeenCalled()
@@ -1149,7 +1161,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+			controller.updateBotConfig(owner, "abc123", {
+				botConfig: { "ChatBot.Alerts.Enabled": "true" },
+				advancedKeys: SAVED.advancedKeys,
+			}),
 		).rejects.toThrow(InstanceNotFoundError)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
@@ -1157,7 +1172,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 	it("★ keeps the saved bots when the operator saves the settings that sit beside them", async () => {
 		const { deps, instances } = withSavedConfig()
 		const controller = createInstanceController(deps)
-		const { botConfig: _bots, ...settings } = SAVED
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
 		await controller.updateSettings(owner, "abc123", {
 			...settings,
@@ -1169,10 +1184,40 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		expect(document.serverAddress).toBe("moved.example.net")
 	})
 
+	it("★ keeps the saved advanced keys when the operator saves the settings beside them", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", {
+			...settings,
+			serverAddress: "moved.example.net",
+		})
+
+		const document = writtenDocument(instances)
+		expect(document.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
+		expect(document.serverAddress).toBe("moved.example.net")
+	})
+
+	it("★ writes the advanced keys it was given and keeps every setting it was not", async () => {
+		const { deps, instances } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.updateBotConfig(owner, "abc123", {
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: { "ChatBot.AutoEat.Threshold": "9" },
+		})
+
+		const document = writtenDocument(instances)
+		expect(document.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
+		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "true" })
+		expect(document.serverAddress).toBe("play.example.net")
+	})
+
 	it("writes an empty bot config for an instance saving its settings for the first time", async () => {
 		const { deps, instances } = makeDeps()
 		const controller = createInstanceController(deps)
-		const { botConfig: _bots, ...settings } = SAVED
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
 		await controller.updateSettings(owner, "abc123", settings)
 
@@ -1271,7 +1316,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 	it("★ and lets the next settings save replace that bad value", async () => {
 		const { deps, instances } = withUnusableSavedConfig()
 		const controller = createInstanceController(deps)
-		const { botConfig: _bots, ...settings } = SAVED
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
 		await controller.updateSettings(owner, "abc123", {
 			...settings,
@@ -1315,7 +1360,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, instances } = makeDeps()
 		vi.mocked(instances.latestConfig).mockResolvedValue(configRow({ document: { nonsense: true } }))
 		const controller = createInstanceController(deps)
-		const { botConfig: _bots, ...settings } = SAVED
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
 		await expect(controller.updateSettings(owner, "abc123", settings)).rejects.toThrow(
 			InstanceConfigUnusableError,
@@ -1338,7 +1383,10 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(owner, "abc123", { "ChatBot.Alerts.Enabled": "true" }),
+			controller.updateBotConfig(owner, "abc123", {
+				botConfig: { "ChatBot.Alerts.Enabled": "true" },
+				advancedKeys: SAVED.advancedKeys,
+			}),
 		).rejects.toThrow("No saved settings")
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})

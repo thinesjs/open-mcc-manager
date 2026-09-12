@@ -150,7 +150,10 @@ export const instanceRouter = router({
 		.input(updateBotConfigInput)
 		.mutation(async ({ ctx, input }) => {
 			requireCapability(ctx.actor.role, "config.edit")
-			await ctx.instanceController.updateBotConfig(ctx.actor, input.instanceId, input.botConfig)
+			await ctx.instanceController.updateBotConfig(ctx.actor, input.instanceId, {
+				botConfig: input.botConfig,
+				advancedKeys: input.advancedKeys,
+			})
 			return { updated: true }
 		}),
 

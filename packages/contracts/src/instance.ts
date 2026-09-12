@@ -124,7 +124,10 @@ export const instanceConfigStored = instanceConfigInput.extend({
 	antiAfkIntervalSeconds: storedDelaySeconds,
 })
 
-export const instanceSettingsInput = instanceConfigInput.omit({ botConfig: true })
+export const instanceSettingsInput = instanceConfigInput.omit({
+	botConfig: true,
+	advancedKeys: true,
+})
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>
 
 export const updateInstanceConfigInput = z.object({
@@ -133,9 +136,13 @@ export const updateInstanceConfigInput = z.object({
 })
 export type UpdateInstanceConfigInput = z.infer<typeof updateInstanceConfigInput>
 
-export const updateBotConfigInput = z.object({
+export const instanceBotsInput = z
+	.object({ botConfig: botConfigSchema, advancedKeys: advancedKeysSchema })
+	.strict()
+export type InstanceBotsInput = z.infer<typeof instanceBotsInput>
+
+export const updateBotConfigInput = instanceBotsInput.extend({
 	instanceId: z.string().min(1),
-	botConfig: botConfigSchema,
 })
 export type UpdateBotConfigInput = z.infer<typeof updateBotConfigInput>
 

@@ -3,7 +3,6 @@ import type {
 	InstanceConfigInput,
 	InstanceSettingsInput,
 } from "@open-mcc/contracts"
-import type { AdvancedKeyRow } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -14,19 +13,10 @@ import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
-import {
-	advancedKeyRowsFrom,
-	advancedKeysFromRows,
-	sameAdvancedKeyRows,
-	validateAdvancedKeyRows,
-} from "~/lib/advanced-key-rows"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
-import { AdvancedKeys } from "./advanced-keys"
 
-type InstanceScalarSettings = Omit<InstanceSettingsInput, "advancedKeys">
-
-const scalarsFrom = (config: InstanceConfigInput): InstanceScalarSettings => {
+const scalarsFrom = (config: InstanceConfigInput): InstanceSettingsInput => {
 	const { botConfig: _bots, advancedKeys: _keys, ...scalars } = config
 	return scalars
 }
@@ -99,32 +89,22 @@ export const InstanceSettingsForm = ({
 	const queryClient = useQueryClient()
 	const saveMutation = useMutation(trpc.instance.updateConfig.mutationOptions())
 	const saved = scalarsFrom(config)
-	const [draft, setDraft] = useState<InstanceScalarSettings>(saved)
-	const [rows, setRows] = useState<readonly AdvancedKeyRow[]>(() =>
-		advancedKeyRowsFrom(config.advancedKeys),
-	)
+	const [draft, setDraft] = useState<InstanceSettingsInput>(saved)
 	const [boundTo, setBoundTo] = useState(instanceId)
 	if (boundTo !== instanceId) {
 		setBoundTo(instanceId)
 		setDraft(saved)
-		setRows(advancedKeyRowsFrom(config.advancedKeys))
 	}
-	const issues = validateAdvancedKeyRows(rows)
-
-	const edited =
-		JSON.stringify(draft) !== JSON.stringify(saved) ||
-		!sameAdvancedKeyRows(rows, advancedKeyRowsFrom(config.advancedKeys))
+	const edited = JSON.stringify(draft) !== JSON.stringify(saved)
 
 	const discard = () => {
 		setDraft(saved)
-		setRows(advancedKeyRowsFrom(config.advancedKeys))
 	}
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
-		if (issues.some((issue) => issue !== null)) return
 		saveMutation.mutate(
-			{ instanceId, config: { ...draft, advancedKeys: advancedKeysFromRows(rows) } },
+			{ instanceId, config: draft },
 			{
 				onSuccess: async () => {
 					await queryClient.invalidateQueries()
@@ -298,25 +278,13 @@ export const InstanceSettingsForm = ({
 						</div>
 					) : null}
 				</div>
-
-				<div className="mb-4 break-inside-avoid space-y-1.5">
-					<Label>Advanced keys</Label>
-					<AdvancedKeys rows={rows} issues={issues} onChange={setRows} />
-					<p className="text-xs text-muted-foreground">
-						Audited client settings this manager can write. They apply on the next restart.
-					</p>
-				</div>
 			</div>
 
 			<div className="flex justify-end gap-2">
 				<Button type="button" size="sm" variant="secondary" disabled={!edited} onClick={discard}>
 					Discard changes
 				</Button>
-				<Button
-					type="submit"
-					size="sm"
-					disabled={saveMutation.isPending || issues.some((issue) => issue !== null)}
-				>
+				<Button type="submit" size="sm" disabled={saveMutation.isPending}>
 					{saveMutation.isPending ? <Spinner label="Saving" /> : "Save settings"}
 				</Button>
 			</div>

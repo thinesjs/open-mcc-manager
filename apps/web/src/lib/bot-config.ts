@@ -49,6 +49,19 @@ export const validateBotConfig = (draft: BotConfigDraft): BotConfigIssues => {
 
 export const savedFrom = (draft: BotConfigDraft): BotConfig => botConfigSchema.parse(draft)
 
+const sameValue = (left: BotConfigValue, right: BotConfigValue): boolean => {
+	if (typeof left === "string" || typeof right === "string") return left === right
+	return left.length === right.length && left.every((entry, index) => entry === right[index])
+}
+
+export const sameBotConfigDraft = (left: BotConfigDraft, right: BotConfigDraft): boolean =>
+	NAMES.every((name) => {
+		const ours = left[name]
+		const theirs = right[name]
+		if (ours === undefined || theirs === undefined) return ours === theirs
+		return sameValue(ours, theirs)
+	})
+
 export const isStored = (draft: BotConfigDraft, key: BotConfigName): boolean =>
 	Object.hasOwn(draft, key)
 

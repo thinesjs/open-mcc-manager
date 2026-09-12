@@ -153,126 +153,6 @@ afterEach(() => {
 	mutate.mockReset()
 })
 
-describe("saving the advanced keys an operator has set", () => {
-	it("forwards a valid key with the rest of the config", async () => {
-		mount({ "ChatBot.AutoEat.Enabled": "true" })
-
-		await save()
-
-		expect(mutate).toHaveBeenCalledTimes(1)
-		expect(sentConfig()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
-	})
-
-	it("sends a config the server's own contract accepts", async () => {
-		mount({ "ChatBot.AutoEat.Enabled": "true" })
-
-		await save()
-
-		expect(updateInstanceConfigInput.safeParse(mutate.mock.calls[0]?.[0]).success).toBe(true)
-	})
-
-	it("renders a stored key as a row the operator can see", () => {
-		mount({ "ChatBot.AutoEat.Threshold": "5" })
-
-		expect(advancedRowOf("ChatBot.AutoEat.Threshold")).toBeDefined()
-	})
-
-	it("does not save at all while a value is invalid, and says why", async () => {
-		mount({ "ChatBot.ItemsCollector.Collection_Radius": "" })
-
-		await save()
-
-		expect(mutate).not.toHaveBeenCalled()
-		expect(screen.getByText("Decimal number")).toBeDefined()
-	})
-
-	it("disables the save control rather than letting it look available", () => {
-		mount({ "ChatBot.ItemsCollector.Collection_Radius": "" })
-
-		expect(screen.getByText("Save settings").closest("button")).toHaveProperty("disabled", true)
-	})
-
-	it("loses nothing when the operator adds a row and never chooses a key", async () => {
-		mount({})
-		fireEvent.click(screen.getByText("Add a key"))
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "1.5" } })
-
-		await save()
-
-		expect(mutate).not.toHaveBeenCalled()
-		expect(screen.queryAllByText("Choose a key").length).toBeGreaterThan(0)
-	})
-
-	it("saves an empty object for an instance that has set none", async () => {
-		mount({})
-
-		await save()
-
-		expect(sentConfig()?.advancedKeys).toEqual({})
-	})
-
-	it("drops a key the operator removed", async () => {
-		mount({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoFishing.Auto_Start": "false" })
-		const removes = screen.getAllByText("Remove")
-		await act(async () => {
-			removes[1]?.click()
-		})
-
-		expect(screen.getAllByText("Remove")).toHaveLength(1)
-		await save()
-
-		expect(sentConfig()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
-	})
-
-	it("carries a value the operator edited rather than the one it was given", async () => {
-		mount({ "ChatBot.AutoEat.Threshold": "5" })
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
-
-		await save()
-
-		expect(sentConfig()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
-	})
-})
-
-describe("the submission itself, not merely the button that starts it", () => {
-	it("refuses an unselected row even when the submit arrives without the button", async () => {
-		const { container } = mount({})
-		fireEvent.click(screen.getByText("Add a key"))
-		const form = container.querySelector("form")
-		if (form === null) throw new Error("expected the settings form to render")
-
-		await act(async () => {
-			fireEvent.submit(form)
-		})
-
-		expect(mutate).not.toHaveBeenCalled()
-	})
-
-	it("never reaches the mutation with an invalid value, by whichever guard catches it first", async () => {
-		const { container } = mount({ "ChatBot.ItemsCollector.Collection_Radius": "" })
-		const form = container.querySelector("form")
-		if (form === null) throw new Error("expected the settings form to render")
-
-		await act(async () => {
-			fireEvent.submit(form)
-		})
-
-		expect(mutate).not.toHaveBeenCalled()
-	})
-
-	it("still saves a valid draft through that same path", async () => {
-		const { container } = mount({ "ChatBot.AutoEat.Enabled": "true" })
-		const form = container.querySelector("form")
-		if (form === null) throw new Error("expected the settings form to render")
-
-		await act(async () => {
-			fireEvent.submit(form)
-		})
-
-		expect(mutate).toHaveBeenCalledTimes(1)
-	})
-})
-
 describe("moving to another instance without the page being rebuilt", () => {
 	it("★ shows the instance now on screen, not the draft left over from the last one", () => {
 		const { rerender } = mount({ "ChatBot.AutoEat.Threshold": "5" })
@@ -288,7 +168,6 @@ describe("moving to another instance without the page being rebuilt", () => {
 		remount(rerender, "i2", other)
 
 		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "second.example.com")
-		expect(screen.getByLabelText("Value")).toHaveProperty("value", "9")
 	})
 
 	it("keeps an edit while the operator stays on the same instance", () => {
@@ -329,7 +208,7 @@ describe("★ what the settings save is allowed to carry", () => {
 
 		expect(mutate.mock.calls[0]?.[0]?.instanceId).toBe("i2")
 		expect(sentConfig()?.serverAddress).toBe("second.example.com")
-		expect(sentConfig()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
+		expect(sentConfig()).not.toHaveProperty("advancedKeys")
 	})
 })
 
@@ -347,45 +226,17 @@ describe("discarding an edit", () => {
 	})
 
 	it("★ goes quiet again after a successful save, rather than claiming unsaved work forever", async () => {
-		const { rerender } = mount({ "ChatBot.AutoEat.Threshold": "5" })
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+		const { rerender } = mount({})
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "saved.example.com" },
+		})
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
 
 		await save()
 		remount(
 			rerender,
 			"i1",
-			instanceConfigInput.parse({ ...CONFIG, advancedKeys: { "ChatBot.AutoEat.Threshold": "9" } }),
-		)
-
-		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
-	})
-
-	it("★ goes quiet once the saved keys arrive, even if they were added out of alphabetical order", async () => {
-		const { rerender } = mount({ "ChatBot.AutoFishing.Enabled": "true" })
-		fireEvent.click(screen.getByText("Add a key"))
-		const added = advancedRowOf("Choose a key")
-		if (added === undefined) throw new Error("expected a new row")
-		fireEvent.click(added)
-		const option = await screen.findByRole("option", { name: "ChatBot.AutoEat.Threshold" })
-		fireEvent.pointerDown(option)
-		fireEvent.pointerUp(option)
-		fireEvent.click(option)
-		const values = screen.getAllByLabelText("Value")
-		const addedValue = values[values.length - 1]
-		if (addedValue === undefined) throw new Error("expected the added row's value box")
-		fireEvent.change(addedValue, { target: { value: "5" } })
-
-		remount(
-			rerender,
-			"i1",
-			instanceConfigInput.parse({
-				...CONFIG,
-				advancedKeys: {
-					"ChatBot.AutoFishing.Enabled": "true",
-					"ChatBot.AutoEat.Threshold": "5",
-				},
-			}),
+			instanceConfigInput.parse({ ...CONFIG, serverAddress: "saved.example.com" }),
 		)
 
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
@@ -407,17 +258,15 @@ describe("discarding an edit", () => {
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 	})
 
-	it("puts the saved values back, advanced keys included", () => {
-		mount({ "ChatBot.AutoEat.Threshold": "5" })
+	it("puts the saved values back", () => {
+		mount({})
 		fireEvent.change(screen.getByLabelText("Server address"), {
 			target: { value: "elsewhere.example.com" },
 		})
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
 
 		fireEvent.click(screen.getByText("Discard changes"))
 
 		expect(screen.getByLabelText("Server address")).toHaveProperty("value", CONFIG.serverAddress)
-		expect(screen.getByLabelText("Value")).toHaveProperty("value", "5")
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 	})
 })

@@ -514,6 +514,7 @@ function InstanceDetailPage() {
 								<ConsoleComposer
 									instanceId={instanceId}
 									running={instance?.status === "running"}
+									players={livePlayersQuery.data}
 									onSent={async () => {
 										await consoleQuery.refetch()
 									}}

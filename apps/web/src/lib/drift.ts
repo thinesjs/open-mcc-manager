@@ -1,12 +1,24 @@
 import type {
 	ConfigDriftPublic,
 	HostReconciliation,
+	HostUnreachableReason,
 	StateDrift,
 	UnitDrift,
 } from "@open-mcc/contracts"
 
+const UNREACHABLE_REASONS: Record<HostUnreachableReason, string> = {
+	misconfigured: "This host has no SSH key or no trusted fingerprint yet.",
+	unprovisioned: "This host has not finished provisioning.",
+	unreachable: "It did not answer.",
+	interrupted: "It stopped answering part-way.",
+	failed: "OpenMCC could not read it.",
+}
+
+export const describeUnreachable = (reason: HostUnreachableReason): string =>
+	UNREACHABLE_REASONS[reason]
+
 export type DriftSummary =
-	| { verdict: "unknown"; reason: string }
+	| { verdict: "unknown"; reason: HostUnreachableReason }
 	| { verdict: "converged" }
 	| {
 			verdict: "drifted"

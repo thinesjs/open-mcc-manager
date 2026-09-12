@@ -563,7 +563,37 @@ describe("reconciliation", () => {
 
 		expect(result.reachable).toBe(false)
 		if (result.reachable) throw new Error("unreachable expected")
-		expect(result.reason).toContain("Connection reset")
+		expect(result.reason).toBe("interrupted")
+	})
+
+	it("★ never carries the host's own words about why, which name its address", async () => {
+		const { deps } = makeDeps()
+		deps.createTransport = () => {
+			const transport = createFakeTransport()
+			transport.connect = async () => {
+				throw new Error("connect ECONNREFUSED 10.4.5.6:22")
+			}
+			return transport
+		}
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(JSON.stringify(result)).not.toContain("10.4.5.6")
+		expect(result).toEqual({ hostId: "host-1", reachable: false, reason: "unreachable" })
+	})
+
+	it("★ tells a host that was never finished apart from one that did not answer", async () => {
+		const { deps } = makeDeps({
+			hosts: { findById: vi.fn(async () => ({ ...hostRow, instancesRoot: null, unitDir: null })) },
+		})
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+		if (result.reachable) throw new Error("unreachable expected")
+		expect(result.reason).toBe("unprovisioned")
 	})
 })
 

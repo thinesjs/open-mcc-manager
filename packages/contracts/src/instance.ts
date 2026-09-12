@@ -224,8 +224,21 @@ export const configDriftSchema = z.discriminatedUnion("kind", [
 ])
 export type ConfigDriftPublic = z.infer<typeof configDriftSchema>
 
+export const hostUnreachableReasonSchema = z.enum([
+	"misconfigured",
+	"unprovisioned",
+	"unreachable",
+	"interrupted",
+	"failed",
+])
+export type HostUnreachableReason = z.infer<typeof hostUnreachableReasonSchema>
+
 export const hostReconciliationSchema = z.union([
-	z.object({ hostId: z.string(), reachable: z.literal(false), reason: z.string() }),
+	z.object({
+		hostId: z.string(),
+		reachable: z.literal(false),
+		reason: hostUnreachableReasonSchema,
+	}),
 	z.object({
 		hostId: z.string(),
 		reachable: z.literal(true),

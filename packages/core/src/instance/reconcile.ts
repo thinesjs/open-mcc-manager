@@ -1,6 +1,7 @@
 import type {
 	ConfigDriftPublic,
 	HostReconciliation,
+	HostUnreachableReason,
 	ObservedState,
 	StateDrift,
 	UnitDrift,
@@ -21,7 +22,14 @@ import {
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import { instanceDir, unitName } from "./unit"
 
-export type { ConfigDriftPublic, HostReconciliation, ObservedState, StateDrift, UnitDrift }
+export type {
+	ConfigDriftPublic,
+	HostReconciliation,
+	HostUnreachableReason,
+	ObservedState,
+	StateDrift,
+	UnitDrift,
+}
 
 export const RECONCILE_STEP_TIMEOUT_MS = 15_000
 

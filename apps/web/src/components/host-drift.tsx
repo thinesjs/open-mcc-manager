@@ -9,6 +9,7 @@ import {
 	describeConfigDrift,
 	describeStateDrift,
 	describeUnitDrift,
+	describeUnreachable,
 	groupConfigDrift,
 	remedyForGroup,
 	summariseDrift,
@@ -87,7 +88,7 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 					<Alert variant="warning" icon={<CircleHelp />}>
 						<span className="block font-medium">Host unreachable</span>
 						<span className="block text-sm">
-							Configuration state could not be determined. {summary.reason}
+							Configuration state could not be determined. {describeUnreachable(summary.reason)}
 						</span>
 					</Alert>
 				) : null}

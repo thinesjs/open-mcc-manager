@@ -78,6 +78,7 @@ import {
 import {
 	expectedUnits,
 	type HostReconciliation,
+	type HostUnreachableReason,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 } from "./reconcile"
@@ -162,6 +163,13 @@ export class InstanceConcurrentlyModifiedError extends Error {}
 
 const requireCapabilityFor = (role: Role, capability: Parameters<typeof can>[1]): void => {
 	if (!can(role, capability)) throw new ForbiddenError(`Role ${role} lacks ${capability}`)
+}
+
+const reasonFor = (error: Error): HostUnreachableReason => {
+	if (error instanceof InstanceHostNotProvisionedError) return "unprovisioned"
+	if (error instanceof InstanceHostNotFoundError) return "misconfigured"
+	if (error instanceof HostUnreachableError) return "unreachable"
+	return "failed"
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -1035,11 +1043,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			try {
 				connection = await connectToHost(scopeOf(ctx), hostId)
 			} catch (error) {
-				return {
-					hostId,
-					reachable: false,
-					reason: error instanceof Error ? error.message : "Host could not be reached",
-				}
+				const reason = error instanceof Error ? reasonFor(error) : "failed"
+				return { hostId, reachable: false, reason }
 			}
 
 			const { transport, profile } = connection
@@ -1068,12 +1073,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						expected,
 						expectedConfigs,
 					)
-				} catch (error) {
-					return {
-						hostId,
-						reachable: false,
-						reason: error instanceof Error ? error.message : "Host stopped responding",
-					}
+				} catch {
+					return { hostId, reachable: false, reason: "interrupted" }
 				}
 				for (const [id, player] of observed.seenPlayers) {
 					const known = instances.find((each) => each.id === id)

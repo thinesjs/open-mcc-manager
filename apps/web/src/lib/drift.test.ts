@@ -1,9 +1,11 @@
+import { hostUnreachableReasonSchema } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import {
 	configDriftDefeatsSafety,
 	describeConfigDrift,
 	describeStateDrift,
 	describeUnitDrift,
+	describeUnreachable,
 	groupConfigDrift,
 	remedyForGroup,
 	summariseDrift,
@@ -14,7 +16,7 @@ describe("drift summary", () => {
 		const summary = summariseDrift({
 			hostId: "h",
 			reachable: false,
-			reason: "Connection refused",
+			reason: "unreachable",
 		})
 
 		expect(summary.verdict).toBe("unknown")
@@ -22,9 +24,16 @@ describe("drift summary", () => {
 	})
 
 	it("carries the reason forward so the operator knows what failed", () => {
-		const summary = summariseDrift({ hostId: "h", reachable: false, reason: "Timed out" })
+		const summary = summariseDrift({ hostId: "h", reachable: false, reason: "interrupted" })
 		if (summary.verdict !== "unknown") throw new Error("expected unknown")
-		expect(summary.reason).toBe("Timed out")
+		expect(summary.reason).toBe("interrupted")
+	})
+
+	it("★ gives every reason its own words, so none of them reads as another", () => {
+		const said = hostUnreachableReasonSchema.options.map(describeUnreachable)
+
+		expect(new Set(said).size).toBe(said.length)
+		expect(said.every((sentence) => sentence.trim().length > 0)).toBe(true)
 	})
 
 	it("only reports converged for a host it actually inspected", () => {

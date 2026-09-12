@@ -7,6 +7,7 @@ import type {
 	InstanceScheduleTable,
 	InstanceTable,
 } from "./schema/instance"
+import type { InstanceArtifactTable } from "./schema/instance-artifact"
 import type {
 	NotificationAttemptTable,
 	NotificationDeliveryTable,
@@ -30,6 +31,7 @@ export type Database = Omit<
 	| "sshKey"
 	| "auditEvent"
 	| "instance"
+	| "instanceArtifact"
 	| "instanceConfig"
 	| "instanceSchedule"
 	| "instanceCommand"
@@ -49,6 +51,7 @@ export type Database = Omit<
 	sshKey: SshKeyTable
 	auditEvent: AuditEventTable
 	instance: InstanceTable
+	instanceArtifact: InstanceArtifactTable
 	instanceConfig: InstanceConfigTable
 	instanceSchedule: InstanceScheduleTable
 	instanceCommand: InstanceCommandTable

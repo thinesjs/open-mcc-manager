@@ -55,6 +55,12 @@ export {
 	provisionHost,
 	validateInstancesRoot,
 } from "./host/provision"
+export type {
+	ArtifactRepository,
+	ArtifactSummary,
+	ArtifactValues,
+} from "./instance/artifact.repository"
+export { createArtifactRepository } from "./instance/artifact.repository"
 export {
 	beginAuthentication,
 	DEVICE_CODE_PATTERN,

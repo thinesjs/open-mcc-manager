@@ -116,14 +116,35 @@ against the server (`SERVER_PORT`).
 
 ## Installing
 
+On a machine with nothing but Docker and git:
+
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/thinesjs/open-mcc-manager/main/scripts/install.sh)"
+```
+
+Or, from inside a checkout:
+
 ```bash
 sh scripts/install.sh
 ```
 
-Run it inside a checkout, or on a machine with only Docker and git — it clones,
-builds the control-plane image, generates a sealbox keypair, a session secret and
-a database password, writes them to `.env` with mode `600`, and starts the stack
-on free ports in the 25xxx block.
+The same script serves both. It clones if it is not already in a checkout, builds
+the control-plane image, generates a sealbox keypair, a session secret and a
+database password, writes them to `.env` with mode `600`, and starts the stack on
+free ports in the 25xxx block.
+
+That one-liner runs a script this project serves, so it is worth saying what you
+are trusting and how to check it. Read it first if you would rather:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thinesjs/open-mcc-manager/main/scripts/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+Use `sh -c "$(curl ...)"` rather than piping into `sh`. Piping leaves the script
+itself on the installer's standard input, so any command that reads stdin would
+consume the rest of it.
 
 The generated `.env` pins `COMPOSE_PROJECT_NAME`. Without it, a later plain
 `docker compose` call would resolve to a different project, create a second empty

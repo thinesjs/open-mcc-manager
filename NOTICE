@@ -69,23 +69,24 @@ operator's behalf and proxied to the operator's browser.
 Published container images
 --------------------------------------------------------------------------------
 
-When enabled, the release workflow is configured to publish three images: the
-server, the worker, and the migrate image, which is built from the server's own Dockerfile at a different target and so
-carries the same bundle. The build externalises many dependencies, which are deployed under
-node_modules with their own package directories intact, but folds the rest into
-an esbuild bundle, and then deletes the package directories it does not keep at
-runtime. Being folded into the bundle and having a package directory retained
-are independent: a folded-in dependency's licence is unreadable inside the image
-only when its directory is also pruned, and at least one folded-in package keeps
-its directory.
+The release workflow publishes three images: the server, the worker, and the
+migrate image, which is built from the server's own Dockerfile at a different
+target and so carries the same bundle. The build externalises many
+dependencies, which are deployed under node_modules with their own package
+directories intact, but folds the rest into an esbuild bundle, and then deletes
+the package directories it does not keep at runtime. Being folded into the
+bundle and having a package directory retained are independent: a folded-in
+dependency's licence is unreadable inside the image only when its directory is
+also pruned, and at least one folded-in package keeps its directory.
 
 Measured rather than assumed, by running the same deploy and prune the image
 build runs and building the bundle with the same options: the server bundle
 compiles in fourteen third-party packages — thirteen OpenTelemetry packages
-under Apache-2.0 and smol-toml under BSD-3-Clause. Exactly one of the fourteen,
-@opentelemetry/semantic-conventions, keeps its licence file through the prune.
-The other thirteen do not — but that is not thirteen missing notices, and an
-earlier version of this file drew the wrong conclusion from it. The retained
+under Apache-2.0 and smol-toml under BSD-3-Clause. The worker bundle folds in
+the same fourteen. Exactly one of them, @opentelemetry/semantic-conventions,
+keeps its licence file through the prune. The other thirteen do not — but that
+is not thirteen missing notices, and an earlier version of this file drew the
+wrong conclusion from it. The retained
 licence is the generic Apache-2.0 text: 201 lines with no package-specific
 copyright line, and none of the OpenTelemetry packages ships a NOTICE file. One
 unchanged copy satisfies §4(a)'s licence-copy requirement for all thirteen, and
@@ -99,15 +100,30 @@ is present nowhere in the image.
 The prune also strips the licence files of four packages that are not in the
 bundle. Those need nothing, because their code is not distributed either.
 
-The remediation is therefore two texts copied to a stable location in each
-image, not thirteen entries: one Apache-2.0 licence mapped to the thirteen
-OpenTelemetry packages, and smol-toml's complete BSD-3-Clause notice. Relying on
-one transitive package incidentally keeping its directory is not a control, so
-both are copied deliberately. That is outstanding work, tracked separately. Until it lands the images do not carry the notices those
-dependencies require, so no image should be published. The release workflow is
-closed for that reason: its publish job has a literal `if: false`. Re-enabling
-publication through this workflow requires a commit. An earlier version instead
+The bundle is not the only place a notice went missing, and an earlier version
+of this file did not look outside it: it assumed a package directory the prune
+keeps carries a licence file. Five publish none at all — @better-auth/utils,
+@hono/trpc-server, assert-plus, pg-types and pgpass, the last three shipped by
+the worker as well — so their code travelled with no notice of any kind. What
+each manifest declares is recorded for them, there being no text upstream to
+reproduce.
+
+Every image now carries /licenses/THIRD-PARTY-NOTICES.txt, written during the
+build by docker/third-party-notices.mjs from the esbuild metafile and the
+deployed node_modules, so it records what the image actually distributes rather
+than a list someone remembers to maintain. Identical texts are printed once
+against every package that carries them, which is what keeps the thirteen
+OpenTelemetry packages to a single Apache-2.0 copy. A package with neither a
+licence text nor a declared licence fails the build. The base image's own
+notices are left where the base image puts them: Node.js and the libraries it
+bundles under /nodejs/LICENSE, the Debian packages under /usr/share/doc with
+/usr/share/common-licenses.
+
+The release workflow publishes again, and scripts/check-image-notices.mjs is
+what holds it open honestly: it reads the images that workflow publishes and
+fails when the Dockerfile behind one of them stops generating the bundle or
+stops copying it into the published stage. Re-opening the workflow took a
+commit, which is the only thing that should open it. An earlier version instead
 gated the job on `vars.PUBLISH_IMAGES`; because that context can also resolve
 organisation-level configuration variables, an inherited value could have opened
-it. Re-enabling should wait until the two texts above are verified present in
-the built artifacts.
+it.

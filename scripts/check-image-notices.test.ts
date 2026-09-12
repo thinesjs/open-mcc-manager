@@ -55,6 +55,25 @@ describe("recognising the notice bundle", () => {
 	it("is not satisfied by a stage that merely mentions the path", () => {
 		expect(carriesNotices("RUN cat /licenses/THIRD-PARTY-NOTICES.txt")).toBe(false)
 	})
+
+	it("★ is not satisfied by a dockerfile that only copies the generator in", () => {
+		const copied = [
+			"FROM node:22 AS build",
+			"RUN corepack enable",
+			"COPY docker/third-party-notices.mjs ./third-party-notices.mjs",
+			"RUN pnpm install",
+		].join("\n")
+
+		expect(generatesNotices(copied)).toBe(false)
+	})
+
+	it("★ sees a generator run that was wrapped onto a second line", () => {
+		const wrapped = ["FROM node:22 AS build", "RUN node \\", "\tthird-party-notices.mjs /app"].join(
+			"\n",
+		)
+
+		expect(generatesNotices(wrapped)).toBe(true)
+	})
 })
 
 describe("catching an image that would publish without its notices", () => {

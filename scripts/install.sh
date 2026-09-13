@@ -119,6 +119,17 @@ SELF_HOST_KEY="$(SEALBOX_KEYS="$SEALBOX_KEYS" docker run --rm -e SEALBOX_KEYS "$
 	server.mjs --seal-self-host-key 2>/dev/null)" || SELF_HOST_KEY=""
 SELF_HOST_PUBLIC="$(printf '%s\n' "$SELF_HOST_KEY" | sed -n 's/^SELF_HOST_PUBLIC_KEY=//p')"
 
+ACCOUNT="$(id -un)"
+if [ -n "$SELF_HOST_PUBLIC" ] && command -v loginctl >/dev/null 2>&1 &&
+	[ "$(loginctl show-user "$ACCOUNT" --property=Linger --value 2>/dev/null || printf no)" != "yes" ]; then
+	say "Letting bots on this machine keep running after you log out. This asks for your password once."
+	if command -v sudo >/dev/null 2>&1 && sudo loginctl enable-linger "$ACCOUNT"; then
+		say "Lingering is on for $ACCOUNT"
+	else
+		say "Lingering is still off for $ACCOUNT. The Hosts page shows the one command that turns it on."
+	fi
+fi
+
 SELF_HOST_OFFERED="no"
 if [ -n "$SELF_HOST_PUBLIC" ] &&
 	printf '%s\n' "$SELF_HOST_PUBLIC" | sh scripts/self-host.sh --public-key -; then

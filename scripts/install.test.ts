@@ -60,6 +60,25 @@ describe("how the installer prepares this machine as its own host", () => {
 		expect(mintAt).toBeGreaterThan(firstUp)
 	})
 
+	it("★ turns lingering on before the machine is described, so the card does not ask for it", () => {
+		const enableAt = lineOf("sudo loginctl enable-linger")
+		const describeAt = lineOf("sh scripts/self-host.sh --public-key -")
+
+		expect(enableAt).toBeGreaterThan(-1)
+		expect(enableAt).toBeLessThan(describeAt)
+	})
+
+	it("asks for a password only when lingering is actually off", () => {
+		expect(source).toContain("--property=Linger --value")
+		expect(lineOf("--property=Linger --value")).toBeLessThan(lineOf("sudo loginctl enable-linger"))
+	})
+
+	it("runs the sudo only as a condition, so set -e cannot abort the install on a refused password", () => {
+		const line = source.split("\n")[lineOf("sudo loginctl enable-linger")] ?? ""
+
+		expect(line.trimStart().startsWith("if ")).toBe(true)
+	})
+
 	it("still finishes when this machine cannot be offered, because that is not the install", () => {
 		expect(source).toContain('SELF_HOST_OFFERED="no"')
 		expect(source).toContain('|| SELF_HOST_KEY=""')

@@ -143,7 +143,23 @@ describe("what the dashboard is offered", () => {
 	it("gives an enroller the machine this deployment was installed on", async () => {
 		const controller = createSelfHostController(harness(makeMaterials()).deps)
 
-		expect(await controller.offer(actor("owner"))).toEqual(makeOffer())
+		expect(await controller.offer(actor("owner"))).toEqual({
+			name: "kitchen-pi",
+			hostname: "host.docker.internal",
+			port: 22,
+			username: "mcc",
+			mode: "rootless",
+			reach: "proven",
+			systemd: true,
+			linger: true,
+		})
+	})
+
+	it("★ never hands the browser a host key, which it must never be the source of", async () => {
+		const controller = createSelfHostController(harness(makeMaterials()).deps)
+		const offered = await controller.offer(actor("owner"))
+
+		expect(JSON.stringify(offered)).not.toContain(FINGERPRINT)
 	})
 
 	it("offers nothing to a member who could not act on it", async () => {

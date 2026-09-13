@@ -2,7 +2,7 @@ import {
 	canAdoptSelfHost,
 	lingerCommand,
 	needsLinger,
-	type SelfHostOffer,
+	type SelfHostPublicOffer,
 } from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert, Server } from "lucide-react"
@@ -10,20 +10,19 @@ import { CommandBlock } from "~/components/command-block"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Spinner } from "~/components/ui/spinner"
-import { Tooltip } from "~/components/ui/tooltip"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 export const shouldOfferSelfHost = (
-	offer: SelfHostOffer | null | undefined,
-	hosts: readonly Pick<SelfHostOffer, "hostname" | "port">[] | undefined,
-): offer is SelfHostOffer => {
+	offer: SelfHostPublicOffer | null | undefined,
+	hosts: readonly Pick<SelfHostPublicOffer, "hostname" | "port">[] | undefined,
+): offer is SelfHostPublicOffer => {
 	if (!offer || !hosts) return false
 	return !hosts.some((host) => host.hostname === offer.hostname && host.port === offer.port)
 }
 
 export type SelfHostCardProps = {
-	offer: SelfHostOffer
+	offer: SelfHostPublicOffer
 	onAdded: (hostId: string) => void
 }
 
@@ -76,14 +75,6 @@ export const SelfHostCard = ({ offer, onAdded }: SelfHostCardProps) => {
 					<dd className="text-foreground">
 						{offer.mode === "rootless" ? "Without root" : "With root"}
 					</dd>
-				</div>
-				<div className="min-w-0">
-					<dt className="text-muted-foreground">
-						<Tooltip content="Read on this machine when OpenMCC was installed, and checked again when you add it.">
-							Fingerprint
-						</Tooltip>
-					</dt>
-					<dd className="break-all font-mono text-xs text-foreground">{offer.fingerprint}</dd>
 				</div>
 			</dl>
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
-import { type SelfHostOffer, selfHostOffer } from "@open-mcc/contracts"
+import { type SelfHostOffer, selfHostPublicOffer } from "@open-mcc/contracts"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
 	createHostController,
@@ -174,7 +174,9 @@ const orgResponseSchema = z.object({ id: z.string() })
 const errorResponseSchema = z.object({
 	error: z.object({ data: z.object({ errorCode: z.string().optional() }) }),
 })
-const offerResponseSchema = z.object({ result: z.object({ data: selfHostOffer.nullable() }) })
+const offerResponseSchema = z.object({
+	result: z.object({ data: selfHostPublicOffer.nullable() }),
+})
 const adoptResponseSchema = z.object({ result: z.object({ data: z.object({ id: z.string() }) }) })
 const hostListResponseSchema = z.object({
 	result: z.object({ data: z.array(z.object({ id: z.string(), hostname: z.string() })) }),
@@ -268,7 +270,8 @@ describe("the machine the dashboard offers", () => {
 
 		const offered = await offerFor(app, owner)
 
-		expect(offered.data).toEqual(materials.offer)
+		expect(offered.data).toEqual(selfHostPublicOffer.parse(materials.offer))
+		expect(offered.text).not.toContain(THIS_MACHINE_FINGERPRINT)
 		expect(offered.text).not.toContain(materials.privateKeyEncrypted)
 		expect(offered.text).not.toContain(materials.publicKey)
 	})

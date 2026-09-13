@@ -1,4 +1,4 @@
-import type { SelfHostOffer } from "@open-mcc/contracts"
+import type { SelfHostPublicOffer } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -26,19 +26,18 @@ afterEach(() => {
 	provision.mockReset()
 })
 
-const OFFER: SelfHostOffer = {
+const OFFER: SelfHostPublicOffer = {
 	name: "kitchen-pi",
 	hostname: "host.docker.internal",
 	port: 22,
 	username: "mcc",
 	mode: "rootless",
-	fingerprint: "SHA256:5t0oGkKIrpBGw7Z4LrnOdxM6wJzJPuK+aQ8N9sVhP1c",
 	reach: "proven",
 	systemd: true,
 	linger: true,
 }
 
-const mount = (overrides: Partial<SelfHostOffer> = {}, onAdded = vi.fn()) => {
+const mount = (overrides: Partial<SelfHostPublicOffer> = {}, onAdded = vi.fn()) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	render(
 		<QueryClientProvider client={client}>
@@ -56,7 +55,6 @@ describe("what the card offers", () => {
 
 		expect(addButton()).not.toBeNull()
 		expect(screen.getByText("mcc@host.docker.internal:22")).toBeDefined()
-		expect(screen.getByText(OFFER.fingerprint)).toBeDefined()
 	})
 
 	it.each([{ reach: "reachable" as const }, { reach: "unproven" as const }])(

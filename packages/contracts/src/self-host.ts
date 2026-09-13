@@ -21,11 +21,15 @@ export const selfHostOffer = z.object({
 
 export type SelfHostOffer = z.infer<typeof selfHostOffer>
 
-export const canAdoptSelfHost = (offer: SelfHostOffer): boolean =>
+export const selfHostPublicOffer = selfHostOffer.omit({ fingerprint: true })
+
+export type SelfHostPublicOffer = z.infer<typeof selfHostPublicOffer>
+
+export const canAdoptSelfHost = (offer: SelfHostPublicOffer): boolean =>
 	offer.reach === "proven" && offer.systemd
 
-export const needsLinger = (offer: SelfHostOffer): boolean =>
+export const needsLinger = (offer: SelfHostPublicOffer): boolean =>
 	offer.mode === "rootless" && !offer.linger
 
-export const lingerCommand = (offer: SelfHostOffer): string =>
+export const lingerCommand = (offer: SelfHostPublicOffer): string =>
 	`sudo loginctl enable-linger ${offer.username}`

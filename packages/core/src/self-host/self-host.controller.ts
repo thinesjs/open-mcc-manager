@@ -1,4 +1,10 @@
-import { can, canAdoptSelfHost, type SelfHostOffer } from "@open-mcc/contracts"
+import {
+	can,
+	canAdoptSelfHost,
+	type SelfHostOffer,
+	type SelfHostPublicOffer,
+	selfHostPublicOffer,
+} from "@open-mcc/contracts"
 import type { SshKeyRow } from "@open-mcc/db"
 import { type ActorContext, ForbiddenError, type HostController } from "../host/host.controller"
 import type { OrgScope } from "../host/host.repository"
@@ -51,8 +57,10 @@ const keyFor = async (
 }
 
 export const createSelfHostController = (deps: SelfHostControllerDeps) => ({
-	offer: async (ctx: ActorContext): Promise<SelfHostOffer | undefined> =>
-		can(ctx.role, "host.enroll") ? deps.materials?.offer : undefined,
+	offer: async (ctx: ActorContext): Promise<SelfHostPublicOffer | undefined> =>
+		can(ctx.role, "host.enroll") && deps.materials
+			? selfHostPublicOffer.parse(deps.materials.offer)
+			: undefined,
 
 	adopt: async (ctx: ActorContext) => {
 		if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")

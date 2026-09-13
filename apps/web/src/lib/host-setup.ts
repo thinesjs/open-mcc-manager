@@ -65,6 +65,9 @@ material=$(printf '%s' "$key" | awk '{print $2}')
 if [ -n "$material" ] && grep -qF "$material" "$home/.ssh/authorized_keys"; then
   echo "  key already present, left alone"
 else
+  if [ -s "$home/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$home/.ssh/authorized_keys")" ]; then
+    printf '\\n' >> "$home/.ssh/authorized_keys"
+  fi
   printf '%s\\n' "$key" >> "$home/.ssh/authorized_keys"
   echo "  key added to $home/.ssh/authorized_keys"
 fi

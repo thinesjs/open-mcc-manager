@@ -9,6 +9,7 @@ import {
 	ROOT,
 	read,
 	remove,
+	seedAuthorizedKeys,
 	shell,
 	signIn,
 	snapshot,
@@ -130,6 +131,23 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 
 			expect(await read(host, authorizedKeysOf(account))).toBe(once)
 			expect(once).toBe(`${key.publicKey}\n`)
+		})
+
+		it("keeps an unrelated last entry that has no trailing newline exactly as it was", async () => {
+			const account = await accountFor(host, mode)
+			const other = await mintKey(host)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, other.publicKey)
+
+			expect((await setUp(host, mode, account, key.publicKey)).status).toBe(0)
+
+			expect(await read(host, authorizedKeysOf(account))).toBe(
+				`${other.publicKey}\n${key.publicKey}\n`,
+			)
+			const asOther = await signIn(host, ROOT, other.path, account, "id -un")
+			expect(asOther.stdout.trim()).toBe(account)
+			const asKey = await signIn(host, ROOT, key.path, account, "id -un")
+			expect(asKey.stdout.trim()).toBe(account)
 		})
 
 		it("refuses an account that does not exist, having changed nothing", async () => {

@@ -174,12 +174,6 @@ export const ADVANCED_BOOLEAN_NAMES: readonly string[] = z
 	.object(ADVANCED_BOOLEAN_SHAPE)
 	.keyof().options
 
-export const advancedKeyRowSchema = z.object({
-	key: z.object(ADVANCED_KEY_SHAPE).keyof().nullable(),
-	value: z.string(),
-})
-export type AdvancedKeyRow = z.infer<typeof advancedKeyRowSchema>
-
 export const BOT_CONFIG_PATH_SHAPE = {
 	"ChatBot.Mailer.DatabaseFile": pathSchema,
 	"ChatBot.Mailer.IgnoreListFile": pathSchema,
@@ -249,7 +243,15 @@ export const BOT_CONFIG_NAMES: readonly string[] = z.object(BOT_CONFIG_SHAPE).ke
 
 export const SETTING_SHAPE = { ...BOT_CONFIG_SHAPE, ...ADVANCED_KEY_SHAPE }
 
+export const SETTING_ENUM_SHAPE = { ...BOT_CONFIG_ENUM_SHAPE, ...ADVANCED_ENUM_SHAPE }
+
+export const SETTING_BOOLEAN_SHAPE = { ...BOT_CONFIG_BOOLEAN_SHAPE, ...ADVANCED_BOOLEAN_SHAPE }
+
 export type SettingName = BotConfigName | AdvancedKeyName
+
+export const SETTING_BOOLEAN_NAMES: readonly string[] = z
+	.object(SETTING_BOOLEAN_SHAPE)
+	.keyof().options
 
 export const SETTING_NAMES: readonly SettingName[] = z
 	.object(SETTING_SHAPE)

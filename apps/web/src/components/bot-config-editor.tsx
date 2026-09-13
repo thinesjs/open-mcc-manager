@@ -1,7 +1,7 @@
 import type { InstanceConfigInput } from "@open-mcc/contracts"
 import {
-	BOT_CONFIG_BOOLEAN_NAMES,
-	type BotConfigName,
+	SETTING_BOOLEAN_NAMES,
+	type SettingName,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import {
 	type BotConfigDraft,
@@ -38,7 +38,7 @@ const ON_OFF = [
 	{ value: "false", label: "Off" },
 ] as const
 
-const ENUM_OPTIONS: Partial<Record<BotConfigName, readonly BotConfigEnumOption[]>> =
+const ENUM_OPTIONS: Partial<Record<SettingName, readonly BotConfigEnumOption[]>> =
 	BOT_CONFIG_ENUM_OPTIONS
 
 const asText = (value: string | readonly string[]): string =>
@@ -53,7 +53,7 @@ const BotField = ({
 	issues,
 	instance,
 	onChange,
-}: { name: BotConfigName } & Omit<BotConfigEditorProps, "draft"> & { draft: BotConfigDraft }) => {
+}: { name: SettingName } & Omit<BotConfigEditorProps, "draft"> & { draft: BotConfigDraft }) => {
 	const field = BOT_CONFIG_FIELDS[name]
 	const value = effectiveValue(draft, name)
 	const issue = issues[name]
@@ -84,7 +84,7 @@ const BotField = ({
 					onChange={set}
 				/>
 			) : members === undefined ? (
-				BOT_CONFIG_BOOLEAN_NAMES.includes(name) ? (
+				SETTING_BOOLEAN_NAMES.includes(name) ? (
 					<Choice label={field.label} value={asText(value)} options={ON_OFF} onChange={set} />
 				) : (
 					<Input

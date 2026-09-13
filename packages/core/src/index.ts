@@ -104,6 +104,8 @@ export {
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
+	InstanceRemovalFailedError,
+	InstanceStillInUseError,
 } from "./instance/instance.controller"
 export type {
 	InstanceCreateValues,

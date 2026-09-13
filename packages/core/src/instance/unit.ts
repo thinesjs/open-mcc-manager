@@ -26,6 +26,9 @@ export const renderEnvironmentFile = (values: EnvironmentValues): string =>
 
 export const unitName = (instanceId: string): string => `open-mcc@${validateInstanceId(instanceId)}`
 
+export const authUnitName = (instanceId: string): string =>
+	`open-mcc-auth@${validateInstanceId(instanceId)}.service`
+
 export const instanceDir = (instancesRoot: string, instanceId: string): string =>
 	`${instancesRoot}/instances/${validateInstanceId(instanceId)}`
 

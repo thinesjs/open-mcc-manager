@@ -29,6 +29,8 @@ import {
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
+	InstanceRemovalFailedError,
+	InstanceStillInUseError,
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
 	OrganizationTestThrottledError,
@@ -257,6 +259,20 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_CONCURRENTLY_MODIFIED",
 			"This instance was changed by someone else. Refresh and try again",
+		)
+	}
+	if (cause instanceof InstanceStillInUseError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_STILL_IN_USE",
+			"Something on the host is still using this instance, so it was not removed",
+		)
+	}
+	if (cause instanceof InstanceRemovalFailedError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_REMOVAL_FAILED",
+			"The host could not delete this instance's files, so it was not removed",
 		)
 	}
 	if (cause instanceof InvitationNotFoundError) {

@@ -14,7 +14,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
-import { instanceDir, unitName, validateInstanceId } from "./unit"
+import { authUnitName, instanceDir, unitName } from "./unit"
 
 export const DEVICE_CODE_PATTERN = /enter the code:?\s*([A-Z0-9]{4,6}-?[A-Z0-9]{4,6})\b/i
 
@@ -49,9 +49,6 @@ export type AuthPolling = {
 	attempts: number
 	intervalMs: number
 }
-
-export const authUnitName = (instanceId: string): string =>
-	`open-mcc-auth@${validateInstanceId(instanceId)}.service`
 
 export const startAuthCommand = (profile: HostProfile, instanceId: string): string => {
 	const log = `${instanceDir(profile.instancesRoot, instanceId)}/auth.log`

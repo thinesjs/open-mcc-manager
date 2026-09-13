@@ -83,6 +83,12 @@ import {
 	renderScheduleUnits,
 } from "./reconcile"
 import {
+	processesGoneCommand,
+	removeAccountCommand,
+	removeDirectoryCommand,
+	stopUnitCommands,
+} from "./removal"
+import {
 	parseDaysOfWeek,
 	renderDaysOfWeek,
 	renderSleepTimers,
@@ -160,6 +166,8 @@ type HostConnection = {
 export class InstanceAuthInProgressError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
+export class InstanceStillInUseError extends Error {}
+export class InstanceRemovalFailedError extends Error {}
 
 const requireCapabilityFor = (role: Role, capability: Parameters<typeof can>[1]): void => {
 	if (!can(role, capability)) throw new ForbiddenError(`Role ${role} lacks ${capability}`)
@@ -1292,10 +1300,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
-				await transport.exec(
-					`${systemctl(profile, `disable --now ${shellQuote(unitName(instance.id))}`)} || true`,
-					INSTANCE_STEP_TIMEOUT_MS,
-				)
 				for (const name of [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]) {
 					await transport.exec(
 						`${systemctl(profile, `disable --now ${shellQuote(name)}`)} || true`,
@@ -1307,6 +1311,28 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					)
 				}
 				await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
+				for (const command of stopUnitCommands(profile, instance.id)) {
+					await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS)
+				}
+
+				const quiet = await transport.exec(
+					processesGoneCommand(profile, instance.id),
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+				if (quiet.exitCode !== 0) {
+					throw new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
+				}
+
+				const deletions = [removeDirectoryCommand(profile, instance.id)]
+				if (usesPerInstanceUsers(profile)) deletions.push(removeAccountCommand(instance.id))
+				for (const command of deletions) {
+					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS)
+					if (result.exitCode !== 0) {
+						throw new InstanceRemovalFailedError(
+							`Instance ${instanceId} could not be deleted from its host`,
+						)
+					}
+				}
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

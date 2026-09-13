@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import {
 	docker,
 	exec,
+	homeOf,
 	mintKey,
 	newAccount,
 	type Ran,
@@ -20,15 +21,44 @@ import {
 } from "./sandbox"
 
 const SCRIPT = "/opt/open-mcc/self-host.sh"
+const STAND_IN = "/opt/stand-in"
+
+const STAND_IN_DOCKER = `#!/bin/sh
+case "$1" in
+	image) exit 0 ;;
+	run)
+		cat >/dev/null
+		printf 'ADDRESS=host.docker.internal\\nAUTH=ok\\nFORWARDS=yes\\n'
+		;;
+	*) exit 1 ;;
+esac
+`
+
+const PROVEN = {
+	PATH: `${STAND_IN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+	OPEN_MCC_IMAGE: "open-mcc-server",
+}
 
 let host = ""
 
 beforeAll(async () => {
 	host = await startHost(inject("sandboxRun"))
-	succeeded(await exec(host, ROOT, ["mkdir", "-p", "/opt/open-mcc"]), "making room for the script")
+	succeeded(
+		await exec(host, ROOT, ["mkdir", "-p", "/opt/open-mcc", STAND_IN]),
+		"making room for the script",
+	)
 	succeeded(
 		await docker(["cp", join(REPOSITORY, "scripts", "self-host.sh"), `${host}:${SCRIPT}`]),
 		"copying the script in",
+	)
+	succeeded(
+		await shell(
+			host,
+			{ ...ROOT, input: STAND_IN_DOCKER },
+			'cat > "$1/docker" && chmod 755 "$1/docker"',
+			STAND_IN,
+		),
+		"installing a stand-in docker that reports a proven address",
 	)
 })
 
@@ -36,13 +66,22 @@ afterAll(async () => {
 	await remove(host)
 })
 
-const selfHost = (account: string, args: readonly string[] = [], input = ""): Promise<Ran> =>
-	exec(host, { user: account, workdir: `/home/${account}`, input }, ["sh", SCRIPT, ...args])
+type Invocation = { args?: readonly string[]; input?: string; proven?: boolean }
 
-const mintedKeyOf = (account: string): string => `/home/${account}/.ssh/open-mcc-self-host`
+const selfHost = (
+	account: string,
+	{ args = [], input = "", proven = false }: Invocation = {},
+): Promise<Ran> =>
+	exec(
+		host,
+		{ user: account, workdir: homeOf(account), input, ...(proven ? { env: PROVEN } : {}) },
+		["sh", SCRIPT, ...args],
+	)
+
+const mintedKeyOf = (account: string): string => `${homeOf(account)}/.ssh/open-mcc-self-host`
 
 const materialsOf = async (account: string): Promise<Map<string, string>> => {
-	const text = await read(host, `/home/${account}/.env.self-host`)
+	const text = await read(host, `${homeOf(account)}/.env.self-host`)
 	return new Map(
 		text
 			.split("\n")
@@ -52,6 +91,9 @@ const materialsOf = async (account: string): Promise<Map<string, string>> => {
 			),
 	)
 }
+
+const restrictedEntry = (account: string, publicKey: string): string =>
+	`restrict,port-forwarding,permitopen="127.0.0.1:*",command="'${homeOf(account)}/.ssh/open-mcc-self-host-command'" ${publicKey}`
 
 const FORWARD = `key="$1"; target="$2"; port="$3"
 ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \\
@@ -88,22 +130,22 @@ const forward = async (
 	return { banner: banner.slice("banner=".length), log: ran.stdout }
 }
 
-describe("self-host.sh, after a run that minted its own key", () => {
+describe("self-host.sh, after a run that proved an address and minted its own key", () => {
 	let account = ""
 	let first: Ran = { status: null, stdout: "", stderr: "" }
 
 	beforeAll(async () => {
 		account = await newAccount(host)
-		first = await selfHost(account)
+		first = await selfHost(account, { proven: true })
 	})
 
-	it("finishes, and reports the address unproven when there is no docker to prove it from", async () => {
+	it("finishes, and writes materials naming this account and the address it proved", async () => {
 		expect(first.status, first.stderr).toBe(0)
-		expect(first.stderr).toContain("docker was not found")
 		const materials = await materialsOf(account)
 		expect(materials.get("SELF_HOST_USERNAME")).toBe(account)
-		expect(materials.get("SELF_HOST_REACH")).toBe("unproven")
-		expect(materials.get("SELF_HOST_HOSTNAME")).toBe("")
+		expect(materials.get("SELF_HOST_MODE")).toBe("rootless")
+		expect(materials.get("SELF_HOST_HOSTNAME")).toBe("host.docker.internal")
+		expect(materials.get("SELF_HOST_REACH")).toBe("proven")
 	})
 
 	it("installs an entry that signs in as this account", async () => {
@@ -157,12 +199,12 @@ describe("self-host.sh, after a run that minted its own key", () => {
 	})
 
 	it("changes nothing when it runs again", async () => {
-		const before = await snapshot(host, `/home/${account}`)
+		const before = await snapshot(host, homeOf(account))
 
-		const again = await selfHost(account)
+		const again = await selfHost(account, { proven: true })
 
 		expect(again.status, again.stderr).toBe(0)
-		expect(await snapshot(host, `/home/${account}`)).toBe(before)
+		expect(await snapshot(host, homeOf(account))).toBe(before)
 	})
 })
 
@@ -172,28 +214,167 @@ describe("self-host.sh, on an account that already has authorized_keys", () => {
 		const other = await mintKey(host)
 		await seedAuthorizedKeys(host, account, other.publicKey)
 
-		const ran = await selfHost(account)
+		const ran = await selfHost(account, { proven: true })
 
 		expect(ran.status, ran.stderr).toBe(0)
-		const lines = (await read(host, `/home/${account}/.ssh/authorized_keys`)).split("\n")
+		const lines = (await read(host, `${homeOf(account)}/.ssh/authorized_keys`)).split("\n")
 		expect(lines).toHaveLength(3)
 		expect(lines[0]).toBe(other.publicKey)
 		expect(lines[1]).toMatch(/^restrict,port-forwarding,permitopen="127\.0\.0\.1:\*",command=/)
 		expect(lines[2]).toBe("")
 		const signedIn = await signIn(host, ROOT, other.path, account, "id -un")
 		expect(signedIn.stdout.trim()).toBe(account)
+		const kept = await exec(host, ROOT, ["ls", "-A", `${homeOf(account)}/.ssh`])
+		expect(kept.stdout.trim().split("\n")).toEqual([
+			"authorized_keys",
+			"open-mcc-self-host",
+			"open-mcc-self-host-command",
+			"open-mcc-self-host.pub",
+		])
 	})
 
 	it("writes nothing when it stops before adding the entry", async () => {
 		const account = await newAccount(host)
 		const other = await mintKey(host)
 		await seedAuthorizedKeys(host, account, `${other.publicKey}\n`)
-		const before = await snapshot(host, `/home/${account}`)
+		const before = await snapshot(host, homeOf(account))
 
-		const ran = await selfHost(account, ["--public-key", "-"], "this is not a key\n")
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: "this is not a key\n",
+			proven: true,
+		})
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain("does not read as an ssh public key")
-		expect(await snapshot(host, `/home/${account}`)).toBe(before)
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+
+	it.each([
+		{
+			shape: "under other options",
+			lines: (_account: string, publicKey: string) => [`no-pty ${publicKey}`],
+		},
+		{
+			shape: "restricted, and again with no restrictions at all",
+			lines: (account: string, publicKey: string) => [
+				restrictedEntry(account, publicKey),
+				publicKey,
+			],
+		},
+	])("stops, having written nothing, when it already holds the key $shape", async ({ lines }) => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		await seedAuthorizedKeys(host, account, `${lines(account, key.publicKey).join("\n")}\n`)
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${key.publicKey}\n`,
+			proven: true,
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+})
+
+describe("self-host.sh, given a public key to install", () => {
+	it("refuses input holding more than one key, having written nothing", async () => {
+		const account = await newAccount(host)
+		const first = await mintKey(host)
+		const second = await mintKey(host)
+		await seedAuthorizedKeys(host, account, "")
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${first.publicKey}\n${second.publicKey}\n`,
+			proven: true,
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+
+	it("restricts a key that arrives between blank lines like any other", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `\n${key.publicKey}\n\n`,
+			proven: true,
+		})
+
+		expect(ran.status, ran.stderr).toBe(0)
+		const blob = key.publicKey.split(" ")[1] ?? ""
+		const holding = (await read(host, `${homeOf(account)}/.ssh/authorized_keys`))
+			.split("\n")
+			.filter((line) => line.length > 0)
+		expect(holding).toEqual([restrictedEntry(account, key.publicKey)])
+		expect(holding[0]).toContain(blob)
+		expect((await materialsOf(account)).get("SELF_HOST_PUBLIC_KEY")).toBe(key.publicKey)
+		const refused = await signIn(host, ROOT, key.path, account)
+		expect(refused.stderr).toContain("it has no interactive shell")
+	})
+})
+
+describe("self-host.sh, when the key it minted cannot sign in", () => {
+	it("takes back everything it wrote, down to the newline it added to an existing file", async () => {
+		const account = await newAccount(host)
+		const other = await mintKey(host)
+		await seedAuthorizedKeys(host, account, other.publicKey)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				[
+					'printf "DenyUsers %s\\n" "$1" > "/etc/ssh/sshd_config.d/deny-$1.conf"',
+					"systemctl reload ssh",
+					"for attempt in $(seq 1 50); do",
+					'	[ -n "$(ssh-keyscan -T 1 127.0.0.1 2>/dev/null)" ] && exit 0',
+					"	sleep 0.1",
+					"done",
+					"exit 1",
+				].join("\n"),
+				account,
+			),
+			"turning the account away at sshd",
+		)
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account, { proven: true })
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("did not authenticate")
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+})
+
+describe("self-host.sh, run as root", () => {
+	it("refuses, leaving root's authorized_keys as it was and writing no materials", async () => {
+		const other = await mintKey(host)
+		await seedAuthorizedKeys(host, "root", `${other.publicKey}\n`)
+		const before = await snapshot(host, "/root/.ssh", "/root/.env.self-host")
+
+		const ran = await selfHost("root", { proven: true })
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("not as root")
+		expect(await snapshot(host, "/root/.ssh", "/root/.env.self-host")).toBe(before)
+	})
+})
+
+describe("self-host.sh, where nothing can prove an address", () => {
+	it("stops, having written nothing, when there is no docker to prove one from", async () => {
+		const account = await newAccount(host)
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await snapshot(host, homeOf(account))).toBe(before)
 	})
 })

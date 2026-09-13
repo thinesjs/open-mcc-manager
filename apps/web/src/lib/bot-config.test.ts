@@ -29,6 +29,17 @@ const WITH_WORLD_AND_ENTITIES: InstanceConfigInput = {
 	entityDataEnabled: true,
 }
 
+const WITH_WORLD: InstanceConfigInput = { ...INSTANCE, worldDataEnabled: true }
+
+const WITH_ENTITIES: InstanceConfigInput = { ...INSTANCE, entityDataEnabled: true }
+
+const WITH_EVERYTHING: InstanceConfigInput = {
+	...INSTANCE,
+	worldDataEnabled: true,
+	inventoryDataEnabled: true,
+	entityDataEnabled: true,
+}
+
 const EMPTY = { botConfig: {}, advancedKeys: {} }
 
 describe("what the operator has actually chosen", () => {
@@ -222,6 +233,121 @@ describe("a setting that does nothing until another is on", () => {
 
 	it("says nothing about a setting that depends on nothing", () => {
 		expect(unmetDependency({}, INSTANCE, "ChatBot.Map.Enabled")).toBeUndefined()
+	})
+})
+
+describe("★ walking a chain of prerequisites rather than reporting only the first", () => {
+	const TOOL_SWITCH = "ChatBot.AutoDig.Auto_Tool_Switch"
+	const ON: BotConfigDraft = { [TOOL_SWITCH]: "true" }
+
+	it("names the nearest prerequisite while that one is still off", () => {
+		expect(unmetDependency({}, WITH_EVERYTHING, "ChatBot.AutoDig.Durability_Limit")).toEqual({
+			requires: "Switch to the right tool",
+		})
+	})
+
+	it("★ walks past a met sibling to the instance setting THAT one needs", () => {
+		expect(unmetDependency(ON, WITH_WORLD, "ChatBot.AutoDig.Durability_Limit")).toEqual({
+			requires: "Inventory",
+		})
+	})
+
+	it("★ reports both instance settings from the far end of the chain, not one", () => {
+		expect(unmetDependency(ON, INSTANCE, "ChatBot.AutoDig.Drop_Low_Durability_Tools")).toEqual({
+			requires: "World and position and Inventory",
+		})
+	})
+
+	it("goes quiet once every step of the chain is met", () => {
+		expect(unmetDependency(ON, WITH_EVERYTHING, "ChatBot.AutoDig.Durability_Limit")).toBeUndefined()
+	})
+
+	it("★ reports the sibling first even when the instance end is also unmet", () => {
+		expect(unmetDependency({}, INSTANCE, "ChatBot.AutoDig.Durability_Limit")).toEqual({
+			requires: "Switch to the right tool",
+		})
+	})
+})
+
+describe("★ a key whose own rule must not be replaced by its section's", () => {
+	it("names the rod checks' inventory AND the section's entities", () => {
+		expect(unmetDependency({}, INSTANCE, "ChatBot.AutoFishing.Durability_Limit")).toEqual({
+			requires: "Inventory and Nearby entities",
+		})
+		expect(unmetDependency({}, INSTANCE, "ChatBot.AutoFishing.Auto_Rod_Switch")).toEqual({
+			requires: "Inventory and Nearby entities",
+		})
+	})
+
+	it("★ still names inventory once the section's own requirement is met", () => {
+		expect(unmetDependency({}, WITH_ENTITIES, "ChatBot.AutoFishing.Durability_Limit")).toEqual({
+			requires: "Inventory",
+		})
+	})
+
+	it("names world AND entities for moving between spots", () => {
+		expect(unmetDependency({}, INSTANCE, "ChatBot.AutoFishing.Enable_Move")).toEqual({
+			requires: "World and position and Nearby entities",
+		})
+		expect(unmetDependency({}, WITH_ENTITIES, "ChatBot.AutoFishing.Enable_Move")).toEqual({
+			requires: "World and position",
+		})
+	})
+
+	it("names inventory AND world for the tool switch", () => {
+		expect(unmetDependency({}, INSTANCE, "ChatBot.AutoDig.Auto_Tool_Switch")).toEqual({
+			requires: "World and position and Inventory",
+		})
+	})
+})
+
+describe("★ the fields the client reads whatever else is off", () => {
+	const DETECTION_OFF: BotConfigDraft = {
+		"ChatBot.AutoFishing.Enable_Velocity_Detection": "false",
+		"ChatBot.AutoFishing.Enable_Sound_Detection": "false",
+	}
+
+	it("★ never gates the bite warm-up on a detection toggle, because every catch waits for it", () => {
+		expect(
+			unmetDependency(DETECTION_OFF, WITH_ENTITIES, "ChatBot.AutoFishing.Detection_Warmup"),
+		).toBeUndefined()
+	})
+
+	it("gates each bite threshold on its own detection toggle", () => {
+		expect(
+			unmetDependency(DETECTION_OFF, WITH_ENTITIES, "ChatBot.AutoFishing.Velocity_Hook_Threshold"),
+		).toEqual({ requires: "Detect bites from bobber movement" })
+		expect(
+			unmetDependency(DETECTION_OFF, WITH_ENTITIES, "ChatBot.AutoFishing.Sound_Distance"),
+		).toEqual({ requires: "Detect bites from the splash sound" })
+	})
+
+	it("★ never gates the dig timing options on the tool switch, which is read past them", () => {
+		expect(
+			unmetDependency({}, WITH_WORLD, "ChatBot.AutoDig.Apply_Efficiency_Enchantments"),
+		).toBeUndefined()
+		expect(unmetDependency({}, WITH_WORLD, "ChatBot.AutoDig.Apply_Haste_Effects")).toBeUndefined()
+	})
+})
+
+describe("★ the instance settings each of the eight bots cannot work without", () => {
+	const ROWS = [
+		{ key: "ChatBot.AutoAttack.Enabled", requires: "Nearby entities" },
+		{ key: "ChatBot.AutoFishing.Enabled", requires: "Nearby entities" },
+		{ key: "ChatBot.ItemsCollector.Enabled", requires: "World and position and Nearby entities" },
+		{ key: "ChatBot.AutoDig.Enabled", requires: "World and position" },
+		{ key: "ChatBot.Farmer.Enabled", requires: "World and position and Inventory" },
+		{ key: "ChatBot.AutoCraft.Enabled", requires: "Inventory" },
+		{ key: "ChatBot.AutoDrop.Enabled", requires: "Inventory" },
+		{ key: "ChatBot.AutoEat.Enabled", requires: "Inventory" },
+	] as const
+
+	it.each(ROWS)("tells the operator $key needs $requires", ({ key, requires }) => {
+		expect(unmetDependency({}, INSTANCE, key)).toEqual({ requires })
+	})
+
+	it.each(ROWS)("goes quiet for $key once the instance provides them", ({ key }) => {
+		expect(unmetDependency({}, WITH_EVERYTHING, key)).toBeUndefined()
 	})
 })
 

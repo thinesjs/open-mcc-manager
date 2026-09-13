@@ -437,6 +437,7 @@ export const BOT_CONFIG_SECTION_PURPOSE: Record<BotConfigSectionName, string> = 
 
 export const INSTANCE_SETTING_LABELS = {
 	worldDataEnabled: "World and position",
+	inventoryDataEnabled: "Inventory",
 	entityDataEnabled: "Nearby entities",
 } as const satisfies Partial<Record<keyof InstanceConfigInput, string>>
 
@@ -454,7 +455,7 @@ export type BotConfigDependency =
 			readonly requires: readonly BotConfigInstanceSetting[]
 	  }
 
-export const BOT_CONFIG_DEPENDENCIES: readonly BotConfigDependency[] = [
+const PER_KEY_DEPENDENCIES: readonly BotConfigDependency[] = [
 	{
 		kind: "sibling",
 		keys: ["ChatBot.Alerts.Matches", "ChatBot.Alerts.Excludes"],
@@ -466,12 +467,63 @@ export const BOT_CONFIG_DEPENDENCIES: readonly BotConfigDependency[] = [
 		requires: "ChatBot.RemoteControl.AutoTpaccept",
 	},
 	{
+		kind: "sibling",
+		keys: ["ChatBot.AutoDig.Durability_Limit", "ChatBot.AutoDig.Drop_Low_Durability_Tools"],
+		requires: "ChatBot.AutoDig.Auto_Tool_Switch",
+	},
+	{
+		kind: "sibling",
+		keys: ["ChatBot.AutoFishing.Velocity_Hook_Threshold"],
+		requires: "ChatBot.AutoFishing.Enable_Velocity_Detection",
+	},
+	{
+		kind: "sibling",
+		keys: ["ChatBot.AutoFishing.Sound_Distance"],
+		requires: "ChatBot.AutoFishing.Enable_Sound_Detection",
+	},
+	{
 		kind: "instance",
-		keys: [
-			"ChatBot.FollowPlayer.Enabled",
-			"ChatBot.FollowPlayer.Update_Limit",
-			"ChatBot.FollowPlayer.Stop_At_Distance",
-		],
+		keys: ["ChatBot.AutoDig.Auto_Tool_Switch"],
+		requires: ["worldDataEnabled", "inventoryDataEnabled"],
+	},
+	{
+		kind: "instance",
+		keys: ["ChatBot.AutoFishing.Durability_Limit", "ChatBot.AutoFishing.Auto_Rod_Switch"],
+		requires: ["inventoryDataEnabled", "entityDataEnabled"],
+	},
+	{
+		kind: "instance",
+		keys: ["ChatBot.AutoFishing.Enable_Move"],
 		requires: ["worldDataEnabled", "entityDataEnabled"],
 	},
+]
+
+const SECTION_INSTANCE_REQUIREMENTS: Partial<
+	Record<BotConfigSectionName, readonly BotConfigInstanceSetting[]>
+> = {
+	FollowPlayer: ["worldDataEnabled", "entityDataEnabled"],
+	AutoFishing: ["entityDataEnabled"],
+	AutoDig: ["worldDataEnabled"],
+	AutoAttack: ["entityDataEnabled"],
+	ItemsCollector: ["worldDataEnabled", "entityDataEnabled"],
+	AutoCraft: ["inventoryDataEnabled"],
+	Farmer: ["worldDataEnabled", "inventoryDataEnabled"],
+	AutoEat: ["inventoryDataEnabled"],
+	AutoDrop: ["inventoryDataEnabled"],
+}
+
+const RULED_KEYS = new Set<string>(PER_KEY_DEPENDENCIES.flatMap((rule) => [...rule.keys]))
+
+const SECTION_DEPENDENCIES: readonly BotConfigDependency[] = BOT_CONFIG_SECTIONS.flatMap(
+	(section) => {
+		const requires = SECTION_INSTANCE_REQUIREMENTS[section.name]
+		if (requires === undefined) return []
+		const keys = section.keys.filter((key) => !RULED_KEYS.has(key))
+		return keys.length === 0 ? [] : [{ kind: "instance", keys, requires } as const]
+	},
+)
+
+export const BOT_CONFIG_DEPENDENCIES: readonly BotConfigDependency[] = [
+	...PER_KEY_DEPENDENCIES,
+	...SECTION_DEPENDENCIES,
 ]

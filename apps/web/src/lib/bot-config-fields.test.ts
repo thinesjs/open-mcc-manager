@@ -16,10 +16,15 @@ import {
 	BOT_CONFIG_SECTION_PURPOSE,
 	BOT_CONFIG_SECTIONS,
 	type BotConfigEnumOption,
+	INSTANCE_SETTING_LABELS,
 } from "./bot-config-fields"
 
 const REGISTERED = new Set<string>(SETTING_NAMES)
-const EXTERNAL_SETTINGS = new Set<string>(["worldDataEnabled", "entityDataEnabled"])
+const EXTERNAL_SETTINGS = new Set<string>([
+	"worldDataEnabled",
+	"inventoryDataEnabled",
+	"entityDataEnabled",
+])
 
 const ruleFor = (key: string) =>
 	BOT_CONFIG_DEPENDENCIES.find((dependency) => {
@@ -130,6 +135,16 @@ describe("the fields that do nothing until another setting is on", () => {
 		expect(siblingFor("ChatBot.RemoteControl.AutoTpaccept_Everyone")).toBe(
 			"ChatBot.RemoteControl.AutoTpaccept",
 		)
+		expect(siblingFor("ChatBot.AutoDig.Durability_Limit")).toBe("ChatBot.AutoDig.Auto_Tool_Switch")
+		expect(siblingFor("ChatBot.AutoDig.Drop_Low_Durability_Tools")).toBe(
+			"ChatBot.AutoDig.Auto_Tool_Switch",
+		)
+		expect(siblingFor("ChatBot.AutoFishing.Velocity_Hook_Threshold")).toBe(
+			"ChatBot.AutoFishing.Enable_Velocity_Detection",
+		)
+		expect(siblingFor("ChatBot.AutoFishing.Sound_Distance")).toBe(
+			"ChatBot.AutoFishing.Enable_Sound_Detection",
+		)
 	})
 
 	it("★ claims each field once and ends every chain, which is what lets the walk terminate", () => {
@@ -163,11 +178,15 @@ describe("the fields that do nothing until another setting is on", () => {
 		}
 	})
 
-	it("points every instance rule only at settings outside this registry", () => {
+	it("★ points every instance rule only at the three client-data settings", () => {
 		for (const dependency of BOT_CONFIG_DEPENDENCIES) {
 			if (dependency.kind !== "instance") continue
 			expect(dependency.requires.filter((setting) => !EXTERNAL_SETTINGS.has(setting))).toEqual([])
 		}
+	})
+
+	it("★ words every client-data setting a rule can name, and no other", () => {
+		expect(Object.keys(INSTANCE_SETTING_LABELS).sort()).toEqual([...EXTERNAL_SETTINGS].sort())
 	})
 
 	it("makes the whole FollowPlayer section inert rather than one field of it", () => {
@@ -175,6 +194,72 @@ describe("the fields that do nothing until another setting is on", () => {
 
 		for (const key of followPlayer?.keys ?? []) {
 			expect(instanceNeedsFor(key)).toEqual(["entityDataEnabled", "worldDataEnabled"])
+		}
+	})
+})
+
+describe("★ what each of the eight bots needs from the instance", () => {
+	const SECTION_NEEDS = [
+		{ section: "AutoAttack", needs: ["entityDataEnabled"] },
+		{ section: "ItemsCollector", needs: ["entityDataEnabled", "worldDataEnabled"] },
+		{ section: "AutoDrop", needs: ["inventoryDataEnabled"] },
+		{ section: "AutoCraft", needs: ["inventoryDataEnabled"] },
+		{ section: "AutoDig", needs: ["worldDataEnabled"] },
+		{ section: "Farmer", needs: ["inventoryDataEnabled", "worldDataEnabled"] },
+		{ section: "AutoFishing", needs: ["entityDataEnabled"] },
+		{ section: "AutoEat", needs: ["inventoryDataEnabled"] },
+	] as const
+
+	it.each(SECTION_NEEDS)("gates the $section switch on $needs", ({ section, needs }) => {
+		expect(instanceNeedsFor(`ChatBot.${section}.Enabled`)).toEqual(needs)
+	})
+
+	it.each(SECTION_NEEDS)(
+		"★ leaves no $section field ungated, unless it carries a rule of its own",
+		({ section }) => {
+			const found = BOT_CONFIG_SECTIONS.find((entry) => entry.name === section)
+			expect((found?.keys ?? []).filter((key) => ruleFor(key) === undefined)).toEqual([])
+		},
+	)
+
+	const PER_KEY_NEEDS = [
+		{ key: "ChatBot.AutoFishing.Enable_Move", needs: ["entityDataEnabled", "worldDataEnabled"] },
+		{
+			key: "ChatBot.AutoFishing.Durability_Limit",
+			needs: ["entityDataEnabled", "inventoryDataEnabled"],
+		},
+		{
+			key: "ChatBot.AutoFishing.Auto_Rod_Switch",
+			needs: ["entityDataEnabled", "inventoryDataEnabled"],
+		},
+		{
+			key: "ChatBot.AutoDig.Auto_Tool_Switch",
+			needs: ["inventoryDataEnabled", "worldDataEnabled"],
+		},
+	] as const
+
+	it.each(PER_KEY_NEEDS)(
+		"★ gives $key both its own need and its section's, because an instance rule never chains",
+		({ key, needs }) => {
+			expect(instanceNeedsFor(key)).toEqual(needs)
+		},
+	)
+
+	it("★ never adds terrain to crafting, which was checked against the client and rejected", () => {
+		for (const key of ["ChatBot.AutoCraft.Enabled", "ChatBot.AutoCraft.CraftingTable.X"]) {
+			expect(instanceNeedsFor(key)).toEqual(["inventoryDataEnabled"])
+		}
+	})
+
+	it("★ ties the bite warm-up and the dig timing options to no sibling, only to their section", () => {
+		expect(siblingFor("ChatBot.AutoFishing.Detection_Warmup")).toBeUndefined()
+		expect(instanceNeedsFor("ChatBot.AutoFishing.Detection_Warmup")).toEqual(["entityDataEnabled"])
+		for (const key of [
+			"ChatBot.AutoDig.Apply_Efficiency_Enchantments",
+			"ChatBot.AutoDig.Apply_Haste_Effects",
+		]) {
+			expect(siblingFor(key)).toBeUndefined()
+			expect(instanceNeedsFor(key)).toEqual(["worldDataEnabled"])
 		}
 	})
 })

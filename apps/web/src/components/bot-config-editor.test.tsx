@@ -2,6 +2,7 @@ import { type InstanceConfigInput, instanceConfigInput } from "@open-mcc/contrac
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { BotConfigDraft } from "~/lib/bot-config"
+import { BOT_CONFIG_FIELDS } from "~/lib/bot-config-fields"
 import { BotConfigEditor } from "./bot-config-editor"
 
 const INSTANCE: InstanceConfigInput = instanceConfigInput.parse({
@@ -206,6 +207,12 @@ describe("a bot switched off with a problem still inside it", () => {
 	})
 })
 
+const fieldFor = (label: string) => {
+	const container = screen.getByText(label, { selector: "span" }).parentElement?.parentElement
+	if (container === null || container === undefined) throw new Error(`no field for ${label}`)
+	return container
+}
+
 describe("★ the eight bots that had no page of their own", () => {
 	it("offers each choice in words rather than the client's own spelling", () => {
 		mount({ "ChatBot.AutoDrop.Enabled": "true" })
@@ -216,5 +223,46 @@ describe("★ the eight bots that had no page of their own", () => {
 			within(mode).getByRole("radio", { name: "Everything but the listed items" }),
 		).toBeDefined()
 		expect(within(mode).getByRole("radio", { name: "Everything" })).toBeDefined()
+	})
+
+	it("★ tells the operator a farm needs world AND inventory, on the Farming card", () => {
+		mount({})
+
+		expect(
+			within(cardFor("Farming")).getByText(
+				"Does nothing until World and position and Inventory is on.",
+			),
+		).toBeDefined()
+	})
+
+	it("★ names both settings under moving between spots, not only the one the section needs", () => {
+		mount({ "ChatBot.AutoFishing.Enabled": "true" })
+		const move = fieldFor(BOT_CONFIG_FIELDS["ChatBot.AutoFishing.Enable_Move"].label)
+
+		expect(
+			within(move).getByText("Does nothing until World and position and Nearby entities is on."),
+		).toBeDefined()
+	})
+
+	it("★ says nothing under the bite warm-up with both detection toggles off", () => {
+		render(
+			<BotConfigEditor
+				draft={{
+					"ChatBot.AutoFishing.Enabled": "true",
+					"ChatBot.AutoFishing.Enable_Velocity_Detection": "false",
+					"ChatBot.AutoFishing.Enable_Sound_Detection": "false",
+				}}
+				issues={{}}
+				instance={{ ...INSTANCE, entityDataEnabled: true }}
+				onChange={vi.fn()}
+			/>,
+		)
+		const warmup = fieldFor(BOT_CONFIG_FIELDS["ChatBot.AutoFishing.Detection_Warmup"].label)
+		const threshold = fieldFor(
+			BOT_CONFIG_FIELDS["ChatBot.AutoFishing.Velocity_Hook_Threshold"].label,
+		)
+
+		expect(within(threshold).getByText(/Does nothing until/)).toBeDefined()
+		expect(within(warmup).queryByText(/Does nothing until/)).toBeNull()
 	})
 })

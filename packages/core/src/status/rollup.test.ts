@@ -1,9 +1,12 @@
+import { BUCKET_SECONDS, STATUS_RANGES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import {
 	addDays,
 	bucketOf,
+	bucketStartsFor,
 	daysBetween,
 	overlapSeconds,
+	rollUpBuckets,
 	rollUpDay,
 	SECONDS_PER_DAY,
 	startOfUtcDay,
@@ -134,5 +137,44 @@ describe("choosing which days to roll", () => {
 
 	it("normalises any moment to the start of its UTC day", () => {
 		expect(startOfUtcDay(at(17, 45)).toISOString()).toBe("2026-09-06T00:00:00.000Z")
+	})
+})
+
+describe("cutting a range into bars", () => {
+	const now = new Date("2026-09-13T10:07:30Z")
+
+	it("gives every range about ninety bars, not one per hour or per day", () => {
+		expect(bucketStartsFor("24h", now)).toHaveLength(96)
+		expect(bucketStartsFor("7d", now)).toHaveLength(84)
+		expect(bucketStartsFor("30d", now)).toHaveLength(90)
+	})
+
+	it("lays the bars end to end on clock boundaries, with the last one holding now", () => {
+		for (const range of STATUS_RANGES) {
+			const step = BUCKET_SECONDS[range] * 1000
+			const starts = bucketStartsFor(range, now).map((start) => start.getTime())
+			const gaps = starts.slice(1).map((start, index) => start - (starts[index] ?? 0))
+			const last = starts.at(-1) ?? 0
+
+			expect(starts.filter((start) => start % step !== 0)).toEqual([])
+			expect(gaps.filter((gap) => gap !== step)).toEqual([])
+			expect(last).toBeLessThanOrEqual(now.getTime())
+			expect(now.getTime()).toBeLessThan(last + step)
+		}
+	})
+
+	it("counts every second from the first bar up to now exactly once", () => {
+		for (const range of STATUS_RANGES) {
+			const starts = bucketStartsFor(range, now)
+			const since = starts[0] ?? now
+			const buckets = rollUpBuckets(
+				[{ state: "up", startedAt: new Date("2026-01-01T00:00:00Z"), endedAt: now }],
+				starts,
+				BUCKET_SECONDS[range],
+			)
+			const counted = buckets.reduce((total, bucket) => total + bucket.availability.goodSeconds, 0)
+
+			expect(counted).toBe((now.getTime() - since.getTime()) / 1000)
+		}
 	})
 })

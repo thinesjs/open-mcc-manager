@@ -112,7 +112,7 @@ function StatusPage() {
 										</div>
 										<UptimeBars
 											buckets={host.buckets}
-											granularity={summaryQuery.data.granularity}
+											bucketSeconds={summaryQuery.data.bucketSeconds}
 											fromLabel={FROM_LABEL[range]}
 										/>
 										<div className="flex items-baseline justify-between gap-4">
@@ -161,9 +161,10 @@ function StatusPage() {
 										</div>
 										<UptimeBars
 											buckets={bot.buckets}
-											granularity={summaryQuery.data.granularity}
+											bucketSeconds={summaryQuery.data.bucketSeconds}
 											fromLabel={FROM_LABEL[range]}
 											goodLabel="On its server"
+											partialLabel="Mostly on its server"
 											badLabel="Off its server"
 										/>
 										<div className="flex items-baseline justify-between gap-4">

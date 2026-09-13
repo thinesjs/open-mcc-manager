@@ -152,6 +152,12 @@ export const RANGE_SECONDS: Record<StatusRange, number> = {
 	"30d": 30 * 24 * 60 * 60,
 }
 
+export const BUCKET_SECONDS: Record<StatusRange, number> = {
+	"24h": 15 * 60,
+	"7d": 2 * 60 * 60,
+	"30d": 8 * 60 * 60,
+}
+
 export const statusSummaryInput = z.object({ range: statusRangeSchema.default("24h") })
 
 export const statusEventsInput = z.object({
@@ -238,12 +244,9 @@ export type StatusSummary = {
 	bots: BotUptime[]
 	answering: number
 	total: number
-	granularity: "hour" | "day"
+	bucketSeconds: number
 	retentionDays: number
 }
-
-export const granularityFor = (range: StatusRange): "hour" | "day" =>
-	range === "24h" ? "hour" : "day"
 
 export type StatusEventView = {
 	id: string

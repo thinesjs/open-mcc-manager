@@ -295,7 +295,7 @@ describe("collecting finished replays", () => {
 		const listing = commands.find((command) => command.includes("-name '*.mcpr'")) ?? ""
 
 		expect(listing).toContain("-mmin +")
-		expect(REPLAY_SETTLE_MINUTES).toBeGreaterThanOrEqual(MCC_BACKUP_INTERVAL_DEFAULT_MINUTES)
+		expect(REPLAY_SETTLE_MINUTES).toBeGreaterThanOrEqual(3 * MCC_BACKUP_INTERVAL_DEFAULT_MINUTES)
 	})
 
 	it("never follows a path the host handed back, only the name inside the directory it asked about", async () => {

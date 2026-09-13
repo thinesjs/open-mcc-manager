@@ -319,7 +319,7 @@ export const BOT_CONFIG_ENUM_OPTIONS: Record<
 	"ChatBot.AutoAttack.Interaction": [
 		{ value: "Attack", label: "Attack" },
 		{ value: "Interact", label: "Interact" },
-		{ value: "InteractAt", label: "Both" },
+		{ value: "InteractAt", label: "Interact at its position" },
 	],
 	"ChatBot.AutoAttack.List_Mode": [
 		{ value: "whitelist", label: "Only these" },

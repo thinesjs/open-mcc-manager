@@ -338,6 +338,13 @@ describe("★ the copy an operator needs so a bot never surprises them", () => {
 		expect(copyOf(key)).toMatch(/client's own|cannot be edited here/)
 	})
 
+	it("★ never offers interact-at as both, because the client sends one interact-at and no attack", () => {
+		const interactAt = BOT_CONFIG_ENUM_OPTIONS["ChatBot.AutoAttack.Interaction"].find(
+			(option) => option.value === "InteractAt",
+		)
+		expect(interactAt?.label).toBe("Interact at its position")
+	})
+
 	it("★ says the crafting recipes are the client's own, since no field stands for them", () => {
 		expect(BOT_CONFIG_SECTION_PURPOSE.AutoCraft).toContain("client's own")
 		expect(BOT_CONFIG_SECTION_PURPOSE.AutoCraft).toContain("cannot be edited here")

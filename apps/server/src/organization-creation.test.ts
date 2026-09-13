@@ -22,6 +22,7 @@ import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
 import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestSelfHostController } from "./test/self-host-controller"
 import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
@@ -89,6 +90,7 @@ beforeAll(async () => {
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
+				selfHostController: createTestSelfHostController(db),
 			}),
 		}),
 	)

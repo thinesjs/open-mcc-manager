@@ -5,6 +5,7 @@ import type {
 	HostController,
 	InstanceController,
 	ProcessIdentityRepository,
+	SelfHostController,
 	SshKeyController,
 	StatusController,
 } from "@open-mcc/core"
@@ -23,6 +24,7 @@ export type AppDeps = {
 	instanceController: InstanceController
 	statusController: StatusController
 	sshKeyController: SshKeyController
+	selfHostController: SelfHostController
 	destinationController: DestinationController
 }
 
@@ -68,6 +70,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			instanceController: deps.instanceController,
 			statusController: deps.statusController,
 			sshKeyController: deps.sshKeyController,
+			selfHostController: deps.selfHostController,
 			destinationController: deps.destinationController,
 			db: deps.db,
 		}

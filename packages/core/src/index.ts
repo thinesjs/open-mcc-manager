@@ -250,6 +250,15 @@ export type { NotificationEnvelope } from "./notification/sender"
 export type { OrganizationRepository } from "./organization/organization.repository"
 export { createOrganizationRepository } from "./organization/organization.repository"
 export { redact, redactError } from "./security/redact"
+export type {
+	SelfHostController,
+	SelfHostControllerDeps,
+	SelfHostMaterials,
+} from "./self-host/self-host.controller"
+export {
+	createSelfHostController,
+	SelfHostUnavailableError,
+} from "./self-host/self-host.controller"
 export type { GeneratedSshKeyPair } from "./ssh-key/generate"
 export { generateSshKeyPair } from "./ssh-key/generate"
 export type {

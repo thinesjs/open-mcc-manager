@@ -28,6 +28,7 @@ import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
 import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestSelfHostController } from "./test/self-host-controller"
 import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
@@ -87,6 +88,7 @@ beforeAll(async () => {
 					generateKeyPair: generateSshKeyPair,
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
+				selfHostController: createTestSelfHostController(db),
 			}),
 		}),
 	)
@@ -540,6 +542,7 @@ describe("which controller method each readout route reaches", () => {
 						generateKeyPair: generateSshKeyPair,
 						withTransaction: createSshKeyControllerTransaction(db),
 					}),
+					selfHostController: createTestSelfHostController(db),
 				}),
 			}),
 		)

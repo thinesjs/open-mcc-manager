@@ -5,6 +5,7 @@ import type {
 	HostController,
 	InstanceController,
 	ProcessIdentityRepository,
+	SelfHostController,
 	SshKeyController,
 	StatusController,
 } from "@open-mcc/core"
@@ -30,6 +31,7 @@ export type RequestContext = {
 	instanceController: InstanceController
 	statusController: StatusController
 	sshKeyController: SshKeyController
+	selfHostController: SelfHostController
 	destinationController: DestinationController
 	db: Db
 }

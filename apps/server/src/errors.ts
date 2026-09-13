@@ -32,6 +32,7 @@ import {
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
 	OrganizationTestThrottledError,
+	SelfHostUnavailableError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -166,6 +167,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 		return mapped("NOT_FOUND", "DESTINATION_NOT_FOUND", cause.message)
 	}
 
+	if (cause instanceof SelfHostUnavailableError) {
+		return mapped(
+			"BAD_REQUEST",
+			"SELF_HOST_UNAVAILABLE",
+			"This deployment has no machine of its own that it can enroll",
+		)
+	}
 	if (cause instanceof SshKeyInUseError) {
 		return mapped("CONFLICT", "SSH_KEY_IN_USE", "SSH key is still in use by an enrolled host")
 	}

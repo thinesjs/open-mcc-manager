@@ -20,6 +20,18 @@ const envSchema = z.object({
 	NOTIFICATION_ALLOWED_ADDRESSES: addressList.default(""),
 	NOTIFICATION_TEAMS_HOSTS: z.string().default(""),
 	OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),
+	SELF_HOST_NAME: z.string().optional(),
+	SELF_HOST_HOSTNAME: z.string().optional(),
+	SELF_HOST_PORT: z.string().optional(),
+	SELF_HOST_USERNAME: z.string().optional(),
+	SELF_HOST_MODE: z.string().optional(),
+	SELF_HOST_FINGERPRINT: z.string().optional(),
+	SELF_HOST_PUBLIC_KEY: z.string().optional(),
+	SELF_HOST_PRIVATE_KEY_SEALED: z.string().optional(),
+	SELF_HOST_PRIVATE_KEY_ID: z.string().optional(),
+	SELF_HOST_REACH: z.string().optional(),
+	SELF_HOST_SYSTEMD: z.string().optional(),
+	SELF_HOST_LINGER: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

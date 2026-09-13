@@ -79,21 +79,38 @@ const save = async () => {
 	await act(async () => undefined)
 }
 
-const advancedRowOf = (label: string) =>
-	screen.getAllByRole("combobox").find((trigger) => trigger.textContent === label)
+const cardFor = (name: string) => {
+	const card = screen.getByRole("heading", { name }).closest("section")
+	if (card === null) throw new Error(`no card rendered for ${name}`)
+	return card
+}
+
+const turnOn = (section: string) => {
+	const toggle = screen.getByRole("group", { name: `${section} on or off` })
+	fireEvent.click(within(toggle).getByRole("radio", { name: "On" }))
+}
+
+const HUNGER = "Eat when hunger drops to"
 
 afterEach(() => {
 	cleanup()
 	mutate.mockReset()
 })
 
-describe("saving the advanced keys an operator has set", () => {
-	it("forwards a valid key alongside the bots", async () => {
-		mountKeys({ "ChatBot.AutoEat.Enabled": "true" })
+describe("★ saving the audited keys through the bots' own cards", () => {
+	it("★ sends each key in the field it is stored in, so neither field swallows the other", async () => {
+		mount(
+			"i1",
+			instanceConfigInput.parse({
+				...BASE,
+				botConfig: { "ChatBot.Map.Enabled": "true" },
+				advancedKeys: { "ChatBot.AutoEat.Enabled": "true" },
+			}),
+		)
 
 		await save()
 
-		expect(mutate).toHaveBeenCalledTimes(1)
+		expect(sent()?.botConfig).toEqual({ "ChatBot.Map.Enabled": "true" })
 		expect(sent()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
 	})
 
@@ -105,14 +122,27 @@ describe("saving the advanced keys an operator has set", () => {
 		expect(updateBotConfigInput.safeParse(mutate.mock.calls[0]?.[0]).success).toBe(true)
 	})
 
-	it("renders a stored key as a row the operator can see", () => {
-		mountKeys({ "ChatBot.AutoEat.Threshold": "5" })
+	it("shows a stored key under its own bot, labelled for a person", () => {
+		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoEat.Threshold": "5" })
 
-		expect(advancedRowOf("ChatBot.AutoEat.Threshold")).toBeDefined()
+		expect(within(cardFor("Eating")).getByLabelText(HUNGER)).toHaveProperty("value", "5")
+	})
+
+	it("★ stores the bot's own switch as an audited key when the operator turns it on", async () => {
+		mountKeys({})
+		turnOn("Fishing")
+
+		await save()
+
+		expect(sent()?.advancedKeys).toEqual({ "ChatBot.AutoFishing.Enabled": "true" })
+		expect(sent()?.botConfig).toEqual({})
 	})
 
 	it("does not save at all while a value is invalid, and says why", async () => {
-		mountKeys({ "ChatBot.ItemsCollector.Collection_Radius": "" })
+		mountKeys({
+			"ChatBot.ItemsCollector.Enabled": "true",
+			"ChatBot.ItemsCollector.Collection_Radius": "",
+		})
 
 		await save()
 
@@ -126,66 +156,69 @@ describe("saving the advanced keys an operator has set", () => {
 		expect(screen.getByText("Save bots").closest("button")).toHaveProperty("disabled", true)
 	})
 
-	it("loses nothing when the operator adds a row and never chooses a key", async () => {
-		mountKeys({})
-		fireEvent.click(screen.getByText("Add a key"))
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "1.5" } })
+	it("★ refuses a cooldown pair the client would swap, before it reaches the host", async () => {
+		mountKeys({
+			"ChatBot.AutoAttack.Enabled": "true",
+			"ChatBot.AutoAttack.Cooldown_Time.Custom": "true",
+			"ChatBot.AutoAttack.Cooldown_Time.Min": "3.0",
+			"ChatBot.AutoAttack.Cooldown_Time.Max": "1.0",
+		})
 
 		await save()
 
 		expect(mutate).not.toHaveBeenCalled()
-		expect(screen.queryAllByText("Choose a key").length).toBeGreaterThan(0)
+		expect(screen.getByText("Above the maximum (1)")).toBeDefined()
 	})
 
-	it("saves an empty object for an instance that has set none", async () => {
+	it("saves an empty pair for an instance that has set none", async () => {
 		mountKeys({})
 
 		await save()
 
 		expect(sent()?.advancedKeys).toEqual({})
+		expect(sent()?.botConfig).toEqual({})
 	})
 
-	it("drops a key the operator removed", async () => {
-		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoFishing.Auto_Start": "false" })
-		const removes = screen.getAllByText("Remove")
-		await act(async () => {
-			removes[1]?.click()
-		})
+	it("★ drops a key the operator hands back to the client", async () => {
+		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.click(within(cardFor("Eating")).getByText("Use client default"))
 
-		expect(screen.getAllByText("Remove")).toHaveLength(1)
 		await save()
 
 		expect(sent()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
 	})
 
 	it("carries a value the operator edited rather than the one it was given", async () => {
-		mountKeys({ "ChatBot.AutoEat.Threshold": "5" })
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.change(screen.getByLabelText(HUNGER), { target: { value: "9" } })
 
 		await save()
 
-		expect(sent()?.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
+		expect(sent()?.advancedKeys).toEqual({
+			"ChatBot.AutoEat.Enabled": "true",
+			"ChatBot.AutoEat.Threshold": "9",
+		})
 	})
 })
 
 describe("discarding an edit to the bots", () => {
 	it("is offered only once something has actually changed", () => {
-		mountKeys({ "ChatBot.AutoEat.Threshold": "5" })
+		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoEat.Threshold": "5" })
 
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+		fireEvent.change(screen.getByLabelText(HUNGER), { target: { value: "9" } })
 
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
 	})
 
 	it("puts the saved values back", () => {
-		mountKeys({ "ChatBot.AutoEat.Threshold": "5" })
-		fireEvent.change(screen.getByLabelText("Value"), { target: { value: "9" } })
+		mountKeys({ "ChatBot.AutoEat.Enabled": "true", "ChatBot.AutoEat.Threshold": "5" })
+		fireEvent.change(screen.getByLabelText(HUNGER), { target: { value: "9" } })
 
 		fireEvent.click(screen.getByText("Discard changes"))
 
-		expect(screen.getByLabelText("Value")).toHaveProperty("value", "5")
+		expect(screen.getByLabelText(HUNGER)).toHaveProperty("value", "5")
 	})
 
 	it("★ goes quiet after a save that added a bot sorting before an already-saved one", async () => {
@@ -223,27 +256,17 @@ describe("discarding an edit to the bots", () => {
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
 	})
 
-	it("★ goes quiet once the saved keys arrive, even if they were added out of alphabetical order", async () => {
+	it("★ goes quiet once the saved keys arrive, even in a different order from the edits", () => {
 		const { rerender } = mountKeys({ "ChatBot.AutoFishing.Enabled": "true" })
-		fireEvent.click(screen.getByText("Add a key"))
-		const added = advancedRowOf("Choose a key")
-		if (added === undefined) throw new Error("expected a new row")
-		fireEvent.click(added)
-		const option = await screen.findByRole("option", { name: "ChatBot.AutoEat.Threshold" })
-		fireEvent.pointerDown(option)
-		fireEvent.pointerUp(option)
-		fireEvent.click(option)
-		const values = screen.getAllByLabelText("Value")
-		const addedValue = values[values.length - 1]
-		if (addedValue === undefined) throw new Error("expected the added row's value box")
-		fireEvent.change(addedValue, { target: { value: "5" } })
+		turnOn("Eating")
+		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", false)
 
 		remount(
 			rerender,
 			"i1",
 			withKeys({
+				"ChatBot.AutoEat.Enabled": "true",
 				"ChatBot.AutoFishing.Enabled": "true",
-				"ChatBot.AutoEat.Threshold": "5",
 			}),
 		)
 

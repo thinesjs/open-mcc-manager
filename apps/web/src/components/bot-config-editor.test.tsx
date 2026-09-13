@@ -43,6 +43,14 @@ describe("what the page shows before anything is opened", () => {
 			"Follow a player",
 			"Teleport requests",
 			"Replay capture",
+			"Fishing",
+			"Digging",
+			"Attacking",
+			"Item collector",
+			"Crafting",
+			"Farming",
+			"Eating",
+			"Dropping items",
 		])
 	})
 
@@ -195,5 +203,18 @@ describe("a bot switched off with a problem still inside it", () => {
 
 		expect(within(cardFor("Mail")).queryByText(/Turn this back on/)).toBeNull()
 		expect(within(cardFor("Mail")).getByText("Between 1 and 2147483647")).toBeDefined()
+	})
+})
+
+describe("★ the eight bots that had no page of their own", () => {
+	it("offers each choice in words rather than the client's own spelling", () => {
+		mount({ "ChatBot.AutoDrop.Enabled": "true" })
+		const mode = within(cardFor("Dropping items")).getByRole("group", { name: "What to drop" })
+
+		expect(within(mode).getByRole("radio", { name: "Only the listed items" })).toBeDefined()
+		expect(
+			within(mode).getByRole("radio", { name: "Everything but the listed items" }),
+		).toBeDefined()
+		expect(within(mode).getByRole("radio", { name: "Everything" })).toBeDefined()
 	})
 })

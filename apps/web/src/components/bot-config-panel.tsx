@@ -1,19 +1,11 @@
 import type { InstanceConfigInput } from "@open-mcc/contracts"
-import type { AdvancedKeyRow } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { useState } from "react"
 import { BotConfigEditor } from "~/components/bot-config-editor"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
-import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
-import {
-	advancedKeyRowsFrom,
-	advancedKeysFromRows,
-	sameAdvancedKeyRows,
-	validateAdvancedKeyRows,
-} from "~/lib/advanced-key-rows"
 import {
 	type BotConfigDraft,
 	draftFrom,
@@ -23,7 +15,6 @@ import {
 } from "~/lib/bot-config"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
-import { AdvancedKeys } from "./advanced-keys"
 
 export type BotConfigPanelProps = {
 	instanceId: string
@@ -35,36 +26,24 @@ export const BotConfigPanel = ({ instanceId, config, onSaved }: BotConfigPanelPr
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const saveMutation = useMutation(trpc.instance.updateBotConfig.mutationOptions())
-	const [draft, setDraft] = useState<BotConfigDraft>(() => draftFrom(config.botConfig))
-	const [rows, setRows] = useState<readonly AdvancedKeyRow[]>(() =>
-		advancedKeyRowsFrom(config.advancedKeys),
-	)
+	const [draft, setDraft] = useState<BotConfigDraft>(() => draftFrom(config))
 	const [boundTo, setBoundTo] = useState(instanceId)
 	if (boundTo !== instanceId) {
 		setBoundTo(instanceId)
-		setDraft(draftFrom(config.botConfig))
-		setRows(advancedKeyRowsFrom(config.advancedKeys))
+		setDraft(draftFrom(config))
 	}
 	const issues = validateBotConfig(draft)
-	const rowIssues = validateAdvancedKeyRows(rows)
-	const blocked = Object.keys(issues).length > 0 || rowIssues.some((issue) => issue !== null)
-	const edited =
-		!sameBotConfigDraft(draft, draftFrom(config.botConfig)) ||
-		!sameAdvancedKeyRows(rows, advancedKeyRowsFrom(config.advancedKeys))
+	const blocked = Object.keys(issues).length > 0
+	const edited = !sameBotConfigDraft(draft, draftFrom(config))
 
 	const discard = () => {
-		setDraft(draftFrom(config.botConfig))
-		setRows(advancedKeyRowsFrom(config.advancedKeys))
+		setDraft(draftFrom(config))
 	}
 
 	const save = () => {
 		if (blocked) return
 		saveMutation.mutate(
-			{
-				instanceId,
-				botConfig: savedFrom(draft),
-				advancedKeys: advancedKeysFromRows(rows),
-			},
+			{ instanceId, ...savedFrom(draft) },
 			{
 				onSuccess: async () => {
 					await queryClient.invalidateQueries()
@@ -100,14 +79,6 @@ export const BotConfigPanel = ({ instanceId, config, onSaved }: BotConfigPanelPr
 			</div>
 
 			<BotConfigEditor draft={draft} issues={issues} instance={config} onChange={setDraft} />
-
-			<div className="space-y-1.5">
-				<Label>Advanced keys</Label>
-				<AdvancedKeys rows={rows} issues={rowIssues} onChange={setRows} />
-				<p className="text-xs text-muted-foreground">
-					Audited client settings this manager can write. They apply on the next restart.
-				</p>
-			</div>
 		</div>
 	)
 }

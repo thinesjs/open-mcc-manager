@@ -36,8 +36,12 @@ export const stagesOf = (dockerfile) => {
 
 const foldContinuations = (dockerfile) => dockerfile.replace(/\\\n\s*/g, " ")
 
+const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 export const generatesNotices = (dockerfile) =>
-	new RegExp(`^RUN\\b[^\\n]*\\b${GENERATOR}`, "m").test(foldContinuations(dockerfile))
+	new RegExp(`^RUN\\b[^\\n]*\\bnode\\s+${escaped(GENERATOR)}\\b`, "m").test(
+		foldContinuations(dockerfile),
+	)
 
 export const carriesNotices = (stage) =>
 	new RegExp(`^COPY\\b.*\\s${NOTICES_PATH}\\s*$`, "m").test(stage)

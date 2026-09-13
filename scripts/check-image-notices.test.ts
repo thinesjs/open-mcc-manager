@@ -67,6 +67,12 @@ describe("recognising the notice bundle", () => {
 		expect(generatesNotices(copied)).toBe(false)
 	})
 
+	it("★ is not satisfied by a RUN that only names the generator without running it", () => {
+		const named = ["FROM node:22 AS build", "RUN echo third-party-notices.mjs"].join("\n")
+
+		expect(generatesNotices(named)).toBe(false)
+	})
+
 	it("★ sees a generator run that was wrapped onto a second line", () => {
 		const wrapped = ["FROM node:22 AS build", "RUN node \\", "\tthird-party-notices.mjs /app"].join(
 			"\n",

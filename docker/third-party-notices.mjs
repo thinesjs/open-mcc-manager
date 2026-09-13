@@ -30,28 +30,63 @@ export const packageAt = (file) => {
 	return { name: `${first}/${second}`, dir: `${head}${first}/${second}` }
 }
 
+const addLocation = (found, name, dir) => {
+	const dirs = found.get(name) ?? new Set()
+	dirs.add(dir)
+	found.set(name, dirs)
+}
+
 export const bundledPackages = (metafile) => {
 	const found = new Map()
 	for (const input of Object.keys(JSON.parse(metafile).inputs ?? {})) {
 		const located = packageAt(input)
-		if (located) found.set(located.name, located.dir)
+		if (located) addLocation(found, located.name, located.dir)
 	}
 	return found
 }
 
-export const shippedPackages = (nodeModules) => {
-	const found = new Map()
-	if (!fs.existsSync(nodeModules)) return found
-	for (const entry of fs.readdirSync(nodeModules)) {
-		if (entry.startsWith(".")) continue
-		if (!entry.startsWith("@")) {
-			found.set(entry, path.join(nodeModules, entry))
+const directoryEntries = (dir) => {
+	try {
+		return fs.readdirSync(dir, { withFileTypes: true })
+	} catch {
+		return []
+	}
+}
+
+const packageDirsIn = (nodeModules, found, seen) => {
+	for (const entry of directoryEntries(nodeModules)) {
+		if (entry.name.startsWith(".")) continue
+		if (entry.isSymbolicLink()) continue
+		if (!entry.isDirectory()) continue
+		if (entry.name.startsWith("@")) {
+			for (const scoped of directoryEntries(path.join(nodeModules, entry.name))) {
+				if (scoped.name.startsWith(".")) continue
+				if (scoped.isSymbolicLink()) continue
+				if (!scoped.isDirectory()) continue
+				recordPackageDir(
+					`${entry.name}/${scoped.name}`,
+					path.join(nodeModules, entry.name, scoped.name),
+					found,
+					seen,
+				)
+			}
 			continue
 		}
-		for (const scoped of fs.readdirSync(path.join(nodeModules, entry))) {
-			found.set(`${entry}/${scoped}`, path.join(nodeModules, entry, scoped))
-		}
+		recordPackageDir(entry.name, path.join(nodeModules, entry.name), found, seen)
 	}
+}
+
+const recordPackageDir = (name, dir, found, seen) => {
+	const real = fs.realpathSync(dir)
+	if (seen.has(real)) return
+	seen.add(real)
+	addLocation(found, name, dir)
+	packageDirsIn(path.join(dir, "node_modules"), found, seen)
+}
+
+export const shippedPackages = (nodeModules) => {
+	const found = new Map()
+	packageDirsIn(nodeModules, found, new Set())
 	return found
 }
 
@@ -117,7 +152,11 @@ const label = (entry) =>
 		.join(" ")
 
 export const render = (entries) => {
-	const sorted = [...entries].sort((a, b) => a.name.localeCompare(b.name))
+	const sorted = [...entries].sort(
+		(a, b) =>
+			a.name.localeCompare(b.name) ||
+			a.version.localeCompare(b.version, undefined, { numeric: true }),
+	)
 	const sections = [PREAMBLE]
 	for (const group of groupByText(sorted)) {
 		sections.push(`${RULE}\n${group.members.map(label).join("\n")}\n${RULE}\n\n${group.text}\n`)
@@ -133,6 +172,26 @@ export const render = (entries) => {
 	return sections.join("\n")
 }
 
+export const collectEntries = (installRoot, deployRoot, metafiles) => {
+	const locations = []
+	for (const metafile of metafiles) {
+		for (const [name, dirs] of bundledPackages(fs.readFileSync(metafile, "utf8"))) {
+			for (const dir of dirs) locations.push({ name, dir: path.resolve(installRoot, dir) })
+		}
+	}
+	for (const [name, dirs] of shippedPackages(path.join(deployRoot, "node_modules"))) {
+		for (const dir of dirs) locations.push({ name, dir })
+	}
+
+	const byVersion = new Map()
+	for (const { name, dir } of locations) {
+		const entry = readPackage(name, dir)
+		const key = `${entry.name}@${entry.version}`
+		if (!byVersion.has(key)) byVersion.set(key, entry)
+	}
+	return [...byVersion.values()]
+}
+
 const main = () => {
 	const [, , installRoot, deployRoot, outFile, ...metafiles] = process.argv
 	if (!installRoot || !deployRoot || !outFile) {
@@ -142,17 +201,7 @@ const main = () => {
 		process.exit(1)
 	}
 
-	const located = new Map()
-	for (const metafile of metafiles) {
-		for (const [name, dir] of bundledPackages(fs.readFileSync(metafile, "utf8"))) {
-			located.set(name, path.resolve(installRoot, dir))
-		}
-	}
-	for (const [name, dir] of shippedPackages(path.join(deployRoot, "node_modules"))) {
-		located.set(name, dir)
-	}
-
-	const entries = [...located].map(([name, dir]) => readPackage(name, dir))
+	const entries = collectEntries(installRoot, deployRoot, metafiles)
 	const missing = unattributed(entries)
 	if (missing.length > 0) {
 		process.stdout.write(`no licence text and no declared licence for: ${missing.join(", ")}\n`)

@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterEach, describe, expect, it } from "vitest"
 import {
 	bundledPackages,
 	groupByText,
@@ -6,6 +11,43 @@ import {
 	render,
 	unattributed,
 } from "../docker/third-party-notices.mjs"
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+const GENERATOR = join(ROOT, "docker", "third-party-notices.mjs")
+
+const temporaries: string[] = []
+
+const scratch = (): string => {
+	const made = mkdtempSync(join(tmpdir(), "third-party-notices-"))
+	temporaries.push(made)
+	return made
+}
+
+afterEach(() => {
+	for (const made of temporaries.splice(0)) rmSync(made, { force: true, recursive: true })
+})
+
+const writePackage = (dir: string, name: string, version: string, licenceText?: string) => {
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(join(dir, "package.json"), JSON.stringify({ name, version, license: "MIT" }))
+	if (licenceText !== undefined) writeFileSync(join(dir, "LICENSE"), licenceText)
+}
+
+const writeMetafile = (path: string, inputs: string[]) => {
+	const object: Record<string, object> = {}
+	for (const input of inputs) object[input] = {}
+	writeFileSync(path, JSON.stringify({ inputs: object }))
+}
+
+const runGenerator = (
+	installRoot: string,
+	deployRoot: string,
+	outFile: string,
+	metafiles: string[] = [],
+) =>
+	spawnSync("node", [GENERATOR, installRoot, deployRoot, outFile, ...metafiles], {
+		encoding: "utf8",
+	})
 
 const entry = (name: string, licence: string, text: string) => ({
 	name,
@@ -98,5 +140,112 @@ describe("the rendered bundle", () => {
 		expect(render([entry("first", "MIT", "a text")])).not.toContain(
 			"Packages that publish no licence file of their own",
 		)
+	})
+})
+
+describe("generating notices against a real deployed tree", () => {
+	it("records both versions when a bundled package appears twice in the metafile inputs", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+		const metafile = join(scratch(), "meta.json")
+
+		writePackage(
+			join(installRoot, "node_modules/.pnpm/left-pad@1.0.0/node_modules/left-pad"),
+			"left-pad",
+			"1.0.0",
+			"left-pad licence text v1",
+		)
+		writePackage(
+			join(installRoot, "node_modules/.pnpm/left-pad@2.0.0/node_modules/left-pad"),
+			"left-pad",
+			"2.0.0",
+			"left-pad licence text v2",
+		)
+		writeMetafile(metafile, [
+			"node_modules/.pnpm/left-pad@1.0.0/node_modules/left-pad/index.js",
+			"node_modules/.pnpm/left-pad@2.0.0/node_modules/left-pad/index.js",
+		])
+
+		const result = runGenerator(installRoot, deployRoot, outFile, [metafile])
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written).toContain("left-pad 1.0.0")
+		expect(written).toContain("left-pad 2.0.0")
+	})
+
+	it("descends into a nested node_modules of a deployed package", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		writePackage(join(deployRoot, "node_modules/a"), "a", "1.0.0", "a licence text")
+		writePackage(join(deployRoot, "node_modules/a/node_modules/b"), "b", "1.0.0", "b licence text")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written).toContain("b 1.0.0")
+	})
+
+	it("prints one entry when a bundled input and a shipped directory name the same package at the same version", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+		const metafile = join(scratch(), "meta.json")
+
+		writePackage(
+			join(installRoot, "node_modules/.pnpm/shared@1.2.3/node_modules/shared"),
+			"shared",
+			"1.2.3",
+			"shared licence text",
+		)
+		writePackage(join(deployRoot, "node_modules/shared"), "shared", "1.2.3", "shared licence text")
+		writeMetafile(metafile, ["node_modules/.pnpm/shared@1.2.3/node_modules/shared/index.js"])
+
+		const result = runGenerator(installRoot, deployRoot, outFile, [metafile])
+		expect(result.status).toBe(0)
+		expect(result.stdout).toContain("wrote 1 third-party notices")
+		const written = readFileSync(outFile, "utf8")
+		expect(written.split("shared 1.2.3").length - 1).toBe(1)
+	})
+
+	it("keeps a different licence text for each version of the same shipped package", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		writePackage(join(deployRoot, "node_modules/left-pad"), "left-pad", "1.0.0", "top level text")
+		writePackage(
+			join(deployRoot, "node_modules/holder/node_modules/left-pad"),
+			"left-pad",
+			"2.0.0",
+			"nested different text",
+		)
+		writePackage(join(deployRoot, "node_modules/holder"), "holder", "1.0.0", "holder licence")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written).toContain("top level text")
+		expect(written).toContain("nested different text")
+	})
+
+	it("refuses a version with no licence even when another version of the same name is attributed", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		writePackage(join(deployRoot, "node_modules/left-pad"), "left-pad", "1.0.0", "top level text")
+		mkdirSync(join(deployRoot, "node_modules/holder/node_modules/left-pad"), { recursive: true })
+		writeFileSync(
+			join(deployRoot, "node_modules/holder/node_modules/left-pad/package.json"),
+			JSON.stringify({ name: "left-pad", version: "2.0.0" }),
+		)
+		writePackage(join(deployRoot, "node_modules/holder"), "holder", "1.0.0", "holder licence")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).not.toBe(0)
+		expect(result.stdout).toContain("left-pad 2.0.0")
 	})
 })

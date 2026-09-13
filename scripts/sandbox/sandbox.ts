@@ -18,7 +18,7 @@ export const HOST_IMAGE = "open-mcc-sandbox:local"
 
 export type Ran = { status: number | null; stdout: string; stderr: string }
 
-export type RunOptions = { input?: string; timeoutMs?: number }
+export type RunOptions = { input?: string; timeoutMs?: number; cwd?: string }
 
 export type As = RunOptions & {
 	user: string
@@ -35,7 +35,10 @@ export const run = (
 ): Promise<Ran> =>
 	new Promise((resolve, reject) => {
 		const timeoutMs = options.timeoutMs ?? 120_000
-		const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] })
+		const child = spawn(command, args, {
+			stdio: ["pipe", "pipe", "pipe"],
+			...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+		})
 		let stdout = ""
 		let stderr = ""
 		const timer = setTimeout(() => {
@@ -143,6 +146,28 @@ export const startHost = async (runId: string): Promise<string> => {
 }
 
 export const STOP_WITHOUT_KILLING = ["stop", "--timeout", "-1"] as const
+
+export const DOCKER_IMAGE = "docker:28.5.2-dind"
+
+export const dockerRunArguments = (name: string, runId: string): readonly string[] => [
+	"run",
+	"--detach",
+	"--name",
+	name,
+	...labelled(runId, "docker"),
+	"--privileged",
+	DOCKER_IMAGE,
+]
+
+export const startDocker = async (runId: string): Promise<string> => {
+	const name = nameFor(runId, "docker")
+	succeeded(await docker(dockerRunArguments(name, runId)), "starting a machine with its own Docker")
+	for (let attempt = 0; attempt < 240; attempt += 1) {
+		if ((await docker(["exec", name, "docker", "info"])).status === 0) return name
+		await delay(500)
+	}
+	throw new Error(`the Docker daemon inside ${name} never answered`)
+}
 
 export const remove = async (...names: readonly string[]): Promise<void> => {
 	const present = names.filter((name) => name.length > 0)

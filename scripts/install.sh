@@ -58,15 +58,13 @@ if docker volume inspect "${PROJECT}_pgdata" >/dev/null 2>&1; then
        remove the volume with 'docker volume rm ${PROJECT}_pgdata' to start over and lose its data."
 fi
 
-DB_PORT="$(free_port "${OPEN_MCC_DB_PORT:-25432}")"
-TEST_DB_PORT="$(free_port $((DB_PORT + 1)))"
 SERVER_PORT="$(free_port "${OPEN_MCC_SERVER_PORT:-25174}")"
 WEB_PORT="$(free_port "${OPEN_MCC_WEB_PORT:-25173}")"
 
 say "Building the control-plane image (this takes a few minutes on a cold cache)"
-docker compose -f docker/compose.yml build server >/dev/null || die "image build failed"
+docker compose -f docker/compose.yml -f docker/compose.postgres.yml build server >/dev/null || die "image build failed"
 
-IMAGE="$(docker compose -f docker/compose.yml config --images 2>/dev/null | grep -i server | head -1)"
+IMAGE="$(docker compose -f docker/compose.yml -f docker/compose.postgres.yml config --images 2>/dev/null | grep -i server | head -1)"
 [ -n "$IMAGE" ] || die "could not determine the built server image"
 
 say "Generating a sealbox keypair"
@@ -86,13 +84,10 @@ POSTGRES_PASSWORD="$(random_secret | tr -dc 'A-Za-z0-9' | cut -c1-32)"
 umask 077
 cat > .env <<ENVFILE
 COMPOSE_PROJECT_NAME=$PROJECT
-DEV_DB_PORT=$DB_PORT
-TEST_DB_PORT=$TEST_DB_PORT
 SERVER_PORT=$SERVER_PORT
 WEB_PORT=$WEB_PORT
 SERVER_ORIGIN=http://localhost:$SERVER_PORT
-DATABASE_URL=postgres://postgres:$POSTGRES_PASSWORD@localhost:$DB_PORT/open_mcc_manager
-TEST_DATABASE_URL=postgres://postgres:$POSTGRES_PASSWORD@localhost:$TEST_DB_PORT/postgres
+DATABASE_URL=postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/open_mcc_manager
 PORT=$SERVER_PORT
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
@@ -104,7 +99,7 @@ ENVFILE
 
 say "Wrote .env with generated secrets, mode 600"
 
-docker compose --env-file .env -f docker/compose.yml up -d
+docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.yml up -d
 
 # Offer this machine as its own host. The control plane mints the key and seals
 # it with SEALBOX_KEYS, so the private half is never written anywhere in the
@@ -135,7 +130,7 @@ if [ -n "$SELF_HOST_PUBLIC" ] &&
 	printf '%s\n' "$SELF_HOST_PUBLIC" | sh scripts/self-host.sh --public-key -; then
 	cat .env.self-host >> .env
 	printf '%s\n' "$SELF_HOST_KEY" | grep -v '^SELF_HOST_PUBLIC_KEY=' >> .env
-	docker compose --env-file .env -f docker/compose.yml up -d
+	docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.yml up -d
 	SELF_HOST_OFFERED="yes"
 fi
 

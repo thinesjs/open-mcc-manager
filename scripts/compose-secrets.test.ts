@@ -160,3 +160,39 @@ describe("what the compose file passes in for the machine it runs on", () => {
 		},
 	)
 })
+
+describe("the database the installer brings with it", () => {
+	const installerDatabase = read("compose.postgres.yml")
+	const installer = readFileSync(join(ROOT, "scripts", "install.sh"), "utf8")
+
+	it("gives its password no default, so an unset one fails closed", () => {
+		expect(installerDatabase).toContain("POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}")
+		expect(installerDatabase).not.toMatch(/\$\{POSTGRES_PASSWORD:[-?]/)
+	})
+
+	it("publishes no port, because nothing outside the stack talks to it", () => {
+		expect(installerDatabase).not.toMatch(/^\s*ports:/m)
+	})
+
+	it("leaves the database address to the environment, whole", () => {
+		expect(installerDatabase).not.toContain("DATABASE_URL")
+		expect(installer).toContain(
+			"DATABASE_URL=postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/open_mcc_manager",
+		)
+	})
+
+	it("is part of every compose call the installer makes", () => {
+		const calls = installer
+			.split("\n")
+			.filter((line) => line.includes("docker compose") && line.includes("-f docker/compose.yml"))
+
+		expect(calls.length).toBeGreaterThan(0)
+		expect(calls.filter((line) => !line.includes("-f docker/compose.postgres.yml"))).toEqual([])
+	})
+
+	it("writes nothing only development reads into a real deployment's .env", () => {
+		for (const name of ["DEV_DB_PORT", "TEST_DB_PORT", "TEST_DATABASE_URL"]) {
+			expect(installer, name).not.toContain(`${name}=`)
+		}
+	})
+})

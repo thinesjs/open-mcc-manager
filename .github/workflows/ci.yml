@@ -55,6 +55,15 @@ jobs:
           ALLOWED_ORIGINS: https://example.invalid
           BETTER_AUTH_SECRET: ci-only-not-a-real-secret
           SEALBOX_KEYS: ci-only-not-a-real-key
+      - name: Validate the installer's database overlay
+        run: docker compose -f docker/compose.yml -f docker/compose.postgres.yml config --quiet
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          DATABASE_URL: postgres://postgres:ci-only-not-a-real-password@postgres:5432/open_mcc_manager
+          BETTER_AUTH_URL: https://example.invalid
+          ALLOWED_ORIGINS: https://example.invalid
+          BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+          SEALBOX_KEYS: ci-only-not-a-real-key
       - name: Validate the development overlay
         run: docker compose -f docker/compose.yml -f docker/compose.dev.yml config --quiet
         env:

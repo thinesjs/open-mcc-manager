@@ -1093,3 +1093,9 @@ no real boot or login session, and linger is observed through logind alone.
 tests that need a finished run put a stand-in `docker` on `PATH`. Real
 reachability from a container to the host is exercised by nothing here. Only
 Debian's `apt` path for libicu runs; `dnf` and `apk` do not.
+
+The installer test is a full run: it builds the images, starts the stack with
+its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,
+which has no systemd, `loginctl` or `sudo`, so `self-host.sh` refuses to offer
+the machine and the lingering step is skipped. Neither the offered path nor
+lingering during install is exercised there.

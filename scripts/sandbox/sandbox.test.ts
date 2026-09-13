@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
 	docker,
+	dockerRunArguments,
 	hostRunArguments,
 	killsAContainer,
 	RUN_LABEL,
@@ -54,15 +55,20 @@ describe("what a sandbox container may see of the machine running the suite", ()
 		)
 	})
 
-	it("still lets a host start, and still lets a container's anonymous volumes be removed with it", () => {
+	it("still lets a host and a Docker machine start, and lets their anonymous volumes go with them", () => {
 		expect(reachesThisMachine(hostRunArguments("name", "run"))).toBe(false)
+		expect(reachesThisMachine(dockerRunArguments("name", "run"))).toBe(false)
 		expect(reachesThisMachine(["rm", "--volumes", "name"])).toBe(false)
 	})
 
-	it("labels every host it starts, so a run can find and remove what it left", () => {
-		const args = hostRunArguments("name", "run")
-
-		expect(args).toContain(`${SANDBOX_LABEL}=host`)
-		expect(args).toContain(`${RUN_LABEL}=run`)
-	})
+	it.each([
+		{ kind: "host", args: hostRunArguments("name", "run") },
+		{ kind: "docker", args: dockerRunArguments("name", "run") },
+	])(
+		"labels every $kind it starts, so a run can find and remove what it left",
+		({ kind, args }) => {
+			expect(args).toContain(`${SANDBOX_LABEL}=${kind}`)
+			expect(args).toContain(`${RUN_LABEL}=run`)
+		},
+	)
 })

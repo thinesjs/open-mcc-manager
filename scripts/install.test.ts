@@ -53,7 +53,9 @@ describe("how the installer prepares this machine as its own host", () => {
 	})
 
 	it("does that after the stack is up, so the probe runs on the network the server is on", () => {
-		const firstUp = lineOf("docker compose --env-file .env -f docker/compose.yml up -d")
+		const firstUp = lineOf(
+			"docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.yml up -d",
+		)
 		const mintAt = lineOf("server.mjs --seal-self-host-key")
 
 		expect(firstUp).toBeGreaterThan(-1)

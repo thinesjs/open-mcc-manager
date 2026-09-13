@@ -133,6 +133,11 @@ the control-plane image, generates a sealbox keypair, a session secret and a
 database password, writes them to `.env` with mode `600`, and starts the stack on
 free ports in the 25xxx block.
 
+The stack it starts includes a Postgres of its own, from
+`docker/compose.postgres.yml`, with no port published outside the stack.
+`docker/compose.yml` carries no database, so a deployment that brings its own
+leaves that file out and points `DATABASE_URL` at it.
+
 That one-liner runs a script this project serves, so it is worth saying what you
 are trusting and how to check it. Read it first if you would rather:
 

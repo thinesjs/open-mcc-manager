@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
 	configuredAs,
+	INSTANCE_ARTIFACT_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
 	NOTIFICATION_HTTP_QUEUE,
@@ -113,6 +114,17 @@ describe("setting the queues up", () => {
 		expect(http?.retryBackoff).toBe(false)
 		expect(http?.retryDelayMax).toBeNull()
 		expect(http?.expireInSeconds).toBe(5 * 60)
+	})
+
+	it("★ never retries a host sweep, because a retry would read a host the last attempt already drained", async () => {
+		const { admin, stored } = fakePgBoss()
+		await reconcileQueues(admin)
+
+		const sweep = stored.get(INSTANCE_ARTIFACT_QUEUE)
+		expect(sweep?.retryLimit).toBe(0)
+		expect(sweep?.retryBackoff).toBe(false)
+		expect(sweep?.deadLetter).toBeNull()
+		expect(sweep?.expireInSeconds).toBe(30 * 60)
 	})
 
 	it("still points a delivery queue at the dead-letter queue, so an unexpected throw is kept", async () => {

@@ -55,7 +55,11 @@ describe("the artifact collection the worker actually registers", () => {
 		const handle = await startWorker(await env(), logger)
 		stop = async () => await handle.stop()
 
-		expect(scheduleSpy.mock.calls.some(([queue]) => queue === INSTANCE_ARTIFACT_QUEUE)).toBe(true)
+		expect(
+			scheduleSpy.mock.calls.some(
+				([queue, cron]) => queue === INSTANCE_ARTIFACT_QUEUE && cron === "23 * * * *",
+			),
+		).toBe(true)
 
 		const registered = workSpy.mock.calls.find(([queue]) => queue === INSTANCE_ARTIFACT_QUEUE)
 		const handler = registered?.[registered.length - 1]

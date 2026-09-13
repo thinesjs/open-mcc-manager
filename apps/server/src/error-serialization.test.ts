@@ -18,6 +18,7 @@ import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
 import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestSelfHostController } from "./test/self-host-controller"
 import { createTestStatusController } from "./test/status-controller"
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
@@ -118,6 +119,7 @@ const ctx: RequestContext = {
 	statusController: createTestStatusController(db),
 	destinationController: createTestDestinationController(db, hostControllerDeps.secrets),
 	sshKeyController,
+	selfHostController: createTestSelfHostController(db, hostController.enroll),
 	db,
 }
 

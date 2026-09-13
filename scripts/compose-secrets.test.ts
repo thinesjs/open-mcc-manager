@@ -114,3 +114,49 @@ describe("what the compose file forwards to the daemons that read it", () => {
 		},
 	)
 })
+
+const SELF_HOST_FIELDS = [
+	"SELF_HOST_NAME",
+	"SELF_HOST_HOSTNAME",
+	"SELF_HOST_PORT",
+	"SELF_HOST_USERNAME",
+	"SELF_HOST_MODE",
+	"SELF_HOST_FINGERPRINT",
+	"SELF_HOST_PUBLIC_KEY",
+	"SELF_HOST_PRIVATE_KEY_SEALED",
+	"SELF_HOST_PRIVATE_KEY_ID",
+	"SELF_HOST_REACH",
+	"SELF_HOST_SYSTEMD",
+	"SELF_HOST_LINGER",
+] as const
+
+describe("what the compose file passes in for the machine it runs on", () => {
+	it.each(SELF_HOST_FIELDS.map((name) => ({ name })))(
+		"forwards $name to the server, the only container that reads from the host filesystem through env",
+		({ name }) => {
+			expect(daemonBlock("server")).toContain(`${name}: \${${name}:-}`)
+		},
+	)
+
+	it.each(SELF_HOST_FIELDS.map((name) => ({ name })))(
+		"keeps $name out of the worker, which never enrolls a host",
+		({ name }) => {
+			expect(daemonBlock("worker")).not.toContain(name)
+		},
+	)
+
+	it("lets an unset self-host install come up, rather than failing closed on a missing address", () => {
+		const required = SELF_HOST_FIELDS.filter((name) =>
+			new RegExp(`${name}: \\$\\{${name}\\}`).test(base),
+		)
+
+		expect(required).toEqual([])
+	})
+
+	it.each([{ service: "server" }, { service: "worker" }])(
+		"gives $service a name for the machine it runs on, which native Docker Engine does not resolve by itself",
+		({ service }) => {
+			expect(daemonBlock(service)).toContain('- "host.docker.internal:host-gateway"')
+		},
+	)
+})

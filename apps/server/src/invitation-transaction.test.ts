@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { z } from "zod"
 import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
+import { createTestSelfHostController } from "./test/self-host-controller"
 import { createTestStatusController } from "./test/status-controller"
 
 const failNextAuditRecord = { current: false }
@@ -109,6 +110,7 @@ beforeAll(async () => {
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
+				selfHostController: createTestSelfHostController(db),
 			}),
 		}),
 	)

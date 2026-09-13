@@ -106,10 +106,36 @@ say "Wrote .env with generated secrets, mode 600"
 
 docker compose --env-file .env -f docker/compose.yml up -d
 
+# Offer this machine as its own host. The control plane mints the key and seals
+# it with SEALBOX_KEYS, so the private half is never written anywhere in the
+# clear; only the public half reaches scripts/self-host.sh. That script either
+# installs it and writes the materials, or exits non-zero having written
+# nothing, so a failure here costs the install nothing.
+
+say "Preparing this machine as a host it can run instances on"
+
+SELF_HOST_KEY=""
+SELF_HOST_KEY="$(SEALBOX_KEYS="$SEALBOX_KEYS" docker run --rm -e SEALBOX_KEYS "$IMAGE" \
+	server.mjs --seal-self-host-key 2>/dev/null)" || SELF_HOST_KEY=""
+SELF_HOST_PUBLIC="$(printf '%s\n' "$SELF_HOST_KEY" | sed -n 's/^SELF_HOST_PUBLIC_KEY=//p')"
+
+SELF_HOST_OFFERED="no"
+if [ -n "$SELF_HOST_PUBLIC" ] &&
+	printf '%s\n' "$SELF_HOST_PUBLIC" | sh scripts/self-host.sh --public-key -; then
+	cat .env.self-host >> .env
+	printf '%s\n' "$SELF_HOST_KEY" | grep -v '^SELF_HOST_PUBLIC_KEY=' >> .env
+	docker compose --env-file .env -f docker/compose.yml up -d
+	SELF_HOST_OFFERED="yes"
+fi
+
 say ""
 say "Control plane starting on http://localhost:$SERVER_PORT"
 say ""
 say "Next:"
 say "  1. Back up .env now. Losing SEALBOX_KEYS makes every stored ssh key unreadable."
-say "  2. Create the first owner account, then enroll a host with its ssh host key fingerprint."
+if [ "$SELF_HOST_OFFERED" = "yes" ]; then
+	say "  2. Create the first owner account. This machine is already offered on the Hosts page."
+else
+	say "  2. Create the first owner account, then enroll a host with its ssh host key fingerprint."
+fi
 say "  3. To reach hosts by MagicDNS name over a tailnet, add -f docker/compose.tailnet.yml and set TAILNET_DNS_SUFFIX."

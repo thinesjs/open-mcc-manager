@@ -384,7 +384,11 @@ elif [ -z "$IMAGE" ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
 	warn "the control plane image is not built yet, so the address it can reach this machine on is unproven.
          Run this again after 'docker compose -f docker/compose.yml build server'."
 else
-	set -- run --rm -i
+	# The same --add-host the compose services carry, so the name the probe proves is
+	# the name the control plane can resolve. Docker Desktop and OrbStack resolve it
+	# on their own; native Docker Engine does not, and would otherwise leave a bridge
+	# gateway address here that changes whenever the network is recreated.
+	set -- run --rm -i --add-host "host.docker.internal:host-gateway"
 	if docker network inspect "${PROJECT}_default" >/dev/null 2>&1; then
 		set -- "$@" --network "${PROJECT}_default"
 		NETWORK_NOTE="on the ${PROJECT}_default network"
@@ -469,9 +473,10 @@ say "  fingerprint  $FINGERPRINT"
 say "  mode         rootless"
 say ""
 if [ -n "$PRIVATE_KEY_PATH" ]; then
-	say "The private key is at $PRIVATE_KEY_PATH. The control plane has no way to import"
-	say "one yet, so until it does, create the key in the dashboard instead and run:"
-	say "  sh scripts/self-host.sh --public-key <the key it shows you>"
+	say "The private key is at $PRIVATE_KEY_PATH, in plaintext, because this run minted it."
+	say "scripts/install.sh does not go this way. It has the control plane mint the key and"
+	say "seal it with SEALBOX_KEYS, then passes only the public half here:"
+	say "  docker run --rm -e SEALBOX_KEYS -i <server-image> server.mjs --seal-self-host-key"
 	say ""
 fi
 say "This key can run any command as $ACCOUNT. The restrictions on it stop it opening a"

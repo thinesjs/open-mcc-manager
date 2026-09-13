@@ -76,6 +76,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"This instance was changed by someone else. Refresh and try again.",
 	INSTANCE_NAME_TAKEN: "An instance with that name already exists in this organization.",
 	HOST_HAS_INSTANCES: "That host still has instances on it. Remove them before deleting the host.",
+	SELF_HOST_UNAVAILABLE:
+		"OpenMCC cannot reach the machine it runs on, so it cannot add it. Run the installer on that machine again.",
 	CONSTRAINT_VIOLATION: "That change conflicts with data already stored. Refresh and try again.",
 }
 

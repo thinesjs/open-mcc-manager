@@ -17,6 +17,14 @@ export const hostMode = z.enum(HOST_MODES)
 
 export type HostMode = z.infer<typeof hostMode>
 
+export const HOST_KEY_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/]{43}$/
+
+export const HOST_KEY_FINGERPRINT_REQUIREMENT = "Expected an OpenSSH SHA256 fingerprint"
+
+export const hostKeyFingerprint = z
+	.string()
+	.regex(HOST_KEY_FINGERPRINT_PATTERN, HOST_KEY_FINGERPRINT_REQUIREMENT)
+
 export const createHostInput = z.object({
 	name: z.string().min(1).max(64),
 	hostname: z.string().min(1).max(255),
@@ -24,9 +32,7 @@ export const createHostInput = z.object({
 	username: z.string().min(1).max(64).default("root"),
 	mode: hostMode.default("rootless"),
 	sshKeyId: z.string().min(1),
-	expectedFingerprint: z
-		.string()
-		.regex(/^SHA256:[A-Za-z0-9+/]{43}$/, "Expected an OpenSSH SHA256 fingerprint"),
+	expectedFingerprint: hostKeyFingerprint,
 })
 
 export type CreateHostInput = z.infer<typeof createHostInput>
@@ -36,9 +42,7 @@ export type HostIdInput = z.infer<typeof hostIdInput>
 
 export const retrustHostKeyInput = z.object({
 	hostId: z.string().min(1),
-	hostKeyFingerprint: z
-		.string()
-		.regex(/^SHA256:[A-Za-z0-9+/]{43}$/, "Expected an OpenSSH SHA256 fingerprint"),
+	hostKeyFingerprint: hostKeyFingerprint,
 	hostKeyAlgorithm: z.string().min(1),
 })
 

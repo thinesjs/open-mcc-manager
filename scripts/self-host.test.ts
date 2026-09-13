@@ -106,3 +106,32 @@ describe("the restrictions the entry carries", () => {
 		expect(script).toContain("it has no interactive shell")
 	})
 })
+
+describe("the address it proves and the address the control plane later uses", () => {
+	const script = readFileSync(SCRIPT, "utf8")
+	const compose = readFileSync(join(ROOT, "docker", "compose.yml"), "utf8")
+
+	const aliasOf = (source: string): string | undefined =>
+		source.match(/host\.docker\.internal:host-gateway/)?.[0]
+
+	it("probes under the same alias the server container is given, or it proves the wrong name", () => {
+		expect(aliasOf(script)).toBeDefined()
+		expect(aliasOf(script)).toBe(aliasOf(compose))
+	})
+
+	it("hands that alias to the probe container, which inherits nothing from the compose services", () => {
+		expect(script).toContain('--add-host "host.docker.internal:host-gateway"')
+	})
+})
+
+describe("what it tells an operator about the key it minted", () => {
+	const script = readFileSync(SCRIPT, "utf8")
+
+	it("no longer claims the control plane cannot take a key it already holds", () => {
+		expect(script).not.toContain("has no way to import")
+	})
+
+	it("names the flag that seals one instead, so no plaintext key is the answer", () => {
+		expect(script).toContain("--seal-self-host-key")
+	})
+})

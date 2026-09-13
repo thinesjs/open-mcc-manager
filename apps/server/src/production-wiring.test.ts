@@ -1,6 +1,7 @@
 import { createLogger, generateKeyPair, type Logger } from "@open-mcc/core"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "./env"
+import { SELF_HOST_UNUSABLE_WARNING } from "./self-host-env"
 
 type OnError = (message: string, error: Error | string) => void
 
@@ -128,5 +129,56 @@ describe("the reporters the server actually hands to the things it starts", () =
 		const entry = JSON.parse(lines[0] ?? "{}")
 		expect(entry.level).toBe("error")
 		expect(entry.detail).toBe("the host refused")
+	})
+})
+
+const INSTALLED_SELF_HOST: Partial<Env> = {
+	SELF_HOST_NAME: "kitchen-pi",
+	SELF_HOST_HOSTNAME: "host.docker.internal",
+	SELF_HOST_PORT: "22",
+	SELF_HOST_USERNAME: "mcc",
+	SELF_HOST_MODE: "rootless",
+	SELF_HOST_FINGERPRINT: "SHA256:5t0oGkKIrpBGw7Z4LrnOdxM6wJzJPuK+aQ8N9sVhP1c",
+	SELF_HOST_PUBLIC_KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA open-mcc:this-machine",
+	SELF_HOST_PRIVATE_KEY_SEALED: "Xj+9/abcDEF==ghi+/jkl",
+	SELF_HOST_PRIVATE_KEY_ID: "k1",
+	SELF_HOST_REACH: "proven",
+	SELF_HOST_SYSTEMD: "yes",
+	SELF_HOST_LINGER: "yes",
+}
+
+const messagesAtStartup = async (overrides: Partial<Env>): Promise<string[]> => {
+	const { startServer } = await import("./bootstrap")
+	const { lines, logger } = capturing()
+	const serveFn = vi.fn()
+	serveFn.mockReturnValue({ close: vi.fn() })
+	const handle = await startServer({ ...(await env()), ...overrides }, serveFn, logger)
+	stop = async () => {
+		await handle.boss.stop({ graceful: false })
+		await handle.db.destroy()
+	}
+	return lines.map((line) => JSON.parse(line).message)
+}
+
+describe("what the server says about the machine it was installed on", () => {
+	it("warns when the installer's materials are there but unusable, or the card would silently never appear", async () => {
+		const messages = await messagesAtStartup({
+			...INSTALLED_SELF_HOST,
+			SELF_HOST_PRIVATE_KEY_SEALED: "",
+		})
+
+		expect(messages).toContain(SELF_HOST_UNUSABLE_WARNING)
+	})
+
+	it("stays quiet when the materials describe a machine it can offer", async () => {
+		const messages = await messagesAtStartup(INSTALLED_SELF_HOST)
+
+		expect(messages).not.toContain(SELF_HOST_UNUSABLE_WARNING)
+	})
+
+	it("stays quiet on an install that never offered a machine", async () => {
+		const messages = await messagesAtStartup({})
+
+		expect(messages).not.toContain(SELF_HOST_UNUSABLE_WARNING)
 	})
 })

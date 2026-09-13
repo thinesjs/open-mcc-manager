@@ -18,6 +18,7 @@ import {
 	createProcessIdentityRepository,
 	createScheduleRepository,
 	createSecretStore,
+	createSelfHostController,
 	createSshKeyController,
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
@@ -58,6 +59,11 @@ import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
+import {
+	SELF_HOST_UNUSABLE_WARNING,
+	selfHostConfigured,
+	selfHostMaterialsFrom,
+} from "./self-host-env"
 import { acquireSingletonLock, type SingletonLock } from "./singleton"
 
 export type ServerHandle = {
@@ -188,11 +194,21 @@ export const startServer = async (
 		teamsHosts: hostList(env.NOTIFICATION_TEAMS_HOSTS),
 	})
 
+	const withSshKeyTransaction = createSshKeyControllerTransaction(db)
 	const sshKeyController = createSshKeyController({
 		sshKeys,
 		secrets,
 		generateKeyPair: generateSshKeyPair,
-		withTransaction: createSshKeyControllerTransaction(db),
+		withTransaction: withSshKeyTransaction,
+	})
+
+	const selfHostMaterials = selfHostMaterialsFrom(env)
+	if (!selfHostMaterials && selfHostConfigured(env)) logger.warn(SELF_HOST_UNUSABLE_WARNING)
+	const selfHostController = createSelfHostController({
+		materials: selfHostMaterials,
+		sshKeys,
+		withSshKeyTransaction,
+		enroll: hostController.enroll,
 	})
 
 	const app = new Hono()
@@ -221,6 +237,7 @@ export const startServer = async (
 				instanceController,
 				statusController,
 				sshKeyController,
+				selfHostController,
 				destinationController,
 			}),
 		}),

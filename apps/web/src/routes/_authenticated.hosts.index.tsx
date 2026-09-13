@@ -8,6 +8,7 @@ import { HostContextMenu } from "~/components/host-context-menu"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { OsIcon } from "~/components/os-icon"
+import { SelfHostCard, shouldOfferSelfHost } from "~/components/self-host-card"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
@@ -30,6 +31,8 @@ function HostListPage() {
 		...trpc.host.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
+	const offerQuery = useQuery(trpc.selfHost.offer.queryOptions())
+	const offer = offerQuery.data
 
 	return (
 		<div className="space-y-6">
@@ -55,6 +58,13 @@ function HostListPage() {
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(hostsQuery.error)}
 				</Alert>
+			) : null}
+
+			{shouldOfferSelfHost(offer, hostsQuery.data) ? (
+				<SelfHostCard
+					offer={offer}
+					onAdded={(hostId) => navigate({ to: "/hosts/$hostId", params: { hostId } })}
+				/>
 			) : null}
 
 			{hostsQuery.data && hostsQuery.data.length === 0 ? (

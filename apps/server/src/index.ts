@@ -5,6 +5,7 @@ import { startServer } from "./bootstrap"
 import { loadEnv } from "./env"
 import { rootLogger as logger, SERVICE } from "./root-logger"
 import { GENERATE_KEY_FLAG, generateSealboxKeyFromArgv } from "./sealbox-key-argv"
+import { SEAL_SELF_HOST_KEY_FLAG, sealSelfHostKeyFromArgv } from "./self-host-key-argv"
 
 export type { AppRouter } from "./routers/index"
 
@@ -12,6 +13,11 @@ const main = async (): Promise<void> => {
 	if (process.argv.includes(GENERATE_KEY_FLAG)) {
 		const entry = await generateSealboxKeyFromArgv(process.argv)
 		process.stdout.write(`${entry}\n`)
+		return
+	}
+	if (process.argv.includes(SEAL_SELF_HOST_KEY_FLAG)) {
+		const materials = await sealSelfHostKeyFromArgv(process.argv, process.env)
+		process.stdout.write(`${materials}\n`)
 		return
 	}
 	const env = loadEnv()

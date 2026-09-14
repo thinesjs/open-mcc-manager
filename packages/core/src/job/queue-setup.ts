@@ -12,6 +12,8 @@ export const NOTIFICATION_EMAIL_QUEUE = "notification.deliver.email"
 
 export const INSTANCE_ARTIFACT_QUEUE = "instance.artifact.collect"
 
+export const SYSTEM_UPDATE_CHECK_QUEUE = "system.update-check"
+
 const DAY_SECONDS = 24 * 60 * 60
 
 const DELIVERY_RETENTION_SECONDS = 14 * DAY_SECONDS
@@ -75,6 +77,20 @@ export const INSTANCE_ARTIFACT_POLICY = {
 	notify: false,
 } as const
 
+const UPDATE_CHECK_POLICY = {
+	retryLimit: 0,
+	retryDelay: 0,
+	retryBackoff: false,
+	retryDelayMax: null,
+	expireInSeconds: 5 * 60,
+	retentionSeconds: DELIVERY_RETENTION_SECONDS,
+	deleteAfterSeconds: DELIVERY_RETENTION_SECONDS,
+	deadLetter: null,
+	warningQueueSize: 10,
+	heartbeatSeconds: null,
+	notify: false,
+} as const
+
 export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	{
 		name: NOTIFICATION_DEADLETTER_QUEUE,
@@ -95,6 +111,7 @@ export const NOTIFICATION_QUEUE_POLICIES: readonly QueuePolicy[] = [
 	{ name: STATUS_ESCALATE_QUEUE, ...STATUS_ESCALATE_POLICY },
 	{ name: NOTIFICATION_CLEANUP_QUEUE, ...STATUS_ESCALATE_POLICY },
 	{ name: INSTANCE_ARTIFACT_QUEUE, ...INSTANCE_ARTIFACT_POLICY },
+	{ name: SYSTEM_UPDATE_CHECK_QUEUE, ...UPDATE_CHECK_POLICY },
 ]
 
 export const orderedForCreation = (policies: readonly QueuePolicy[]): readonly QueuePolicy[] => [

@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
+import { DELIVERY_MAX_RESPONSE_BYTES } from "@open-mcc/contracts"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { egressPolicy } from "./egress"
 import { sendPinned } from "./pinned"
@@ -153,6 +154,34 @@ describe("a real request through the pinned dispatcher", () => {
 
 		expect(result.sent).toBe(false)
 		expect(received).toHaveLength(0)
+	})
+
+	it("reads a larger answer when the caller allows one", async () => {
+		reply = { status: 200, headers: {}, body: "x".repeat(200 * 1024) }
+
+		const result = await sendPinned({
+			url: `http://127.0.0.1:${port}/release`,
+			method: "GET",
+			headers: {},
+			policy: localPolicy,
+			maxResponseBytes: 1024 * 1024,
+		})
+
+		expect(result.sent === true && result.body.length).toBe(200 * 1024)
+	})
+
+	it("keeps a delivery's answer within the notification limit when the caller names none", async () => {
+		reply = { status: 200, headers: {}, body: "x".repeat(DELIVERY_MAX_RESPONSE_BYTES + 1) }
+
+		await expect(
+			sendPinned({
+				url: `http://127.0.0.1:${port}/hook`,
+				method: "POST",
+				headers: {},
+				body: "{}",
+				policy: localPolicy,
+			}),
+		).rejects.toThrow()
 	})
 
 	it("gives up rather than hanging when the server never answers", async () => {

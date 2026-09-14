@@ -166,6 +166,7 @@ export {
 	NOTIFICATION_HTTP_QUEUE,
 	reconcileQueues,
 	STATUS_ESCALATE_QUEUE,
+	SYSTEM_UPDATE_CHECK_QUEUE,
 } from "./job/queue-setup"
 export { assertExhaustive } from "./lib/exhaustive"
 export type { Fields, Level, Logger, TraceIds } from "./log/logger"
@@ -322,3 +323,30 @@ export {
 	createProcessIdentityRepository,
 	startHeartbeat,
 } from "./system/process-identity.repository"
+export type { ParsedReleaseNotes } from "./system/release-notes"
+export {
+	parseReleaseNotes,
+	RELEASE_NOTE_MAX_BLOCK_CHARS,
+	RELEASE_NOTE_MAX_BLOCKS,
+} from "./system/release-notes"
+export type {
+	UpdateCheckDeps,
+	UpdateCheckJob,
+	UpdateCheckReporter,
+	UpdateCheckRun,
+} from "./system/update-check"
+export {
+	createUpdateCheck,
+	requestRelease,
+	shouldCheckAtBoot,
+	UPDATE_CHECK_CRON,
+	updateCheckJob,
+	updateCheckReporter,
+} from "./system/update-check"
+export type {
+	LatestRelease,
+	UpdateCheckResult,
+	UpdateStateRepository,
+} from "./system/update-state.repository"
+export { createUpdateStateRepository } from "./system/update-state.repository"
+export { releaseNotesFor, updateStatusFor } from "./system/update-status"

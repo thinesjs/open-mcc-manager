@@ -123,6 +123,10 @@ const ctx: RequestContext = {
 	memberController: memberControllerFor(db, auth, () => undefined),
 	sshKeyController,
 	selfHostController: createTestSelfHostController(db, hostController.enroll),
+	updateStates: {
+		find: async () => undefined,
+		recordCheck: async () => undefined,
+	},
 	db,
 }
 

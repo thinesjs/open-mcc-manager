@@ -24,6 +24,7 @@ import type {
 	StatusIntervalTable,
 	StatusSourceCursorTable,
 } from "./schema/status"
+import type { UpdateStateTable } from "./schema/update-state"
 
 export type Database = Omit<
 	DB,
@@ -45,6 +46,7 @@ export type Database = Omit<
 	| "notificationDelivery"
 	| "notificationAttempt"
 	| "notificationSubscription"
+	| "updateState"
 > & {
 	host: HostTable
 	processIdentity: ProcessIdentityTable
@@ -65,4 +67,5 @@ export type Database = Omit<
 	notificationDelivery: NotificationDeliveryTable
 	notificationAttempt: NotificationAttemptTable
 	notificationSubscription: NotificationSubscriptionTable
+	updateState: UpdateStateTable
 }

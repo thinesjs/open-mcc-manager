@@ -17,6 +17,7 @@ import { AffiliationNotice } from "~/components/affiliation-notice"
 import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
+import { UpdateModal } from "~/components/update-modal"
 import { authClient } from "~/lib/auth-client"
 import { navItemVisible } from "~/lib/nav-access"
 import { useNavDrawer } from "~/lib/nav-drawer"
@@ -69,6 +70,7 @@ function AuthenticatedLayout() {
 	const me = useQuery(trpc.member.me.queryOptions())
 	const [paletteOpen, setPaletteOpen] = useState(false)
 	const [paletteInstant, setPaletteInstant] = useState(false)
+	const [updateOpen, setUpdateOpen] = useState(false)
 	const nav = useNavDrawer()
 
 	useEffect(() => {
@@ -94,6 +96,7 @@ function AuthenticatedLayout() {
 				instant={paletteInstant}
 				onClose={() => setPaletteOpen(false)}
 			/>
+			<UpdateModal open={updateOpen} onClose={() => setUpdateOpen(false)} />
 			{nav.open ? (
 				<button
 					type="button"
@@ -119,7 +122,7 @@ function AuthenticatedLayout() {
 						/>
 						<span className="text-sm font-semibold tracking-tight text-foreground">OpenMCC</span>
 					</div>
-					<BuildBadge />
+					<BuildBadge onOpenUpdate={() => setUpdateOpen(true)} />
 					<div className="px-3 pt-1 pb-2">
 						<button
 							type="button"

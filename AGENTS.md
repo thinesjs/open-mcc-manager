@@ -168,7 +168,7 @@ have:
 
 | Rule | Enforced by |
 | --- | --- |
-| Organization scope on every repository method but the one exception named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
+| Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
@@ -322,7 +322,7 @@ Dependency direction is one-way: router → controller → repository.
 
 | File | Does | Must never |
 | --- | --- | --- |
-| `*.repository.ts` | Kysely queries, org-scoped but for the one exception named under Tenancy | business logic, transport calls |
+| `*.repository.ts` | Kysely queries, org-scoped but for `listIds` and the deployment-wide `processIdentity` and `updateState` repositories named under Tenancy | business logic, transport calls |
 | `*.controller.ts` | business logic, orchestration | import tRPC or HTTP types |
 | `*.router.ts` | tRPC procedures, zod validation, capability check | touch the database directly |
 
@@ -420,21 +420,24 @@ Dependency direction is one-way: router → controller → repository.
 
 ## Tenancy
 
-Every table carries `organizationId`. Every cross-entity foreign key that
+Every table carries `organizationId`, except the deployment-wide `processIdentity`
+and `updateState` named below. Every cross-entity foreign key that
 crosses into another organization-scoped table is composite and includes it
 (see `host_sshKey_org_fk`, `auditEvent_actor_org_fk` in the migrations).
 Actor columns reference `member`, never the global `user`, except an audit
 row's `actorLabel`, which is a label captured at the time of the action, not
 a live reference, and survives the member being deleted. Repositories take
 an organization scope (`{ organizationId }`) as a required first argument on
-every method but one, and that includes `host.repository.ts`'s `lockHost`,
+every method but `listIds` and the deployment-wide `processIdentity` and
+`updateState` repositories named below, and that includes `host.repository.ts`'s `lockHost`,
 which takes no organization predicate but folds the organization id into the
 advisory lock key so one tenant cannot stall another's host that happens to
 share an id. The compiler is what enforces this: a method without the scope
 parameter cannot be called without one.
 
-`organization.repository.ts`'s `listIds` is that one exception and must stay
-the only one. It enumerates the global `organization` table so the fleet-wide
+`organization.repository.ts`'s `listIds` is the one exception that reaches
+tenant data, and must stay the only one; the deployment-wide `processIdentity`
+and `updateState` repositories below reach none. It enumerates the global `organization` table so the fleet-wide
 retention worker can iterate tenants and then call organization-scoped methods
 for each; the `organization` table carries no `organizationId` column, so
 there is nothing for a scope to bind to and a scope parameter would be
@@ -445,6 +448,17 @@ background work (`apps/worker/src/bootstrap.ts`, wiring
 actor-facing path. Never give it one — a procedure returning that list would
 tell one tenant that every other exists. Nothing else in this section is
 relaxed by it.
+
+`processIdentity` and `updateState` are the two tables with no `organizationId`,
+and their repositories take no scope. That is not a second `listIds`: those
+tables hold nothing an organization owns. Each records a fact about the
+deployment — which build and schema a daemon runs, and what the release check
+last found — and under `SECURITY.md`'s one security domain per deployment, two
+organizations cannot coherently disagree about either. `updateState` holds
+exactly one row, and the `updateState_singleton` check constraint is what makes
+that true rather than a convention. Neither table may gain a column naming an
+organization or anything an organization owns; a fact that belongs to
+a tenant belongs in a scoped table.
 
 ## Auth
 
@@ -844,6 +858,61 @@ kind, each at most `MAX_ARTIFACT_BYTES`, and everything past
 `ARTIFACT_RETENTION_DAYS` regardless. An unreachable host costs nothing — it is
 counted, skipped, and retried on the next hour, which is why the queue's
 `retryLimit` is `0` — and retention still runs for its organization.
+
+## Checking for a newer release
+
+The worker asks GitHub for the source repository's latest release four times a
+day, on `SYSTEM_UPDATE_CHECK_QUEUE` at `41 */6 * * *`, and records the answer in
+the one `updateState` row. A development build never asks. A page load never
+reaches GitHub; it reads that row.
+
+- **The version is the answer; the notes are decoration.** Nothing about the
+  notes may stop a version being recorded. GitHub allows a release body of about
+  125,000 characters, up to ~488 KiB of UTF-8 before the rest of the JSON is
+  counted, so the request reads up to `RELEASE_RESPONSE_MAX_BYTES` (1 MiB) and
+  fails closed past it: undici errors rather than truncates, and no legitimate
+  release reaches that size. The notes are then cut to `RELEASE_NOTES_MAX_BYTES`
+  (64 KiB) with `truncateBytes` and flagged, never refused. `sendPinned` keeps
+  the 64 KiB notification limit as its default; the larger cap is per caller.
+- **The URL is assembled, never accepted.** Owner and repository are separate
+  values matched against `sourceOwnerSchema` and `sourceRepoSchema` at the moment
+  of use, neither can hold a character that ends a path segment, and the host is
+  a constant. The request still goes through `sendPinned` under `PUBLIC_ONLY`,
+  and redirects are not followed: a renamed repository answers `301`, which is
+  recorded as `not-found` rather than handing the destination back to the remote.
+- **Nothing GitHub sends is kept as text except the notes.** The outcome is a
+  closed union, and a rate limit keeps only the time it ends. No status text,
+  header or URL from the answer is stored, logged or shown.
+- **The queue never retries** (`retryLimit: 0`). GitHub allows 60
+  unauthenticated requests an hour per address, and a retry into a rate limit
+  is what makes it worse. A failed check waits for the next poll.
+- **A starting worker checks only when the last check is older than the poll.**
+  It sends through `sendJob`, which is why this queue is in `QUEUE_NAMES` while
+  the schedule-only artifact queue is not. Boots that crash before any check
+  lands can each still queue one, and two workers starting together send two,
+  so the job itself asks nothing when the recorded check is younger than half
+  the poll: duplicates drain without a request, and the six-hourly schedule,
+  whose last check is always older than that, is untouched.
+- **Release notes never become HTML.** `parseReleaseNotes` reads them into a
+  closed set of blocks — heading, paragraph, bullet, numbered item, code — and
+  the dashboard renders those as React elements, so text is escaped by
+  construction. Anything outside that set stays literal text, `<script>`
+  included. A link keeps its label and address as text and never gains an
+  `href`: the one live link is the release page, built from the validated source
+  and version, never from anything GitHub sent. The model stops at 500 blocks
+  and 2,000 characters a block, and the page shows 12 before **Show all**, so a
+  long note cannot freeze the browser.
+- **The badge polls a small answer; the notes come only when asked.**
+  `system.updateStatus` carries versions, times and the outcome, and is read
+  every minute. `system.releaseNotes` is read only while the update is open.
+- **The update opens from the layout root, never from inside the sidebar.** The
+  `<aside>` always carries a translate, and any `translate` other than `none`
+  makes an element the containing block for its `fixed` descendants, so a
+  `Modal` mounted in it is sized to the 240px sidebar. `BuildBadge` only asks
+  `_authenticated.tsx` to open it, beside `CommandPalette`.
+- **`/releases/latest` reads GitHub Releases, not tags.** `release.yml` publishes
+  images for a `v*.*.*` tag but creates no Release, so the check records
+  `not-found` until a Release is published for that tag.
 
 ## Logging
 

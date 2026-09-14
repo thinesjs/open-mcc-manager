@@ -1,4 +1,4 @@
-import { conditionFor } from "@open-mcc/core"
+import { conditionFor, releaseNotesFor, updateStatusFor } from "@open-mcc/core"
 import { protectedProcedure, router } from "../trpc"
 
 export const systemRouter = router({
@@ -29,4 +29,12 @@ export const systemRouter = router({
 				: null,
 		}
 	}),
+
+	updateStatus: protectedProcedure.query(async ({ ctx }) =>
+		updateStatusFor(ctx.build, await ctx.updateStates.find()),
+	),
+
+	releaseNotes: protectedProcedure.query(async ({ ctx }) =>
+		releaseNotesFor(ctx.build, await ctx.updateStates.find()),
+	),
 })

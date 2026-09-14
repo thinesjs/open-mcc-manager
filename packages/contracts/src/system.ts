@@ -28,7 +28,7 @@ export const systemStatusSchema = z.object({
 export type SystemStatus = z.infer<typeof systemStatusSchema>
 
 export const CONDITION_HEADLINE: Record<ControlPlaneCondition, string> = {
-	healthy: "Up to date",
+	healthy: "Running",
 	"worker-missing": "No worker running",
 	"worker-stale": "Worker not responding",
 	"version-skew": "Versions do not match",

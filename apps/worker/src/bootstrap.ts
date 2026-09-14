@@ -21,6 +21,8 @@ import {
 	createSshKeyRepository,
 	createStatusController,
 	createStatusControllerTransaction,
+	createUpdateCheck,
+	createUpdateStateRepository,
 	deliverQueuedBatch,
 	dispatchTo,
 	type EgressPolicy,
@@ -37,13 +39,19 @@ import {
 	readBuildInfo,
 	reconcileQueues,
 	renderInstanceConfig,
+	requestRelease,
 	retentionSweepJob,
 	retentionSweepReporter,
 	runtimeErrorReporter,
 	type SendJob,
 	STATUS_ESCALATE_QUEUE,
+	SYSTEM_UPDATE_CHECK_QUEUE,
+	shouldCheckAtBoot,
 	startHeartbeat,
 	tracedDialect,
+	UPDATE_CHECK_CRON,
+	updateCheckJob,
+	updateCheckReporter,
 } from "@open-mcc/core"
 import {
 	appliedSchemaVersion,
@@ -258,8 +266,29 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 		artifactCollectJob(collectArtifacts, artifactCollectReporter(logger)),
 	)
 
+	const updateStates = createUpdateStateRepository(db)
+	const checkForUpdate = createUpdateCheck({
+		build,
+		readState: async () => await updateStates.find(),
+		request: async (url) => await requestRelease(url),
+		record: async (source, checkedAt, result) =>
+			await updateStates.recordCheck(source, checkedAt, result),
+		now: () => new Date(),
+	})
+
+	await boss.schedule(SYSTEM_UPDATE_CHECK_QUEUE, UPDATE_CHECK_CRON)
+	await boss.work(
+		SYSTEM_UPDATE_CHECK_QUEUE,
+		updateCheckJob(checkForUpdate, updateCheckReporter(logger)),
+	)
+
 	await boss.work(NOTIFICATION_HTTP_QUEUE, workDeliveries(NOTIFICATION_HTTP_QUEUE))
 	await boss.work(NOTIFICATION_EMAIL_QUEUE, workDeliveries(NOTIFICATION_EMAIL_QUEUE))
+
+	const lastCheck = await updateStates.find()
+	if (shouldCheckAtBoot(build, lastCheck?.checkedAt, new Date())) {
+		await sendJob(SYSTEM_UPDATE_CHECK_QUEUE, {}, asSqlRunner(db))
+	}
 
 	return {
 		db,

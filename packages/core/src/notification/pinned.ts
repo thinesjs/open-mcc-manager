@@ -105,13 +105,17 @@ export const pinnedLookup =
 		callback(null, first.address, first.family)
 	}
 
-export const pinnedAgent = (addresses: readonly PinnedAddress[], timeoutMs: number): Agent =>
+export const pinnedAgent = (
+	addresses: readonly PinnedAddress[],
+	timeoutMs: number,
+	maxResponseBytes: number,
+): Agent =>
 	new Agent({
 		connections: 1,
 		pipelining: 0,
 		headersTimeout: timeoutMs,
 		bodyTimeout: timeoutMs,
-		maxResponseSize: DELIVERY_MAX_RESPONSE_BYTES,
+		maxResponseSize: maxResponseBytes,
 		connect: { timeout: timeoutMs, lookup: pinnedLookup(addresses) },
 	})
 
@@ -121,6 +125,7 @@ export type PinnedRequest = {
 	readonly headers: Readonly<Record<string, string>>
 	readonly body?: string
 	readonly timeoutMs?: number
+	readonly maxResponseBytes?: number
 	readonly policy?: EgressPolicy
 	readonly lookupAddresses?: AddressLookup
 }
@@ -156,7 +161,11 @@ export const sendPinned = async (request: PinnedRequest): Promise<PinnedResult> 
 		return { sent: false, reason: "the address must start with https" }
 	}
 
-	const agent = pinnedAgent(pin.addresses, timeoutMs)
+	const agent = pinnedAgent(
+		pin.addresses,
+		timeoutMs,
+		request.maxResponseBytes ?? DELIVERY_MAX_RESPONSE_BYTES,
+	)
 	try {
 		const response = await undiciRequest(request.url, {
 			dispatcher: agent,

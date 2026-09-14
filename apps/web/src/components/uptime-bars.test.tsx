@@ -64,8 +64,8 @@ describe("drawing a range as slim bars", () => {
 			/>,
 		)
 
-		expect(screen.getByTitle(/^Mostly reachable · 99\.4%\s/)).toBeTruthy()
-		expect(screen.getByTitle(/^Not reachable · 44\.4%\s/)).toBeTruthy()
+		expect(screen.getByTitle(/^Mostly reachable · 99\.44%\s/)).toBeTruthy()
+		expect(screen.getByTitle(/^Not reachable · 44\.44%\s/)).toBeTruthy()
 		expect(screen.getByTitle(/^No measurements\s/)).toBeTruthy()
 	})
 

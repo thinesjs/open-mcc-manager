@@ -16,10 +16,20 @@ describe("saying how much of the time OpenMCC could reach something", () => {
 		expect(formatPercent(1)).toBe("100%")
 	})
 
+	it("never shows 100% while there was any bad time at all", () => {
+		expect(formatPercent(1 - 30 / 86_400)).toBe("99.96%")
+		expect(formatPercent(1 - 1e-12)).toBe("99.99%")
+	})
+
+	it("floors to two decimals without losing a hundredth to rounding error", () => {
+		expect(formatPercent(57 / 100)).toBe("57.00%")
+		expect(formatPercent(1 / 3)).toBe("33.33%")
+	})
+
 	it("mentions coverage only when there is a gap worth admitting", () => {
 		expect(describeCoverage({ ...EMPTY_AVAILABILITY, goodSeconds: 100 })).toBeUndefined()
 		expect(describeCoverage({ ...EMPTY_AVAILABILITY, goodSeconds: 50, unknownSeconds: 50 })).toBe(
-			"Measured 50.0% of the time",
+			"Measured 50.00% of the time",
 		)
 	})
 })

@@ -345,6 +345,18 @@ export interface StatusSourceCursor {
 	source: string
 }
 
+export interface UpdateState {
+	checkedAt: Timestamp
+	checkOutcome: string
+	id: string
+	latestNotes: string | null
+	latestVersion: string | null
+	notesTruncated: Generated<boolean>
+	rateLimitedUntil: Timestamp | null
+	sourceOwner: string
+	sourceRepo: string
+}
+
 export interface User {
 	createdAt: Generated<Timestamp>
 	email: string
@@ -389,6 +401,7 @@ export interface DB {
 	statusEvent: StatusEvent
 	statusInterval: StatusInterval
 	statusSourceCursor: StatusSourceCursor
+	updateState: UpdateState
 	user: User
 	verification: Verification
 }

@@ -22,6 +22,18 @@ export type UpdateSource = z.infer<typeof updateSourceSchema>
 
 export const PROJECT_SOURCE: UpdateSource = { owner: "thinesjs", repo: "open-mcc-manager" }
 
+export const UPDATE_CHECK_OUTCOMES = [
+	"ok",
+	"unreachable",
+	"rate-limited",
+	"not-found",
+	"unreadable",
+] as const
+
+export const updateCheckOutcomeSchema = z.enum(UPDATE_CHECK_OUTCOMES)
+
+export type UpdateCheckOutcome = z.infer<typeof updateCheckOutcomeSchema>
+
 export const releaseVersionSchema = z.string().regex(RELEASE_VERSION_PATTERN)
 
 type VersionParts = readonly [bigint, bigint, bigint]

@@ -322,3 +322,9 @@ export {
 	createProcessIdentityRepository,
 	startHeartbeat,
 } from "./system/process-identity.repository"
+export type {
+	LatestRelease,
+	UpdateCheckResult,
+	UpdateStateRepository,
+} from "./system/update-state.repository"
+export { createUpdateStateRepository } from "./system/update-state.repository"

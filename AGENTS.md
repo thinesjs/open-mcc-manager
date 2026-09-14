@@ -446,6 +446,17 @@ actor-facing path. Never give it one — a procedure returning that list would
 tell one tenant that every other exists. Nothing else in this section is
 relaxed by it.
 
+`processIdentity` and `updateState` are the two tables with no `organizationId`,
+and their repositories take no scope. That is not a second `listIds`: those
+tables hold nothing an organization owns. Each records a fact about the
+deployment — which build and schema a daemon runs, and what the release check
+last found — and under `SECURITY.md`'s one security domain per deployment, two
+organizations cannot coherently disagree about either. `updateState` holds
+exactly one row, and the `updateState_singleton` check constraint is what makes
+that true rather than a convention. Neither table may gain a column naming an
+organization, a member, or anything an organization owns; a fact that belongs to
+a tenant belongs in a scoped table.
+
 ## Auth
 
 Registration is closed by two independent controls, and the second is the one

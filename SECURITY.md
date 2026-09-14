@@ -189,6 +189,14 @@ depth, not a substitute for one.
   router and from no other actor-facing path. Exposing it to an actor would
   disclose the existence of every tenant to any one of them, so it must stay
   the only exception and must never gain an actor-facing caller.
+- **Two deployment-wide tables, holding nothing a tenant owns.**
+  `processIdentity` and `updateState` carry no `organizationId`, and their
+  repositories take no scope, because what they record belongs to the
+  deployment rather than to any organization: which build and schema each
+  daemon runs, and what the release check last found. They are not exceptions
+  to the rule above in the sense `listIds` is — they reach no tenant's rows at
+  all. Neither may gain a column naming an organization, a member, or anything
+  an organization owns.
 - **Capability-gated privileged operations.** Host enrollment, provisioning,
   and removal all check the caller's role against an explicit capability
   matrix before touching data or contacting a host.

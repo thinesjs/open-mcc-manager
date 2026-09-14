@@ -11,3 +11,4 @@ export {
 } from "./migrator"
 export * from "./schema/index"
 export type { ProcessIdentityRow, ProcessRole } from "./schema/process-identity"
+export type { UpdateStateRow } from "./schema/update-state"

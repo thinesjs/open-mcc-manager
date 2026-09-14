@@ -103,6 +103,26 @@ describe("where the release check asks", () => {
 	})
 })
 
+describe("a job that runs soon after the last check", () => {
+	const checkedAgo = (ms: number) => recordedRow({ checkedAt: new Date(NOW.getTime() - ms) })
+
+	it("asks nothing when the last check is younger than half the poll, so a duplicate job costs no request", async () => {
+		const row = checkedAgo(UPDATE_CHECK_INTERVAL_MS / 2 - 60_000)
+		const { check, asked, recorded } = harness({ row })
+
+		expect(await check()).toEqual({ checked: false, reason: "recent" })
+		expect(asked).toEqual([])
+		expect(recorded).toEqual([])
+	})
+
+	it("asks again once the last check is half the poll old", async () => {
+		const { check, asked } = harness({ row: checkedAgo(UPDATE_CHECK_INTERVAL_MS / 2) })
+
+		expect(await check()).toEqual({ checked: true, outcome: "ok" })
+		expect(asked).toHaveLength(1)
+	})
+})
+
 describe("a development build", () => {
 	it("never asks GitHub, whether the version or the commit gives it away", async () => {
 		for (const build of [
@@ -331,8 +351,17 @@ describe("reporting a check", () => {
 		expect(lines.map((line) => line.level)).toEqual(["warn"])
 	})
 
-	it("says nothing for a development build or a check that got its answer", () => {
+	it("says at info, not as a warning, that no release has been published", () => {
 		const { lines, report } = capture()
+		report({ checked: true, outcome: "not-found" })
+
+		const info = { level: "info", message: "The release check found no published release" }
+		expect(lines).toEqual([info])
+	})
+
+	it("says nothing for a development build, a recent check, or a check that got its answer", () => {
+		const { lines, report } = capture()
+		report({ checked: false, reason: "recent" })
 		report({ checked: false, reason: "development" })
 		report({ checked: true, outcome: "ok" })
 

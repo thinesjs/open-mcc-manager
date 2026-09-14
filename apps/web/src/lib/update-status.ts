@@ -26,7 +26,7 @@ export type CheckFailure = Exclude<UpdateCheckOutcome, "ok">
 export const CHECK_FAILURE_COPY: Record<CheckFailure, string> = {
 	unreachable: "GitHub could not be reached.",
 	"rate-limited": "GitHub is limiting requests from this network.",
-	"not-found": "No release was found. The repository may have moved or not published one.",
+	"not-found": "The repository has not published a release, or it has moved.",
 	unreadable: "GitHub's answer could not be read.",
 }
 

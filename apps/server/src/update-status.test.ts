@@ -141,7 +141,7 @@ describe("the update state the dashboard reads", () => {
 		const { body } = await ask({ updateStates: holding(recorded()) }, "releaseNotes")
 
 		expect(body.result.data.blocks).toEqual([
-			{ kind: "heading", spans: [{ kind: "text", text: "Fixes" }] },
+			{ kind: "heading", start: 0, spans: [{ kind: "text", start: 0, text: "Fixes" }] },
 		])
 	})
 

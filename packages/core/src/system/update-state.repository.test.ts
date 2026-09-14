@@ -24,9 +24,27 @@ afterEach(async () => {
 	await db.deleteFrom("updateState").execute()
 })
 
+const SESSIONS_GONE_TIMEOUT_MS = 10_000
+
+const openSessions = async (): Promise<number> => {
+	const { rows } = await sql<{ open: number }>`
+		select count(*)::int as open from pg_stat_activity where datname = ${databaseName}
+	`.execute(admin)
+	return rows[0]?.open ?? 0
+}
+
+const untilSessionsGone = async (): Promise<void> => {
+	const deadline = Date.now() + SESSIONS_GONE_TIMEOUT_MS
+	while ((await openSessions()) > 0) {
+		if (Date.now() > deadline) throw new Error(`sessions still open on ${databaseName}`)
+		await new Promise((resolve) => setTimeout(resolve, 50))
+	}
+}
+
 afterAll(async () => {
 	await db.destroy()
-	await sql.raw(`drop database "${databaseName}" with (force)`).execute(admin)
+	await untilSessionsGone()
+	await sql.raw(`drop database "${databaseName}"`).execute(admin)
 	await admin.destroy()
 })
 

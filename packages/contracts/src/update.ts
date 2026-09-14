@@ -36,26 +36,41 @@ export type UpdateCheckOutcome = z.infer<typeof updateCheckOutcomeSchema>
 
 export const releaseVersionSchema = z.string().regex(RELEASE_VERSION_PATTERN)
 
+const offsetSchema = z.number().int().nonnegative()
+
 export const releaseNoteSpanSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("text"), text: z.string() }),
-	z.object({ kind: z.literal("bold"), text: z.string() }),
-	z.object({ kind: z.literal("italic"), text: z.string() }),
-	z.object({ kind: z.literal("code"), text: z.string() }),
-	z.object({ kind: z.literal("link"), label: z.string(), url: z.string() }),
+	z.object({ kind: z.literal("text"), start: offsetSchema, text: z.string() }),
+	z.object({ kind: z.literal("bold"), start: offsetSchema, text: z.string() }),
+	z.object({ kind: z.literal("italic"), start: offsetSchema, text: z.string() }),
+	z.object({ kind: z.literal("code"), start: offsetSchema, text: z.string() }),
+	z.object({ kind: z.literal("link"), start: offsetSchema, label: z.string(), url: z.string() }),
 ])
 
 export type ReleaseNoteSpan = z.infer<typeof releaseNoteSpanSchema>
 
 export const releaseNoteBlockSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("heading"), spans: z.array(releaseNoteSpanSchema) }),
-	z.object({ kind: z.literal("paragraph"), spans: z.array(releaseNoteSpanSchema) }),
-	z.object({ kind: z.literal("bullet"), spans: z.array(releaseNoteSpanSchema) }),
+	z.object({
+		kind: z.literal("heading"),
+		start: offsetSchema,
+		spans: z.array(releaseNoteSpanSchema),
+	}),
+	z.object({
+		kind: z.literal("paragraph"),
+		start: offsetSchema,
+		spans: z.array(releaseNoteSpanSchema),
+	}),
+	z.object({
+		kind: z.literal("bullet"),
+		start: offsetSchema,
+		spans: z.array(releaseNoteSpanSchema),
+	}),
 	z.object({
 		kind: z.literal("numbered"),
+		start: offsetSchema,
 		number: z.string(),
 		spans: z.array(releaseNoteSpanSchema),
 	}),
-	z.object({ kind: z.literal("code"), text: z.string() }),
+	z.object({ kind: z.literal("code"), start: offsetSchema, text: z.string() }),
 ])
 
 export type ReleaseNoteBlock = z.infer<typeof releaseNoteBlockSchema>

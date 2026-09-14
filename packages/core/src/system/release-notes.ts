@@ -14,11 +14,11 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 
 const INDENTED = /^(?: {4}|\t)/
 
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/s
 
-const BULLET = /^[-*+][ \t]+(.*)$/
+const BULLET = /^[-*+][ \t]+(.*)$/s
 
-const NUMBERED = /^(\d{1,9})[.)][ \t]+(.*)$/
+const NUMBERED = /^(\d{1,9})[.)][ \t]+(.*)$/s
 
 const LINK = /\[([^[\]\n]*)\]\(([^()\s]*)\)/y
 
@@ -29,6 +29,23 @@ const ESCAPABLE = /^[!-/:-@[-`{-~]$/
 const WORD = /^[\p{L}\p{N}]$/u
 
 const isBlank = (line: string): boolean => line.trim().length === 0
+
+const trimSpaceEnd = (value: string): string => {
+	let end = value.length
+	while (end > 0 && (value[end - 1] === " " || value[end - 1] === "\t")) end -= 1
+	return value.slice(0, end)
+}
+
+const headingTextOf = (raw: string): string => {
+	const text = trimSpaceEnd(raw)
+	let end = text.length
+	while (end > 0 && text[end - 1] === "#") end -= 1
+	if (end === text.length) return text
+	if (end === 0) return ""
+	const before = text[end - 1]
+	if (before !== " " && before !== "\t") return text
+	return trimSpaceEnd(text.slice(0, end))
+}
 
 const closesFence = (line: string, mark: string): boolean => {
 	const char = mark.charAt(0)
@@ -75,8 +92,13 @@ const matchAt = (pattern: RegExp, source: string, at: number): RegExpExecArray |
 export const parseInline = (source: string): ReleaseNoteSpan[] => {
 	const spans: ReleaseNoteSpan[] = []
 	let plain = ""
+	let plainStart = 0
+	const addPlain = (value: string, at: number) => {
+		if (plain.length === 0) plainStart = at
+		plain += value
+	}
 	const flush = () => {
-		if (plain.length > 0) spans.push({ kind: "text", text: plain })
+		if (plain.length > 0) spans.push({ kind: "text", start: plainStart, text: plain })
 		plain = ""
 	}
 
@@ -86,7 +108,7 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 		const next = source.charAt(at + 1)
 
 		if (char === "\\" && ESCAPABLE.test(next)) {
-			plain += next
+			addPlain(next, at)
 			at += 2
 			continue
 		}
@@ -95,14 +117,14 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 			const run = backtickRunAt(source, at)
 			const close = findBacktickClose(source, at + run, run)
 			if (close === -1) {
-				plain += "`".repeat(run)
+				addPlain("`".repeat(run), at)
 				at += run
 				continue
 			}
 			const inner = source.slice(at + run, close)
 			const padded = inner.length > 2 && inner.startsWith(" ") && inner.endsWith(" ")
 			flush()
-			spans.push({ kind: "code", text: padded ? inner.slice(1, -1) : inner })
+			spans.push({ kind: "code", start: at, text: padded ? inner.slice(1, -1) : inner })
 			at = close + run
 			continue
 		}
@@ -110,7 +132,7 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 		if (char === "!") {
 			const image = matchAt(IMAGE, source, at)
 			if (image !== null) {
-				plain += image[0]
+				addPlain(image[0], at)
 				at += image[0].length
 				continue
 			}
@@ -120,7 +142,7 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 			const link = matchAt(LINK, source, at)
 			if (link !== null) {
 				flush()
-				spans.push({ kind: "link", label: link[1] ?? "", url: link[2] ?? "" })
+				spans.push({ kind: "link", start: at, label: link[1] ?? "", url: link[2] ?? "" })
 				at += link[0].length
 				continue
 			}
@@ -132,17 +154,18 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 			const opens = !isSpace(source[start]) && !(char === "_" && isWord(source[at - 1]))
 			const close = opens ? findEmphasisClose(source, mark, start + 1) : -1
 			if (close === -1) {
-				plain += mark
+				addPlain(mark, at)
 				at = start
 				continue
 			}
 			flush()
-			spans.push({ kind: mark.length === 2 ? "bold" : "italic", text: source.slice(start, close) })
+			const kind = mark.length === 2 ? "bold" : "italic"
+			spans.push({ kind, start: at, text: source.slice(start, close) })
 			at = close + mark.length
 			continue
 		}
 
-		plain += char
+		addPlain(char, at)
 		at += 1
 	}
 	flush()
@@ -151,9 +174,18 @@ export const parseInline = (source: string): ReleaseNoteSpan[] => {
 
 export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 	const lines = source.replace(/\r\n?/g, "\n").split("\n")
+	const lineStarts: number[] = []
+	let offset = 0
+	for (const line of lines) {
+		lineStarts.push(offset)
+		offset += line.length + 1
+	}
+	const startOf = (index: number): number => lineStarts[index] ?? offset
+
 	const blocks: ReleaseNoteBlock[] = []
 	let capped = false
 	let paragraph: string[] = []
+	let paragraphStart = 0
 
 	const bounded = (text: string): string => {
 		const kept = truncateChars(text, RELEASE_NOTE_MAX_BLOCK_CHARS)
@@ -171,13 +203,15 @@ export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 
 	const flushParagraph = () => {
 		if (paragraph.length === 0) return
-		push({ kind: "paragraph", spans: parseInline(bounded(paragraph.join("\n"))) })
+		const spans = parseInline(bounded(paragraph.join("\n")))
+		push({ kind: "paragraph", start: paragraphStart, spans })
 		paragraph = []
 	}
 
 	let index = 0
 	while (index < lines.length) {
 		const line = lines[index] ?? ""
+		const lineStart = startOf(index)
 
 		const fence = FENCE_OPEN.exec(line)
 		if (fence !== null) {
@@ -190,7 +224,7 @@ export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 				index += 1
 			}
 			index += 1
-			push({ kind: "code", text: bounded(body.join("\n")) })
+			push({ kind: "code", start: lineStart, text: bounded(body.join("\n")) })
 			continue
 		}
 
@@ -209,15 +243,15 @@ export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 				index += 1
 			}
 			while (body.length > 0 && isBlank(body[body.length - 1] ?? "")) body.pop()
-			push({ kind: "code", text: bounded(body.join("\n")) })
+			push({ kind: "code", start: lineStart, text: bounded(body.join("\n")) })
 			continue
 		}
 
 		const heading = HEADING.exec(line)
-		const headingText = heading?.[2]
-		if (headingText !== undefined && headingText.length > 0) {
+		const headingText = heading === null ? "" : headingTextOf(heading[2] ?? "")
+		if (headingText.length > 0) {
 			flushParagraph()
-			push({ kind: "heading", spans: parseInline(bounded(headingText)) })
+			push({ kind: "heading", start: lineStart, spans: parseInline(bounded(headingText)) })
 			index += 1
 			continue
 		}
@@ -225,7 +259,7 @@ export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 		const bullet = BULLET.exec(line)
 		if (bullet !== null) {
 			flushParagraph()
-			push({ kind: "bullet", spans: parseInline(bounded(bullet[1] ?? "")) })
+			push({ kind: "bullet", start: lineStart, spans: parseInline(bounded(bullet[1] ?? "")) })
 			index += 1
 			continue
 		}
@@ -233,15 +267,13 @@ export const parseReleaseNotes = (source: string): ParsedReleaseNotes => {
 		const numbered = NUMBERED.exec(line)
 		if (numbered !== null) {
 			flushParagraph()
-			push({
-				kind: "numbered",
-				number: numbered[1] ?? "",
-				spans: parseInline(bounded(numbered[2] ?? "")),
-			})
+			const spans = parseInline(bounded(numbered[2] ?? ""))
+			push({ kind: "numbered", start: lineStart, number: numbered[1] ?? "", spans })
 			index += 1
 			continue
 		}
 
+		if (paragraph.length === 0) paragraphStart = lineStart
 		paragraph.push(line)
 		index += 1
 	}

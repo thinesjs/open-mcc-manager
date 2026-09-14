@@ -172,7 +172,8 @@ depth, not a substitute for one.
   never to seal new ones. A key is rotated by introducing a new pair, pointing
   new seals at it, and retiring the old private key once nothing references it
   — without a flag day.
-- **Organization-scoped data access.** Every repository method but one takes
+- **Organization-scoped data access.** Every repository method but `listIds` and the
+  deployment-wide `processIdentity` and `updateState` repositories named below takes
   an organization scope as a required first argument, so the compiler rejects a
   call that omits one. Every read and write applies it at the query level, not
   as a filter after the fact; the one method with no rows to predicate,
@@ -188,14 +189,15 @@ depth, not a substitute for one.
   only caller is the worker's cleanup handler, and it is reachable from no
   router and from no other actor-facing path. Exposing it to an actor would
   disclose the existence of every tenant to any one of them, so it must stay
-  the only exception and must never gain an actor-facing caller.
+  the only exception that reaches tenant data and must never gain an
+  actor-facing caller. The deployment-wide repositories below reach none.
 - **Two deployment-wide tables, holding nothing a tenant owns.**
   `processIdentity` and `updateState` carry no `organizationId`, and their
   repositories take no scope, because what they record belongs to the
   deployment rather than to any organization: which build and schema each
   daemon runs, and what the release check last found. They are not exceptions
   to the rule above in the sense `listIds` is — they reach no tenant's rows at
-  all. Neither may gain a column naming an organization, a member, or anything
+  all. Neither may gain a column naming an organization or anything
   an organization owns.
 - **Capability-gated privileged operations.** Host enrollment, provisioning,
   and removal all check the caller's role against an explicit capability

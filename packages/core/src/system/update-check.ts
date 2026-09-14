@@ -115,7 +115,7 @@ export const shouldCheckAtBoot = (
 }
 
 export type UpdateCheckRun =
-	| { readonly checked: false; readonly reason: "development" | "unusable-source" }
+	| { readonly checked: false; readonly reason: "development" | "recent" | "unusable-source" }
 	| { readonly checked: true; readonly outcome: UpdateCheckOutcome }
 
 export type UpdateCheckDeps = {
@@ -138,10 +138,15 @@ const sourceOf = (row: UpdateStateRow | undefined): UpdateSource | undefined => 
 
 export const createUpdateCheck = (deps: UpdateCheckDeps) => async (): Promise<UpdateCheckRun> => {
 	if (isDevelopmentBuild(deps.build)) return { checked: false, reason: "development" }
-	const source = sourceOf(await deps.readState())
+	const row = await deps.readState()
+	const checkedAt = deps.now()
+	const sinceLast = row === undefined ? undefined : checkedAt.getTime() - row.checkedAt.getTime()
+	if (sinceLast !== undefined && sinceLast < UPDATE_CHECK_INTERVAL_MS / 2) {
+		return { checked: false, reason: "recent" }
+	}
+	const source = sourceOf(row)
 	if (source === undefined) return { checked: false, reason: "unusable-source" }
 
-	const checkedAt = deps.now()
 	let result: UpdateCheckResult
 	try {
 		result = readReleaseAnswer(await deps.request(latestReleaseUrl(source)), checkedAt)
@@ -155,12 +160,16 @@ export const createUpdateCheck = (deps: UpdateCheckDeps) => async (): Promise<Up
 export type UpdateCheckReporter = (run: UpdateCheckRun) => void
 
 export const updateCheckReporter =
-	(logger: Pick<Logger, "warn">): UpdateCheckReporter =>
+	(logger: Pick<Logger, "info" | "warn">): UpdateCheckReporter =>
 	(run) => {
 		if (!run.checked) {
 			if (run.reason === "unusable-source") {
 				logger.warn("The recorded release source is not a repository name this manager will ask")
 			}
+			return
+		}
+		if (run.outcome === "not-found") {
+			logger.info("The release check found no published release")
 			return
 		}
 		if (run.outcome !== "ok") logger.warn(`The release check failed: ${run.outcome}`)

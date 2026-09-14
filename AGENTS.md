@@ -168,7 +168,7 @@ have:
 
 | Rule | Enforced by |
 | --- | --- |
-| Organization scope on every repository method but the one exception named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
+| Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
@@ -322,7 +322,7 @@ Dependency direction is one-way: router → controller → repository.
 
 | File | Does | Must never |
 | --- | --- | --- |
-| `*.repository.ts` | Kysely queries, org-scoped but for the one exception named under Tenancy | business logic, transport calls |
+| `*.repository.ts` | Kysely queries, org-scoped but for `listIds` and the deployment-wide `processIdentity` and `updateState` repositories named under Tenancy | business logic, transport calls |
 | `*.controller.ts` | business logic, orchestration | import tRPC or HTTP types |
 | `*.router.ts` | tRPC procedures, zod validation, capability check | touch the database directly |
 
@@ -420,21 +420,24 @@ Dependency direction is one-way: router → controller → repository.
 
 ## Tenancy
 
-Every table carries `organizationId`. Every cross-entity foreign key that
+Every table carries `organizationId`, except the deployment-wide `processIdentity`
+and `updateState` named below. Every cross-entity foreign key that
 crosses into another organization-scoped table is composite and includes it
 (see `host_sshKey_org_fk`, `auditEvent_actor_org_fk` in the migrations).
 Actor columns reference `member`, never the global `user`, except an audit
 row's `actorLabel`, which is a label captured at the time of the action, not
 a live reference, and survives the member being deleted. Repositories take
 an organization scope (`{ organizationId }`) as a required first argument on
-every method but one, and that includes `host.repository.ts`'s `lockHost`,
+every method but `listIds` and the deployment-wide `processIdentity` and
+`updateState` repositories named below, and that includes `host.repository.ts`'s `lockHost`,
 which takes no organization predicate but folds the organization id into the
 advisory lock key so one tenant cannot stall another's host that happens to
 share an id. The compiler is what enforces this: a method without the scope
 parameter cannot be called without one.
 
-`organization.repository.ts`'s `listIds` is that one exception and must stay
-the only one. It enumerates the global `organization` table so the fleet-wide
+`organization.repository.ts`'s `listIds` is the one exception that reaches
+tenant data, and must stay the only one; the deployment-wide `processIdentity`
+and `updateState` repositories below reach none. It enumerates the global `organization` table so the fleet-wide
 retention worker can iterate tenants and then call organization-scoped methods
 for each; the `organization` table carries no `organizationId` column, so
 there is nothing for a scope to bind to and a scope parameter would be
@@ -454,7 +457,7 @@ last found — and under `SECURITY.md`'s one security domain per deployment, two
 organizations cannot coherently disagree about either. `updateState` holds
 exactly one row, and the `updateState_singleton` check constraint is what makes
 that true rather than a convention. Neither table may gain a column naming an
-organization, a member, or anything an organization owns; a fact that belongs to
+organization or anything an organization owns; a fact that belongs to
 a tenant belongs in a scoped table.
 
 ## Auth
@@ -885,9 +888,11 @@ reaches GitHub; it reads that row.
   is what makes it worse. A failed check waits for the next poll.
 - **A starting worker checks only when the last check is older than the poll.**
   It sends through `sendJob`, which is why this queue is in `QUEUE_NAMES` while
-  the schedule-only artifact queue is not. A restart loop sends nothing once one
-  check has landed, but boots that crash before any check completes can still
-  queue several; `warningQueueSize` reports that rather than letting it pass.
+  the schedule-only artifact queue is not. Boots that crash before any check
+  lands can each still queue one, and two workers starting together send two,
+  so the job itself asks nothing when the recorded check is younger than half
+  the poll: duplicates drain without a request, and the six-hourly schedule,
+  whose last check is always older than that, is untouched.
 - **Release notes never become HTML.** `parseReleaseNotes` reads them into a
   closed set of blocks — heading, paragraph, bullet, numbered item, code — and
   the dashboard renders those as React elements, so text is escaped by
@@ -900,6 +905,11 @@ reaches GitHub; it reads that row.
 - **The badge polls a small answer; the notes come only when asked.**
   `system.updateStatus` carries versions, times and the outcome, and is read
   every minute. `system.releaseNotes` is read only while the update is open.
+- **The update opens from the layout root, never from inside the sidebar.** The
+  `<aside>` always carries a translate, and any `translate` other than `none`
+  makes an element the containing block for its `fixed` descendants, so a
+  `Modal` mounted in it is sized to the 240px sidebar. `BuildBadge` only asks
+  `_authenticated.tsx` to open it, beside `CommandPalette`.
 - **`/releases/latest` reads GitHub Releases, not tags.** `release.yml` publishes
   images for a `v*.*.*` tag but creates no Release, so the check records
   `not-found` until a Release is published for that tag.

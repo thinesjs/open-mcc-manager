@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { ReleaseNotesView, UpdateStatus } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { CHECK_FAILURE_COPY } from "~/lib/update-status"
 import { BuildBadge } from "./control-plane-status"
-import { ReleaseNotes } from "./update-modal"
+import { ReleaseNotes, UpdateModal } from "./update-modal"
+
+const here = dirname(fileURLToPath(import.meta.url))
 
 const served = vi.hoisted(() => {
 	const answers: { update: UpdateStatus | undefined; notes: ReleaseNotesView | null } = {
@@ -67,17 +74,29 @@ const checked = (
 const notesWith = (patch: Partial<ReleaseNotesView> = {}): ReleaseNotesView => ({
 	version: "1.5.0",
 	source: SOURCE,
-	blocks: [{ kind: "paragraph", spans: [{ kind: "text", text: "Faster bots." }] }],
+	blocks: [
+		{ kind: "paragraph", start: 0, spans: [{ kind: "text", start: 0, text: "Faster bots." }] },
+	],
 	truncated: false,
 	...patch,
 })
+
+const Layout = () => {
+	const [open, setOpen] = useState(false)
+	return (
+		<>
+			<UpdateModal open={open} onClose={() => setOpen(false)} />
+			<BuildBadge onOpenUpdate={() => setOpen(true)} />
+		</>
+	)
+}
 
 const mountBadge = async (update: UpdateStatus) => {
 	served.update = update
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 	render(
 		<QueryClientProvider client={client}>
-			<BuildBadge />
+			<Layout />
 		</QueryClientProvider>,
 	)
 	await screen.findByText("1.4.0 · abc123def456")
@@ -88,6 +107,26 @@ const openBadge = async () => {
 	fireEvent.click(screen.getByRole("button", { name: /1\.4\.0 · abc123def456/ }))
 	return await screen.findByRole("dialog")
 }
+
+describe("where the update opens", () => {
+	const layout = readFileSync(join(here, "..", "routes", "_authenticated.tsx"), "utf8")
+	const badge = readFileSync(join(here, "control-plane-status.tsx"), "utf8")
+
+	it("opens from the layout root, outside the sidebar whose translate would clip it to its width", () => {
+		const asideOpens = layout.indexOf("<aside")
+		const asideCloses = layout.indexOf("</aside>")
+		const modalAt = layout.indexOf("<UpdateModal")
+
+		expect(asideOpens).toBeGreaterThan(-1)
+		expect(asideCloses).toBeGreaterThan(asideOpens)
+		expect(layout.split("<UpdateModal").length - 1).toBe(1)
+		expect(modalAt > asideOpens && modalAt < asideCloses).toBe(false)
+	})
+
+	it("is never mounted by the badge, which lives inside the sidebar", () => {
+		expect(badge).not.toContain("<UpdateModal")
+	})
+})
 
 describe("the build badge", () => {
 	it("marks a development build and offers nothing to open", async () => {
@@ -165,6 +204,36 @@ describe("the build badge", () => {
 	})
 })
 
+describe("a check that has never found a release", () => {
+	it("is titled no release found and says why in text that is on the page, not in a tooltip", async () => {
+		await mountBadge(checked({ latest: null, available: false, outcome: "not-found" }))
+
+		const dialog = await openBadge()
+
+		expect(dialog.getAttribute("aria-label")).toBe("No release found")
+		expect(within(dialog).getByText(CHECK_FAILURE_COPY["not-found"])).toBeDefined()
+		expect(within(dialog).queryByText("Last check failed")).toBeNull()
+	})
+
+	it("is still titled a failed check when GitHub could not be asked, and says why on the page", async () => {
+		await mountBadge(checked({ latest: null, available: false, outcome: "unreachable" }))
+
+		const dialog = await openBadge()
+
+		expect(dialog.getAttribute("aria-label")).toBe("Update check failed")
+		expect(within(dialog).getByText(CHECK_FAILURE_COPY.unreachable)).toBeDefined()
+	})
+
+	it("keeps calling it a failed check when a release was found before and the repository is gone now", async () => {
+		await mountBadge(checked({ latest: "1.4.0", available: false, outcome: "not-found" }))
+
+		const dialog = await openBadge()
+
+		expect(dialog.getAttribute("aria-label")).toBe("Up to date")
+		expect(within(dialog).getByText("Last check failed")).toBeDefined()
+	})
+})
+
 const notesRegion = (container: HTMLElement): HTMLElement => {
 	const region = container.querySelector<HTMLElement>('[data-slot="release-notes"]')
 	if (region === null) throw new Error("no release notes region rendered")
@@ -183,7 +252,11 @@ describe("release notes on the page", () => {
 			<ReleaseNotes
 				notes={notesWith({
 					blocks: [
-						{ kind: "paragraph", spans: [{ kind: "text", text: "<script>alert(1)</script>" }] },
+						{
+							kind: "paragraph",
+							start: 0,
+							spans: [{ kind: "text", start: 0, text: "<script>alert(1)</script>" }],
+						},
 					],
 				})}
 			/>,
@@ -200,7 +273,8 @@ describe("release notes on the page", () => {
 					blocks: [
 						{
 							kind: "paragraph",
-							spans: [{ kind: "link", label: "click", url: "javascript:alert(1)" }],
+							start: 0,
+							spans: [{ kind: "link", start: 0, label: "click", url: "javascript:alert(1)" }],
 						},
 					],
 				})}
@@ -225,7 +299,8 @@ describe("release notes on the page", () => {
 	it("shows the first twelve blocks until asked for the rest", () => {
 		const blocks = Array.from({ length: 15 }, (_, n) => ({
 			kind: "paragraph" as const,
-			spans: [{ kind: "text" as const, text: `block ${n}` }],
+			start: n * 10,
+			spans: [{ kind: "text" as const, start: 0, text: `block ${n}` }],
 		}))
 		const { container } = render(<ReleaseNotes notes={notesWith({ blocks })} />)
 

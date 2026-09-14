@@ -97,8 +97,8 @@ describe("the release notes the dashboard is given", () => {
 			version: "1.5.0",
 			source: { owner: "thinesjs", repo: "open-mcc-manager" },
 			blocks: [
-				{ kind: "heading", spans: [{ kind: "text", text: "Fixes" }] },
-				{ kind: "bullet", spans: [{ kind: "text", text: "one" }] },
+				{ kind: "heading", start: 0, spans: [{ kind: "text", start: 0, text: "Fixes" }] },
+				{ kind: "bullet", start: 9, spans: [{ kind: "text", start: 0, text: "one" }] },
 			],
 			truncated: false,
 		})

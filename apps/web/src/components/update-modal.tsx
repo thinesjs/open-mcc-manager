@@ -16,12 +16,6 @@ import { checkedAgo, checkFailureReason, RELEASE_NOTES_SHOWN_FIRST } from "~/lib
 
 export type OpenableUpdateStatus = Exclude<UpdateStatus, { kind: "development" }>
 
-const withKeys = <Item,>(items: readonly Item[]): { key: string; item: Item }[] => {
-	const keyed: { key: string; item: Item }[] = []
-	for (const [position, item] of items.entries()) keyed.push({ key: `${position}`, item })
-	return keyed
-}
-
 const shortTime = (at: Date): string =>
 	at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 
@@ -29,6 +23,7 @@ export const headlineOf = (status: OpenableUpdateStatus): string => {
 	if (status.kind === "unchecked") return "Updates"
 	if (status.available) return "Update available"
 	if (status.latest !== null) return "Up to date"
+	if (status.outcome === "not-found") return "No release found"
 	return "Update check failed"
 }
 
@@ -50,8 +45,8 @@ const Span = ({ span }: { span: ReleaseNoteSpan }) => {
 
 const Spans = ({ spans }: { spans: readonly ReleaseNoteSpan[] }) => (
 	<>
-		{withKeys(spans).map(({ key, item }) => (
-			<Span key={key} span={item} />
+		{spans.map((span) => (
+			<Span key={span.start} span={span} />
 		))}
 	</>
 )
@@ -105,8 +100,8 @@ export const ReleaseNotes = ({ notes }: { notes: ReleaseNotesView }) => {
 					data-slot="release-notes"
 					className="max-h-[50vh] space-y-2 overflow-y-auto break-words rounded-[var(--control-radius)] border border-border p-3 text-sm text-foreground"
 				>
-					{withKeys(shown).map(({ key, item }) => (
-						<NoteBlock key={key} block={item} />
+					{shown.map((block) => (
+						<NoteBlock key={block.start} block={block} />
 					))}
 				</div>
 			) : null}
@@ -144,6 +139,8 @@ const UpdateDetail = ({ status, open }: { status: OpenableUpdateStatus; open: bo
 	const checked = `checked ${checkedAgo(new Date(status.checkedAt), new Date())}`
 	const rateLimitedUntil =
 		status.rateLimitedUntil === null ? null : new Date(status.rateLimitedUntil)
+	const reason =
+		status.outcome === "ok" ? null : checkFailureReason(status.outcome, rateLimitedUntil, shortTime)
 
 	return (
 		<div className="space-y-4">
@@ -152,11 +149,12 @@ const UpdateDetail = ({ status, open }: { status: OpenableUpdateStatus; open: bo
 					? `${status.latest} · you are on ${status.running}`
 					: `${status.running} · ${checked}`}
 			</p>
-			{status.outcome !== "ok" ? (
+			{reason !== null && status.latest === null ? (
+				<p className="text-sm text-muted-foreground">{reason}</p>
+			) : null}
+			{reason !== null && status.latest !== null ? (
 				<p className="text-sm text-muted-foreground">
-					<Tooltip content={checkFailureReason(status.outcome, rateLimitedUntil, shortTime)}>
-						Last check failed
-					</Tooltip>
+					<Tooltip content={reason}>Last check failed</Tooltip>
 				</p>
 			) : null}
 			{status.available ? <ReleaseNotesFor enabled={open} /> : null}
@@ -167,11 +165,17 @@ const UpdateDetail = ({ status, open }: { status: OpenableUpdateStatus; open: bo
 export type UpdateModalProps = {
 	open: boolean
 	onClose: () => void
-	status: OpenableUpdateStatus
 }
 
-export const UpdateModal = ({ open, onClose, status }: UpdateModalProps) => (
-	<Modal open={open} onClose={onClose} title={headlineOf(status)} size="wide">
-		<UpdateDetail status={status} open={open} />
-	</Modal>
-)
+export const UpdateModal = ({ open, onClose }: UpdateModalProps) => {
+	const trpc = useTRPC()
+	const update = useQuery({ ...trpc.system.updateStatus.queryOptions(), retry: false })
+	const status = update.data
+	if (!status || status.kind === "development") return null
+
+	return (
+		<Modal open={open} onClose={onClose} title={headlineOf(status)} size="wide">
+			<UpdateDetail status={status} open={open} />
+		</Modal>
+	)
+}

@@ -37,12 +37,6 @@ const RANGE_LABEL: Record<StatusRange, string> = {
 	"30d": "30 days",
 }
 
-const FROM_LABEL: Record<StatusRange, string> = {
-	"24h": "24 hours ago",
-	"7d": "7 days ago",
-	"30d": "30 days ago",
-}
-
 function StatusPage() {
 	const trpc = useTRPC()
 	const [range, setRange] = useState<StatusRange>("24h")
@@ -113,7 +107,6 @@ function StatusPage() {
 										<UptimeBars
 											buckets={host.buckets}
 											bucketSeconds={summaryQuery.data.bucketSeconds}
-											fromLabel={FROM_LABEL[range]}
 										/>
 										<div className="flex items-baseline justify-between gap-4">
 											<span className="text-xs text-muted-foreground">
@@ -162,7 +155,6 @@ function StatusPage() {
 										<UptimeBars
 											buckets={bot.buckets}
 											bucketSeconds={summaryQuery.data.bucketSeconds}
-											fromLabel={FROM_LABEL[range]}
 											goodLabel="On its server"
 											partialLabel="Mostly on its server"
 											badLabel="Off its server"

@@ -6,7 +6,6 @@ import { cn } from "~/lib/utils"
 export type UptimeBarsProps = {
 	buckets: readonly BucketAvailability[]
 	bucketSeconds: StatusSummary["bucketSeconds"]
-	fromLabel: string
 	goodLabel?: string | undefined
 	partialLabel?: string | undefined
 	badLabel?: string | undefined
@@ -41,10 +40,16 @@ const spanOf = (start: string, bucketSeconds: number): string => {
 	return SPAN.formatRange(from, new Date(from.getTime() + bucketSeconds * 1000))
 }
 
+const HOUR_SECONDS = 60 * 60
+
+const sinceLabel = (seconds: number): string =>
+	seconds > 24 * HOUR_SECONDS
+		? `${Math.round(seconds / (24 * HOUR_SECONDS))} days ago`
+		: `${Math.round(seconds / HOUR_SECONDS)} hours ago`
+
 export const UptimeBars = ({
 	buckets,
 	bucketSeconds,
-	fromLabel,
 	goodLabel = "Reachable",
 	partialLabel = "Mostly reachable",
 	badLabel = "Not reachable",
@@ -76,7 +81,7 @@ export const UptimeBars = ({
 				})}
 			</div>
 			<div className="flex justify-between text-xs text-muted-foreground">
-				<span>{fromLabel}</span>
+				<span>{sinceLabel(buckets.length * bucketSeconds)}</span>
 				<span>Today</span>
 			</div>
 		</div>

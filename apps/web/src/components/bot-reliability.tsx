@@ -61,7 +61,6 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 						<UptimeBars
 							buckets={bot.buckets}
 							bucketSeconds={summary.bucketSeconds}
-							fromLabel="24 hours ago"
 							goodLabel="On its server"
 							partialLabel="Mostly on its server"
 							badLabel="Off its server"

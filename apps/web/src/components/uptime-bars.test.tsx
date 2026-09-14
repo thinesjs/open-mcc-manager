@@ -35,20 +35,40 @@ describe("what colour a day gets", () => {
 
 const QUARTER_HOUR = 15 * 60
 
+const TWO_HOURS = 2 * 60 * 60
+
+const bars = (count: number, seconds: number, patch: Partial<typeof EMPTY_AVAILABILITY>) =>
+	Array.from({ length: count }, (_, index) => ({
+		start: new Date(Date.UTC(2026, 8, 12, 10, 15) + index * seconds * 1000).toISOString(),
+		availability: { ...EMPTY_AVAILABILITY, ...patch },
+	}))
+
 const quarter = (index: number, patch: Partial<typeof EMPTY_AVAILABILITY>) => ({
 	start: new Date(Date.UTC(2026, 8, 12, 10, 15) + index * QUARTER_HOUR * 1000).toISOString(),
 	availability: { ...EMPTY_AVAILABILITY, ...patch },
 })
 
-const wholeDay = Array.from({ length: 96 }, (_, index) =>
-	quarter(index, { goodSeconds: QUARTER_HOUR }),
-)
+const wholeDay = bars(96, QUARTER_HOUR, { goodSeconds: QUARTER_HOUR })
 
 describe("drawing a range as slim bars", () => {
 	it("draws one bar for every bucket it is given", () => {
-		render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} fromLabel="24 hours ago" />)
+		render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} />)
 
 		expect(screen.getAllByTitle(/^Reachable\s/)).toHaveLength(96)
+	})
+
+	it("says how far back the row starts from the bars that came back, not the range asked for", () => {
+		render(
+			<UptimeBars
+				buckets={bars(84, TWO_HOURS, { goodSeconds: TWO_HOURS })}
+				bucketSeconds={TWO_HOURS}
+			/>,
+		)
+		expect(screen.getByText("7 days ago")).toBeTruthy()
+		cleanup()
+
+		render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} />)
+		expect(screen.getByText("24 hours ago")).toBeTruthy()
 	})
 
 	it("tells a brief outage apart from a long one and from no measurements on hover", () => {
@@ -60,7 +80,6 @@ describe("drawing a range as slim bars", () => {
 					quarter(2, {}),
 				]}
 				bucketSeconds={QUARTER_HOUR}
-				fromLabel="24 hours ago"
 			/>,
 		)
 
@@ -74,7 +93,6 @@ describe("drawing a range as slim bars", () => {
 			<UptimeBars
 				buckets={[quarter(0, { goodSeconds: QUARTER_HOUR })]}
 				bucketSeconds={QUARTER_HOUR}
-				fromLabel="24 hours ago"
 			/>,
 		)
 

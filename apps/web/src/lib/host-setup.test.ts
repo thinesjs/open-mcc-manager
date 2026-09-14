@@ -103,10 +103,6 @@ describe("the command an operator pastes onto a new host", () => {
 		expect(script).toContain("There is no client build for $machine")
 	})
 
-	it("finds the libicu package without hardcoding a version that will age out", () => {
-		expect(hostSetupScript("pi", KEY)).toContain("'^libicu[0-9]+$'")
-	})
-
 	it("ends by printing the fingerprint the next step asks for", () => {
 		expect(hostSetupScript("pi", KEY)).toContain(fingerprintCommand())
 	})
@@ -130,6 +126,69 @@ describe("what the command does on every host", () => {
 		expect(script).not.toContain('if [ "$account" != "root" ]')
 		expect(script).not.toContain("is not root")
 		expect(Object.keys(hostSetup)).not.toContain("requiresRootAccount")
+	})
+})
+
+describe("preparing a host to run bots in Podman", () => {
+	it("refuses an account whose uid is 0 before it authorises any key", () => {
+		const script = hostSetupScript("pi", KEY)
+		const refusal = script.indexOf("Bots can't run as root. Use a normal account.")
+
+		expect(script).toContain('[ "$(id -u "$account")" = 0 ]')
+		expect(refusal).toBeGreaterThan(-1)
+		expect(refusal).toBeLessThan(script.indexOf(ACCOUNT_STEP))
+		expect(refusal).toBeLessThan(script.indexOf("loginctl enable-linger"))
+	})
+
+	it("carries --no-remove on every apt-get install, so a conflict stops rather than removes", () => {
+		const installs = hostSetupScript("pi", KEY).match(/apt-get [^\n]*install[^\n]*/g) ?? []
+
+		expect(installs.length).toBeGreaterThan(0)
+		for (const install of installs) expect(install).toContain("--no-remove")
+	})
+
+	it("installs Podman only when it is missing, with the helper its candidate major needs", () => {
+		const script = hostSetupScript("pi", KEY)
+
+		expect(script).toContain("command -v podman")
+		expect(script).toContain("apt-cache policy podman")
+		expect(script).toContain('helper=slirp4netns; [ "$major" -ge 5 ] && helper=passt')
+		expect(script).toContain(
+			'apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session',
+		)
+	})
+
+	it("adds a subordinate id range to each file that has none for the account", () => {
+		const script = hostSetupScript("pi", KEY)
+
+		expect(script).toContain('usermod --add-subuids "$range" "$account"')
+		expect(script).toContain('usermod --add-subgids "$range" "$account"')
+		expect(script).toContain("/etc/subuid")
+		expect(script).toContain("/etc/subgid")
+	})
+
+	it("installs nothing for the old client runtime", () => {
+		expect(hostSetupScript("pi", KEY)).not.toContain("libicu")
+		expect(setupSummary("pi").join(" ")).not.toContain("libicu")
+	})
+
+	it("says a distribution without apt isn't supported yet, instead of trying dnf or apk", () => {
+		const script = hostSetupScript("pi", KEY)
+
+		expect(script).toContain("This distribution isn't supported yet.")
+		expect(script).not.toContain("dnf")
+		expect(script).not.toContain("apk")
+	})
+
+	it("tells the operator it installs Podman and lets the account run containers", () => {
+		expect(setupSummary("pi")).toEqual([
+			"Authorises this deployment's key for pi",
+			"Enables lingering, so instances keep running after you log out",
+			"Checks this machine has a client build",
+			"Installs Podman if it is missing",
+			"Lets pi run containers",
+			"Prints the host key fingerprint for the next step",
+		])
 	})
 })
 

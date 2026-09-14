@@ -8,7 +8,9 @@ import {
 	docker,
 	dockerRunArguments,
 	hostRunArguments,
+	imageBuildArguments,
 	killsAContainer,
+	REPOSITORY,
 	RUN_LABEL,
 	reachesThisMachine,
 	SANDBOX_LABEL,
@@ -17,6 +19,65 @@ import {
 } from "./sandbox"
 
 const IMAGE = "sha256:0123456789abcdef"
+
+describe("booting a Podman host", () => {
+	const STORAGE = "/home/pod1/.local/share/containers:uid=2001,gid=2001,mode=0700"
+
+	it("gives an account its own container storage on a tmpfs, which names no path on this machine", () => {
+		const args = hostRunArguments("name", "run", IMAGE, [STORAGE], null)
+
+		expect(args[args.indexOf(STORAGE) - 1]).toBe("--tmpfs")
+		expect(args.indexOf(STORAGE)).toBeLessThan(args.indexOf("--"))
+		expect(reachesThisMachine(args)).toBe(false)
+		expect(args.at(-1)).toBe(IMAGE)
+	})
+
+	it("boots on the platform the run asks for, among docker's own options", () => {
+		const args = hostRunArguments("name", "run", IMAGE, [], "linux/amd64")
+		const at = args.indexOf("--platform")
+
+		expect(args.slice(at, at + 2)).toEqual(["--platform", "linux/amd64"])
+		expect(at).toBeLessThan(args.indexOf("--"))
+	})
+
+	it("boots on this machine's own platform when none is asked for", () => {
+		expect(hostRunArguments("name", "run", IMAGE, [], null)).not.toContain("--platform")
+	})
+})
+
+describe("building a sandbox host image", () => {
+	const CONTEXT = join(REPOSITORY, "docker", "sandbox")
+
+	it("builds the plain host from the sandbox directory, on its default base image", () => {
+		expect(imageBuildArguments({ target: "host", baseImage: null, platform: null })).toEqual([
+			"build",
+			"--quiet",
+			"--target",
+			"host",
+			CONTEXT,
+		])
+	})
+
+	it("builds a Podman host on the base image and platform asked for", () => {
+		expect(
+			imageBuildArguments({
+				target: "podman-host",
+				baseImage: "debian:trixie-20250908",
+				platform: "linux/amd64",
+			}),
+		).toEqual([
+			"build",
+			"--quiet",
+			"--target",
+			"podman-host",
+			"--build-arg",
+			"BASE_IMAGE=debian:trixie-20250908",
+			"--platform",
+			"linux/amd64",
+			CONTEXT,
+		])
+	})
+})
 
 describe("how a sandbox container may be taken down", () => {
 	it.each([

@@ -13,9 +13,17 @@ export const setupSummary = (username: string): readonly string[] => [
 	`Authorises this deployment's key for ${username}`,
 	"Enables lingering, so instances keep running after you log out",
 	"Checks this machine has a client build",
-	"Installs libicu, which the client needs, if it is missing",
+	"Installs Podman if it is missing",
+	`Lets ${username} run containers`,
 	"Prints the host key fingerprint for the next step",
 ]
+
+const ROOT_SECTION = `
+if [ "$(id -u "$account")" = 0 ]; then
+  echo "Bots can't run as root. Use a normal account." >&2
+  exit 1
+fi
+`
 
 const LINGER_SECTION = `
 if ! loginctl enable-linger "$account"; then
@@ -23,6 +31,46 @@ if ! loginctl enable-linger "$account"; then
   exit 1
 fi
 echo "  lingering enabled, so instances keep running after logout"
+`
+
+const PODMAN_SECTION = `
+if command -v podman >/dev/null 2>&1; then
+  echo "  Podman already installed"
+elif command -v apt-get >/dev/null 2>&1; then
+  log=$(mktemp)
+  if ! DEBIAN_FRONTEND=noninteractive apt-get update -qq >"$log" 2>&1; then
+    echo "Could not refresh the package lists:" >&2; tail -5 "$log" >&2; rm -f "$log"; exit 1
+  fi
+  major=$(apt-cache policy podman | awk '/Candidate:/ {print $2; exit}' | sed -E 's/^[0-9]+://; s/[^0-9].*$//')
+  if [ -z "$major" ]; then
+    echo "This distribution has no Podman package." >&2; rm -f "$log"; exit 1
+  fi
+  helper=slirp4netns; [ "$major" -ge 5 ] && helper=passt
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session >"$log" 2>&1; then
+    echo "Could not install Podman:" >&2; tail -5 "$log" >&2; rm -f "$log"; exit 1
+  fi
+  rm -f "$log"
+  echo "  installed Podman with $helper"
+else
+  echo "This distribution isn't supported yet." >&2
+  exit 1
+fi
+`
+
+const SUBORDINATE_SECTION = `
+uid=$(id -u "$account")
+has_range() {
+  awk -F: -v a="$account" -v i="$uid" '$1 == a || $1 == i { found = 1 } END { exit !found }' "$1" 2>/dev/null
+}
+if has_range /etc/subuid && has_range /etc/subgid; then
+  echo "  $account can already run containers"
+else
+  start=$(cat /etc/subuid /etc/subgid 2>/dev/null | awk -F: 'NF == 3 && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { end = $2 + $3; if (end > top) top = end } END { printf "%d\\n", (top > 100000 ? top : 100000) }')
+  range="$start-$((start + 65535))"
+  has_range /etc/subuid || usermod --add-subuids "$range" "$account"
+  has_range /etc/subgid || usermod --add-subgids "$range" "$account"
+  echo "  $account can now run containers"
+fi
 `
 
 const AUTHORISE = `set -eu
@@ -115,7 +163,7 @@ if [ -z "$home" ]; then
   echo "There is no account called $account on this host." >&2
   exit 1
 fi
-
+${ROOT_SECTION}
 authorise='${AUTHORISE}'
 if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
   printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2
@@ -129,30 +177,7 @@ case "$machine" in
   x86_64|amd64|aarch64|arm64) echo "  architecture $machine is supported" ;;
   *) echo "There is no client build for $machine. This host cannot run instances." >&2; exit 1 ;;
 esac
-
-if ldconfig -p 2>/dev/null | grep -q libicuuc; then
-  echo "  libicu already installed"
-elif command -v apt-get >/dev/null 2>&1; then
-  log=$(mktemp)
-  if ! DEBIAN_FRONTEND=noninteractive apt-get update -qq >"$log" 2>&1; then
-    echo "Could not refresh the package lists:" >&2; tail -5 "$log" >&2; exit 1
-  fi
-  pkg=$(apt-cache --names-only search '^libicu[0-9]+$' | awk '{print $1}' | sort -V | tail -1)
-  pkg=\${pkg:-libicu-dev}
-  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Dpkg::Use-Pty=0 "$pkg" >"$log" 2>&1; then
-    echo "Could not install $pkg:" >&2; tail -5 "$log" >&2; exit 1
-  fi
-  rm -f "$log"
-  echo "  installed $pkg"
-elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y -q libicu >/dev/null && echo "  installed libicu"
-elif command -v apk >/dev/null 2>&1; then
-  apk add --quiet icu-libs && echo "  installed icu-libs"
-else
-  echo "Install the libicu package for this distribution, then run this again." >&2
-  exit 1
-fi
-
+${PODMAN_SECTION}${SUBORDINATE_SECTION}
 echo
 echo "Host key fingerprint - paste this into the dashboard:"
 ${fingerprintCommand()}

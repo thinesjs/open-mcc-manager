@@ -10,6 +10,7 @@ import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostReliability } from "~/components/host-reliability"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { ProvisionProgress } from "~/components/provision-progress"
+import { RetrustHostKey } from "~/components/retrust-host-key"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
@@ -48,6 +49,7 @@ function HostDetailPage() {
 	})
 	const provisionMutation = useMutation(trpc.host.provision.mutationOptions())
 	const removeMutation = useMutation(trpc.host.remove.mutationOptions())
+	const me = useQuery(trpc.member.me.queryOptions())
 
 	const host = hostsQuery.data?.find((candidate) => candidate.id === hostId)
 
@@ -164,7 +166,15 @@ function HostDetailPage() {
 						<p className="text-foreground">{confinementLabel(host.sandboxed)}</p>
 					</div>
 					<div className="col-span-2">
-						<p className="text-muted-foreground">Verified server fingerprint</p>
+						<div className="flex items-center justify-between gap-2">
+							<p className="text-muted-foreground">Verified server fingerprint</p>
+							<RetrustHostKey
+								hostId={host.id}
+								hostName={host.name}
+								role={me.data?.role}
+								disabled={host.status === "provisioning" || host.status === "removing"}
+							/>
+						</div>
 						<p className="break-all font-mono text-foreground">
 							{host.hostKeyFingerprint ?? "Not set"}
 						</p>

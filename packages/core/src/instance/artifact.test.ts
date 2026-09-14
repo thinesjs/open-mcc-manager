@@ -1,3 +1,7 @@
+import {
+	isReservedFileName,
+	RESERVED_FILE_NAMES,
+} from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
@@ -114,6 +118,17 @@ describe("naming what the client writes", () => {
 		expect(isCollectableName("..")).toBe(false)
 		expect(isCollectableName("playerlog.txt")).toBe(true)
 	})
+
+	it("★ refuses a name the client or this manager already keeps there, so a drain never truncates it", () => {
+		expect(isCollectableName("playerlog.txt.collecting")).toBe(false)
+		expect(RESERVED_FILE_NAMES.filter(isCollectableName)).toEqual([])
+	})
+
+	it("★ does not take a player list that is really a Mailer file", () => {
+		const document = '[ChatBot.Mailer]\nDatabaseFile = "playerlog.txt"\n'
+
+		expect(artifactNamesFor(document).playerList).toBeUndefined()
+	})
 })
 
 describe("reading bytes back off a host", () => {
@@ -169,6 +184,17 @@ describe("draining the player list log", () => {
 		expect(commands).toContain(
 			`tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' && mv -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting'; exit 1; }`,
 		)
+	})
+
+	it("★ drains through a temporary no bot file can ever be named", async () => {
+		const { commands } = await sweepWith({
+			[playerLogRead]: { stdout: encoded("alice\n"), stderr: "", exitCode: 0 },
+		})
+		const drain = commands.find((command) => command.startsWith("tail -c")) ?? ""
+		const temporary = / > '([^']+)'/.exec(drain)?.[1] ?? ""
+
+		expect(temporary.startsWith(`${DIRECTORY}/`)).toBe(true)
+		expect(isReservedFileName(temporary.slice(DIRECTORY.length + 1))).toBe(true)
 	})
 
 	it("leaves the host untouched when the control plane could not keep what it read", async () => {
@@ -227,6 +253,29 @@ describe("draining the player list log", () => {
 		expect(sweeps[0]?.refused).toBeGreaterThan(0)
 		expect(transport.commands.some((command) => command.startsWith("find "))).toBe(true)
 		expect(transport.commands.some((command) => command.includes("%username%"))).toBe(false)
+	})
+
+	it("★ never reads or drains the token file when the saved config names it as the player list", async () => {
+		const transport = createFakeTransport({})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "u",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1,
+		})
+		const documents = new Map([["afk", '[ChatBot.PlayerListLogger]\nFile = "env"\n']])
+		const sweeps = await sweepHostArtifacts(
+			transport,
+			profile,
+			[instance],
+			documents,
+			async () => undefined,
+		)
+
+		expect(sweeps[0]?.refused).toBeGreaterThan(0)
+		expect(transport.commands.some((command) => command.includes(`${DIRECTORY}/env`))).toBe(false)
 	})
 })
 

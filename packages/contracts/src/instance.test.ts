@@ -362,6 +362,26 @@ describe("reading a stored config document", () => {
 	})
 
 	it.each([
+		{
+			named: "a bot file name the client already uses",
+			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+		},
+		{
+			named: "a bot file another bot already writes",
+			botConfig: { "ChatBot.Mailer.DatabaseFile": "playerlog.txt" },
+		},
+		{
+			named: "a player list file whoever fills the tab list would name",
+			botConfig: { "ChatBot.PlayerListLogger.File": "chatlog-%players%.txt" },
+		},
+	])("★ still READS $named, saved before it was refused, so it stays fixable", ({ botConfig }) => {
+		const legacy = { ...VALID_CONFIG, botConfig }
+
+		expect(instanceConfigStored.safeParse(legacy).success).toBe(true)
+		expect(instanceConfigInput.safeParse(legacy).success).toBe(false)
+	})
+
+	it.each([
 		{ named: "an unknown key at the top level", config: { harmlessLookingExtra: 1 } },
 		{
 			named: "an unknown key inside a range, since strictness is not recursive",

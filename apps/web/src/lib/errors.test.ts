@@ -22,6 +22,21 @@ describe("getErrorMessage", () => {
 		expect(message).not.toMatch(/files|account/i)
 	})
 
+	it("★ sends the operator to the page that holds the setting it cannot use", () => {
+		const bots = getErrorMessage({
+			message: "A bot setting cannot be used as it is",
+			data: { errorCode: "INSTANCE_BOT_CONFIG_UNUSABLE" },
+		})
+		const settings = getErrorMessage({
+			message: "These settings must be corrected before the bot can start",
+			data: { errorCode: "INSTANCE_CONFIG_UNUSABLE" },
+		})
+
+		expect(bots).toContain("Open Bots")
+		expect(bots).not.toContain("Settings")
+		expect(settings).toContain("Open Settings")
+	})
+
 	it("does not read the mismatch as a generic failure", () => {
 		const message = getErrorMessage({
 			message: "Host key fingerprint mismatch",

@@ -36,7 +36,7 @@ const floatWhere = (accepts: (value: number) => boolean, message: string) =>
 
 const PATH_SHAPE = /^[^/\\%]+$/
 const EXPANDED_PATH_SHAPE = /^[^/\\]+$/
-const EXPANDED_TOKENS = /%(username|login|serverport|datetime|date|players)%/gi
+const EXPANDED_TOKENS = /%(username|login|serverport|datetime|date)%/gi
 
 const isPlainText = (value: string): boolean => {
 	for (const character of value) {
@@ -48,7 +48,29 @@ const isPlainText = (value: string): boolean => {
 
 const A_FILE_NAME = "A file name, not a path"
 
-const pathSchema = z
+export const RESERVED_FILE_NAMES: readonly string[] = [
+	"env",
+	"control",
+	"auth.log",
+	"MinecraftClient.ini",
+	"MinecraftClient.backup.ini",
+	"SessionCache.db",
+	"SessionCache.ini",
+	"ProfileKeyCache.ini",
+	"replay_recordings",
+	"recording_cache",
+	"Rendered_Maps",
+	"lang",
+]
+
+const DRAIN_SUFFIX = ".collecting"
+
+export const isReservedFileName = (value: string): boolean =>
+	RESERVED_FILE_NAMES.includes(value) || value.endsWith(DRAIN_SUFFIX)
+
+const NOT_RESERVED = { message: "The client already uses that file name" }
+
+const fileNameSchema = z
 	.string()
 	.min(1)
 	.regex(PATH_SHAPE, A_FILE_NAME)
@@ -56,17 +78,21 @@ const pathSchema = z
 		message: A_FILE_NAME,
 	})
 
-const expandedPathSchema = z
+const expandedFileNameSchema = z
 	.string()
 	.min(1)
 	.regex(EXPANDED_PATH_SHAPE, A_FILE_NAME)
 	.refine((value) => value !== "." && value !== ".." && isPlainText(value), {
 		message: A_FILE_NAME,
 	})
+
+const pathSchema = fileNameSchema.refine((value) => !isReservedFileName(value), NOT_RESERVED)
+
+const expandedPathSchema = expandedFileNameSchema
 	.refine((value) => !value.replace(EXPANDED_TOKENS, "").includes("%"), {
-		message:
-			"The client fills in %username%, %login%, %serverport%, %datetime%, %date% and %players%",
+		message: "The client fills in %username%, %login%, %serverport%, %datetime% and %date%",
 	})
+	.refine((value) => !isReservedFileName(value), NOT_RESERVED)
 
 const alertWordsSchema = z.array(
 	z.string().min(1).refine(isPlainText, { message: "One line per entry" }),
@@ -235,8 +261,50 @@ export const BOT_CONFIG_SHAPE = {
 	...BOT_CONFIG_BARE_SHAPE,
 }
 
-export const botConfigSchema = z.object(BOT_CONFIG_SHAPE).partial().strict()
+export const CLIENT_DEFAULT_FILES: Readonly<Record<keyof typeof BOT_CONFIG_PATH_SHAPE, string>> = {
+	"ChatBot.Mailer.DatabaseFile": "MailerDatabase.ini",
+	"ChatBot.Mailer.IgnoreListFile": "MailerIgnoreList.ini",
+	"ChatBot.PlayerListLogger.File": "playerlog.txt",
+}
+
+const sharedFileKeys = (config: Readonly<Record<string, unknown>>): readonly string[] => {
+	const files = Object.entries(CLIENT_DEFAULT_FILES).map(([key, fallback]) => ({
+		key,
+		set: config[key] !== undefined,
+		file: config[key] ?? fallback,
+	}))
+	return files
+		.filter(
+			(each) =>
+				each.set && files.some((other) => other.key !== each.key && other.file === each.file),
+		)
+		.map((each) => each.key)
+}
+
+export const botConfigSchema = z
+	.object(BOT_CONFIG_SHAPE)
+	.partial()
+	.strict()
+	.superRefine((config, ctx) => {
+		for (const key of sharedFileKeys(config)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: [key],
+				message: "Another setting already uses that file name",
+			})
+		}
+	})
 export type BotConfig = z.infer<typeof botConfigSchema>
+
+export const storedBotConfigSchema = z
+	.object({
+		...BOT_CONFIG_SHAPE,
+		"ChatBot.Mailer.DatabaseFile": fileNameSchema,
+		"ChatBot.Mailer.IgnoreListFile": fileNameSchema,
+		"ChatBot.PlayerListLogger.File": expandedFileNameSchema,
+	})
+	.partial()
+	.strict()
 export type BotConfigName = keyof BotConfig
 
 export const BOT_CONFIG_NAMES: readonly string[] = z.object(BOT_CONFIG_SHAPE).keyof().options

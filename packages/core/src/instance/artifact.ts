@@ -2,6 +2,10 @@ import { createHash } from "node:crypto"
 import type { InstanceArtifactKind } from "@open-mcc/contracts"
 import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
+import {
+	CLIENT_DEFAULT_FILES,
+	isReservedFileName,
+} from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import type { HostProfile } from "../host/profile"
@@ -25,11 +29,11 @@ export const ARTIFACTS_KEPT_PER_KIND = 48
 
 export const MAILER_STATE_WARN_BYTES = 4 * 1024 * 1024
 
-export const PLAYER_LIST_FILE_DEFAULT = "playerlog.txt"
+export const PLAYER_LIST_FILE_DEFAULT = CLIENT_DEFAULT_FILES["ChatBot.PlayerListLogger.File"]
 
-export const MAILER_DATABASE_DEFAULT = "MailerDatabase.ini"
+export const MAILER_DATABASE_DEFAULT = CLIENT_DEFAULT_FILES["ChatBot.Mailer.DatabaseFile"]
 
-export const MAILER_IGNORE_LIST_DEFAULT = "MailerIgnoreList.ini"
+export const MAILER_IGNORE_LIST_DEFAULT = CLIENT_DEFAULT_FILES["ChatBot.Mailer.IgnoreListFile"]
 
 export const REPLAY_DIRECTORY = "replay_recordings"
 
@@ -58,7 +62,7 @@ const TWO_SIZES = /^\s*(\d{1,12})\s+(\d{1,12})\s*$/
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const isCollectableName = (value: string): boolean =>
-	value !== "." && value !== ".." && COLLECTABLE_NAME.test(value)
+	value !== "." && value !== ".." && COLLECTABLE_NAME.test(value) && !isReservedFileName(value)
 
 export const isReplayName = (value: string): boolean => REPLAY_NAME.test(value)
 
@@ -123,11 +127,11 @@ export const artifactNamesFor = (document: string | undefined): ArtifactNames =>
 			return { playerList: undefined, mailerDatabase: undefined, mailerIgnoreList: undefined }
 		}
 	}
-	return {
-		playerList: nameFrom(values, PLAYER_LIST_FILE_KEY, PLAYER_LIST_FILE_DEFAULT),
-		mailerDatabase: nameFrom(values, MAILER_DATABASE_KEY, MAILER_DATABASE_DEFAULT),
-		mailerIgnoreList: nameFrom(values, MAILER_IGNORE_LIST_KEY, MAILER_IGNORE_LIST_DEFAULT),
-	}
+	const playerList = nameFrom(values, PLAYER_LIST_FILE_KEY, PLAYER_LIST_FILE_DEFAULT)
+	const mailerDatabase = nameFrom(values, MAILER_DATABASE_KEY, MAILER_DATABASE_DEFAULT)
+	const mailerIgnoreList = nameFrom(values, MAILER_IGNORE_LIST_KEY, MAILER_IGNORE_LIST_DEFAULT)
+	const isMailerFile = playerList === mailerDatabase || playerList === mailerIgnoreList
+	return { playerList: isMailerFile ? undefined : playerList, mailerDatabase, mailerIgnoreList }
 }
 
 export type CollectedArtifact = {

@@ -73,7 +73,7 @@ const EXPANDED_PATH_FIELDS = ["ChatBot.PlayerListLogger.File"] as const
 const PATH_FIELDS = [...LITERAL_PATH_FIELDS, ...EXPANDED_PATH_FIELDS] as const
 
 const EXPANDS_TO_NO_SEPARATOR =
-	"The client fills in %username%, %login%, %serverport%, %datetime%, %date% and %players%"
+	"The client fills in %username%, %login%, %serverport%, %datetime% and %date%"
 
 describe("the settings an operator may change on the client's own bots", () => {
 	it("registers the sections that were audited and nothing else", () => {
@@ -118,7 +118,7 @@ describe("a file name the operator gives a bot", () => {
 	)
 
 	it.each(EXPANDED_PATH_FIELDS)("accepts every variable the client expands on %s", (name) => {
-		for (const token of ["username", "login", "serverport", "datetime", "date", "players"]) {
+		for (const token of ["username", "login", "serverport", "datetime", "date"]) {
 			expect(refusalFor(name, `log-%${token}%.txt`)).toEqual([])
 		}
 	})
@@ -176,10 +176,10 @@ describe("a file name the operator gives a bot", () => {
 		},
 	)
 
-	it("★ allows %players% only because the manager pins the client's invalid-name filter on", () => {
-		expect(refusalFor("ChatBot.PlayerListLogger.File", "chatlog-%players%.txt")).toEqual([])
-		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.IgnoreInvalidPlayerName")
-		expect(rendered({})).toContain("IgnoreInvalidPlayerName = true")
+	it("★ refuses %players%, which would let whoever fills the tab list choose the file", () => {
+		for (const name of EXPANDED_PATH_FIELDS) {
+			expect(refusalFor(name, "chatlog-%players%.txt")).toEqual([EXPANDS_TO_NO_SEPARATOR])
+		}
 	})
 
 	it("★ leaves no OTHER bot key whose client default hides a variable we never render", () => {
@@ -368,6 +368,7 @@ describe("every registered key at once, which is the only way a table clash show
 	it("renders, parses, and reads every value back", () => {
 		const botConfig: Record<string, string | readonly string[]> = {}
 		for (const name of BOT_CONFIG_NAMES) botConfig[name] = valueFor(name)
+		for (const name of PATH_FIELDS) botConfig[name] = `${name}.txt`
 		const advancedKeys: Record<string, string> = {}
 		for (const name of ADVANCED_KEY_NAMES) {
 			const value = valueFor(name)

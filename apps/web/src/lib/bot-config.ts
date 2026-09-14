@@ -76,6 +76,20 @@ const withCooldownRules = (
 	return ruled
 }
 
+const withCrossKeyRules = (
+	draft: BotConfigDraft,
+	issues: Partial<Record<SettingName, string>>,
+): Partial<Record<SettingName, string>> => {
+	const result = botConfigSchema.safeParse(kept(draft, BOT_NAMES))
+	if (result.success) return issues
+	const ruled = { ...issues }
+	for (const issue of result.error.issues) {
+		const name = BOT_NAMES.find((each) => each === issue.path[0])
+		if (name !== undefined && ruled[name] === undefined) ruled[name] = issue.message
+	}
+	return ruled
+}
+
 export const validateBotConfig = (draft: BotConfigDraft): BotConfigIssues => {
 	const issues: Partial<Record<SettingName, string>> = {}
 	for (const name of NAMES) {
@@ -87,7 +101,7 @@ export const validateBotConfig = (draft: BotConfigDraft): BotConfigIssues => {
 		if (result.success) continue
 		issues[name] = result.error.issues.map((issue) => issue.message).join(" ")
 	}
-	return withCooldownRules(draft, issues)
+	return withCrossKeyRules(draft, withCooldownRules(draft, issues))
 }
 
 const kept = (

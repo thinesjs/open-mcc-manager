@@ -58,6 +58,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_NOT_FOUND: "That instance no longer exists. Refresh the list.",
 	INSTANCE_CONFIG_UNUSABLE:
 		"These settings cannot be used as they are. Open Settings, correct them, and save.",
+	INSTANCE_BOT_CONFIG_UNUSABLE:
+		"A bot setting cannot be used as it is. Open Bots, correct it, and save.",
 	INSTANCE_HOST_NOT_READY:
 		"That instance's host is not ready yet. Enroll and provision the host first.",
 	INSTANCE_LIVE_CONTROL_UNREADABLE:

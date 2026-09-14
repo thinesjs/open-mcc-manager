@@ -24,6 +24,7 @@ import {
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
+	InstanceBotConfigUnusableError,
 	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,
@@ -184,6 +185,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_CONFIG_UNUSABLE",
 			"These settings must be corrected before the bot can start",
+		)
+	}
+	if (cause instanceof InstanceBotConfigUnusableError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_BOT_CONFIG_UNUSABLE",
+			"A bot setting cannot be used as it is",
 		)
 	}
 	if (cause instanceof InstanceNotFoundError) {

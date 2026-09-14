@@ -9,6 +9,9 @@ import {
 	ADVANCED_LITERAL_SHAPE,
 	ADVANCED_NUMBER_SHAPE,
 	advancedKeysSchema,
+	BOT_CONFIG_PATH_SHAPE,
+	botConfigSchema,
+	RESERVED_FILE_NAMES,
 } from "./mcc-config-keys"
 
 const VALID_VALUES: Readonly<Record<string, string>> = {
@@ -325,4 +328,90 @@ describe("the negative the client keeps, and means something by", () => {
 			expect(refusalFor(key, "0.0")).toEqual([])
 		},
 	)
+})
+
+const GOLDEN_RESERVED: readonly string[] = [
+	"env",
+	"control",
+	"auth.log",
+	"MinecraftClient.ini",
+	"MinecraftClient.backup.ini",
+	"SessionCache.db",
+	"SessionCache.ini",
+	"ProfileKeyCache.ini",
+	"replay_recordings",
+	"recording_cache",
+	"Rendered_Maps",
+	"lang",
+]
+
+const CLIENT_FILE = "The client already uses that file name"
+
+const ANOTHER_SETTING = "Another setting already uses that file name"
+
+const fileKeysSaying = (value: string, says: string): readonly string[] =>
+	Object.entries(BOT_CONFIG_PATH_SHAPE)
+		.filter(([, schema]) => {
+			const result = schema.safeParse(value)
+			const issues = result.success ? [] : result.error.issues.map((issue) => issue.message)
+			return issues.join(" ") === says
+		})
+		.map(([name]) => name)
+
+const FILE_KEYS = Object.keys(BOT_CONFIG_PATH_SHAPE)
+
+describe("★ a bot file name the client or this manager already keeps in the instance directory", () => {
+	it("reserves exactly the names that were audited, no more and no fewer", () => {
+		expect([...RESERVED_FILE_NAMES].sort()).toEqual([...GOLDEN_RESERVED].sort())
+	})
+
+	it.each(GOLDEN_RESERVED)("refuses %s on every bot file key, in one plain message", (value) => {
+		expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
+	})
+
+	it.each(["playerlog.txt.collecting", "MailerDatabase.ini.collecting"])(
+		"refuses %s, which is the temporary the collector drains a file through",
+		(value) => {
+			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
+		},
+	)
+
+	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {
+		expect(fileKeysSaying("env", CLIENT_FILE)).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("Env", "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("sessioncache.db", "")).toEqual(FILE_KEYS)
+	})
+})
+
+const sharedFileIssues = (config: Readonly<Record<string, string>>) => {
+	const result = botConfigSchema.safeParse(config)
+	return result.success
+		? []
+		: result.error.issues.map((issue) => ({ key: issue.path.join("."), message: issue.message }))
+}
+
+describe("★ two file settings naming one file", () => {
+	it("refuses a bot file set to another bot's default name, until that bot has moved elsewhere", () => {
+		expect(sharedFileIssues({ "ChatBot.Mailer.DatabaseFile": "playerlog.txt" })).toEqual([
+			{ key: "ChatBot.Mailer.DatabaseFile", message: ANOTHER_SETTING },
+		])
+		expect(
+			sharedFileIssues({
+				"ChatBot.Mailer.DatabaseFile": "playerlog.txt",
+				"ChatBot.PlayerListLogger.File": "roster.txt",
+			}),
+		).toEqual([])
+	})
+
+	it("refuses two bot files set to the same name, on both of them", () => {
+		expect(
+			sharedFileIssues({
+				"ChatBot.Mailer.DatabaseFile": "mail.ini",
+				"ChatBot.Mailer.IgnoreListFile": "mail.ini",
+			}),
+		).toEqual([
+			{ key: "ChatBot.Mailer.DatabaseFile", message: ANOTHER_SETTING },
+			{ key: "ChatBot.Mailer.IgnoreListFile", message: ANOTHER_SETTING },
+		])
+	})
 })

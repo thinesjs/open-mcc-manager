@@ -1,4 +1,5 @@
 import { Client } from "ssh2"
+import { ChannelOpenTimedOutError, ForwardTimedOutError } from "../errors"
 import {
 	type ConnectionState,
 	type ConnectOptions,
@@ -28,7 +29,7 @@ export const execWithBoundedAcquisition = (
 		const timer = setTimeout(() => {
 			if (settled) return
 			settled = true
-			reject(new Error(`Command timed out waiting for a channel: ${command}`))
+			reject(new ChannelOpenTimedOutError(`Command timed out waiting for a channel: ${command}`))
 		}, timeoutMs)
 
 		requestChannel(command, (error, channel) => {
@@ -139,7 +140,7 @@ export const createSshTransport = (): HostTransport => {
 				const timer = setTimeout(() => {
 					if (settled) return
 					settled = true
-					reject(new LiveChannelUnavailableError(`Forwarding to port ${port} timed out`))
+					reject(new ForwardTimedOutError(`Forwarding to port ${port} timed out`))
 				}, timeoutMs)
 				conn.forwardOut("127.0.0.1", 0, "127.0.0.1", port, (error, stream) => {
 					if (settled) {

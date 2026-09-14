@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { ChannelOpenTimedOutError } from "../errors"
 import { execWithBoundedAcquisition, type RequestChannel } from "./connection"
 import {
 	ChannelLimitReachedError,
@@ -78,9 +79,11 @@ describe("execWithBoundedAcquisition", () => {
 
 		const resultPromise = execWithBoundedAcquisition(requestChannel, "docker --version", 1000)
 		const assertion = expect(resultPromise).rejects.toThrow(/timed out waiting for a channel/i)
+		const typed = expect(resultPromise).rejects.toBeInstanceOf(ChannelOpenTimedOutError)
 		await vi.advanceTimersByTimeAsync(1000)
 
 		await assertion
+		await typed
 	})
 
 	it("propagates a channel-acquisition error instead of waiting out the timeout", async () => {

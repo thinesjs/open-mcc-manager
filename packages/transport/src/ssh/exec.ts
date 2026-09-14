@@ -1,3 +1,4 @@
+import { CommandTimedOutError } from "../errors"
 import type { ExecResult } from "../types"
 
 export const MAX_STDOUT_BYTES = 1024 * 1024
@@ -71,7 +72,7 @@ export const execViaChannel = (
 			if (settled) return
 			settled = true
 			channel.destroy()
-			reject(new Error(`Command timed out: ${command}`))
+			reject(new CommandTimedOutError(`Command timed out: ${command}`))
 		}, timeoutMs)
 
 		const append = (

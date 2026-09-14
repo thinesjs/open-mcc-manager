@@ -1,3 +1,12 @@
+export {
+	ChannelOpenTimedOutError,
+	ChannelQueueExpiredError,
+	CommandTimedOutError,
+	ForwardTimedOutError,
+	ReadConnectionLostError,
+	ReadDeadlineExceededError,
+	TransportInterruptedError,
+} from "./errors"
 export { createFakeTransport } from "./fake"
 export { createSshTransport } from "./ssh/connection"
 export { ChannelLimitReachedError, CommandAbortedError, StreamOverflowError } from "./ssh/exec"

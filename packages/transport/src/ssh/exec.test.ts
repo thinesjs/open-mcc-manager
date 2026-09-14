@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { CommandTimedOutError } from "../errors"
 import {
 	CommandAbortedError,
 	DIAGNOSTIC_TAIL_BYTES,
@@ -158,6 +159,7 @@ describe("execViaChannel", () => {
 		const fake = createFakeChannel()
 		const resultPromise = execViaChannel(fake.channel, "sleep 999", 10)
 		await expect(resultPromise).rejects.toThrow(/timed out/i)
+		await expect(resultPromise).rejects.toBeInstanceOf(CommandTimedOutError)
 		expect(fake.wasDestroyed()).toBe(true)
 	})
 })

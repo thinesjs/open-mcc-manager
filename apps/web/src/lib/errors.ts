@@ -72,6 +72,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_LIVE_UNAVAILABLE:
 		"The bot's live view is not available right now. Try again in a moment.",
 	HOST_COMMAND_INTERRUPTED: "A command on the host stopped before it finished. Try again.",
+	HOST_NOT_ANSWERING: "The host did not answer in time. Try again in a moment.",
 	HOST_CHANNEL_LIMIT:
 		"The host would not open another SSH session. It has reached its session limit; wait a moment and retry.",
 	INSTANCE_LIVE_CONTROL_REJECTED:

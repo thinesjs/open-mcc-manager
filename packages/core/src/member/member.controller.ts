@@ -65,7 +65,14 @@ export const createMemberController = (deps: MemberControllerDeps) => ({
 		const rows = await deps.members.listPendingInvitations({ organizationId: ctx.organizationId })
 		return rows.flatMap((row) =>
 			row.role !== null && isRole(row.role)
-				? [{ id: row.id, email: row.email, role: row.role, expiresAt: row.expiresAt }]
+				? [
+						{
+							id: row.id,
+							email: row.email,
+							role: row.role,
+							expiresAt: row.expiresAt.toISOString(),
+						},
+					]
 				: [],
 		)
 	},

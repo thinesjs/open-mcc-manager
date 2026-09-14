@@ -48,7 +48,7 @@ export const pendingInvitationSchema = z.object({
 	id: z.string(),
 	email: z.string(),
 	role: roleSchema,
-	expiresAt: z.date(),
+	expiresAt: z.string().datetime(),
 })
 
 export type PendingInvitation = z.infer<typeof pendingInvitationSchema>

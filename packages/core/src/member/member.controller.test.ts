@@ -337,7 +337,7 @@ describe("listing members and invitations", () => {
 				id: "inv-1",
 				email: "new@example.com",
 				role: "viewer",
-				expiresAt: new Date("2026-09-20T00:00:00.000Z"),
+				expiresAt: "2026-09-20T00:00:00.000Z",
 			},
 		])
 	})

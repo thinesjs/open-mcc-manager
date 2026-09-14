@@ -100,7 +100,9 @@ afterAll(async () => {
 })
 
 const orgResponseSchema = z.object({ id: z.string() })
-const inviteResponseSchema = z.object({ result: z.object({ data: z.object({ id: z.string() }) }) })
+const inviteResponseSchema = z.object({
+	result: z.object({ data: z.object({ id: z.string(), expiresAt: z.string().datetime() }) }),
+})
 const userIdOf = async (email: string): Promise<string> =>
 	(await db.selectFrom("user").select("id").where("email", "=", email).executeTakeFirstOrThrow()).id
 

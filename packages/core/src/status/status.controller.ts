@@ -291,7 +291,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 								primarySource: "journal",
 								sources: ["journal"],
 								sourceKey: `${instance.id}:${change.at.toISOString()}:${change.event}`,
-								detail: change.reason === undefined ? {} : { reason: change.reason },
+								detail: {},
 							})
 
 				if (event !== undefined) {
@@ -392,7 +392,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 						observedAt: deps.now(),
 						failureStartedAt: change.state === "joined" ? null : change.at,
 						activeIncidentId: incidentId,
-						detail: change.reason === undefined ? {} : { reason: change.reason },
+						detail: {},
 					},
 					change.at,
 				)

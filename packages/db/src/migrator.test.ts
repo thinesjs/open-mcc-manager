@@ -113,7 +113,10 @@ describe("migrateToLatest drizzle-history guard", () => {
 			.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`)
 			.join(", ")
 		const values = names.flatMap((name) => [name, new Date().toISOString()])
-		await setup.query(`insert into kysely_migration (name, timestamp) values ${placeholders}`, values)
+		await setup.query(
+			`insert into kysely_migration (name, timestamp) values ${placeholders}`,
+			values,
+		)
 		await setup.end()
 
 		const db = createDb(databaseUrl)

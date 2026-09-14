@@ -18,12 +18,16 @@ describe("saying how much of the time OpenMCC could reach something", () => {
 
 	it("never shows 100% while there was any bad time at all", () => {
 		expect(formatPercent(1 - 30 / 86_400)).toBe("99.96%")
-		expect(formatPercent(1 - 1e-12)).toBe("99.99%")
+		expect(formatPercent(1 - 1e-14)).toBe("99.99%")
 	})
 
 	it("floors to two decimals without losing a hundredth to rounding error", () => {
 		expect(formatPercent(57 / 100)).toBe("57.00%")
 		expect(formatPercent(1 / 3)).toBe("33.33%")
+	})
+
+	it("never gains a hundredth on a thirty-day share sitting just under one", () => {
+		expect(formatPercent(1_382_312 / 2_591_997)).toBe("53.32%")
 	})
 
 	it("mentions coverage only when there is a gap worth admitting", () => {

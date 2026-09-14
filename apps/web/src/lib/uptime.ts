@@ -2,7 +2,7 @@ import { type Availability, coverageRatio, uptimeRatio } from "@open-mcc/contrac
 
 export const formatPercent = (ratio: number): string => {
 	if (ratio === 1) return "100%"
-	const hundredths = Math.min(9_999, Math.floor(Number((ratio * 10_000).toFixed(6))))
+	const hundredths = Math.min(9_999, Math.floor(ratio * 10_000 + 1e-9))
 	return `${(hundredths / 100).toFixed(2)}%`
 }
 

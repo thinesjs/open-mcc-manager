@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { lstatSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 
+export type Sandbox = { run: string; image: string }
+
 declare module "vitest" {
 	export interface ProvidedContext {
-		sandboxRun: string
+		sandbox: Sandbox
 	}
 }
 
@@ -14,11 +17,10 @@ export const REPOSITORY = join(dirname(fileURLToPath(import.meta.url)), "..", ".
 
 export const SANDBOX_LABEL = "open-mcc.sandbox"
 export const RUN_LABEL = "open-mcc.sandbox.run"
-export const HOST_IMAGE = "open-mcc-sandbox:local"
 
 export type Ran = { status: number | null; stdout: string; stderr: string }
 
-export type RunOptions = { input?: string; timeoutMs?: number; cwd?: string }
+export type RunOptions = { input?: string | Uint8Array; timeoutMs?: number; cwd?: string }
 
 export type As = RunOptions & {
 	user: string
@@ -65,22 +67,32 @@ export const run = (
 		child.stdin.end(options.input ?? "")
 	})
 
-const REACHES_THIS_MACHINE = /^(?:-v|--volume(?:=|$)|--mount|--volumes-from)|docker\.sock/
+const commandOf = (args: readonly string[]): readonly string[] =>
+	args[0] === "container" ? args.slice(1) : args
+
+const MOUNT = /^(?:-[A-Za-z]*v|--volume(?:=|$)|--mount|--volumes-from)|docker\.sock/
 
 export const reachesThisMachine = (args: readonly string[]): boolean =>
-	args.some((each) => REACHES_THIS_MACHINE.test(each))
+	commandOf(args)[0] === "cp" || args.some((each) => MOUNT.test(each))
 
-const FORCE = /^(?:--force|-[A-Za-z]*f[A-Za-z]*)$/
+const FORCE = /^(?:--force(?:=.*)?|-[A-Za-z]*f[A-Za-z]*)$/
+const SIGNAL = /^(?:--signal(?:=.*)?|-s.*)$/
 
 export const killsAContainer = (args: readonly string[]): boolean => {
-	const plain = args[0] === "container" ? args.slice(1) : args
-	switch (plain[0]) {
+	const command = commandOf(args)
+	switch (command[0]) {
 		case "kill":
+		case "restart":
 			return true
 		case "rm":
-			return plain.some((each) => FORCE.test(each))
+		case "remove":
+			return command.some((each) => FORCE.test(each))
 		case "stop":
-			return plain[1] !== "--timeout" || plain[2] !== "-1"
+			return (
+				command[1] !== "--timeout" ||
+				command[2] !== "-1" ||
+				command.some((each) => SIGNAL.test(each))
+			)
 		default:
 			return false
 	}
@@ -112,7 +124,7 @@ const labelled = (runId: string, kind: string): readonly string[] => [
 	`${RUN_LABEL}=${runId}`,
 ]
 
-export const hostRunArguments = (name: string, runId: string): readonly string[] => [
+export const hostRunArguments = (name: string, runId: string, image: string): readonly string[] => [
 	"run",
 	"--detach",
 	"--name",
@@ -124,19 +136,24 @@ export const hostRunArguments = (name: string, runId: string): readonly string[]
 	"/run",
 	"--tmpfs",
 	"/run/lock",
-	HOST_IMAGE,
+	image,
 ]
 
 const nameFor = (runId: string, kind: string): string =>
 	`open-mcc-sandbox-${runId}-${kind}-${randomUUID().slice(0, 8)}`
 
-const SETTLED = new Set(["running", "degraded", "maintenance", "stopping", "offline"])
+const SETTLED = new Set(["running", "degraded", "maintenance", "stopping"])
 
-export const startHost = async (runId: string): Promise<string> => {
-	const name = nameFor(runId, "host")
-	succeeded(await docker(hostRunArguments(name, runId)), "starting a sandbox host")
+export const settled = (state: string): boolean => SETTLED.has(state)
+
+export const startHost = async (sandbox: Sandbox): Promise<string> => {
+	const name = nameFor(sandbox.run, "host")
+	succeeded(
+		await docker(hostRunArguments(name, sandbox.run, sandbox.image)),
+		"starting a sandbox host",
+	)
 	let state = ""
-	for (let attempt = 0; attempt < 360 && !SETTLED.has(state); attempt += 1) {
+	for (let attempt = 0; attempt < 360 && !settled(state); attempt += 1) {
 		if (attempt > 0) await delay(500)
 		state = (await docker(["exec", name, "systemctl", "is-system-running"])).stdout.trim()
 	}
@@ -159,9 +176,12 @@ export const dockerRunArguments = (name: string, runId: string): readonly string
 	DOCKER_IMAGE,
 ]
 
-export const startDocker = async (runId: string): Promise<string> => {
-	const name = nameFor(runId, "docker")
-	succeeded(await docker(dockerRunArguments(name, runId)), "starting a machine with its own Docker")
+export const startDocker = async (sandbox: Sandbox): Promise<string> => {
+	const name = nameFor(sandbox.run, "docker")
+	succeeded(
+		await docker(dockerRunArguments(name, sandbox.run)),
+		"starting a machine with its own Docker",
+	)
 	for (let attempt = 0; attempt < 240; attempt += 1) {
 		if ((await docker(["exec", name, "docker", "info"])).status === 0) return name
 		await delay(500)
@@ -190,6 +210,16 @@ export const removeRun = async (runId: string): Promise<void> => {
 	)
 	await remove(...listed.split("\n"))
 }
+
+export const checkoutFiles = (listed: string, root: string): string =>
+	listed
+		.split("\0")
+		.filter(
+			(path) =>
+				path.length > 0 && lstatSync(join(root, path), { throwIfNoEntry: false }) !== undefined,
+		)
+		.map((path) => `${path}\0`)
+		.join("")
 
 export const exec = (container: string, as: As, argv: readonly string[]): Promise<Ran> =>
 	docker(

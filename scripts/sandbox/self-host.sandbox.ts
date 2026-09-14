@@ -1,7 +1,7 @@
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import {
-	docker,
 	exec,
 	homeOf,
 	mintKey,
@@ -42,13 +42,18 @@ const PROVEN = {
 let host = ""
 
 beforeAll(async () => {
-	host = await startHost(inject("sandboxRun"))
+	host = await startHost(inject("sandbox"))
 	succeeded(
 		await exec(host, ROOT, ["mkdir", "-p", "/opt/open-mcc", STAND_IN]),
 		"making room for the script",
 	)
 	succeeded(
-		await docker(["cp", join(REPOSITORY, "scripts", "self-host.sh"), `${host}:${SCRIPT}`]),
+		await shell(
+			host,
+			{ ...ROOT, input: readFileSync(join(REPOSITORY, "scripts", "self-host.sh")) },
+			'cat > "$1"',
+			SCRIPT,
+		),
 		"copying the script in",
 	)
 	succeeded(

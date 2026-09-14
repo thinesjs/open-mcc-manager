@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import {
-	docker,
+	checkoutFiles,
 	exec,
 	type Ran,
 	REPOSITORY,
@@ -25,7 +25,7 @@ const DEVELOPMENT_ONLY = ["DEV_DB_PORT", "TEST_DB_PORT", "TEST_DATABASE_URL"]
 let machine = ""
 
 beforeAll(async () => {
-	machine = await startDocker(inject("sandboxRun"))
+	machine = await startDocker(inject("sandbox"))
 	const listed = succeeded(
 		await run("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
 			cwd: REPOSITORY,
@@ -39,22 +39,21 @@ beforeAll(async () => {
 			await run(
 				"env",
 				["COPYFILE_DISABLE=1", "tar", "-C", REPOSITORY, "--null", "-T", "-", "-cf", archive],
-				{ input: listed },
+				{ input: checkoutFiles(listed, REPOSITORY) },
 			),
 			"packing a copy of the checkout",
 		)
-		succeeded(await docker(["cp", archive, `${machine}:/checkout.tar`]), "copying the checkout in")
+		succeeded(
+			await shell(
+				machine,
+				{ ...ROOT, input: readFileSync(archive), timeoutMs: 300_000 },
+				"mkdir /checkout && tar -xf - -C /checkout && [ -z \"$(find /checkout -name '._*')\" ]",
+			),
+			"unpacking the checkout with no macOS metadata files in it",
+		)
 	} finally {
 		rmSync(scratch, { force: true, recursive: true })
 	}
-	succeeded(
-		await shell(
-			machine,
-			ROOT,
-			"mkdir /checkout && tar -xf /checkout.tar -C /checkout && [ -z \"$(find /checkout -name '._*')\" ]",
-		),
-		"unpacking the checkout with no macOS metadata files in it",
-	)
 }, 600_000)
 
 afterAll(async () => {

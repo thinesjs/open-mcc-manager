@@ -79,7 +79,7 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 		let host = ""
 
 		beforeAll(async () => {
-			host = await startHost(inject("sandboxRun"))
+			host = await startHost(inject("sandbox"))
 		})
 
 		afterAll(async () => {
@@ -195,7 +195,7 @@ describe("the host setup script, on a machine with no libicu", () => {
 	let host = ""
 
 	beforeAll(async () => {
-		host = await startHost(inject("sandboxRun"))
+		host = await startHost(inject("sandbox"))
 	})
 
 	afterAll(async () => {

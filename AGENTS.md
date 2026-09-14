@@ -1101,6 +1101,7 @@ Debian's `apt` path for libicu runs; `dnf` and `apk` do not.
 
 The installer test is a full run: it builds the images, starts the stack with
 its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,
-which has no systemd, `loginctl` or `sudo`, so `self-host.sh` refuses to offer
-the machine and the lingering step is skipped. Neither the offered path nor
-lingering during install is exercised there.
+which has no systemd, `loginctl` or `sudo`. `scripts/sandbox/install-as-root.sandbox.ts`
+runs the real installer as root on a systemd host instead, with a stand-in
+`docker`, and proves it offers nothing and leaves lingering alone there. Neither
+test exercises the offered path, or lingering for an account that is not root.

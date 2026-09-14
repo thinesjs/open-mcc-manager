@@ -151,9 +151,21 @@ Use `sh -c "$(curl ...)"` rather than piping into `sh`. Piping leaves the script
 itself on the installer's standard input, so any command that reads stdin would
 consume the rest of it.
 
-The generated `.env` pins `COMPOSE_PROJECT_NAME`. Without it, a later plain
-`docker compose` call would resolve to a different project, create a second empty
-database volume, migrate that one, and quietly orphan the real one.
+The generated `.env` pins `COMPOSE_PROJECT_NAME`. Without it, a later compose
+command would resolve to a different project, create a second empty database
+volume, migrate that one, and quietly orphan the real one.
+
+Every later compose command for this install names the database overlay as well
+as the base file:
+
+```bash
+docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.yml up -d
+```
+
+Leave the overlay out and Postgres is no longer part of the stack:
+`--remove-orphans` removes its container, and without that flag `server` and
+`worker` stop waiting for a healthy database. Add `-f docker/compose.tailnet.yml`
+after both files to reach hosts by MagicDNS name.
 
 It refuses rather than guessing in two cases. An existing `.env` is never
 overwritten, because that file is the only copy of the sealbox private key. An

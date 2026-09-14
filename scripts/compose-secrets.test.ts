@@ -181,13 +181,29 @@ describe("the database the installer brings with it", () => {
 		)
 	})
 
-	it("is part of every compose call the installer makes", () => {
-		const calls = installer
+	it("is named in every compose command the installer runs or prints", () => {
+		const commands = installer
 			.split("\n")
-			.filter((line) => line.includes("docker compose") && line.includes("-f docker/compose.yml"))
+			.filter((line) =>
+				/docker compose .*-f docker\/compose|docker\/compose\.[a-z]+\.yml/.test(line),
+			)
 
-		expect(calls.length).toBeGreaterThan(0)
-		expect(calls.filter((line) => !line.includes("-f docker/compose.postgres.yml"))).toEqual([])
+		expect(commands.length).toBeGreaterThan(0)
+		expect(commands.filter((line) => !line.includes("-f docker/compose.postgres.yml"))).toEqual([])
+	})
+
+	it("is named in every compose command the install instructions give", () => {
+		const readme = readFileSync(join(ROOT, "README.md"), "utf8")
+		const start = readme.indexOf("\n## Installing\n")
+		const end = readme.indexOf("\n## ", start + 1)
+		const commands = readme
+			.slice(start, end)
+			.split("\n")
+			.filter((line) => line.includes("docker compose"))
+
+		expect(start).toBeGreaterThan(-1)
+		expect(commands.length).toBeGreaterThan(0)
+		expect(commands.filter((line) => !line.includes("-f docker/compose.postgres.yml"))).toEqual([])
 	})
 
 	it("writes nothing only development reads into a real deployment's .env", () => {

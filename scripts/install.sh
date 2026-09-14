@@ -105,13 +105,18 @@ docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.
 # it with SEALBOX_KEYS, so the private half is never written anywhere in the
 # clear; only the public half reaches scripts/self-host.sh. That script either
 # installs it and writes the materials, or exits non-zero having written
-# nothing, so a failure here costs the install nothing.
-
-say "Preparing this machine as a host it can run instances on"
+# nothing, so a failure here costs the install nothing. Run as root, the key
+# would hold root, so nothing is minted, lingering is left alone and nothing is
+# offered.
 
 SELF_HOST_KEY=""
-SELF_HOST_KEY="$(SEALBOX_KEYS="$SEALBOX_KEYS" docker run --rm -e SEALBOX_KEYS "$IMAGE" \
-	server.mjs --seal-self-host-key 2>/dev/null)" || SELF_HOST_KEY=""
+if [ "$(id -u)" = "0" ]; then
+	say "This machine is not offered as a host, because the installer ran as root."
+else
+	say "Preparing this machine as a host it can run instances on"
+	SELF_HOST_KEY="$(SEALBOX_KEYS="$SEALBOX_KEYS" docker run --rm -e SEALBOX_KEYS "$IMAGE" \
+		server.mjs --seal-self-host-key 2>/dev/null)" || SELF_HOST_KEY=""
+fi
 SELF_HOST_PUBLIC="$(printf '%s\n' "$SELF_HOST_KEY" | sed -n 's/^SELF_HOST_PUBLIC_KEY=//p')"
 
 ACCOUNT="$(id -un)"
@@ -144,4 +149,5 @@ if [ "$SELF_HOST_OFFERED" = "yes" ]; then
 else
 	say "  2. Create the first owner account, then enroll a host with its ssh host key fingerprint."
 fi
-say "  3. To reach hosts by MagicDNS name over a tailnet, add -f docker/compose.tailnet.yml and set TAILNET_DNS_SUFFIX."
+say "  3. To reach hosts by MagicDNS name over a tailnet, set TAILNET_DNS_SUFFIX in .env, then run:"
+say "     docker compose --env-file .env -f docker/compose.yml -f docker/compose.postgres.yml -f docker/compose.tailnet.yml up -d"

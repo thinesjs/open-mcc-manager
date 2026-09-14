@@ -38,8 +38,10 @@ const filesMintingReadCommands = (dir: string, found: string[] = []): string[] =
 describe("who may turn text into a command a shared connection will run", () => {
 	it("is exactly the reviewed read builders, so a write cannot be minted as a read unnoticed", () => {
 		expect(filesMintingReadCommands(REPOSITORY_ROOT).sort()).toEqual([
+			"packages/core/src/host/health.ts",
 			"packages/core/src/instance/console.ts",
 			"packages/core/src/instance/reconcile.ts",
+			"packages/core/src/status/instance-observer.ts",
 			"packages/core/src/system/host-metrics.ts",
 			"packages/transport/src/index.ts",
 			"packages/transport/src/read-connections.test.ts",

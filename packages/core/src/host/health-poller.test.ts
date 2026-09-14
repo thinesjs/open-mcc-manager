@@ -1,9 +1,19 @@
-import type { HostRow } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import type { HostRow, SshKeyRow } from "@open-mcc/db"
+import {
+	type ConnectOptions,
+	createFakeTransport,
+	createReadConnections,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+	readerOver,
+} from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import { OS_RELEASE_COMMAND } from "./facts"
 import { failedUnitsCommand } from "./health"
 import { isPollable, runHealthPoll } from "./health-poller"
+import type { OrgScope } from "./host.repository"
+import { type HostReadLease, leaseHostReader } from "./host-reader"
 
 const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	id: "host-1",
@@ -25,7 +35,7 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostKeyTrustedByLabel: "owner",
 	hostKeyTrustedAt: null,
 	status: "ready",
-	osRelease: null,
+	osRelease: "systemd 252",
 	cpuCount: null,
 	memoryMb: null,
 	lastSeenAt: null,
@@ -39,23 +49,22 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	...overrides,
 })
 
-const connectedTransport =
-	(failed: string, os = "debian\nDebian GNU/Linux 12") =>
-	async () => {
-		const transport = createFakeTransport({
-			[failedUnitsCommand()]: { stdout: failed, stderr: "", exitCode: 0 },
-			[OS_RELEASE_COMMAND]: { stdout: os, stderr: "", exitCode: 0 },
-		})
-		await transport.connect({
-			hostname: "h",
-			port: 22,
-			username: "u",
-			privateKey: "k",
-			expectedFingerprint: "f",
-			timeoutMs: 1000,
-		})
-		return transport
-	}
+const hostScript = (failed: string, os = "debian\nDebian GNU/Linux 12") => ({
+	[failedUnitsCommand()]: { stdout: failed, stderr: "", exitCode: 0 },
+	[OS_RELEASE_COMMAND]: { stdout: os, stderr: "", exitCode: 0 },
+})
+
+const leasing =
+	(failed: string, os?: string) =>
+	async (target: HostRow): Promise<HostReadLease> => ({
+		kind: "leased",
+		reader: await readerOver(createFakeTransport(hostScript(failed, os))),
+		host: target,
+	})
+
+const unreachable = async (): Promise<HostReadLease> => {
+	throw new Error("connection refused")
+}
 
 describe("keeping the panel's view of each host current", () => {
 	it("reports an unreachable host to the recorder instead of only logging it", async () => {
@@ -64,9 +73,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: async () => {
-				throw new Error("connection refused")
-			},
+			lease: unreachable,
 			recordSeen: async () => undefined,
 			recordReachability,
 			now: () => now,
@@ -85,7 +92,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: connectedTransport("0"),
+			lease: leasing("0"),
 			recordSeen: async () => undefined,
 			recordReachability,
 			now: () => now,
@@ -100,9 +107,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: async () => {
-				throw new Error("connection refused")
-			},
+			lease: unreachable,
 			recordSeen: async () => undefined,
 			recordReachability: async () => {
 				throw new Error("database is down")
@@ -124,7 +129,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: connectedTransport("0"),
+			lease: leasing("0"),
 			recordSeen,
 			now: () => now,
 		})
@@ -142,7 +147,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: connectedTransport("2"),
+			lease: leasing("2"),
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -159,9 +164,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: async () => {
-				throw new Error("connection refused")
-			},
+			lease: unreachable,
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -172,18 +175,11 @@ describe("keeping the panel's view of each host current", () => {
 
 	it("keeps polling the rest of the fleet after one host fails", async () => {
 		const recordSeen = vi.fn(async () => undefined)
-		let attempt = 0
+		const healthy = leasing("0")
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host({ id: "a" }), host({ id: "b" })],
-			connect: async (target) => {
-				attempt += 1
-				if (attempt === 1) throw new Error("down")
-				return connectedTransport("0")().then((t) => {
-					expect(target.id).toBe("b")
-					return t
-				})
-			},
+			lease: async (target) => (target.id === "a" ? await unreachable() : await healthy(target)),
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -197,7 +193,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host({ osId: "ubuntu", osName: "Ubuntu 24.04" })],
-			connect: connectedTransport("0"),
+			lease: leasing("0"),
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -216,23 +212,172 @@ describe("keeping the panel's view of each host current", () => {
 		expect(isPollable(host({ status: "error" }))).toBe(false)
 	})
 
-	it("closes every connection it opens, including on failure", async () => {
-		const closed: string[] = []
-		const transport = await connectedTransport("0")()
-		const spy = vi.spyOn(transport, "close").mockImplementation(async () => {
-			closed.push("closed")
-		})
+	it("gives back every lease it takes, including when the write after it fails", async () => {
+		const released: string[] = []
+		const healthy = leasing("0")
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
-			connect: async () => transport,
+			lease: async (target) => {
+				const leased = await healthy(target)
+				if (leased.kind !== "leased") return leased
+				const release = leased.reader.release
+				return {
+					...leased,
+					reader: {
+						...leased.reader,
+						release: () => {
+							released.push("released")
+							release()
+						},
+					},
+				}
+			},
 			recordSeen: async () => {
 				throw new Error("write failed")
 			},
 			now: () => new Date(),
 		})
 
-		expect(spy).toHaveBeenCalled()
-		expect(closed).toHaveLength(1)
+		expect(released).toEqual(["released"])
+	})
+
+	it("skips a host whose row is gone or changed by the time it leases, without calling it unreachable", async () => {
+		const recordReachability = vi.fn(async () => undefined)
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host()],
+			lease: async () => ({ kind: "changed" }),
+			recordSeen: async () => undefined,
+			recordReachability,
+			now: () => new Date(),
+		})
+
+		expect(run).toEqual({ polled: 1, reached: [], unreachable: [] })
+		expect(recordReachability).not.toHaveBeenCalled()
+	})
+})
+
+describe("the health poller on a shared connection", () => {
+	const keyRow: SshKeyRow = {
+		id: "key-1",
+		organizationId: "org-1",
+		name: "key-1",
+		publicKey: "ssh-ed25519 AAAA",
+		privateKeyEncrypted: "sealed",
+		privateKeyKeyId: "k1",
+		createdAt: new Date(),
+	}
+
+	const wired = (scoped: HostRow) => {
+		const expectedFingerprints: string[] = []
+		const readConnections = createReadConnections({
+			createTransport: () => {
+				const transport = createFakeTransport(hostScript("0"))
+				return {
+					...transport,
+					connect: async (options: ConnectOptions) => {
+						expectedFingerprints.push(options.expectedFingerprint)
+						await transport.connect(options)
+					},
+				}
+			},
+			idleMs: READ_CONNECTION_IDLE_MS,
+			hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+			channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+			now: () => Date.now(),
+		})
+		const readerDeps = {
+			hosts: {
+				findById: vi.fn(async (scope: OrgScope, id: string) =>
+					scope.organizationId === scoped.organizationId && id === scoped.id ? scoped : undefined,
+				),
+			},
+			sshKeys: { findById: vi.fn(async () => keyRow) },
+			secrets: { open: () => "PRIVATE KEY" },
+			readConnections,
+		}
+		const lease = (target: HostRow, deadlineMs: number) =>
+			leaseHostReader(readerDeps, { organizationId: target.organizationId }, target.id, deadlineMs)
+		return { readConnections, lease, expectedFingerprints }
+	}
+
+	it("C6: connects on the trust the scoped row holds now, never on the fleet list's older copy", async () => {
+		const { lease, expectedFingerprints } = wired(host({ hostKeyFingerprint: "SHA256:second" }))
+		const recordSeen = vi.fn(async () => undefined)
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host({ hostKeyFingerprint: "SHA256:first" })],
+			lease,
+			recordSeen,
+			now: () => new Date(),
+		})
+
+		expect(run.reached).toEqual(["host-1"])
+		expect(expectedFingerprints).toEqual(["SHA256:second"])
+		expect(recordSeen).toHaveBeenCalledWith(
+			expect.objectContaining({ hostKeyFingerprint: "SHA256:second" }),
+			expect.anything(),
+			expect.anything(),
+		)
+	})
+
+	it("C7: holds no lease while its database write is still pending", async () => {
+		const { readConnections, lease } = wired(host())
+		let finishWrite: () => void = () => undefined
+		const writing = new Promise<void>((resolve) => {
+			finishWrite = resolve
+		})
+		let leasesDuringWrite = -1
+		let writeStarted: () => void = () => undefined
+		const started = new Promise<void>((resolve) => {
+			writeStarted = resolve
+		})
+
+		const polling = runHealthPoll({
+			pollableHosts: async () => [host()],
+			lease,
+			recordSeen: async () => {
+				leasesDuringWrite = readConnections.activeLeases()
+				writeStarted()
+				await writing
+			},
+			now: () => new Date(),
+		})
+		await started
+
+		expect(leasesDuringWrite).toBe(0)
+		expect(readConnections.activeLeases()).toBe(0)
+		finishWrite()
+		await expect(polling).resolves.toMatchObject({ reached: ["host-1"] })
+	})
+
+	it("C7: gives each bot's read its own lease, and gives it back before recording anything", async () => {
+		const { readConnections, lease } = wired(host())
+		const leasesAtEachWrite: number[] = []
+
+		await runHealthPoll({
+			pollableHosts: async () => [host()],
+			lease,
+			recordSeen: async () => {
+				leasesAtEachWrite.push(readConnections.activeLeases())
+			},
+			observeInstances: async (_target, leaseForRead) => {
+				for (const instanceId of ["abc123", "def456"]) {
+					const leased = await leaseForRead(20_000)
+					if (leased.kind !== "leased") return
+					try {
+						await leased.reader.probePort(33333)
+					} finally {
+						leased.reader.release()
+					}
+					leasesAtEachWrite.push(readConnections.activeLeases())
+					expect(instanceId).toMatch(/^[a-z0-9]+$/)
+				}
+			},
+			now: () => new Date(),
+		})
+
+		expect(leasesAtEachWrite).toEqual([0, 0, 0])
 	})
 })

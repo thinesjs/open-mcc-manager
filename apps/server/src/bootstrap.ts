@@ -4,7 +4,6 @@ import {
 	adminFor,
 	attachQueueWarning,
 	type BuildInfo,
-	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
 	createDestinationController,
 	createDestinationControllerTransaction,
@@ -30,6 +29,7 @@ import {
 	HOST_TEARDOWN_QUEUE,
 	hostList,
 	hostReadKey,
+	JOURNAL_READ_TIMEOUT_MS,
 	LIVE_CONTROL_TIMEOUT_MS,
 	type Logger,
 	leaseHostReader,
@@ -288,25 +288,11 @@ export const startServer = async (
 		onError: runtimeErrorReporter(logger),
 	})
 
+	const readerDeps = { hosts, sshKeys, secrets, readConnections }
 	const healthPoller = startHealthPoller({
 		pollableHosts: () => hosts.listPollableAcrossOrganizations(),
-		connect: async (host) => {
-			if (!host.sshKeyId || !host.hostKeyFingerprint) {
-				throw new Error(`Host ${host.id} is not ready to be polled`)
-			}
-			const key = await sshKeys.findById({ organizationId: host.organizationId }, host.sshKeyId)
-			if (!key) throw new Error(`Ssh key missing for host ${host.id}`)
-			const transport = createSshTransport()
-			await transport.connect({
-				hostname: host.hostname,
-				port: host.port,
-				username: host.username,
-				privateKey: secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
-				expectedFingerprint: host.hostKeyFingerprint,
-				timeoutMs: CONNECT_TIMEOUT_MS,
-			})
-			return transport
-		},
+		lease: (host, deadlineMs) =>
+			leaseHostReader(readerDeps, { organizationId: host.organizationId }, host.id, deadlineMs),
 		recordSeen: (host, seenAt, observed) =>
 			hosts.recordSeen(host.id, host.organizationId, seenAt, observed),
 		recordReachability: (host, reached) =>
@@ -314,7 +300,7 @@ export const startServer = async (
 				{ organizationId: host.organizationId },
 				{ hostId: host.id, hostName: host.name, reached },
 			),
-		observeInstances: async (host, transport) => {
+		observeInstances: async (host, lease) => {
 			const scope = { organizationId: host.organizationId }
 			const onHost = (await createInstanceRepository(db).list(scope)).filter(
 				(instance) => instance.hostId === host.id && instance.status !== "needs_auth",
@@ -322,7 +308,14 @@ export const startServer = async (
 			for (const instance of onHost) {
 				const cursor = await statusController.connectionCursor(scope, instance.id)
 				const current = await statusController.currentConnection(scope, instance.id)
-				const reading = await readConnectionChanges(transport, instance.id, current, cursor)
+				const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
+				if (journal.kind !== "leased") return
+				let reading: Awaited<ReturnType<typeof readConnectionChanges>>
+				try {
+					reading = await readConnectionChanges(journal.reader, instance.id, current, cursor)
+				} finally {
+					journal.reader.release()
+				}
 				await statusController.recordInstanceConnection(
 					scope,
 					{ id: instance.id, name: instance.name },
@@ -335,12 +328,7 @@ export const startServer = async (
 					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
 					openToken: (sealed, keyId) => secrets.open(sealed, keyId),
 					reader: async () => {
-						const leased = await leaseHostReader(
-							{ hosts, sshKeys, secrets, readConnections },
-							scope,
-							host.id,
-							LIVE_CONTROL_TIMEOUT_MS,
-						)
+						const leased = await lease(LIVE_CONTROL_TIMEOUT_MS)
 						return leased.kind === "leased" ? leased.reader : undefined
 					},
 				})

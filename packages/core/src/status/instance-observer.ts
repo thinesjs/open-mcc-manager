@@ -1,5 +1,5 @@
 import { connectionSignals, parseJournal } from "@open-mcc/contracts/boundary/journal"
-import type { HostTransport } from "@open-mcc/transport"
+import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { journalctl } from "../host/profile"
 import { unitName } from "../instance/unit"
 import { type ConnectionChange, type ConnectionCurrent, changesFromSignals } from "./connection"
@@ -30,12 +30,12 @@ export type InstanceReading = {
 }
 
 export const readConnectionChanges = async (
-	transport: Pick<HostTransport, "exec">,
+	reader: Pick<HostReader, "exec">,
 	instanceId: string,
 	current: ConnectionCurrent,
 	cursor: string | null,
 ): Promise<InstanceReading> => {
-	const result = await transport.exec(journalCommand(instanceId, cursor), JOURNAL_READ_TIMEOUT_MS)
+	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
 	if (result.exitCode !== 0) return { changes: [], cursor }
 
 	const lines = parseJournal(result.stdout)

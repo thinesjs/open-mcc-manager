@@ -12,7 +12,12 @@ export type { HostFacts } from "./host/facts"
 export { readHostFacts } from "./host/facts"
 export type { HealthInput, HostHealth } from "./host/health"
 export { failedUnitsCommand, HOST_HEALTH, healthFor, observeHost } from "./host/health"
-export type { HealthPollerDeps, HealthPollerHandle, HealthPollRun } from "./host/health-poller"
+export type {
+	HealthPollerDeps,
+	HealthPollerHandle,
+	HealthPollRun,
+	LeaseHost,
+} from "./host/health-poller"
 export { isPollable, runHealthPoll, startHealthPoller } from "./host/health-poller"
 export type {
 	ActorContext,
@@ -297,7 +302,7 @@ export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.rep
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
 export type { EscalationDeps, EscalationPayload } from "./status/escalation.job"
 export { createEscalationHandler, readEscalationPayload } from "./status/escalation.job"
-export { readConnectionChanges } from "./status/instance-observer"
+export { JOURNAL_READ_TIMEOUT_MS, readConnectionChanges } from "./status/instance-observer"
 export { nextReachability } from "./status/reachability"
 export {
 	createStatusController,

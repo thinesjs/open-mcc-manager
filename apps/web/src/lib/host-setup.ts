@@ -1,5 +1,3 @@
-import type { HostMode } from "@open-mcc/contracts"
-
 const singleQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const SCRIPT_HEREDOC = "OPENMCC_SETUP"
@@ -11,39 +9,21 @@ export const SCAN_HEREDOC = "OPENMCC_AUTHKEY_SCAN"
 export const fingerprintCommand = (): string =>
 	"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}'"
 
-export const setupSummary = (mode: HostMode, username: string): readonly string[] => [
+export const setupSummary = (username: string): readonly string[] => [
 	`Authorises this deployment's key for ${username}`,
-	...(mode === "rootless"
-		? ["Enables lingering, so instances keep running after you log out"]
-		: []),
+	"Enables lingering, so instances keep running after you log out",
 	"Checks this machine has a client build",
 	"Installs libicu, which the client needs, if it is missing",
 	"Prints the host key fingerprint for the next step",
 ]
 
-export const requiresRootAccount = (mode: HostMode, username: string): boolean =>
-	mode === "system" && username !== "root"
-
-const rootCheck = (mode: HostMode): string =>
-	mode === "system"
-		? `
-if [ "$account" != "root" ]; then
-  echo "This host was set up to use root, but $account is not root. Enroll it without root instead." >&2
-  exit 1
-fi
-`
-		: ""
-
-const lingerSection = (mode: HostMode): string =>
-	mode === "rootless"
-		? `
+const LINGER_SECTION = `
 if ! loginctl enable-linger "$account"; then
   echo "Could not enable lingering for $account. Instances would stop when its last session ends." >&2
   exit 1
 fi
 echo "  lingering enabled, so instances keep running after logout"
 `
-		: ""
 
 const AUTHORISE = `set -eu
 umask 077
@@ -118,7 +98,6 @@ else
 fi`
 
 export const hostSetupScript = (
-	mode: HostMode,
 	username: string,
 	publicKey: string,
 ): string => `sudo sh -s <<'${SCRIPT_HEREDOC}'
@@ -136,7 +115,7 @@ if [ -z "$home" ]; then
   echo "There is no account called $account on this host." >&2
   exit 1
 fi
-${rootCheck(mode)}
+
 authorise='${AUTHORISE}'
 if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
   printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2
@@ -144,7 +123,7 @@ if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authori
   exit 1
 fi
 printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177'
-${lingerSection(mode)}
+${LINGER_SECTION}
 machine=$(uname -m)
 case "$machine" in
   x86_64|amd64|aarch64|arm64) echo "  architecture $machine is supported" ;;

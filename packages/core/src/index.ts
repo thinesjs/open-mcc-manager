@@ -7,6 +7,7 @@ export {
 	KNOWN_INSECURE_KEY_ID,
 	usesKnownInsecureKey,
 } from "./crypto/sealed-box"
+export { LINGER_COMMAND } from "./host/check"
 export type { HostFacts } from "./host/facts"
 export { readHostFacts } from "./host/facts"
 export type { HealthInput, HostHealth } from "./host/health"
@@ -49,6 +50,7 @@ export {
 } from "./host/host.repository"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
+	HOME_COMMAND,
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,

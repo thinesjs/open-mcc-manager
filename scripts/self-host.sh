@@ -549,7 +549,6 @@ SELF_HOST_NAME=$MACHINE
 SELF_HOST_HOSTNAME=$ADDRESS
 SELF_HOST_PORT=$SSH_PORT
 SELF_HOST_USERNAME=$ACCOUNT
-SELF_HOST_MODE=rootless
 SELF_HOST_FINGERPRINT=$FINGERPRINT
 SELF_HOST_KEY_ALGORITHM=$ALGORITHM
 SELF_HOST_PUBLIC_KEY=$PUBLIC_KEY
@@ -569,7 +568,6 @@ say "  address      ${ADDRESS:-not proven}"
 say "  port         $SSH_PORT"
 say "  username     $ACCOUNT"
 say "  fingerprint  $FINGERPRINT"
-say "  mode         rootless"
 say ""
 if [ -n "$PRIVATE_KEY_PATH" ]; then
 	say "The private key is at $PRIVATE_KEY_PATH, in plaintext, because this run minted it."

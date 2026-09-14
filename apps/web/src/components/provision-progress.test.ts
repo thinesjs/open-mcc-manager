@@ -1,5 +1,19 @@
+import { LINGER_STEP_LABEL, PROVISION_STEP_LABELS } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
-import { headlineFor, stateForStep } from "./provision-progress"
+import { headlineFor, stateForStep, stepLabelsFor } from "./provision-progress"
+
+describe("which steps the timeline lists", () => {
+	it("lists the one provisioning plan every host follows, lingering included and confinement never", () => {
+		expect(stepLabelsFor(null)).toEqual([...PROVISION_STEP_LABELS])
+		expect(stepLabelsFor(null)).toContain(LINGER_STEP_LABEL)
+		expect(stepLabelsFor(null)).not.toContain("Checking that instances are confined")
+	})
+
+	it("lists only as many steps as the attempt reported", () => {
+		expect(stepLabelsFor(3)).toEqual(PROVISION_STEP_LABELS.slice(0, 3))
+		expect(stepLabelsFor(0)).toEqual([...PROVISION_STEP_LABELS])
+	})
+})
 
 describe("what each step in the timeline shows", () => {
 	it("marks everything before the current step as done", () => {

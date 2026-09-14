@@ -226,7 +226,7 @@ describe("self-host.sh, after a run that proved an address and minted its own ke
 		expect(first.status, first.stderr).toBe(0)
 		const materials = await materialsOf(account)
 		expect(materials.get("SELF_HOST_USERNAME")).toBe(account)
-		expect(materials.get("SELF_HOST_MODE")).toBe("rootless")
+		expect(materials.has("SELF_HOST_MODE")).toBe(false)
 		expect(materials.get("SELF_HOST_HOSTNAME")).toBe("host.docker.internal")
 		expect(materials.get("SELF_HOST_REACH")).toBe("proven")
 	})

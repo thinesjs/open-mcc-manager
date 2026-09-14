@@ -25,7 +25,6 @@ const INSTALLED: Env = {
 	SELF_HOST_HOSTNAME: "host.docker.internal",
 	SELF_HOST_PORT: "22",
 	SELF_HOST_USERNAME: "mcc",
-	SELF_HOST_MODE: "rootless",
 	SELF_HOST_FINGERPRINT: FINGERPRINT,
 	SELF_HOST_PUBLIC_KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA open-mcc:this-machine",
 	SELF_HOST_PRIVATE_KEY_SEALED: "Xj+9/abcDEF==ghi+/jkl",
@@ -43,7 +42,6 @@ describe("reading what the installer appended", () => {
 				hostname: "host.docker.internal",
 				port: 22,
 				username: "mcc",
-				mode: "rootless",
 				fingerprint: FINGERPRINT,
 				reach: "proven",
 				systemd: true,
@@ -53,6 +51,15 @@ describe("reading what the installer appended", () => {
 			privateKeyEncrypted: "Xj+9/abcDEF==ghi+/jkl",
 			privateKeyKeyId: "k1",
 		})
+	})
+
+	it("reads no mode, so a leftover SELF_HOST_MODE neither shapes the offer nor configures one", () => {
+		const leftover = { ...INSTALLED, SELF_HOST_MODE: "system" }
+		const unset = { ...BASE, SELF_HOST_MODE: "rootless" }
+
+		expect(selfHostMaterialsFrom(leftover)?.offer).not.toHaveProperty("mode")
+		expect(selfHostMaterialsFrom(leftover)?.offer.username).toBe("mcc")
+		expect(selfHostConfigured(unset)).toBe(false)
 	})
 
 	it("describes nothing, and is not configured, when the installer appended nothing", () => {
@@ -79,7 +86,6 @@ describe("reading what the installer appended", () => {
 		{ field: "SELF_HOST_PORT", value: "" },
 		{ field: "SELF_HOST_PORT", value: "70000" },
 		{ field: "SELF_HOST_FINGERPRINT", value: "SHA256:short" },
-		{ field: "SELF_HOST_MODE", value: "sudo" },
 		{ field: "SELF_HOST_REACH", value: "probably" },
 		{ field: "SELF_HOST_PRIVATE_KEY_SEALED", value: "" },
 		{ field: "SELF_HOST_PRIVATE_KEY_ID", value: "" },

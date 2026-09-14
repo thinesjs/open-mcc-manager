@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { fingerprintCommand, hostSetupScript, requiresRootAccount } from "./host-setup"
+import * as hostSetup from "./host-setup"
+import { fingerprintCommand, hostSetupScript, setupSummary } from "./host-setup"
 
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI manager key"
 
@@ -8,47 +9,47 @@ const STRIP_CONTROL = "tr -d '\\000-\\010\\013-\\037\\177'"
 
 describe("the command an operator pastes onto a new host", () => {
 	it("is one paste, not a list of steps to get right in order", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script.startsWith("sudo sh -s <<'OPENMCC_SETUP'")).toBe(true)
 		expect(script.trimEnd().endsWith("OPENMCC_SETUP")).toBe(true)
 	})
 
 	it("resolves the account's own home, so running it as root does not write to root's", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain('home=$(getent passwd "$account" | cut -d: -f6')
 		expect(script).not.toContain("~/.ssh")
 	})
 
 	it("carries the key through a quoted heredoc, so nothing in it can be expanded", () => {
-		const script = hostSetupScript("rootless", "pi", "ssh-ed25519 AAAA $HOME `id` 'x'")
+		const script = hostSetupScript("pi", "ssh-ed25519 AAAA $HOME `id` 'x'")
 
 		expect(script).toContain("<<'OPENMCC_KEY'")
 		expect(script).toContain("ssh-ed25519 AAAA $HOME `id` 'x'")
 	})
 
 	it("adds the key only when it is missing, so running it twice leaves one copy", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain('awk -v blob="$material" -f "$scan"')
 		expect(script).toContain('>> "$home/.ssh/authorized_keys"')
 	})
 
 	it("skips comment lines when checking whether the key is already there", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain("/^[ \\t]*#/ { next }")
 	})
 
 	it("stops on any option carrying a quote or an equals sign, rather than parsing what is inside it", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain('index(f[i], "\\"") > 0 || index(f[i], "=") > 0')
 	})
 
 	it("accepts only an exact allowlist of bare options, and requires port-forwarding alongside restrict", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain(
 			't == "pty" || t == "no-pty" || t == "agent-forwarding" || t == "no-agent-forwarding" || t == "X11-forwarding" || t == "no-X11-forwarding" || t == "user-rc" || t == "no-user-rc"',
@@ -57,14 +58,14 @@ describe("the command an operator pastes onto a new host", () => {
 	})
 
 	it("decides present, clean and the stop line from the first matching record alone", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain("decided { next }")
 		expect(script).toContain("decided = 1")
 	})
 
 	it("names the offending line number, never the key material, when it stops", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 		const stopLine = script
 			.split("\n")
 			.find((line) => line.includes("restricts it in a way that would block the manager"))
@@ -76,7 +77,7 @@ describe("the command an operator pastes onto a new host", () => {
 	})
 
 	it("writes the account's ssh files as that account, so a link it planted cannot aim root at another file", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain(`said=$(printf '%s\\n' "$key" | ${ACCOUNT_STEP} 2>&1)`)
 		expect(script).not.toContain("chown")
@@ -84,7 +85,7 @@ describe("the command an operator pastes onto a new host", () => {
 	})
 
 	it("captures the step's output rather than giving it the terminal, and strips control bytes before printing", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain(`said=$(printf '%s\\n' "$key" | ${ACCOUNT_STEP} 2>&1)`)
 		expect(script).toContain(`printf '%s\\n' "$said" | ${STRIP_CONTROL} >&2`)
@@ -92,45 +93,43 @@ describe("the command an operator pastes onto a new host", () => {
 	})
 
 	it("stops rather than continuing when the account does not exist", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain("There is no account called")
+		expect(hostSetupScript("pi", KEY)).toContain("There is no account called")
 	})
 
 	it("refuses an architecture with no client build, instead of installing something that cannot run", () => {
-		const script = hostSetupScript("rootless", "pi", KEY)
+		const script = hostSetupScript("pi", KEY)
 
 		expect(script).toContain("x86_64|amd64|aarch64|arm64")
 		expect(script).toContain("There is no client build for $machine")
 	})
 
 	it("finds the libicu package without hardcoding a version that will age out", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain("'^libicu[0-9]+$'")
+		expect(hostSetupScript("pi", KEY)).toContain("'^libicu[0-9]+$'")
 	})
 
 	it("ends by printing the fingerprint the next step asks for", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain(fingerprintCommand())
+		expect(hostSetupScript("pi", KEY)).toContain(fingerprintCommand())
 	})
 
 	it("quotes an account name that would otherwise break out of the script", () => {
-		expect(hostSetupScript("rootless", "pi'; rm -rf /", KEY)).toContain("'pi'\\''; rm -rf /'")
+		expect(hostSetupScript("pi'; rm -rf /", KEY)).toContain("'pi'\\''; rm -rf /'")
 	})
 })
 
-describe("what each mode adds to that command", () => {
-	it("enables lingering for a rootless host, since provisioning refuses without it", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain('loginctl enable-linger "$account"')
+describe("what the command does on every host", () => {
+	it("enables lingering, since provisioning refuses without it", () => {
+		expect(hostSetupScript("pi", KEY)).toContain('loginctl enable-linger "$account"')
+		expect(setupSummary("pi")).toContain(
+			"Enables lingering, so instances keep running after you log out",
+		)
 	})
 
-	it("does not ask a root-owned host for lingering, which it does not use", () => {
-		expect(hostSetupScript("system", "root", KEY)).not.toContain("enable-linger")
-	})
+	it("has no branch asking for root, since no host is set up to run bots as root", () => {
+		const script = hostSetupScript("root", KEY)
 
-	it("catches a root-owned host being set up under an account that is not root, before touching it", () => {
-		const script = hostSetupScript("system", "root", KEY)
-
-		expect(script).toContain('if [ "$account" != "root" ]')
-		expect(script.indexOf('if [ "$account" != "root" ]')).toBeLessThan(script.indexOf(ACCOUNT_STEP))
-		expect(requiresRootAccount("system", "pi")).toBe(true)
-		expect(requiresRootAccount("rootless", "pi")).toBe(false)
+		expect(script).not.toContain('if [ "$account" != "root" ]')
+		expect(script).not.toContain("is not root")
+		expect(Object.keys(hostSetup)).not.toContain("requiresRootAccount")
 	})
 })
 

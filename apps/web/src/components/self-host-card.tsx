@@ -69,15 +69,6 @@ export const SelfHostCard = ({ offer, onAdded }: SelfHostCardProps) => {
 				OpenMCC runs on this machine. Add it to run bots here too.
 			</p>
 
-			<dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-				<div>
-					<dt className="text-muted-foreground">Privilege</dt>
-					<dd className="text-foreground">
-						{offer.mode === "rootless" ? "Without root" : "With root"}
-					</dd>
-				</div>
-			</dl>
-
 			{!offer.systemd ? (
 				<Alert variant="warning" icon={<CircleAlert />}>
 					This machine has no systemd, so it cannot run bots.

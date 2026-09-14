@@ -684,7 +684,6 @@ const seedReadyInstance = async (
 			organizationId: orgId,
 			name: `vps-${hostId}`,
 			hostname: "10.0.0.1",
-			mode: "system",
 			status: "ready",
 			sshKeyId,
 			hostKeyAlgorithm: "ssh-ed25519",
@@ -692,8 +691,6 @@ const seedReadyInstance = async (
 			hostKeyTrustedBy: memberId,
 			hostKeyTrustedByLabel: "seed@example.com",
 			hostKeyTrustedAt: new Date(),
-			instancesRoot: "/srv/open-mcc",
-			unitDir: "/etc/systemd/system",
 		})
 		.execute()
 	const instanceId = randomUUID()

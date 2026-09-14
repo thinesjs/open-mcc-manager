@@ -397,9 +397,15 @@ Dependency direction is one-way: router → controller → repository.
   a crash mid-attempt leaves a recoverable claim, not a hung lock.
   `member.router.ts`'s `acceptInvitation` calls better-auth's `signUpEmail`
   (a connection this codebase does not control) before opening the
-  transaction that inserts the member row and audits it; a failure after
-  signup leaves an orphaned user with no membership, which is inert because
-  the request context rejects any session with no matching member row. A
+  transaction that inserts the member row and audits it. When that
+  transaction refuses the invitation, because it was cancelled or its inviter
+  removed while the accept was in flight, the account this request just created
+  is deleted through better-auth's `internalAdapter` before the refusal is
+  returned, so the email can be invited again. Only that known refusal deletes:
+  any other failure after signup leaves the account with no membership, which
+  reaches no tRPC procedure because the request context rejects a session with
+  no matching member row, but whose email is refused as already having an
+  account until an operator deletes it from the database. A
   formal saga engine with idempotency keys and per-phase checkpoints is
   scoped for later and does not exist yet.
 - `member.router.ts`'s `invite` is the one write whose audit row can be lost

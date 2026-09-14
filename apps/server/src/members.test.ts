@@ -670,6 +670,47 @@ describe("member.acceptInvitation", () => {
 				.where("user.email", "=", plantedEmail)
 				.execute(),
 		).toEqual([])
+		expect(
+			await db.selectFrom("user").select("id").where("email", "=", plantedEmail).execute(),
+		).toEqual([])
+	})
+
+	it("deletes the account an accept created when its invitation was cancelled mid-accept", async () => {
+		const owner = await signUpOwner()
+		const invitationId = await invite(owner.cookie, "operator")
+		const invitedEmail = (
+			await db
+				.selectFrom("invitation")
+				.select("email")
+				.where("id", "=", invitationId)
+				.executeTakeFirstOrThrow()
+		).email
+
+		let pending: Promise<Response> | undefined
+		await db.transaction().execute(async (tx) => {
+			await tx
+				.updateTable("invitation")
+				.set({ status: "canceled" })
+				.where("id", "=", invitationId)
+				.execute()
+			pending = post("/trpc/member.acceptInvitation", "", {
+				invitationId,
+				password: PASSWORD,
+				name: "Cancelled Midway",
+			})
+			await new Promise((resolve) => setTimeout(resolve, 1_500))
+		})
+		const accept = await (pending ?? Promise.reject(new Error("the accept was never sent")))
+		const body = await accept.text()
+
+		expect(accept.status, body).toBe(400)
+		expect(errorCodeSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+			"INVITATION_NOT_FOUND",
+		)
+		expect(await statusOf(invitationId)).toBe("canceled")
+		expect(
+			await db.selectFrom("user").select("id").where("email", "=", invitedEmail).execute(),
+		).toEqual([])
 	})
 })
 

@@ -96,50 +96,59 @@ export const memberRouter = router({
 
 			const memberId = randomUUID()
 
-			await ctx.db.transaction().execute(async (tx) => {
-				const inviter = await tx
-					.selectFrom("member")
-					.select("id")
-					.where("organizationId", "=", invitation.organizationId)
-					.where("userId", "=", invitation.inviterId)
-					.executeTakeFirst()
-				if (!inviter) {
-					throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
-				}
+			await ctx.db
+				.transaction()
+				.execute(async (tx) => {
+					const inviter = await tx
+						.selectFrom("member")
+						.select("id")
+						.where("organizationId", "=", invitation.organizationId)
+						.where("userId", "=", invitation.inviterId)
+						.executeTakeFirst()
+					if (!inviter) {
+						throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
+					}
 
-				await tx
-					.insertInto("member")
-					.values({
-						id: memberId,
-						organizationId: invitation.organizationId,
-						userId: signUpResult.user.id,
-						role,
-					})
-					.execute()
+					await tx
+						.insertInto("member")
+						.values({
+							id: memberId,
+							organizationId: invitation.organizationId,
+							userId: signUpResult.user.id,
+							role,
+						})
+						.execute()
 
-				const consumed = await tx
-					.updateTable("invitation")
-					.set({ status: "accepted" })
-					.where("id", "=", invitation.id)
-					.where("status", "=", "pending")
-					.returningAll()
-					.executeTakeFirst()
-				if (!consumed) {
-					throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
-				}
+					const consumed = await tx
+						.updateTable("invitation")
+						.set({ status: "accepted" })
+						.where("id", "=", invitation.id)
+						.where("status", "=", "pending")
+						.returningAll()
+						.executeTakeFirst()
+					if (!consumed) {
+						throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
+					}
 
-				await createAuditRepository(tx).record(
-					{ organizationId: invitation.organizationId },
-					{
-						actorId: memberId,
-						actorLabel: invitation.email,
-						action: "member.accept",
-						subjectType: "member",
-						subjectId: memberId,
-						detail: { invitationId: invitation.id, role },
-					},
-				)
-			})
+					await createAuditRepository(tx).record(
+						{ organizationId: invitation.organizationId },
+						{
+							actorId: memberId,
+							actorLabel: invitation.email,
+							action: "member.accept",
+							subjectType: "member",
+							subjectId: memberId,
+							detail: { invitationId: invitation.id, role },
+						},
+					)
+				})
+				.catch(async (error: Error) => {
+					if (error instanceof InvitationNotFoundError) {
+						const { internalAdapter } = await ctx.signupAuth.$context
+						await internalAdapter.deleteUser(signUpResult.user.id)
+					}
+					throw error
+				})
 
 			return { accepted: true }
 		}),

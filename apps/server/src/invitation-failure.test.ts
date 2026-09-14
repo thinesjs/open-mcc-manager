@@ -339,7 +339,7 @@ describe("member.acceptInvitation failure modes", () => {
 			.select("id")
 			.where("email", "in", [inviteeEmail, replayEmail])
 			.execute()
-		expect(bothUsers).toHaveLength(2)
+		expect(bothUsers).toHaveLength(1)
 		const membersForBothUsers = await db
 			.selectFrom("member")
 			.select("userId")

@@ -374,15 +374,19 @@ depth, not a substitute for one.
   is configured — the owner sends that link to the invitee out of band. Anyone
   holding the link can accept it until it is accepted, cancelled or expired, so
   an owner should cancel one that went to the wrong place.
+  Wiring an email delivery step is future work, not a current control gap:
+  the invitation's authorization (who may create one, what it can accept)
+  does not depend on how it is delivered.
 - **An existing account cannot be invited into a second organization.**
   Accepting an invitation creates the account, so an invitation to an email
   that already has one here fails with "This email already has an account
   here." A member removed from their only organization has their account
   deleted, so they can be invited back; someone who still belongs to another
-  organization cannot.
-  Wiring an email delivery step is future work, not a current control gap:
-  the invitation's authorization (who may create one, what it can accept)
-  does not depend on how it is delivered.
+  organization cannot. An accept refused after it created the account, because
+  the invitation was cancelled or its inviter removed mid-accept, deletes that
+  account again. Only an unexpected failure after sign-up can still leave an
+  account with no membership, whose email then stays uninvitable until an
+  operator deletes it from the database.
 - **Audit records are not tamper-evident.** Audit events live in the same
   Postgres database the application itself can write to. An attacker with
   application-level or database-level control can alter or delete audit

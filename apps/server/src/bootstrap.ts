@@ -241,7 +241,7 @@ export const startServer = async (
 				sshKeyController,
 				selfHostController,
 				destinationController,
-				memberController: memberControllerFor(db, auth),
+				memberController: memberControllerFor(db, auth, runtimeErrorReporter(logger)),
 			}),
 		}),
 	)

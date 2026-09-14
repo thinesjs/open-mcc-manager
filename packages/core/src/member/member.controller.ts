@@ -3,6 +3,7 @@ import type { Db } from "@open-mcc/db"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import { type ActorContext, ForbiddenError } from "../host/host.controller"
 import type { OrgScope } from "../host/host.repository"
+import type { RuntimeErrorReporter } from "../log/reporters"
 import { createMemberRepository, type MemberRepository } from "./member.repository"
 
 export type MemberTransactionRepos = {
@@ -31,6 +32,7 @@ export type MemberControllerDeps = {
 	members: Pick<MemberRepository, "list" | "listPendingInvitations">
 	withTransaction: WithMemberTransaction
 	revokeSessions: (scope: OrgScope, userId: string) => Promise<void>
+	reportError: RuntimeErrorReporter
 }
 
 export class LastOwnerError extends Error {}
@@ -77,6 +79,10 @@ export const createMemberController = (deps: MemberControllerDeps) => ({
 
 		const removed = await deps.withTransaction(async (repos) => {
 			await repos.members.lock(scope)
+			const caller = await repos.members.findById(scope, ctx.memberId)
+			if (!caller || !isRole(caller.role) || !can(caller.role, "member.manage")) {
+				throw new ForbiddenError("Forbidden: the caller no longer manages members")
+			}
 			const target = await repos.members.findById(scope, memberId)
 			if (!target) return undefined
 			if (target.role === "owner" && (await repos.members.countOwners(scope)) <= 1) {
@@ -101,7 +107,14 @@ export const createMemberController = (deps: MemberControllerDeps) => ({
 		})
 		if (!removed) return false
 
-		await deps.revokeSessions(scope, removed.userId)
+		try {
+			await deps.revokeSessions(scope, removed.userId)
+		} catch (error) {
+			deps.reportError(
+				"Ending a removed member's sessions failed after the removal committed",
+				error instanceof Error ? error : String(error),
+			)
+		}
 		return true
 	},
 

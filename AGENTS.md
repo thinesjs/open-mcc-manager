@@ -539,10 +539,19 @@ together. `member.controller.transaction.test.ts` drives the race.
 
 - An owner cannot remove themselves. Another owner can, and the rule keeps an
   owner from locking themselves out by mistake.
-- After the transaction commits, the removed member's sessions whose active
-  organization is this one are revoked through better-auth's own
-  `internalAdapter`, never by deleting `session` rows here. A session active in
-  another organization the person still belongs to is left alone.
+- Under the lock the caller's own membership is read again, so an owner who was
+  removed while their request waited is refused. That makes the owner count
+  unreachable through two owners removing each other; it stays as the stated
+  invariant. `acceptInvitation` likewise refuses an invitation whose inviter
+  has no member row any more, which closes one better-auth inserted after the
+  removal had cancelled the rest.
+- After the transaction commits, better-auth's own `internalAdapter` deletes
+  the person's account when no membership remains anywhere, so a later
+  invitation creates a fresh one; otherwise it revokes their sessions whose
+  active organization is this one. Never delete `user` or `session` rows here.
+  A failure in that step is reported through the runtime error reporter and the
+  removal still succeeds, because the request context already refuses the
+  session.
 - What the member authored stays. `host.hostKeyTrustedBy`,
   `instanceConfig.authorId` and `auditEvent.actorId` are nulled by their
   column-scoped `ON DELETE SET NULL`, and each row keeps its label.

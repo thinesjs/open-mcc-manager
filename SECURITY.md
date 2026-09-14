@@ -190,12 +190,19 @@ depth, not a substitute for one.
   and removal all check the caller's role against an explicit capability
   matrix before touching data or contacting a host.
 - **Removing a member ends their access at once.** An owner removes a member
-  through `member.remove`, which refuses the last owner and an owner removing
-  themselves, cancels the invitations the removed member still had pending, and
-  revokes their sessions in that organization through better-auth. A removed
-  owner therefore cannot come back through an invitation they sent earlier.
-  `apps/server/src/members.test.ts` proves the removed member's session is
-  refused on its next request.
+  through `member.remove`, which refuses the last owner, an owner removing
+  themselves, and an owner who was removed while the request waited. It cancels
+  the invitations the removed member still had pending, and accepting an
+  invitation is refused once its inviter is no longer a member, so a removed
+  owner cannot come back through one. What ends access is the request context:
+  from the next request on, it refuses any session whose active organization
+  holds no member row for that user. After the removal commits, better-auth
+  deletes the person's account when they belong to no other organization, or
+  otherwise revokes their sessions in this one. If that step fails it is
+  reported, not retried, and the leftover session can still reach
+  `get-session` and the avatar and item-icon proxies until it expires, but no
+  tRPC procedure. `apps/server/src/members.test.ts` proves the removed
+  member's session is refused on its next request.
 - **Serialized provisioning with a bounded-lease claim.** `provision` reads
   the host once, unlocked, to decide whether an attempt is worth starting at
   all (already-provisioning, missing ssh key, missing trusted fingerprint);
@@ -364,6 +371,12 @@ depth, not a substitute for one.
   is configured — the owner sends that link to the invitee out of band. Anyone
   holding the link can accept it until it is accepted, cancelled or expired, so
   an owner should cancel one that went to the wrong place.
+- **An existing account cannot be invited into a second organization.**
+  Accepting an invitation creates the account, so an invitation to an email
+  that already has one here fails with "This email already has an account
+  here." A member removed from their only organization has their account
+  deleted, so they can be invited back; someone who still belongs to another
+  organization cannot.
   Wiring an email delivery step is future work, not a current control gap:
   the invitation's authorization (who may create one, what it can accept)
   does not depend on how it is delivered.

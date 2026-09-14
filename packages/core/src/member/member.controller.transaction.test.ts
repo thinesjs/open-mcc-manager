@@ -1,11 +1,8 @@
 import { sql } from "kysely"
 import { afterAll, describe, expect, it } from "vitest"
+import { ForbiddenError } from "../host/host.controller"
 import { seedMember, seedOrganization, teardownTestDb, testDb } from "../test/db"
-import {
-	createMemberController,
-	createMemberControllerTransaction,
-	LastOwnerError,
-} from "./member.controller"
+import { createMemberController, createMemberControllerTransaction } from "./member.controller"
 import { createMemberRepository } from "./member.repository"
 
 afterAll(async () => {
@@ -37,7 +34,7 @@ const waitUntil = async (condition: () => Promise<boolean>, budgetMs: number): P
 }
 
 describe("two owners removing each other at once", () => {
-	it("leaves one owner, because the second removal counts owners after the first has committed", async () => {
+	it("refuses the second removal, because its owner was removed while it waited for the lock", async () => {
 		const organizationId = await seedOrganization("owners-race")
 		const first = await seedOwner(organizationId)
 		const second = await seedOwner(organizationId)
@@ -46,6 +43,7 @@ describe("two owners removing each other at once", () => {
 			members: createMemberRepository(testDb()),
 			withTransaction: createMemberControllerTransaction(testDb()),
 			revokeSessions: async () => undefined,
+			reportError: () => undefined,
 		})
 
 		let removal: Promise<boolean> | undefined
@@ -63,7 +61,7 @@ describe("two owners removing each other at once", () => {
 				await waitUntil(someoneIsWaitingOnALock, 5_000)
 			})
 
-		await expect(removal).rejects.toBeInstanceOf(LastOwnerError)
+		await expect(removal).rejects.toBeInstanceOf(ForbiddenError)
 		const owners = await createMemberRepository(testDb()).countOwners(scope)
 		expect(owners).toBe(1)
 		expect(await createMemberRepository(testDb()).findById(scope, second)).toBeDefined()

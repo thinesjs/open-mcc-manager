@@ -120,7 +120,7 @@ const ctx: RequestContext = {
 	instanceController: await createTestInstanceController(db),
 	statusController: createTestStatusController(db),
 	destinationController: createTestDestinationController(db, hostControllerDeps.secrets),
-	memberController: memberControllerFor(db, auth),
+	memberController: memberControllerFor(db, auth, () => undefined),
 	sshKeyController,
 	selfHostController: createTestSelfHostController(db, hostController.enroll),
 	db,

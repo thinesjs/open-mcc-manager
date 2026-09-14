@@ -92,7 +92,7 @@ beforeAll(async () => {
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
 				selfHostController: createTestSelfHostController(db),
-				memberController: memberControllerFor(db, auth),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)
@@ -308,6 +308,9 @@ describe("member.remove", () => {
 		expect(await sessionOf(sessionHere)).toBeNull()
 		expect((await sessionOf(elsewhere.cookie))?.session.activeOrganizationId).toBe(elsewhere.orgId)
 		expect((await get("/trpc/member.me", elsewhere.cookie)).status).toBe(200)
+		expect(
+			await db.selectFrom("user").select("id").where("id", "=", elsewhere.userId).execute(),
+		).toHaveLength(1)
 	})
 
 	it("refuses someone who cannot manage members, and removes no one", async () => {
@@ -360,11 +363,7 @@ describe("member.remove", () => {
 		})
 		const responses = await (racing ?? Promise.resolve([]))
 
-		expect(responses.map((res) => res.status).sort()).toEqual([200, 409])
-		const refused = responses.find((res) => res.status === 409)
-		expect(errorCodeSchema.parse(await refused?.json()).error.data.errorCode).toBe(
-			"MEMBER_LAST_OWNER",
-		)
+		expect(responses.map((res) => res.status).sort()).toEqual([200, 403])
 		const owners = await db
 			.selectFrom("member")
 			.select("id")
@@ -464,6 +463,9 @@ describe("member.remove", () => {
 		const hostsBody = await hosts.text()
 		expect(hosts.status, hostsBody).toBe(200)
 		expect(hostsBody).toContain(leaver.email)
+		expect(
+			await db.selectFrom("user").select("id").where("email", "=", leaver.email).execute(),
+		).toEqual([])
 	})
 
 	it("cancels the invitations a removed owner sent, so they cannot come back through one", async () => {
@@ -475,7 +477,14 @@ describe("member.remove", () => {
 		const res = await post("/trpc/member.remove", owner.cookie, { memberId: leaver.memberId })
 		expect(res.status, await res.text()).toBe(200)
 
-		expect(await statusOf(planted)).toBe("canceled")
+		const audit = await db
+			.selectFrom("auditEvent")
+			.select("detail")
+			.where("action", "=", "member.remove")
+			.where("subjectId", "=", leaver.memberId)
+			.executeTakeFirst()
+		expect(audit?.detail).toMatchObject({ invitationsCancelled: "1" })
+		expect(await statusOf(planted)).toBeUndefined()
 		expect(await statusOf(ownersOwn)).toBe("pending")
 		const accept = await post("/trpc/member.acceptInvitation", "", {
 			invitationId: planted,
@@ -514,6 +523,153 @@ describe("member.remove", () => {
 		expect(membersResultSchema.parse(JSON.parse(listBody)).result.data).toEqual([
 			{ email: stranger.email, role: "owner", self: true },
 		])
+	})
+
+	it("refuses an owner whose own removal committed while their request waited for the lock", async () => {
+		const first = await signUpOwner()
+		const second = await joinAs(first.orgId, "owner")
+		const third = await joinAs(first.orgId, "owner")
+		const scope = { organizationId: first.orgId }
+
+		let pending: Promise<Response> | undefined
+		await db.transaction().execute(async (tx) => {
+			const members = createMemberRepository(tx)
+			await members.lock(scope)
+			await members.delete(scope, second.memberId)
+			pending = post("/trpc/member.remove", second.cookie, { memberId: third.memberId })
+			await new Promise((resolve) => setTimeout(resolve, 1_000))
+		})
+		const res = await (pending ?? Promise.reject(new Error("the removal was never sent")))
+
+		expect(res.status, await res.text()).toBe(403)
+		expect(await isMember(third.memberId)).toBe(true)
+		expect((await get("/trpc/member.me", third.cookie)).status).toBe(200)
+	})
+
+	it("lets a removed member come back through a new invitation", async () => {
+		const owner = await signUpOwner()
+		const operator = await joinAs(owner.orgId, "operator")
+		const removed = await post("/trpc/member.remove", owner.cookie, {
+			memberId: operator.memberId,
+		})
+		expect(removed.status, await removed.text()).toBe(200)
+
+		const inviteRes = await post("/trpc/member.invite", owner.cookie, {
+			email: operator.email,
+			role: "viewer",
+		})
+		const inviteBody = await inviteRes.text()
+		expect(inviteRes.status, inviteBody).toBe(200)
+		const invitationId = invitationResultSchema.parse(JSON.parse(inviteBody)).result.data.id
+
+		const accept = await post("/trpc/member.acceptInvitation", "", {
+			invitationId,
+			password: "a brand new password 2",
+			name: "Back Again",
+		})
+		expect(accept.status, await accept.text()).toBe(200)
+
+		const signIn = await post("/api/auth/sign-in/email", "", {
+			email: operator.email,
+			password: "a brand new password 2",
+		})
+		expect(signIn.status).toBe(200)
+		expect(
+			await db
+				.selectFrom("member")
+				.innerJoin("user", "user.id", "member.userId")
+				.select("member.role")
+				.where("member.organizationId", "=", owner.orgId)
+				.where("user.email", "=", operator.email)
+				.execute(),
+		).toEqual([{ role: "viewer" }])
+	})
+})
+
+describe("member.acceptInvitation", () => {
+	it("says an invited email already has an account when that person still belongs to another organization", async () => {
+		const owner = await signUpOwner()
+		const elsewhere = await signUpOwner()
+		const inviteRes = await post("/trpc/member.invite", owner.cookie, {
+			email: elsewhere.email,
+			role: "viewer",
+		})
+		const inviteBody = await inviteRes.text()
+		expect(inviteRes.status, inviteBody).toBe(200)
+		const invitationId = invitationResultSchema.parse(JSON.parse(inviteBody)).result.data.id
+
+		const accept = await post("/trpc/member.acceptInvitation", "", {
+			invitationId,
+			password: "someone else's guess 3",
+			name: "Not Them",
+		})
+		const body = await accept.text()
+
+		expect(accept.status, body).toBe(409)
+		expect(errorCodeSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+			"INVITATION_EMAIL_HAS_ACCOUNT",
+		)
+		expect(await statusOf(invitationId)).toBe("pending")
+		expect((await get("/trpc/member.me", elsewhere.cookie)).status).toBe(200)
+	})
+
+	it("refuses an invitation whose inviter is no longer a member, even when it is still pending", async () => {
+		const owner = await signUpOwner()
+		const inviter = await signUpOwner()
+		const inviterMemberId = randomUUID()
+		await db
+			.insertInto("member")
+			.values({
+				id: inviterMemberId,
+				organizationId: owner.orgId,
+				userId: inviter.userId,
+				role: "owner",
+			})
+			.execute()
+		const signIn = await post("/api/auth/sign-in/email", "", {
+			email: inviter.email,
+			password: PASSWORD,
+		})
+		expect(signIn.status).toBe(200)
+		const inviterHere = extractCookie(signIn)
+		await activate(inviterHere, owner.orgId)
+		const planted = await invite(inviterHere, "owner")
+
+		const removed = await post("/trpc/member.remove", owner.cookie, { memberId: inviterMemberId })
+		expect(removed.status, await removed.text()).toBe(200)
+		await db
+			.updateTable("invitation")
+			.set({ status: "pending" })
+			.where("id", "=", planted)
+			.execute()
+
+		const plantedEmail = (
+			await db
+				.selectFrom("invitation")
+				.select("email")
+				.where("id", "=", planted)
+				.executeTakeFirstOrThrow()
+		).email
+		const accept = await post("/trpc/member.acceptInvitation", "", {
+			invitationId: planted,
+			password: PASSWORD,
+			name: "Planted",
+		})
+		const body = await accept.text()
+
+		expect(accept.status, body).toBe(400)
+		expect(errorCodeSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+			"INVITATION_NOT_FOUND",
+		)
+		expect(
+			await db
+				.selectFrom("member")
+				.innerJoin("user", "user.id", "member.userId")
+				.select("member.id")
+				.where("member.organizationId", "=", owner.orgId)
+				.where("user.email", "=", plantedEmail)
+				.execute(),
+		).toEqual([])
 	})
 })
 

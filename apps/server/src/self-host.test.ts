@@ -143,7 +143,7 @@ const appWith = (
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
 				selfHostController: createTestSelfHostController(db, hostController.enroll, materials),
-				memberController: memberControllerFor(db, auth),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)

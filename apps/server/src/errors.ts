@@ -150,6 +150,11 @@ const ALREADY_INVITED_CODES: ReadonlySet<string> = new Set([
 	"USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION",
 ])
 
+const EXISTING_ACCOUNT_CODES: ReadonlySet<string> = new Set([
+	"USER_ALREADY_EXISTS",
+	"USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+])
+
 export const mapKnownError = (cause: Error): MappedError | null => {
 	if (cause instanceof McpRefusalError) return REFUSALS[cause.refusal]
 	if (cause instanceof ForbiddenError) {
@@ -348,6 +353,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"MEMBER_ALREADY_INVITED",
 			"That person is already a member or already has an invitation",
+		)
+	}
+	if (isAPIError(cause) && EXISTING_ACCOUNT_CODES.has(String(cause.body?.code))) {
+		return mapped(
+			"CONFLICT",
+			"INVITATION_EMAIL_HAS_ACCOUNT",
+			"This email already has an account here",
 		)
 	}
 	if (cause instanceof InvitationNotFoundError) {

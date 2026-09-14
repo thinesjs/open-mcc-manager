@@ -109,7 +109,7 @@ beforeAll(async () => {
 				destinationController: createTestDestinationController(db, secretsStore),
 				sshKeyController,
 				selfHostController: createTestSelfHostController(db),
-				memberController: memberControllerFor(db, auth),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)

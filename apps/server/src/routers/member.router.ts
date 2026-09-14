@@ -97,6 +97,16 @@ export const memberRouter = router({
 			const memberId = randomUUID()
 
 			await ctx.db.transaction().execute(async (tx) => {
+				const inviter = await tx
+					.selectFrom("member")
+					.select("id")
+					.where("organizationId", "=", invitation.organizationId)
+					.where("userId", "=", invitation.inviterId)
+					.executeTakeFirst()
+				if (!inviter) {
+					throw new InvitationNotFoundError(`Invitation not found: ${input.invitationId}`)
+				}
+
 				await tx
 					.insertInto("member")
 					.values({

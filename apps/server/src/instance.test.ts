@@ -93,7 +93,7 @@ beforeAll(async () => {
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
 				selfHostController: createTestSelfHostController(db),
-				memberController: memberControllerFor(db, auth),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)
@@ -567,7 +567,7 @@ describe("which controller method each readout route reaches", () => {
 						withTransaction: createSshKeyControllerTransaction(db),
 					}),
 					selfHostController: createTestSelfHostController(db),
-					memberController: memberControllerFor(db, auth),
+					memberController: memberControllerFor(db, auth, () => undefined),
 				}),
 			}),
 		)

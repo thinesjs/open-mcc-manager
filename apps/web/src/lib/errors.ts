@@ -94,6 +94,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"OpenMCC cannot reach the machine it runs on, so it cannot add it. Run the installer on that machine again.",
 	MEMBER_LAST_OWNER: "An organization must keep at least one owner.",
 	MEMBER_ALREADY_INVITED: "That person is already a member or already has an invitation.",
+	INVITATION_EMAIL_HAS_ACCOUNT: "This email already has an account here.",
 	CONSTRAINT_VIOLATION: "That change conflicts with data already stored. Refresh and try again.",
 }
 

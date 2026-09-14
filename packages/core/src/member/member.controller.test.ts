@@ -30,6 +30,16 @@ const memberRow = (overrides: Partial<MemberRow> = {}): MemberRow => ({
 	...overrides,
 })
 
+const callerRow = (overrides: Partial<MemberRow> = {}): MemberRow =>
+	memberRow({
+		id: "mem-owner",
+		userId: "user-owner",
+		role: "owner",
+		name: "Owner",
+		email: "owner@example.com",
+		...overrides,
+	})
+
 const invitationRow = (overrides: Partial<InvitationRow> = {}): InvitationRow => ({
 	id: "inv-1",
 	email: "new@example.com",
@@ -40,8 +50,10 @@ const invitationRow = (overrides: Partial<InvitationRow> = {}): InvitationRow =>
 
 type Options = {
 	target?: MemberRow | null
+	caller?: MemberRow | null
 	owners?: number
 	cancelled?: boolean
+	revokeFails?: boolean
 	members?: MemberRow[]
 	invitations?: InvitationRow[]
 }
@@ -50,12 +62,17 @@ const harness = (options: Options = {}) => {
 	const events: string[] = []
 	const audited: AuditEntry[] = []
 	const target = options.target === undefined ? memberRow() : options.target
+	const caller = options.caller === undefined ? callerRow() : options.caller
 	const repos: MemberTransactionRepos = {
 		members: {
 			lock: vi.fn(async () => {
 				events.push("lock")
 			}),
-			findById: vi.fn(async () => {
+			findById: vi.fn(async (_scope, id: string) => {
+				if (id === "mem-owner") {
+					events.push("find-caller")
+					return caller ?? undefined
+				}
 				events.push("find")
 				return target ?? undefined
 			}),
@@ -107,6 +124,10 @@ const harness = (options: Options = {}) => {
 		},
 		revokeSessions: vi.fn(async (_scope, userId: string) => {
 			events.push(`revoke:${userId}`)
+			if (options.revokeFails) throw new Error("connection lost")
+		}),
+		reportError: vi.fn(() => {
+			events.push("report")
 		}),
 	}
 	return { deps, events, audited }
@@ -123,6 +144,7 @@ describe("removing a member", () => {
 		expect(events).toEqual([
 			"begin",
 			"lock",
+			"find-caller",
 			"find",
 			"delete",
 			"cancel-sent",
@@ -138,6 +160,7 @@ describe("removing a member", () => {
 			subjectId: "mem-target",
 			detail: { email: "target@example.com", role: "operator", invitationsCancelled: "2" },
 		})
+		expect(deps.reportError).not.toHaveBeenCalled()
 	})
 
 	it.each(["operator", "viewer"] as const)(
@@ -163,6 +186,26 @@ describe("removing a member", () => {
 		expect(events).toEqual([])
 	})
 
+	it("refuses an owner who was removed while their request waited for the lock", async () => {
+		const { deps, events } = harness({ caller: null })
+
+		await expect(
+			createMemberController(deps).remove(actor("owner"), "mem-target"),
+		).rejects.toBeInstanceOf(ForbiddenError)
+
+		expect(events).toEqual(["begin", "lock", "find-caller"])
+	})
+
+	it("refuses a caller who is no longer an owner by the time the lock is held", async () => {
+		const { deps, events } = harness({ caller: callerRow({ role: "operator" }) })
+
+		await expect(
+			createMemberController(deps).remove(actor("owner"), "mem-target"),
+		).rejects.toBeInstanceOf(ForbiddenError)
+
+		expect(events).toEqual(["begin", "lock", "find-caller"])
+	})
+
 	it("refuses to remove the last owner, counting under the lock", async () => {
 		const { deps, events } = harness({ target: memberRow({ role: "owner" }), owners: 1 })
 
@@ -170,7 +213,7 @@ describe("removing a member", () => {
 			createMemberController(deps).remove(actor("owner"), "mem-target"),
 		).rejects.toBeInstanceOf(LastOwnerError)
 
-		expect(events).toEqual(["begin", "lock", "find", "count"])
+		expect(events).toEqual(["begin", "lock", "find-caller", "find", "count"])
 	})
 
 	it("removes an owner while another owner remains", async () => {
@@ -191,7 +234,7 @@ describe("removing a member", () => {
 			createMemberController(deps).remove(actor("owner"), "mem-elsewhere"),
 		).resolves.toBe(false)
 
-		expect(events).toEqual(["begin", "lock", "find", "commit"])
+		expect(events).toEqual(["begin", "lock", "find-caller", "find", "commit"])
 	})
 
 	it("signs no one out when the removal does not commit", async () => {
@@ -208,6 +251,17 @@ describe("removing a member", () => {
 		).rejects.toThrow("connection lost")
 
 		expect(events.filter((event) => event.startsWith("revoke"))).toEqual([])
+	})
+
+	it("still reports the removal as done when signing the member out fails afterwards, and reports that failure", async () => {
+		const { deps, events } = harness({ revokeFails: true })
+
+		await expect(createMemberController(deps).remove(actor("owner"), "mem-target")).resolves.toBe(
+			true,
+		)
+
+		expect(events.slice(-3)).toEqual(["commit", "revoke:user-target", "report"])
+		expect(deps.reportError).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
 	})
 })
 

@@ -199,7 +199,7 @@ export const MembersPanel = ({ role }: MembersPanelProps) => {
 			<ConfirmDialog
 				open={pendingRemoval !== undefined}
 				title="Remove member"
-				description={`${pendingRemoval?.name ?? "This member"} loses access and is signed out right away. What they set up stays.`}
+				description={`${pendingRemoval?.name ?? "This member"} loses access right away. What they set up stays.`}
 				confirmLabel="Remove"
 				destructive
 				busy={removeMutation.isPending}

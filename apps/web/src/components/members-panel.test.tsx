@@ -88,7 +88,8 @@ describe("removing a member", () => {
 		await waitFor(() => expect(screen.getByRole("button", { name: "Remove Bo" })).toBeDefined())
 		fireEvent.click(screen.getByRole("button", { name: "Remove Bo" }))
 
-		expect(screen.getByText(/signed out/)).toBeDefined()
+		expect(screen.getByText(/loses access right away/)).toBeDefined()
+		expect(screen.queryByText(/signed out/)).toBeNull()
 		const hold = screen.getByRole("button", { name: "Remove. Press and hold to confirm." })
 		fireEvent.click(hold)
 		expect(remove).not.toHaveBeenCalled()

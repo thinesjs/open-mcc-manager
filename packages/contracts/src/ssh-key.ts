@@ -11,7 +11,7 @@ export const sshKeyPublic = z.object({
 	id: z.string(),
 	name: z.string(),
 	publicKey: z.string(),
-	createdAt: z.date(),
+	createdAt: z.string().datetime(),
 })
 
 export type SshKeyPublic = z.infer<typeof sshKeyPublic>

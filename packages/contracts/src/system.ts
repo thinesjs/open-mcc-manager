@@ -22,7 +22,9 @@ export type BuildInfoPublic = z.infer<typeof buildInfoSchema>
 export const systemStatusSchema = z.object({
 	condition: controlPlaneCondition,
 	server: buildInfoSchema.extend({ schemaVersion: z.string() }),
-	worker: buildInfoSchema.extend({ schemaVersion: z.string(), seenAt: z.date() }).nullable(),
+	worker: buildInfoSchema
+		.extend({ schemaVersion: z.string(), seenAt: z.string().datetime() })
+		.nullable(),
 })
 
 export type SystemStatus = z.infer<typeof systemStatusSchema>

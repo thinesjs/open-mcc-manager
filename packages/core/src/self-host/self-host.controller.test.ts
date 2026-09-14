@@ -1,4 +1,4 @@
-import type { CreateHostInput, Role, SelfHostOffer } from "@open-mcc/contracts"
+import type { CreateHostInput, HostPublic, Role, SelfHostOffer } from "@open-mcc/contracts"
 import type { HostRow, SshKeyRow } from "@open-mcc/db"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry } from "../audit/audit.repository"
@@ -89,6 +89,16 @@ const makeHostRow = (): HostRow => ({
 	createdAt: new Date("2026-09-13T00:00:00.000Z"),
 })
 
+const makeHostPublic = (): HostPublic => {
+	const row = makeHostRow()
+	return {
+		...row,
+		hostKeyTrustedAt: row.hostKeyTrustedAt?.toISOString() ?? null,
+		lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+		teardownRequestedAt: row.teardownRequestedAt?.toISOString() ?? null,
+	}
+}
+
 type Harness = {
 	deps: SelfHostControllerDeps
 	inserted: SshKeyCreateValues[]
@@ -132,7 +142,7 @@ const harness = (materials: SelfHostMaterials | undefined, stored: SshKeyRow[] =
 			}),
 		enroll: vi.fn(async (_ctx: ActorContext, input: CreateHostInput) => {
 			enrolled.push(input)
-			return makeHostRow()
+			return makeHostPublic()
 		}),
 	}
 

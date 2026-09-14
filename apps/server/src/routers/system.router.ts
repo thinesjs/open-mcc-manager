@@ -1,8 +1,9 @@
+import type { SystemStatus } from "@open-mcc/contracts"
 import { conditionFor, releaseNotesFor, updateStatusFor } from "@open-mcc/core"
 import { protectedProcedure, router } from "../trpc"
 
 export const systemRouter = router({
-	status: protectedProcedure.query(async ({ ctx }) => {
+	status: protectedProcedure.query(async ({ ctx }): Promise<SystemStatus> => {
 		const worker = await ctx.processIdentities.find("worker")
 		const server = { build: ctx.build, schemaVersion: ctx.schemaVersion }
 		return {
@@ -24,7 +25,7 @@ export const systemRouter = router({
 						version: worker.version,
 						commit: worker.commit,
 						schemaVersion: worker.schemaVersion,
-						seenAt: worker.seenAt,
+						seenAt: worker.seenAt.toISOString(),
 					}
 				: null,
 		}

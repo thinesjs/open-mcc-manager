@@ -172,7 +172,7 @@ export const instancePublic = z.object({
 	minecraftUsername: z.string().nullable(),
 	status: instanceStatusSchema,
 	lastExitCode: z.number().int().nullable(),
-	createdAt: z.date(),
+	createdAt: z.string().datetime(),
 })
 export type InstancePublic = z.infer<typeof instancePublic>
 
@@ -262,7 +262,7 @@ export const managerMetricsSchema = z.object({
 	externalBytes: z.number(),
 	arrayBuffersBytes: z.number(),
 	uptimeSeconds: z.number(),
-	sampledAt: z.date(),
+	sampledAt: z.string().datetime(),
 })
 export type ManagerMetrics = z.infer<typeof managerMetricsSchema>
 

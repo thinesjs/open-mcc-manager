@@ -424,7 +424,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		minecraftUsername: row.minecraftUsername,
 		status: row.status,
 		lastExitCode: row.lastExitCode,
-		createdAt: row.createdAt,
+		createdAt: row.createdAt.toISOString(),
 	})
 
 	const toScheduledCommandPublic = (row: InstanceCommandRow): ScheduledCommandPublic => ({
@@ -436,7 +436,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		runAt: timeOfDay(row.minuteOfDay),
 		timezone: row.timezone,
 		enabled: row.enabled,
-		lastRunAt: row.lastRunAt,
+		lastRunAt: row.lastRunAt?.toISOString() ?? null,
 		lastRunError: row.lastRunError,
 	})
 

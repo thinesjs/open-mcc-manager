@@ -194,8 +194,8 @@ export const createNotificationRepository = (db: Executor) => ({
 		return Number(rows[0]?.total ?? "0")
 	},
 
-	recentFailures: async (scope: OrgScope, limit: number): Promise<DeliveryFailureView[]> =>
-		await db
+	recentFailures: async (scope: OrgScope, limit: number): Promise<DeliveryFailureView[]> => {
+		const rows = await db
 			.selectFrom("notificationDelivery")
 			.innerJoin("notification", (join) =>
 				join
@@ -224,7 +224,9 @@ export const createNotificationRepository = (db: Executor) => ({
 			.where("notificationDelivery.state", "=", "failed")
 			.orderBy("notificationDelivery.settledAt", "desc")
 			.limit(limit)
-			.execute(),
+			.execute()
+		return rows.map((row) => ({ ...row, settledAt: row.settledAt?.toISOString() ?? null }))
+	},
 
 	requeueDelivery: async (scope: OrgScope, deliveryId: string): Promise<boolean> => {
 		const result = await db

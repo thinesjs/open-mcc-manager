@@ -364,6 +364,24 @@ describe("instance controller lifecycle guards", () => {
 })
 
 describe("instance creation prepares the host", () => {
+	it("carries createdAt as the ISO string the wire actually sends, not a Date object", async () => {
+		const { deps } = makeDeps()
+		vi.mocked(deps.instances.insert).mockResolvedValueOnce(
+			instanceRow({ createdAt: new Date("2026-09-01T00:00:00.000Z") }),
+		)
+		const controller = createInstanceController(deps)
+
+		const created = await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		expect(created.createdAt).toBe("2026-09-01T00:00:00.000Z")
+	})
+
 	it("creates the user, directory and control fifo, and writes the environment as stdin", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
@@ -790,6 +808,18 @@ describe("scheduled commands", () => {
 				}),
 			}),
 		)
+	})
+
+	it("carries lastRunAt as the ISO string the wire actually sends, not a Date object", async () => {
+		const { deps } = makeDeps()
+		vi.mocked(deps.commands.listForInstance).mockResolvedValue([
+			commandRow({ lastRunAt: new Date("2026-09-01T09:00:00.000Z") }),
+		])
+		const controller = createInstanceController(deps)
+
+		const [command] = await controller.listScheduledCommands(owner, "abc123")
+
+		expect(command?.lastRunAt).toBe("2026-09-01T09:00:00.000Z")
 	})
 
 	it("refuses a viewer's attempt to define a scheduled command", async () => {

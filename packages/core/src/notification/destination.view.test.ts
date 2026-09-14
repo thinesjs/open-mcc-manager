@@ -1,5 +1,30 @@
+import type { NotificationDestinationRow } from "@open-mcc/db"
 import { describe, expect, it } from "vitest"
-import { maskedChatId, shortFingerprint, telegramTarget, webhookTarget } from "./destination.view"
+import {
+	maskedChatId,
+	shortFingerprint,
+	telegramTarget,
+	toDestinationView,
+	webhookTarget,
+} from "./destination.view"
+
+const destinationRow = (
+	overrides: Partial<NotificationDestinationRow> = {},
+): NotificationDestinationRow => ({
+	id: "dst-1",
+	organizationId: "org-1",
+	name: "My webhook",
+	kind: "webhook",
+	enabled: true,
+	displayTarget: "https://hooks.example.com",
+	secretEncrypted: "sealed",
+	secretKeyId: "key",
+	createdAt: new Date(),
+	lastSucceededAt: null,
+	lastFailedAt: null,
+	lastFailureReason: null,
+	...overrides,
+})
 
 describe("showing where a destination points without giving it away", () => {
 	it("shows a webhook's host but never its secret path", () => {
@@ -47,5 +72,27 @@ describe("showing where a destination points without giving it away", () => {
 
 	it("does not fall apart on a very short chat id", () => {
 		expect(maskedChatId("12")).toBe("chat …12")
+	})
+})
+
+describe("carrying a destination's last outcomes onto the wire", () => {
+	it("carries lastSucceededAt and lastFailedAt as ISO strings, not Date objects", () => {
+		const view = toDestinationView(
+			destinationRow({
+				lastSucceededAt: new Date("2026-09-06T00:00:00.000Z"),
+				lastFailedAt: new Date("2026-09-05T00:00:00.000Z"),
+			}),
+			[],
+		)
+
+		expect(view.lastSucceededAt).toBe("2026-09-06T00:00:00.000Z")
+		expect(view.lastFailedAt).toBe("2026-09-05T00:00:00.000Z")
+	})
+
+	it("leaves a destination that never succeeded or failed as null, not a Date", () => {
+		const view = toDestinationView(destinationRow(), [])
+
+		expect(view.lastSucceededAt).toBeNull()
+		expect(view.lastFailedAt).toBeNull()
 	})
 })

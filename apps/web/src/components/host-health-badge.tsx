@@ -1,10 +1,10 @@
-import { type HostHealth, healthFor } from "@open-mcc/contracts"
+import { type HostHealth, type HostPublic, healthFor } from "@open-mcc/contracts"
 import { cn } from "~/lib/utils"
 
 export type HostHealthInput = {
 	status: string
-	lastSeenAt: string | Date | null
-	failedUnits: number | null
+	lastSeenAt: HostPublic["lastSeenAt"]
+	failedUnits: HostPublic["failedUnits"]
 }
 
 const TONE: Record<HostHealth, string> = {

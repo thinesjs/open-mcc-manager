@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createHostInput } from "./host"
+import { createHostInput, hostPublic } from "./host"
 
 const enroll = (hostname: string) =>
 	createHostInput.safeParse({
@@ -33,4 +33,42 @@ describe("host enrolment addresses", () => {
 	it("still refuses an empty address", () => {
 		expect(enroll("").success).toBe(false)
 	})
+})
+
+const PUBLIC_HOST = {
+	id: "host-1",
+	name: "vps",
+	hostname: "10.0.0.1",
+	port: 22,
+	username: "mcc",
+	mode: "system",
+	status: "ready",
+	hostKeyFingerprint: null,
+	hostKeyAlgorithm: null,
+	hostKeyTrustedAt: null,
+	hostKeyTrustedByLabel: "unknown",
+	osId: null,
+	osName: null,
+	osRelease: null,
+	sandboxed: null,
+	lastSeenAt: null,
+	failedUnits: null,
+	provisioningStep: null,
+	provisioningStepIndex: null,
+	provisioningStepTotal: null,
+	provisioningError: null,
+	teardownError: null,
+	teardownRequestedAt: null,
+}
+
+describe("the timestamps a host's public view sends over the wire", () => {
+	it.each(["hostKeyTrustedAt", "lastSeenAt", "teardownRequestedAt"] as const)(
+		"requires %s as the ISO string the wire actually sends, not a Date object",
+		(field) => {
+			expect(hostPublic.safeParse({ ...PUBLIC_HOST, [field]: new Date() }).success).toBe(false)
+			expect(
+				hostPublic.safeParse({ ...PUBLIC_HOST, [field]: "2026-08-30T00:00:00.000Z" }).success,
+			).toBe(true)
+		},
+	)
 })

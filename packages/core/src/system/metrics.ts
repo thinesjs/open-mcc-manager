@@ -25,7 +25,7 @@ export const sampleManagerMetrics = (source: MetricsSource): ManagerMetrics => {
 		externalBytes: memory.external,
 		arrayBuffersBytes: memory.arrayBuffers,
 		uptimeSeconds: Math.floor(source.uptime()),
-		sampledAt: source.now(),
+		sampledAt: source.now().toISOString(),
 	}
 }
 

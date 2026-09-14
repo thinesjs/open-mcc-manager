@@ -313,17 +313,20 @@ describe("alerts that did not arrive", () => {
 	it("lists a delivery that gave up after trying", async () => {
 		const destination = await seedDestination(orgA)
 		const created = await seedNotification(orgA, daysAgo(1))
+		const settledAt = daysAgo(1)
 		const delivery = await seedDelivery(orgA, {
 			notificationId: created,
 			destinationId: destination,
 			state: "failed",
-			settledAt: daysAgo(1),
+			settledAt,
 			attempts: 8,
 		})
 
 		const found = await repo.recentFailures({ organizationId: orgA }, 20)
 
 		expect(found.map((row) => row.deliveryId)).toContain(delivery)
+		const failure = found.find((row) => row.deliveryId === delivery)
+		expect(failure?.settledAt).toBe(settledAt.toISOString())
 	})
 
 	it("leaves out a delivery abandoned because its destination was turned off", async () => {

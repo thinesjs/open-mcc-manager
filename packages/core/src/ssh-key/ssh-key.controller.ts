@@ -53,7 +53,7 @@ const toPublic = (row: SshKeyRow): SshKeyPublic => ({
 	id: row.id,
 	name: row.name,
 	publicKey: row.publicKey,
-	createdAt: row.createdAt,
+	createdAt: row.createdAt.toISOString(),
 })
 
 export const createSshKeyController = (deps: SshKeyControllerDeps) => ({

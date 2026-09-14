@@ -50,20 +50,20 @@ export const hostPublic = z.object({
 	status: hostStatusSchema,
 	hostKeyFingerprint: z.string().nullable(),
 	hostKeyAlgorithm: z.string().nullable(),
-	hostKeyTrustedAt: z.date().nullable(),
+	hostKeyTrustedAt: z.string().datetime().nullable(),
 	hostKeyTrustedByLabel: z.string(),
 	osId: z.string().nullable(),
 	osName: z.string().nullable(),
 	osRelease: z.string().nullable(),
 	sandboxed: z.boolean().nullable(),
-	lastSeenAt: z.date().nullable(),
+	lastSeenAt: z.string().datetime().nullable(),
 	failedUnits: z.number().int().nullable(),
 	provisioningStep: z.string().nullable(),
 	provisioningStepIndex: z.number().int().nullable(),
 	provisioningStepTotal: z.number().int().nullable(),
 	provisioningError: z.string().nullable(),
 	teardownError: z.string().nullable(),
-	teardownRequestedAt: z.date().nullable(),
+	teardownRequestedAt: z.string().datetime().nullable(),
 })
 export type HostPublic = z.infer<typeof hostPublic>
 

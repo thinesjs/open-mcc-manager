@@ -65,7 +65,7 @@ export const memberRouter = router({
 				id: invitation.id,
 				email: invitation.email,
 				role: input.role,
-				expiresAt: invitation.expiresAt,
+				expiresAt: invitation.expiresAt.toISOString(),
 			}
 		}),
 

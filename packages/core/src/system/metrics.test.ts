@@ -29,6 +29,16 @@ describe("manager metrics", () => {
 		expect(metrics.heapUsedBytes).toBe(150)
 		expect(metrics.uptimeSeconds).toBe(61)
 	})
+
+	it("carries sampledAt as the ISO string the wire actually sends, not a Date object", () => {
+		const metrics = sampleManagerMetrics({
+			memoryUsage: () => usage(150),
+			uptime: () => 61.9,
+			now: () => new Date("2026-09-05T00:00:00Z"),
+		})
+
+		expect(metrics.sampledAt).toBe("2026-09-05T00:00:00.000Z")
+	})
 })
 
 describe("judging heap growth", () => {

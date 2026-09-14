@@ -1,6 +1,7 @@
 import {
 	type CreatableDestinationKind,
 	canBeCreated,
+	type DestinationView,
 	SUBSCRIPTION_LABELS,
 	type SubscriptionKind,
 } from "@open-mcc/contracts"
@@ -44,7 +45,7 @@ export const Route = createFileRoute("/_authenticated/alerts")({
 	component: AlertsPage,
 })
 
-const whenLast = (at: Date | string | null): string =>
+const whenLast = (at: DestinationView["lastSucceededAt"]): string =>
 	at === null ? "never" : new Date(at).toLocaleString()
 
 const BLANK_CONFIG: Record<CreatableDestinationKind, DestinationDraft["destination"]> = {

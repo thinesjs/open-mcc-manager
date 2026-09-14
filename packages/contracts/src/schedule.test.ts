@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { scheduledCommandInput, sleepWindowInput } from "./schedule"
+import { scheduledCommandInput, scheduledCommandPublic, sleepWindowInput } from "./schedule"
 
 const window = {
 	instanceId: "abc123",
@@ -60,5 +60,31 @@ describe("the time zone a schedule runs in", () => {
 
 		expect(messages).toHaveLength(1)
 		expect(messages[0]).not.toMatch(/IANA/)
+	})
+})
+
+const PUBLIC_COMMAND = {
+	id: "cmd-1",
+	instanceId: "abc123",
+	name: "morning wave",
+	command: "/say good morning",
+	daysOfWeek: ["Mon"],
+	runAt: { hour: 9, minute: 0 },
+	timezone: "UTC",
+	enabled: true,
+	lastRunError: null,
+}
+
+describe("when a scheduled command last ran, as the wire sends it", () => {
+	it("requires the ISO string a JSON response carries, not a Date object", () => {
+		expect(
+			scheduledCommandPublic.safeParse({ ...PUBLIC_COMMAND, lastRunAt: new Date() }).success,
+		).toBe(false)
+		expect(
+			scheduledCommandPublic.safeParse({
+				...PUBLIC_COMMAND,
+				lastRunAt: "2026-09-01T09:00:00.000Z",
+			}).success,
+		).toBe(true)
 	})
 })

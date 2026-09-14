@@ -1,4 +1,4 @@
-import type { Role } from "@open-mcc/contracts"
+import type { PendingInvitation, Role } from "@open-mcc/contracts"
 
 export const ROLE_LABELS: Record<Role, string> = {
 	owner: "Owner",
@@ -15,5 +15,5 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
 export const invitationLink = (origin: string, invitationId: string): string =>
 	`${origin}/accept-invitation?${new URLSearchParams({ invitation: invitationId }).toString()}`
 
-export const hasExpired = (expiresAt: Date | string, now: number): boolean =>
+export const hasExpired = (expiresAt: PendingInvitation["expiresAt"], now: number): boolean =>
 	new Date(expiresAt).getTime() <= now

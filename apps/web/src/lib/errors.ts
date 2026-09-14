@@ -77,7 +77,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_STILL_IN_USE:
 		"Something on the host is still using this instance, so it was not removed. Try again in a moment.",
 	INSTANCE_REMOVAL_FAILED:
-		"The host could not delete this instance's files, so it was not removed. Try again.",
+		"The host could not finish removing this instance, so it was not removed. Try again.",
 	INSTANCE_NAME_TAKEN: "An instance with that name already exists in this organization.",
 	HOST_HAS_INSTANCES: "That host still has instances on it. Remove them before deleting the host.",
 	SELF_HOST_UNAVAILABLE:

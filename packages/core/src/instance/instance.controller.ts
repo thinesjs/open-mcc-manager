@@ -87,6 +87,7 @@ import {
 	removeAccountCommand,
 	removeDirectoryCommand,
 	stopUnitCommands,
+	UNIT_STOP_TIMEOUT_MS,
 } from "./removal"
 import {
 	parseDaysOfWeek,
@@ -1311,10 +1312,17 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					)
 				}
 				await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
-				for (const command of stopUnitCommands(profile, instance.id)) {
-					await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS)
+				const stopUnits = async () => {
+					for (const command of stopUnitCommands(profile, instance.id)) {
+						await transport.exec(command, UNIT_STOP_TIMEOUT_MS)
+					}
 				}
+				const unfinished = () =>
+					new InstanceRemovalFailedError(
+						`Instance ${instanceId} could not be fully removed from its host`,
+					)
 
+				await stopUnits()
 				const quiet = await transport.exec(
 					processesGoneCommand(profile, instance.id),
 					INSTANCE_STEP_TIMEOUT_MS,
@@ -1323,15 +1331,19 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					throw new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
 				}
 
-				const deletions = [removeDirectoryCommand(profile, instance.id)]
-				if (usesPerInstanceUsers(profile)) deletions.push(removeAccountCommand(instance.id))
-				for (const command of deletions) {
-					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS)
-					if (result.exitCode !== 0) {
-						throw new InstanceRemovalFailedError(
-							`Instance ${instanceId} could not be deleted from its host`,
-						)
-					}
+				const directory = await transport.exec(
+					removeDirectoryCommand(profile, instance.id),
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+				if (directory.exitCode !== 0) throw unfinished()
+
+				await stopUnits()
+				if (usesPerInstanceUsers(profile)) {
+					const account = await transport.exec(
+						removeAccountCommand(instance.id),
+						INSTANCE_STEP_TIMEOUT_MS,
+					)
+					if (account.exitCode !== 0) throw unfinished()
 				}
 			} finally {
 				await transport.close().catch(() => undefined)

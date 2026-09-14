@@ -272,7 +272,7 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 		return mapped(
 			"BAD_REQUEST",
 			"INSTANCE_REMOVAL_FAILED",
-			"The host could not delete this instance's files, so it was not removed",
+			"The host could not finish removing this instance, so it was not removed",
 		)
 	}
 	if (cause instanceof InvitationNotFoundError) {

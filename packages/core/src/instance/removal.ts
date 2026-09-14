@@ -1,17 +1,22 @@
-import { type HostProfile, systemctl } from "../host/profile"
-import { authUnitName, instanceDir, instanceUser, unitName } from "./unit"
+import { type HostProfile, systemctl, usesPerInstanceUsers } from "../host/profile"
+import { instanceDir, instanceUser, stopAuthCommand, unitName } from "./unit"
+
+export const UNIT_STOP_TIMEOUT_MS = 45_000
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
-export const stopUnitCommands = (profile: HostProfile, instanceId: string): string[] =>
-	[`${unitName(instanceId)}.service`, authUnitName(instanceId)].map((unit) =>
+export const stopUnitCommands = (profile: HostProfile, instanceId: string): string[] => {
+	const unit = shellQuote(`${unitName(instanceId)}.service`)
+	return [
 		["stop", "disable", "reset-failed"]
-			.map((verb) => `${systemctl(profile, `${verb} ${shellQuote(unit)}`)} || true`)
+			.map((verb) => `${systemctl(profile, `${verb} ${unit}`)} || true`)
 			.join("; "),
-	)
+		stopAuthCommand(profile, instanceId),
+	]
+}
 
 export const processesGoneCommand = (profile: HostProfile, instanceId: string): string => {
-	if (profile.mode === "system") {
+	if (usesPerInstanceUsers(profile)) {
 		const account = shellQuote(instanceUser(instanceId))
 		return `id -u ${account} >/dev/null 2>&1 || exit 0; pkill -KILL -u ${account}; for attempt in 1 2 3 4 5; do pgrep -u ${account} >/dev/null; [ $? -eq 1 ] && exit 0; sleep 1; done; exit 1`
 	}
@@ -24,5 +29,5 @@ export const removeDirectoryCommand = (profile: HostProfile, instanceId: string)
 
 export const removeAccountCommand = (instanceId: string): string => {
 	const account = shellQuote(instanceUser(instanceId))
-	return `id -u ${account} >/dev/null 2>&1 || exit 0; userdel ${account}`
+	return `if id -u ${account} >/dev/null 2>&1; then userdel ${account} || exit 1; fi; ! getent group ${account} >/dev/null || groupdel ${account}`
 }

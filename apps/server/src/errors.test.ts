@@ -8,6 +8,7 @@ import {
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningInProgressError,
+	InstanceRemovalFailedError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -129,6 +130,14 @@ describe("mapKnownError", () => {
 		expect(mapped?.httpStatus).toBe(400)
 		expect(mapped?.errorCode).toBe("INVITATION_NOT_FOUND")
 		expect(mapped?.message).not.toContain("inv-secret")
+	})
+
+	it("says a removal did not finish without naming a step that may have succeeded", () => {
+		const mapped = mapKnownError(new InstanceRemovalFailedError("Instance abc123 did not finish"))
+
+		expect(mapped?.errorCode).toBe("INSTANCE_REMOVAL_FAILED")
+		expect(mapped?.message).toContain("not removed")
+		expect(mapped?.message).not.toMatch(/files|account/i)
 	})
 
 	it("returns null for an unrecognized error, never leaking its message", () => {

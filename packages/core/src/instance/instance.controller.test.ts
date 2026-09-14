@@ -48,6 +48,8 @@ vi.mock("./live-control", async (importOriginal) => {
 
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
+import { systemProfile } from "../host/profile"
+import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
 import {
@@ -693,21 +695,21 @@ describe("removing an instance", () => {
 			stopInstance:
 				"systemctl stop 'open-mcc@abc123.service' || true; systemctl disable 'open-mcc@abc123.service' || true; systemctl reset-failed 'open-mcc@abc123.service' || true",
 			stopSignIn:
-				"systemctl stop 'open-mcc-auth@abc123.service' || true; systemctl disable 'open-mcc-auth@abc123.service' || true; systemctl reset-failed 'open-mcc-auth@abc123.service' || true",
+				"systemctl stop 'open-mcc-auth@abc123.service' || true; systemctl reset-failed 'open-mcc-auth@abc123.service' || true",
 			quiet:
 				"id -u 'mcc-abc123' >/dev/null 2>&1 || exit 0; pkill -KILL -u 'mcc-abc123'; for attempt in 1 2 3 4 5; do pgrep -u 'mcc-abc123' >/dev/null; [ $? -eq 1 ] && exit 0; sleep 1; done; exit 1",
 			directory: "rm -rf -- '/srv/open-mcc/instances/abc123'",
-			last: "id -u 'mcc-abc123' >/dev/null 2>&1 || exit 0; userdel 'mcc-abc123'",
+			last: "if id -u 'mcc-abc123' >/dev/null 2>&1; then userdel 'mcc-abc123' || exit 1; fi; ! getent group 'mcc-abc123' >/dev/null || groupdel 'mcc-abc123'",
 		},
 		{
 			mode: "rootless",
 			host: rootlessHostRow,
 			timer: `${user} disable --now 'open-mcc-sleep-start@abc123.timer' || true`,
 			stopInstance: `${user} stop 'open-mcc@abc123.service' || true; ${user} disable 'open-mcc@abc123.service' || true; ${user} reset-failed 'open-mcc@abc123.service' || true`,
-			stopSignIn: `${user} stop 'open-mcc-auth@abc123.service' || true; ${user} disable 'open-mcc-auth@abc123.service' || true; ${user} reset-failed 'open-mcc-auth@abc123.service' || true`,
+			stopSignIn: `${user} stop 'open-mcc-auth@abc123.service' || true; ${user} reset-failed 'open-mcc-auth@abc123.service' || true`,
 			quiet: `real=$(cd '/home/mcc/.local/share/open-mcc/instances/abc123' 2>/dev/null && pwd -P) || exit 0; for process in /proc/[0-9]*; do case "$(readlink "$process/cwd" 2>/dev/null)" in "$real"|"$real"/*) exit 1;; esac; done; exit 0`,
 			directory: "rm -rf -- '/home/mcc/.local/share/open-mcc/instances/abc123'",
-			last: "rm -rf -- '/home/mcc/.local/share/open-mcc/instances/abc123'",
+			last: `${user} stop 'open-mcc-auth@abc123.service' || true; ${user} reset-failed 'open-mcc-auth@abc123.service' || true`,
 		},
 	] as const
 
@@ -751,6 +753,25 @@ describe("removing an instance", () => {
 				expect(at(profile.directory)).toBeGreaterThanOrEqual(0)
 				expect(at(profile.quiet)).toBeGreaterThanOrEqual(0)
 				expect(at(profile.quiet)).toBeLessThan(at(profile.directory))
+			})
+
+			it("stops both units again once the directory is gone, so a start in that window does not outlive the removal", async () => {
+				const transport = createFakeTransport()
+				await removeOn(profile.host, transport).outcome
+				const directoryAt = transport.commands.indexOf(profile.directory)
+
+				expect(directoryAt).toBeGreaterThanOrEqual(0)
+				expect(transport.commands.lastIndexOf(profile.stopInstance)).toBeGreaterThan(directoryAt)
+				expect(transport.commands.lastIndexOf(profile.stopSignIn)).toBeGreaterThan(directoryAt)
+			})
+
+			it("never asks to disable the sign-in unit, which nothing ever enables", async () => {
+				const transport = createFakeTransport()
+				await removeOn(profile.host, transport).outcome
+
+				expect(
+					transport.commands.filter((command) => command.includes("disable 'open-mcc-auth@")),
+				).toEqual([])
 			})
 
 			it("deletes the row only after every host step has run", async () => {
@@ -823,6 +844,27 @@ describe("removing an instance", () => {
 		expect(transport.commands.indexOf(system.last)).toBeGreaterThan(
 			transport.commands.indexOf(system.directory),
 		)
+		expect(transport.commands.lastIndexOf(system.stopInstance)).toBeLessThan(
+			transport.commands.indexOf(system.last),
+		)
+		expect(transport.commands.lastIndexOf(system.stopSignIn)).toBeLessThan(
+			transport.commands.indexOf(system.last),
+		)
+	})
+
+	it("gives each unit longer to stop than the unit itself waits before killing it", async () => {
+		const transport = createFakeTransport()
+		await removeOn(hostRow, transport).outcome
+		const [system] = PROFILES
+		const templates = renderUnitTemplates(systemProfile())
+		const stopSeconds = (unit: string) =>
+			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
+		const timeoutFor = (command: string) => transport.timeouts[transport.commands.indexOf(command)]
+
+		expect(stopSeconds(INSTANCE_UNIT_NAME)).toBeGreaterThan(0)
+		expect(stopSeconds(AUTH_UNIT_NAME)).toBeGreaterThan(0)
+		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(stopSeconds(INSTANCE_UNIT_NAME) * 1000)
+		expect(timeoutFor(system.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
 	})
 
 	it("keeps the row when a root host cannot delete the per-instance account", async () => {
@@ -842,7 +884,10 @@ describe("removing an instance", () => {
 		expect(
 			transport.commands.filter(
 				(command) =>
-					command.includes("pkill") || command.includes("userdel") || command.includes("-u 'mcc-"),
+					command.includes("pkill") ||
+					command.includes("userdel") ||
+					command.includes("groupdel") ||
+					command.includes("-u 'mcc-"),
 			),
 		).toEqual([])
 	})

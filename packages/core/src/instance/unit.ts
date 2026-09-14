@@ -1,8 +1,11 @@
 import { INSTANCE_ID_PATTERN } from "@open-mcc/contracts"
+import { type HostProfile, systemctl } from "../host/profile"
 
 export type EnvironmentValues = {
 	liveControlToken: string
 }
+
+const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const validateInstanceId = (id: string): string => {
 	if (id.includes("%")) {
@@ -28,6 +31,14 @@ export const unitName = (instanceId: string): string => `open-mcc@${validateInst
 
 export const authUnitName = (instanceId: string): string =>
 	`open-mcc-auth@${validateInstanceId(instanceId)}.service`
+
+export const stopAuthCommand = (profile: HostProfile, instanceId: string): string => {
+	const unit = shellQuote(authUnitName(instanceId))
+	return `${systemctl(profile, `stop ${unit}`)} || true; ${systemctl(
+		profile,
+		`reset-failed ${unit}`,
+	)} || true`
+}
 
 export const instanceDir = (instancesRoot: string, instanceId: string): string =>
 	`${instancesRoot}/instances/${validateInstanceId(instanceId)}`

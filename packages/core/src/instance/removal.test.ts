@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process"
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -42,6 +43,12 @@ const PROFILES: HostProfile[] = [
 
 const RENDERED_REMOVAL = /^rm -rf -- '([^']+)'$/
 
+const scratch: string[] = []
+
+afterEach(() => {
+	for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
 describe("the directory an instance removal deletes", () => {
 	it("is exactly that instance's own directory, for every id the validator accepts", () => {
 		for (const profile of PROFILES) {
@@ -70,16 +77,10 @@ describe("the directory an instance removal deletes", () => {
 })
 
 describe("the account steps of a removal on a root host", () => {
-	const scratch: string[] = []
-
-	afterEach(() => {
-		for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
-	})
-
 	const runWithShims = (command: string, exits: Record<string, number>) => {
 		const dir = mkdtempSync(join(tmpdir(), "open-mcc-removal-"))
 		scratch.push(dir)
-		for (const name of ["id", "pkill", "pgrep", "sleep", "userdel"]) {
+		for (const name of ["id", "pkill", "pgrep", "sleep", "userdel", "getent", "groupdel"]) {
 			const shim = join(dir, name)
 			writeFileSync(shim, `#!/bin/sh\ntouch '${dir}/${name}.called'\nexit ${exits[name] ?? 0}\n`)
 			chmodSync(shim, 0o755)
@@ -116,15 +117,67 @@ describe("the account steps of a removal on a root host", () => {
 		expect(run.called("pkill")).toBe(false)
 	})
 
-	it("reports a failed account deletion as a failure", () => {
+	it("reports a failed account deletion as a failure, and leaves its group for the retry", () => {
 		const run = runWithShims(removeAccountCommand("abc123"), { userdel: 10 })
 		expect(run.status).not.toBe(0)
 		expect(run.called("userdel")).toBe(true)
+		expect(run.called("groupdel")).toBe(false)
 	})
 
-	it("counts an account that is already gone as deleted", () => {
-		const run = runWithShims(removeAccountCommand("abc123"), { id: 1, userdel: 6 })
+	it("counts an account and group that are already gone as deleted", () => {
+		const run = runWithShims(removeAccountCommand("abc123"), { id: 1, userdel: 6, getent: 2 })
 		expect(run.status).toBe(0)
 		expect(run.called("userdel")).toBe(false)
+		expect(run.called("groupdel")).toBe(false)
 	})
+
+	it("deletes the account's own group when deleting the account leaves it behind", () => {
+		const run = runWithShims(removeAccountCommand("abc123"), { getent: 0 })
+		expect(run.status).toBe(0)
+		expect(run.called("userdel")).toBe(true)
+		expect(run.called("groupdel")).toBe(true)
+	})
+
+	it("leaves the group step out when the group went with the account", () => {
+		const run = runWithShims(removeAccountCommand("abc123"), { getent: 2 })
+		expect(run.status).toBe(0)
+		expect(run.called("groupdel")).toBe(false)
+	})
+
+	it("deletes a group an earlier attempt left behind after its account was already gone", () => {
+		const run = runWithShims(removeAccountCommand("abc123"), { id: 1, getent: 0 })
+		expect(run.status).toBe(0)
+		expect(run.called("groupdel")).toBe(true)
+	})
+
+	it("reports a group that could not be deleted as a failure", () => {
+		const run = runWithShims(removeAccountCommand("abc123"), { getent: 0, groupdel: 10 })
+		expect(run.status).not.toBe(0)
+	})
+})
+
+describe("the running check on a host whose instances share one account", () => {
+	it.runIf(process.platform === "linux")(
+		"finds a process working inside the directory, and finds nothing once it has gone",
+		async () => {
+			const root = mkdtempSync(join(tmpdir(), "open-mcc-rootless-"))
+			scratch.push(root)
+			const dir = join(root, "instances", "abc123")
+			mkdirSync(dir, { recursive: true })
+			const check = processesGoneCommand(
+				profileFrom("rootless", root, "/etc/systemd/system"),
+				"abc123",
+			)
+
+			const sleeper = spawn("sleep", ["30"], { cwd: dir, stdio: "ignore" })
+			const exited = once(sleeper, "exit")
+			try {
+				expect(spawnSync("/bin/sh", ["-c", check]).status).toBe(1)
+			} finally {
+				sleeper.kill("SIGKILL")
+				await exited
+			}
+			expect(spawnSync("/bin/sh", ["-c", check]).status).toBe(0)
+		},
+	)
 })

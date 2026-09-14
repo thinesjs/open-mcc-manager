@@ -14,7 +14,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
-import { authUnitName, instanceDir, unitName } from "./unit"
+import { authUnitName, instanceDir, stopAuthCommand, unitName } from "./unit"
 
 export const DEVICE_CODE_PATTERN = /enter the code:?\s*([A-Z0-9]{4,6}-?[A-Z0-9]{4,6})\b/i
 
@@ -54,14 +54,6 @@ export const startAuthCommand = (profile: HostProfile, instanceId: string): stri
 	const log = `${instanceDir(profile.instancesRoot, instanceId)}/auth.log`
 	const unit = shellQuote(authUnitName(instanceId))
 	return `rm -f ${shellQuote(log)} && ${systemctl(profile, `start ${unit}`)}`
-}
-
-export const stopAuthCommand = (profile: HostProfile, instanceId: string): string => {
-	const unit = shellQuote(authUnitName(instanceId))
-	return `${systemctl(profile, `stop ${unit}`)} || true; ${systemctl(
-		profile,
-		`reset-failed ${unit}`,
-	)} || true`
 }
 
 const requireProfile = (host: {

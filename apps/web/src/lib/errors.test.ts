@@ -13,6 +13,15 @@ describe("getErrorMessage", () => {
 		)
 	})
 
+	it("says a removal did not finish without naming a step that may have succeeded", () => {
+		const message = getErrorMessage({
+			message: "The host could not finish removing this instance",
+			data: { errorCode: "INSTANCE_REMOVAL_FAILED" },
+		})
+		expect(message).toContain("not removed")
+		expect(message).not.toMatch(/files|account/i)
+	})
+
 	it("does not read the mismatch as a generic failure", () => {
 		const message = getErrorMessage({
 			message: "Host key fingerprint mismatch",

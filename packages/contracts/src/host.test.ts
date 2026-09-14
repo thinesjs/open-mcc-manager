@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { createHostInput, hostPublic } from "./host"
 
-const enroll = (hostname: string) =>
-	createHostInput.safeParse({
-		name: "vps",
-		hostname,
-		sshKeyId: "key-1",
-		expectedFingerprint: `SHA256:${"A".repeat(43)}`,
-	})
+const HOST = {
+	name: "vps",
+	sshKeyId: "key-1",
+	username: "mcc",
+	expectedFingerprint: `SHA256:${"A".repeat(43)}`,
+}
+
+const enroll = (hostname: string) => createHostInput.safeParse({ ...HOST, hostname })
 
 const PUBLIC_ADDRESSES = ["vps.example.com", "203.0.113.10", "2001:db8::1"]
 
@@ -35,13 +36,33 @@ describe("host enrolment addresses", () => {
 	})
 })
 
+describe("the one host model", () => {
+	it("refuses a host with no account, rather than assuming root", () => {
+		const { username: _omitted, ...withoutAccount } = HOST
+
+		expect(createHostInput.safeParse({ ...withoutAccount, hostname: "vps-1" }).success).toBe(false)
+	})
+
+	it("takes no mode, and drops one sent anyway", () => {
+		const parsed = createHostInput.safeParse({ ...HOST, hostname: "vps-1", mode: "system" })
+
+		expect(Object.keys(createHostInput.shape)).not.toContain("mode")
+		expect(parsed.success ? Object.keys(parsed.data) : ["unparsed"]).not.toContain("mode")
+		expect(parsed.success).toBe(true)
+	})
+
+	it("describes a host with no mode and no confinement flag", () => {
+		expect(Object.keys(hostPublic.shape)).not.toContain("mode")
+		expect(Object.keys(hostPublic.shape)).not.toContain("sandboxed")
+	})
+})
+
 const PUBLIC_HOST = {
 	id: "host-1",
 	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	mode: "system",
 	status: "ready",
 	hostKeyFingerprint: null,
 	hostKeyAlgorithm: null,
@@ -50,7 +71,6 @@ const PUBLIC_HOST = {
 	osId: null,
 	osName: null,
 	osRelease: null,
-	sandboxed: null,
 	lastSeenAt: null,
 	failedUnits: null,
 	provisioningStep: null,

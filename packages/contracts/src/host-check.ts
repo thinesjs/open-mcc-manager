@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { hostKeyFingerprint, hostMode } from "./host"
+import { hostKeyFingerprint } from "./host"
 
 export const HOST_CHECK_NAMES = [
 	"reachable",
@@ -7,7 +7,6 @@ export const HOST_CHECK_NAMES = [
 	"architecture",
 	"client-runtime",
 	"lingering",
-	"confinement",
 	"tcp-forwarding",
 ] as const
 
@@ -36,7 +35,6 @@ export const checkHostInput = z.object({
 	hostname: z.string().min(1).max(255),
 	port: z.number().int().min(1).max(65535).default(22),
 	username: z.string().min(1).max(64),
-	mode: hostMode,
 	sshKeyId: z.string().min(1),
 	expectedFingerprint: hostKeyFingerprint,
 })
@@ -49,7 +47,6 @@ export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {
 	architecture: "Supported architecture",
 	"client-runtime": "Client dependencies",
 	lingering: "Lingering enabled",
-	confinement: "Instance confinement",
 	"tcp-forwarding": "SSH port forwarding",
 }
 

@@ -170,3 +170,23 @@ describe("keeping rootless instances out of each other's files", () => {
 		}
 	})
 })
+
+describe("stopping an instance", () => {
+	it.each([
+		{ mode: "system", units: system, dir: "/srv/open-mcc/instances/%i" },
+		{
+			mode: "rootless",
+			units: rootless,
+			dir: "/home/mccuser/.local/share/open-mcc/instances/%i",
+		},
+	])(
+		"asks the client to quit within five seconds, then waits for it to exit, in $mode mode",
+		({ units, dir }) => {
+			const stop = /^ExecStop=.*$/m.exec(units[INSTANCE_UNIT_NAME] ?? "")?.[0]
+
+			expect(stop).toBe(
+				`ExecStop=/bin/sh -c 'timeout 5 sh -c "echo /quit > ${dir}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done'`,
+			)
+		},
+	)
+})

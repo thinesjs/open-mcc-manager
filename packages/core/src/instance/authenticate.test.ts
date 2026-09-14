@@ -10,6 +10,8 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
+import { systemProfile } from "../host/profile"
+import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	beginAuthentication,
@@ -516,5 +518,23 @@ describe("signing in through a host that cannot be reached", () => {
 		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
 		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
 		expect(audit.record).not.toHaveBeenCalled()
+	})
+})
+
+describe("stopping the instance before a sign-in", () => {
+	it("gives the stop longer than the unit waits for the client to quit", async () => {
+		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+		const stopSeconds = Number(
+			/^TimeoutStopSec=(\d+)$/m.exec(
+				renderUnitTemplates(systemProfile())[INSTANCE_UNIT_NAME] ?? "",
+			)?.[1],
+		)
+
+		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
+		expect(stopSeconds).toBeGreaterThan(0)
+		expect(stopAt).toBeGreaterThanOrEqual(0)
+		expect(transport.timeouts[stopAt]).toBeGreaterThan(stopSeconds * 1000)
 	})
 })

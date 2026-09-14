@@ -64,7 +64,7 @@ const cleaningWith = (transport: HostTransport) => {
 }
 
 describe("what a clean-up needs to know about the host", () => {
-	it("cleans a host from a payload that names no mode and no paths", async () => {
+	it("cleans a host from a payload that names only how to reach it", async () => {
 		const transport = createFakeTransport({
 			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
 		})
@@ -72,10 +72,30 @@ describe("what a clean-up needs to know about the host", () => {
 
 		await handler(payload)
 
-		expect(Object.keys(payload)).not.toContain("mode")
-		expect(Object.keys(payload)).not.toContain("instancesRoot")
-		expect(Object.keys(payload)).not.toContain("unitDir")
 		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(onCleaned).toHaveBeenCalledTimes(1)
+		expect(onFailed).not.toHaveBeenCalled()
+	})
+
+	it("cleans the account's own home, never a path an old queued payload still names", async () => {
+		const transport = createFakeTransport({
+			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
+		})
+		const { handler, onCleaned, onFailed } = cleaningWith(transport)
+
+		await handler({
+			...payload,
+			mode: "system",
+			instancesRoot: "/srv/open-mcc",
+			unitDir: "/etc/systemd/system",
+		})
+
+		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(
+			transport.commands.filter((command) =>
+				/\/srv\/open-mcc|\/etc\/systemd\/system/.test(command),
+			),
+		).toEqual([])
 		expect(onCleaned).toHaveBeenCalledTimes(1)
 		expect(onFailed).not.toHaveBeenCalled()
 	})

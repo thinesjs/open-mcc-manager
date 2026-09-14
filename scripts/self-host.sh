@@ -93,32 +93,36 @@ take_back() {
 	trap '' HUP INT TERM
 	[ "$FINISHED" = "no" ] || return 0
 	if [ "$WROTE_ENTRY" = "yes" ] && [ -f "$AUTHORIZED" ]; then
-		if grep -qxF -- "$ENTRY" "$AUTHORIZED"; then
-			FILTERED=1
-			if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
-				awk -v entry="$ENTRY" '
-					$0 == entry { last = NR }
-					{ lines[NR] = $0 }
-					END {
-						for (i = 1; i <= NR; i++) {
-							if (i == last) continue
-							print lines[i]
-						}
+		FILTERED=1
+		if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
+			ENTRY="$ENTRY" awk '
+				$0 == ENVIRON["ENTRY"] { last = NR }
+				{ lines[NR] = $0 }
+				END {
+					for (i = 1; i <= NR; i++) {
+						if (i == last) continue
+						print lines[i]
 					}
-				' "$AUTHORIZED" > "$ROLLBACK_TMP" && FILTERED=0
-			fi
-			if [ "$FILTERED" -eq 0 ]; then
-				if [ "$WROTE_AUTHORIZED" = "yes" ] && [ ! -s "$ROLLBACK_TMP" ]; then
-					rm -f "$AUTHORIZED" "$ROLLBACK_TMP"
-				else
-					mv -f "$ROLLBACK_TMP" "$AUTHORIZED"
-				fi
-			else
-				warn "authorized_keys could not be read back to take out this run's entry. Remove this line from it by hand:
-         $ENTRY"
-			fi
-			rm -f "$ROLLBACK_TMP"
+					if (last == 0) exit 3
+				}
+			' "$AUTHORIZED" > "$ROLLBACK_TMP"
+			case $? in
+				0) FILTERED=0 ;;
+				3) FILTERED=3 ;;
+				*) FILTERED=1 ;;
+			esac
 		fi
+		if [ "$FILTERED" -eq 0 ]; then
+			if [ "$WROTE_AUTHORIZED" = "yes" ] && [ ! -s "$ROLLBACK_TMP" ]; then
+				rm -f "$AUTHORIZED" "$ROLLBACK_TMP"
+			else
+				mv -f "$ROLLBACK_TMP" "$AUTHORIZED"
+			fi
+		elif [ "$FILTERED" -eq 1 ]; then
+			warn "authorized_keys could not be read back to take out this run's entry. Remove this line from it by hand:
+         $ENTRY"
+		fi
+		rm -f "$ROLLBACK_TMP"
 	fi
 	if [ "$WROTE_WRAPPER" = "yes" ]; then rm -f "$WRAPPER"; fi
 	if [ "$WROTE_KEY" = "yes" ]; then rm -f "$KEY_PATH" "$KEY_PATH.pub"; fi

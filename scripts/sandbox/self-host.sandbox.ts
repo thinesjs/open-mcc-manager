@@ -635,6 +635,25 @@ describe("self-host.sh, when a key arrives while it is still writing its own ent
 	})
 })
 
+describe("self-host.sh, when the supplied key's own comment carries a backslash", () => {
+	it("still recognizes its own entry on rollback and takes it back", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		const [type, blob] = key.publicKey.split(" ")
+		const backslashCommented = `${type} ${blob} CORP\\nathan`
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${backslashCommented}\n`,
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+})
+
 describe("self-host.sh, run as root", () => {
 	it("refuses, leaving root's authorized_keys as it was and writing no materials", async () => {
 		const other = await mintKey(host)

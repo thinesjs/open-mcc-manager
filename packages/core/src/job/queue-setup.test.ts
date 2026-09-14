@@ -13,6 +13,7 @@ import {
 	type QueueUpdateOptions,
 	reconcileQueues,
 	type StoredQueue,
+	SYSTEM_UPDATE_CHECK_QUEUE,
 } from "./queue-setup"
 
 const PG_BOSS_DEFAULTS: StoredQueue = {
@@ -125,6 +126,16 @@ describe("setting the queues up", () => {
 		expect(sweep?.retryBackoff).toBe(false)
 		expect(sweep?.deadLetter).toBeNull()
 		expect(sweep?.expireInSeconds).toBe(30 * 60)
+	})
+
+	it("★ never retries a release check, because retrying into GitHub's rate limit is what makes it worse", async () => {
+		const { admin, stored } = fakePgBoss()
+		await reconcileQueues(admin)
+
+		const check = stored.get(SYSTEM_UPDATE_CHECK_QUEUE)
+		expect(check?.retryLimit).toBe(0)
+		expect(check?.retryBackoff).toBe(false)
+		expect(check?.deadLetter).toBeNull()
 	})
 
 	it("still points a delivery queue at the dead-letter queue, so an unexpected throw is kept", async () => {

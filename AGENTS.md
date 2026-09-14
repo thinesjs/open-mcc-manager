@@ -856,6 +856,42 @@ kind, each at most `MAX_ARTIFACT_BYTES`, and everything past
 counted, skipped, and retried on the next hour, which is why the queue's
 `retryLimit` is `0` — and retention still runs for its organization.
 
+## Checking for a newer release
+
+The worker asks GitHub for the source repository's latest release four times a
+day, on `SYSTEM_UPDATE_CHECK_QUEUE` at `41 */6 * * *`, and records the answer in
+the one `updateState` row. A development build never asks. A page load never
+reaches GitHub; it reads that row.
+
+- **The version is the answer; the notes are decoration.** Nothing about the
+  notes may stop a version being recorded. GitHub allows a release body of about
+  125,000 characters, up to ~488 KiB of UTF-8 before the rest of the JSON is
+  counted, so the request reads up to `RELEASE_RESPONSE_MAX_BYTES` (1 MiB) and
+  fails closed past it: undici errors rather than truncates, and no legitimate
+  release reaches that size. The notes are then cut to `RELEASE_NOTES_MAX_BYTES`
+  (64 KiB) with `truncateBytes` and flagged, never refused. `sendPinned` keeps
+  the 64 KiB notification limit as its default; the larger cap is per caller.
+- **The URL is assembled, never accepted.** Owner and repository are separate
+  values matched against `sourceOwnerSchema` and `sourceRepoSchema` at the moment
+  of use, neither can hold a character that ends a path segment, and the host is
+  a constant. The request still goes through `sendPinned` under `PUBLIC_ONLY`,
+  and redirects are not followed: a renamed repository answers `301`, which is
+  recorded as `not-found` rather than handing the destination back to the remote.
+- **Nothing GitHub sends is kept as text except the notes.** The outcome is a
+  closed union, and a rate limit keeps only the time it ends. No status text,
+  header or URL from the answer is stored, logged or shown.
+- **The queue never retries** (`retryLimit: 0`). GitHub allows 60
+  unauthenticated requests an hour per address, and a retry into a rate limit
+  is what makes it worse. A failed check waits for the next poll.
+- **A starting worker checks only when the last check is older than the poll.**
+  It sends through `sendJob`, which is why this queue is in `QUEUE_NAMES` while
+  the schedule-only artifact queue is not. A restart loop sends nothing once one
+  check has landed, but boots that crash before any check completes can still
+  queue several; `warningQueueSize` reports that rather than letting it pass.
+- **`/releases/latest` reads GitHub Releases, not tags.** `release.yml` publishes
+  images for a `v*.*.*` tag but creates no Release, so the check records
+  `not-found` until a Release is published for that tag.
+
 ## Logging
 
 Each daemon owns exactly one root logger, at module scope in its own

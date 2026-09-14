@@ -327,13 +327,11 @@ export const reconcileHostOverTransport = async (
 
 export const renderScheduleUnits = (schedule: InstanceScheduleRow): Record<string, string> =>
 	renderSleepTimers({
-		id: schedule.id,
 		instanceId: schedule.instanceId,
 		daysOfWeek: parseStoredDays(schedule.daysOfWeek),
 		stopAt: minutesToTime(schedule.stopMinuteOfDay),
 		startAt: minutesToTime(schedule.startMinuteOfDay),
 		timezone: schedule.timezone,
-		enabled: schedule.enabled,
 	})
 
 const minutesToTime = (minutes: number) => ({

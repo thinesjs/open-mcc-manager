@@ -15,13 +15,31 @@ export type TimeOfDay = z.infer<typeof timeOfDaySchema>
 
 export const TIMEZONE_PATTERN = /^[A-Za-z][A-Za-z0-9+_-]*(?:\/[A-Za-z0-9+_-]+){0,2}$/
 
+const UNKNOWN_TIMEZONE = "That time zone does not exist. Use a name like Europe/London."
+
+const isKnownTimezone = (value: string): boolean => {
+	try {
+		Intl.DateTimeFormat("en-US", { timeZone: value })
+		return true
+	} catch {
+		return false
+	}
+}
+
+const timezoneSchema = z
+	.string()
+	.min(1)
+	.max(64)
+	.regex(TIMEZONE_PATTERN, UNKNOWN_TIMEZONE)
+	.refine(isKnownTimezone, UNKNOWN_TIMEZONE)
+
 export const sleepWindowInput = z
 	.object({
 		instanceId: z.string().min(1),
 		daysOfWeek: z.array(dayOfWeekSchema).min(1).max(7),
 		stopAt: timeOfDaySchema,
 		startAt: timeOfDaySchema,
-		timezone: z.string().min(1).max(64).regex(TIMEZONE_PATTERN, "Expected an IANA timezone name"),
+		timezone: timezoneSchema,
 	})
 	.strict()
 	.refine(
@@ -63,7 +81,7 @@ export const scheduledCommandInput = z
 		command: instanceCommandText,
 		daysOfWeek: z.array(dayOfWeekSchema).min(1).max(7),
 		runAt: timeOfDaySchema,
-		timezone: z.string().min(1).max(64).regex(TIMEZONE_PATTERN, "Expected an IANA timezone name"),
+		timezone: timezoneSchema,
 		enabled: z.boolean().default(true),
 	})
 	.strict()

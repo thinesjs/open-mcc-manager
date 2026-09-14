@@ -47,6 +47,7 @@ vi.mock("./live-control", async (importOriginal) => {
 })
 
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
+import { HostMisconfiguredError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { systemProfile } from "../host/profile"
 import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
@@ -515,6 +516,48 @@ describe("sleep windows", () => {
 				each.includes("OnCalendar=Mon,Tue *-*-* 18:50:00 Asia/Kuala_Lumpur"),
 			),
 		).toBe(true)
+	})
+
+	it("records nothing when the host will not take the timers, and says so as a host problem", async () => {
+		const refusing = createFakeTransport({
+			"cat > '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'": {
+				stdout: "",
+				stderr: "Permission denied",
+				exitCode: 1,
+			},
+		})
+		const { deps, audit } = makeDeps({ createTransport: () => refusing })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostMisconfiguredError,
+		)
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("records nothing when the host cannot be reached to write the timers", async () => {
+		const unreachable = createFakeTransport({}, { connect: new Error("connect ETIMEDOUT") })
+		const { deps, audit } = makeDeps({ createTransport: () => unreachable })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("keeps the window when the host cannot be reached to remove its timers", async () => {
+		const unreachable = createFakeTransport({}, { connect: new Error("connect ETIMEDOUT") })
+		const { deps, audit } = makeDeps({ createTransport: () => unreachable })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.clearSleepWindow(owner, "abc123")).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+		expect(deps.schedules.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("disables and removes both timers when the window is cleared", async () => {

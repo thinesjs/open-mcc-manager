@@ -16,8 +16,10 @@ const operationOf = (kind: string): string => kind.replace(/QueryNode$|Node$/, "
 
 type ExecuteArgs = Parameters<DatabaseConnection["executeQuery"]>
 
-const forwarded = <T extends object>(target: T, property: string | symbol) => {
-	const value = Reflect.get(target, property, target)
+type Forwarded = object | string | number | bigint | boolean | symbol | null | undefined
+
+const forwarded = (target: object, property: string | symbol): Forwarded => {
+	const value: Forwarded = Reflect.get(target, property, target)
 	return typeof value === "function" ? value.bind(target) : value
 }
 

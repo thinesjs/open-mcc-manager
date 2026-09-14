@@ -26,17 +26,11 @@ const BY_CODE: Readonly<Record<string, string>> = {
 	EPIPE: DROPPED,
 }
 
-const stringField = (error: Error, field: "code" | "level"): string | undefined => {
-	if (!(field in error)) return undefined
-	const value = Reflect.get(error, field)
-	return typeof value === "string" ? value : undefined
-}
-
 export const connectFailureReason = (error: Error): string => {
-	const code = stringField(error, "code")
+	const code = "code" in error && typeof error.code === "string" ? error.code : undefined
 	const known = code === undefined ? undefined : BY_CODE[code]
 	if (known !== undefined) return known
-	const level = stringField(error, "level")
+	const level = "level" in error && typeof error.level === "string" ? error.level : undefined
 	if (level === "client-authentication") return KEY_REFUSED
 	if (level === "client-dns") return NOT_FOUND
 	if (level === "client-timeout" || /timed out/i.test(error.message)) return TIMED_OUT

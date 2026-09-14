@@ -11,6 +11,17 @@ describe("instance status presentation", () => {
 		}
 	})
 
+	it.each(instanceStatusSchema.options)(
+		"describes %s in plain words that also fit an offline account, which never signs in",
+		(status) => {
+			expect(presentInstanceStatus(status).description).not.toMatch(/authenticat|provision/i)
+		},
+	)
+
+	it("says a stopped instance is simply not running", () => {
+		expect(presentInstanceStatus("stopped").description).toBe("Not running.")
+	})
+
 	it("flags exactly the statuses an operator must act on", () => {
 		expect(instanceStatusSchema.options.filter(needsAttention)).toEqual(["needs_auth", "error"])
 	})

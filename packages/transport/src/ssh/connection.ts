@@ -8,47 +8,13 @@ import {
 	LiveChannelUnavailableError,
 } from "../types"
 import { type ExecChannel, execViaChannel, namedChannelError } from "./exec"
+import { createChannelLimiter, DEFAULT_EXEC_CONCURRENCY } from "./limiter"
 import { verifyHostKey } from "./verify"
 
 export type RequestChannel = (
 	command: string,
 	callback: (error: Error | undefined, channel: ExecChannel | undefined) => void,
 ) => void
-
-export const DEFAULT_EXEC_CONCURRENCY = 6
-
-export type ChannelLimiter = {
-	acquire: () => Promise<void>
-	release: () => void
-	active: () => number
-	queued: () => number
-}
-
-export const createChannelLimiter = (limit: number): ChannelLimiter => {
-	let active = 0
-	const waiting: Array<() => void> = []
-	return {
-		acquire: () =>
-			new Promise<void>((resolve) => {
-				if (active < limit) {
-					active += 1
-					resolve()
-					return
-				}
-				waiting.push(() => {
-					active += 1
-					resolve()
-				})
-			}),
-		release: () => {
-			active -= 1
-			const next = waiting.shift()
-			if (next) next()
-		},
-		active: () => active,
-		queued: () => waiting.length,
-	}
-}
 
 export const execWithBoundedAcquisition = (
 	requestChannel: RequestChannel,

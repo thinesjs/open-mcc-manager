@@ -51,10 +51,17 @@ const quarter = (index: number, patch: Partial<typeof EMPTY_AVAILABILITY>) => ({
 const wholeDay = bars(96, QUARTER_HOUR, { goodSeconds: QUARTER_HOUR })
 
 const popupText = (): string => {
-	const popup = document.querySelector(".text-popover-foreground")
+	const popups = document.querySelectorAll('[data-slot="tooltip-popup"]')
+	const popup = popups[popups.length - 1]
 	if (!popup) throw new Error("no tooltip popup is open")
 	return popup.textContent ?? ""
 }
+
+const threeBars = [
+	quarter(0, { goodSeconds: QUARTER_HOUR }),
+	quarter(1, { goodSeconds: 895, badSeconds: 5 }),
+	quarter(2, {}),
+]
 
 describe("drawing a range as slim bars", () => {
 	it("draws one bar for every bucket it is given", () => {
@@ -146,5 +153,80 @@ describe("drawing a range as slim bars", () => {
 			},
 			{ timeout: 2000 },
 		)
+	})
+})
+
+describe("naming the row for assistive technology", () => {
+	it("names the group after the subject when one is given", () => {
+		const { container } = render(
+			<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} subject="host-1" />,
+		)
+
+		expect(container.querySelector('[role="toolbar"]')?.getAttribute("aria-label")).toBe(
+			"host-1 uptime",
+		)
+	})
+
+	it("falls back to a plain name without a subject", () => {
+		const { container } = render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} />)
+
+		expect(container.querySelector('[role="toolbar"]')?.getAttribute("aria-label")).toBe("Uptime")
+	})
+})
+
+describe("a roving tab stop across the row, not one per bar", () => {
+	it("keeps exactly one bar in the tab order, on the newest bar by default", () => {
+		const { container } = render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} />)
+		const buttons = container.querySelectorAll("button")
+		const last = buttons[buttons.length - 1]
+		const first = buttons[0]
+
+		expect(container.querySelectorAll('button[tabindex="0"]')).toHaveLength(1)
+		expect(last?.getAttribute("tabindex")).toBe("0")
+		expect(first?.getAttribute("tabindex")).toBe("-1")
+	})
+
+	it("moves focus, and the shown tooltip, to the neighbouring bar with the arrow keys", async () => {
+		render(<UptimeBars buckets={threeBars} bucketSeconds={QUARTER_HOUR} />)
+
+		const first = screen.getByLabelText(/^Reachable,/)
+		fireEvent.focus(first)
+		fireEvent.keyDown(first, { key: "ArrowRight" })
+
+		const second = screen.getByLabelText(/^Mostly reachable/)
+		expect(document.activeElement).toBe(second)
+		await waitFor(() => {
+			expect(popupText()).toMatch(/^Mostly reachable/)
+		})
+
+		fireEvent.keyDown(second, { key: "ArrowLeft" })
+		expect(document.activeElement).toBe(first)
+		await waitFor(() => {
+			expect(popupText()).toMatch(/^Reachable/)
+		})
+	})
+
+	it("jumps to the first and last bar with Home and End", () => {
+		render(<UptimeBars buckets={threeBars} bucketSeconds={QUARTER_HOUR} />)
+
+		const middle = screen.getByLabelText(/^Mostly reachable/)
+		fireEvent.focus(middle)
+
+		fireEvent.keyDown(middle, { key: "End" })
+		const last = screen.getByLabelText(/^No measurements/)
+		expect(document.activeElement).toBe(last)
+
+		fireEvent.keyDown(last, { key: "Home" })
+		const first = screen.getByLabelText(/^Reachable,/)
+		expect(document.activeElement).toBe(first)
+	})
+
+	it("fails if every bar becomes tabbable again", () => {
+		const { container } = render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} />)
+
+		const tabbable = [...container.querySelectorAll("button")].filter(
+			(button) => button.getAttribute("tabindex") !== "-1",
+		)
+		expect(tabbable).toHaveLength(1)
 	})
 })

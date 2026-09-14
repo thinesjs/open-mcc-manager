@@ -19,7 +19,10 @@ export const Tooltip = ({ content, children, render }: TooltipProps) => (
 			</BaseTooltip.Trigger>
 			<BaseTooltip.Portal>
 				<BaseTooltip.Positioner sideOffset={6} className="z-50">
-					<BaseTooltip.Popup className="max-w-64 rounded-[var(--control-radius)] border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md transition-[transform,opacity] duration-150 ease-out data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 motion-reduce:transition-none">
+					<BaseTooltip.Popup
+						data-slot="tooltip-popup"
+						className="max-w-64 rounded-[var(--control-radius)] border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md transition-[transform,opacity] duration-150 ease-out data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 motion-reduce:transition-none"
+					>
 						{content}
 					</BaseTooltip.Popup>
 				</BaseTooltip.Positioner>

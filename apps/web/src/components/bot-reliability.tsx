@@ -64,6 +64,7 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 							goodLabel="On its server"
 							partialLabel="Mostly on its server"
 							badLabel="Off its server"
+							subject={bot.instanceName}
 						/>
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-xs text-muted-foreground">

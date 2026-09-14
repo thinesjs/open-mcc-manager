@@ -57,7 +57,11 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 								{describeUptime(host.availability)}
 							</span>
 						</div>
-						<UptimeBars buckets={host.buckets} bucketSeconds={summary.bucketSeconds} />
+						<UptimeBars
+							buckets={host.buckets}
+							bucketSeconds={summary.bucketSeconds}
+							subject={host.hostName}
+						/>
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-xs text-muted-foreground">
 								Last checked {new Date(host.lastCheckedAt).toLocaleTimeString()}

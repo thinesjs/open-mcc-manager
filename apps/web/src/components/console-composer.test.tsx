@@ -152,7 +152,7 @@ describe("Tab", () => {
 })
 
 const popupText = (): string => {
-	const popup = document.querySelector(".text-popover-foreground")
+	const popup = document.querySelector('[data-slot="tooltip-popup"]')
 	if (!popup) throw new Error("no tooltip popup is open")
 	return popup.textContent ?? ""
 }

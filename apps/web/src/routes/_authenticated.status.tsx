@@ -107,6 +107,7 @@ function StatusPage() {
 										<UptimeBars
 											buckets={host.buckets}
 											bucketSeconds={summaryQuery.data.bucketSeconds}
+											subject={host.hostName}
 										/>
 										<div className="flex items-baseline justify-between gap-4">
 											<span className="text-xs text-muted-foreground">
@@ -158,6 +159,7 @@ function StatusPage() {
 											goodLabel="On its server"
 											partialLabel="Mostly on its server"
 											badLabel="Off its server"
+											subject={bot.instanceName}
 										/>
 										<div className="flex items-baseline justify-between gap-4">
 											<span className="text-xs text-muted-foreground">

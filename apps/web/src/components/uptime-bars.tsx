@@ -1,5 +1,7 @@
 import type { BucketAvailability, StatusSummary } from "@open-mcc/contracts"
 import { uptimeRatio } from "@open-mcc/contracts"
+import type { KeyboardEvent } from "react"
+import { useRef, useState } from "react"
 import { Tooltip } from "~/components/ui/tooltip"
 import { formatPercent } from "~/lib/uptime"
 import { cn } from "~/lib/utils"
@@ -10,6 +12,7 @@ export type UptimeBarsProps = {
 	goodLabel?: string | undefined
 	partialLabel?: string | undefined
 	badLabel?: string | undefined
+	subject?: string | undefined
 }
 
 type Verdict = "good" | "partial" | "bad" | "none"
@@ -57,6 +60,7 @@ export const UptimeBars = ({
 	goodLabel = "Reachable",
 	partialLabel = "Mostly reachable",
 	badLabel = "Not reachable",
+	subject,
 }: UptimeBarsProps) => {
 	const label: Record<Verdict, string> = {
 		good: goodLabel,
@@ -64,10 +68,46 @@ export const UptimeBars = ({
 		bad: badLabel,
 		none: "No measurements",
 	}
+	const barRefs = useRef<Array<HTMLButtonElement | null>>([])
+	const [activeIndex, setActiveIndex] = useState(buckets.length - 1)
+	const rovingIndex = Math.min(activeIndex, buckets.length - 1)
+
+	const focusBar = (index: number) => {
+		const clamped = Math.min(Math.max(index, 0), buckets.length - 1)
+		barRefs.current[clamped]?.focus()
+	}
+
+	const onRowKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.key === "ArrowLeft") {
+			event.preventDefault()
+			focusBar(rovingIndex - 1)
+			return
+		}
+		if (event.key === "ArrowRight") {
+			event.preventDefault()
+			focusBar(rovingIndex + 1)
+			return
+		}
+		if (event.key === "Home") {
+			event.preventDefault()
+			focusBar(0)
+			return
+		}
+		if (event.key === "End") {
+			event.preventDefault()
+			focusBar(buckets.length - 1)
+		}
+	}
+
 	return (
 		<div className="@container space-y-1.5">
-			<div className="flex h-6 gap-px @lg:gap-[2px]">
-				{buckets.map((entry) => {
+			<div
+				role="toolbar"
+				aria-label={subject === undefined ? "Uptime" : `${subject} uptime`}
+				className="flex h-6 gap-px @lg:gap-[2px]"
+				onKeyDown={onRowKeyDown}
+			>
+				{buckets.map((entry, index) => {
 					const verdict = verdictFor(entry)
 					const ratio = uptimeRatio(entry.availability)
 					const percent =
@@ -87,6 +127,11 @@ export const UptimeBars = ({
 							render={
 								<button
 									type="button"
+									ref={(element) => {
+										barRefs.current[index] = element
+									}}
+									tabIndex={index === rovingIndex ? 0 : -1}
+									onFocus={() => setActiveIndex(index)}
 									aria-label={`${summary}, ${span}`}
 									className={cn(BAR_CLASS, TONE[verdict])}
 								/>

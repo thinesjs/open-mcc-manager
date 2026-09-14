@@ -180,6 +180,21 @@ const organizationsSchema = z.array(z.object({ id: z.string() }))
 const roleSchema = z.object({ result: z.object({ data: z.object({ role: z.string() }) }) })
 
 describe("the better-auth routes the running server answers", () => {
+	it("★ registers exactly the five dashboard routes under /api/auth, and nothing else", () => {
+		const mounted = handle.app.routes
+			.filter((route) => route.path.startsWith("/api/auth"))
+			.map((route) => `${route.method} ${route.path}`)
+			.sort()
+
+		expect(mounted).toEqual([
+			"GET /api/auth/get-session",
+			"GET /api/auth/organization/list",
+			"POST /api/auth/organization/set-active",
+			"POST /api/auth/sign-in/email",
+			"POST /api/auth/sign-out",
+		])
+	})
+
 	it.each(["list-invitations", "get-full-organization"])(
 		"★ refuses a viewer's organization/%s, so no pending invitation id leaves the server",
 		async (route) => {

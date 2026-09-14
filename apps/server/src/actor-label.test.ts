@@ -66,6 +66,7 @@ beforeAll(async () => {
 		sshKeys,
 		secrets,
 		probeHostKey: async () => HOST_KEY_BLOB,
+		evictHost: () => undefined,
 		instanceIdsOnHost: async () => [],
 		now: () => new Date(),
 		createTransport: () =>

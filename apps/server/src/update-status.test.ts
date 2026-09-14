@@ -37,6 +37,7 @@ const hostController = createHostController({
 		throw new Error("no host is probed in this test")
 	},
 	createTransport: () => createFakeTransport(),
+	evictHost: () => undefined,
 	instanceIdsOnHost: async () => [],
 	now: () => new Date(),
 	withTransaction: createHostControllerTransaction(db, async () => null),

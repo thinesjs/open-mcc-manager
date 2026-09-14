@@ -48,6 +48,8 @@ export {
 	isProvisioningClaimStale,
 	PROVISIONING_LEASE_MS,
 } from "./host/host.repository"
+export type { HostReaderDeps, HostReadLease } from "./host/host-reader"
+export { hostReadKey, leaseHostReader } from "./host/host-reader"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
 	HOME_COMMAND,

@@ -29,6 +29,7 @@ import {
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
 	hostList,
+	hostReadKey,
 	type Logger,
 	lockLostHandler,
 	readBuildInfo,
@@ -46,7 +47,14 @@ import {
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
 import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
-import { createSshTransport, probeHostKey } from "@open-mcc/transport"
+import {
+	createReadConnections,
+	createSshTransport,
+	probeHostKey,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+} from "@open-mcc/transport"
 import { Hono } from "hono"
 import { PgBoss } from "pg-boss"
 import { createAuth } from "./auth"
@@ -146,6 +154,13 @@ export const startServer = async (
 
 	const hosts = createHostRepository(db)
 	const sshKeys = createSshKeyRepository(db)
+	const readConnections = createReadConnections({
+		createTransport: createSshTransport,
+		idleMs: READ_CONNECTION_IDLE_MS,
+		hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+		channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+		now: () => Date.now(),
+	})
 	const hostController = createHostController({
 		hosts,
 		sshKeys,
@@ -153,6 +168,8 @@ export const startServer = async (
 		probeHostKey,
 		createTransport: createSshTransport,
 		now: () => new Date(),
+		evictHost: (organizationId, hostId) =>
+			readConnections.evict(hostReadKey(organizationId, hostId)),
 		instanceIdsOnHost: async (scope, hostId) =>
 			(await createInstanceRepository(db).list(scope))
 				.filter((instance) => instance.hostId === hostId)

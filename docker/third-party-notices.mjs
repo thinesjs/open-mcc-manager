@@ -30,28 +30,99 @@ export const packageAt = (file) => {
 	return { name: `${first}/${second}`, dir: `${head}${first}/${second}` }
 }
 
+const addLocation = (found, name, dir) => {
+	const dirs = found.get(name) ?? new Set()
+	dirs.add(dir)
+	found.set(name, dirs)
+}
+
 export const bundledPackages = (metafile) => {
 	const found = new Map()
 	for (const input of Object.keys(JSON.parse(metafile).inputs ?? {})) {
 		const located = packageAt(input)
-		if (located) found.set(located.name, located.dir)
+		if (located) addLocation(found, located.name, located.dir)
 	}
 	return found
 }
 
-export const shippedPackages = (nodeModules) => {
-	const found = new Map()
-	if (!fs.existsSync(nodeModules)) return found
-	for (const entry of fs.readdirSync(nodeModules)) {
-		if (entry.startsWith(".")) continue
-		if (!entry.startsWith("@")) {
-			found.set(entry, path.join(nodeModules, entry))
+const directoryEntries = (dir) => {
+	try {
+		return fs.readdirSync(dir, { withFileTypes: true })
+	} catch {
+		return []
+	}
+}
+
+const isWithin = (root, target) => {
+	const rel = path.relative(root, target)
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`))
+}
+
+const resolveEntry = (dir, entry, root) => {
+	if (!entry.isSymbolicLink()) return dir
+	let real
+	try {
+		real = fs.realpathSync(dir)
+	} catch {
+		return null
+	}
+	let stat
+	try {
+		stat = fs.statSync(real)
+	} catch {
+		return null
+	}
+	if (!stat.isDirectory()) return null
+	if (!isWithin(root, real)) {
+		throw new Error(`symlinked package escapes the deployed tree: ${dir} -> ${real}`)
+	}
+	return real
+}
+
+const packageDirsIn = (nodeModules, found, seen, root) => {
+	for (const entry of directoryEntries(nodeModules)) {
+		if (entry.name.startsWith(".")) continue
+		if (!entry.isSymbolicLink() && !entry.isDirectory()) continue
+		const dir = path.join(nodeModules, entry.name)
+		if (entry.name.startsWith("@")) {
+			const scopeDir = resolveEntry(dir, entry, root)
+			if (scopeDir === null) continue
+			for (const scoped of directoryEntries(scopeDir)) {
+				if (scoped.name.startsWith(".")) continue
+				if (!scoped.isSymbolicLink() && !scoped.isDirectory()) continue
+				recordPackageDir(
+					`${entry.name}/${scoped.name}`,
+					path.join(scopeDir, scoped.name),
+					scoped,
+					found,
+					seen,
+					root,
+				)
+			}
 			continue
 		}
-		for (const scoped of fs.readdirSync(path.join(nodeModules, entry))) {
-			found.set(`${entry}/${scoped}`, path.join(nodeModules, entry, scoped))
-		}
+		recordPackageDir(entry.name, dir, entry, found, seen, root)
 	}
+}
+
+const recordPackageDir = (name, dir, entry, found, seen, root) => {
+	const real = resolveEntry(dir, entry, root)
+	if (real === null) return
+	if (seen.has(real)) return
+	seen.add(real)
+	addLocation(found, name, real)
+	packageDirsIn(path.join(real, "node_modules"), found, seen, root)
+}
+
+export const shippedPackages = (nodeModules) => {
+	const found = new Map()
+	let root
+	try {
+		root = fs.realpathSync(nodeModules)
+	} catch {
+		return found
+	}
+	packageDirsIn(root, found, new Set(), root)
 	return found
 }
 
@@ -117,7 +188,11 @@ const label = (entry) =>
 		.join(" ")
 
 export const render = (entries) => {
-	const sorted = [...entries].sort((a, b) => a.name.localeCompare(b.name))
+	const sorted = [...entries].sort(
+		(a, b) =>
+			a.name.localeCompare(b.name) ||
+			a.version.localeCompare(b.version, undefined, { numeric: true }),
+	)
 	const sections = [PREAMBLE]
 	for (const group of groupByText(sorted)) {
 		sections.push(`${RULE}\n${group.members.map(label).join("\n")}\n${RULE}\n\n${group.text}\n`)
@@ -133,6 +208,26 @@ export const render = (entries) => {
 	return sections.join("\n")
 }
 
+export const collectEntries = (installRoot, deployRoot, metafiles) => {
+	const locations = []
+	for (const metafile of metafiles) {
+		for (const [name, dirs] of bundledPackages(fs.readFileSync(metafile, "utf8"))) {
+			for (const dir of dirs) locations.push({ name, dir: path.resolve(installRoot, dir) })
+		}
+	}
+	for (const [name, dirs] of shippedPackages(path.join(deployRoot, "node_modules"))) {
+		for (const dir of dirs) locations.push({ name, dir })
+	}
+
+	const byVersion = new Map()
+	for (const { name, dir } of locations) {
+		const entry = readPackage(name, dir)
+		const key = entry.version.length > 0 ? `${entry.name}@${entry.version}` : `${entry.name}@${dir}`
+		if (!byVersion.has(key)) byVersion.set(key, entry)
+	}
+	return [...byVersion.values()]
+}
+
 const main = () => {
 	const [, , installRoot, deployRoot, outFile, ...metafiles] = process.argv
 	if (!installRoot || !deployRoot || !outFile) {
@@ -142,17 +237,13 @@ const main = () => {
 		process.exit(1)
 	}
 
-	const located = new Map()
-	for (const metafile of metafiles) {
-		for (const [name, dir] of bundledPackages(fs.readFileSync(metafile, "utf8"))) {
-			located.set(name, path.resolve(installRoot, dir))
-		}
+	let entries
+	try {
+		entries = collectEntries(installRoot, deployRoot, metafiles)
+	} catch (error) {
+		process.stdout.write(`${error instanceof Error ? error.message : String(error)}\n`)
+		process.exit(1)
 	}
-	for (const [name, dir] of shippedPackages(path.join(deployRoot, "node_modules"))) {
-		located.set(name, dir)
-	}
-
-	const entries = [...located].map(([name, dir]) => readPackage(name, dir))
 	const missing = unattributed(entries)
 	if (missing.length > 0) {
 		process.stdout.write(`no licence text and no declared licence for: ${missing.join(", ")}\n`)

@@ -584,9 +584,7 @@ describe("self-host.sh, when an earlier run left an identical entry behind", () 
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain("docker was not found")
-		expect(await read(host, authorizedKeysOf(account))).toBe(
-			`${kept.publicKey}\n${duplicate}\n`,
-		)
+		expect(await read(host, authorizedKeysOf(account))).toBe(`${kept.publicKey}\n${duplicate}\n`)
 	})
 })
 

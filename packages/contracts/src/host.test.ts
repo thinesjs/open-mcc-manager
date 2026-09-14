@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createHostInput, hostPublic } from "./host"
+import { HOST_CHECK_NAMES, hostCheckResult } from "./host-check"
 
 const HOST = {
 	name: "vps",
@@ -80,6 +81,50 @@ const PUBLIC_HOST = {
 	teardownError: null,
 	teardownRequestedAt: null,
 }
+
+describe("what a host check reports", () => {
+	const RESULT = { name: "podman", outcome: "fail", detail: "Podman isn't installed." }
+
+	it("names every prerequisite the Podman runtime needs, in the order the check shows them", () => {
+		expect(HOST_CHECK_NAMES).toEqual([
+			"reachable",
+			"account",
+			"systemd",
+			"architecture",
+			"lingering",
+			"podman",
+			"cgroups",
+			"subordinate-ids",
+			"network-helper",
+			"storage",
+			"tcp-forwarding",
+			"cloud-metadata",
+			"client-runtime",
+		])
+	})
+
+	it("carries the command that fixes a result, or null when no command does", () => {
+		const command = "sudo loginctl enable-linger mcc"
+
+		expect(hostCheckResult.parse({ ...RESULT, command, hint: null }).command).toBe(command)
+		expect(hostCheckResult.parse({ ...RESULT, command: null, hint: null }).command).toBeNull()
+		expect(hostCheckResult.safeParse({ ...RESULT, hint: null }).success).toBe(false)
+	})
+
+	it("carries the detail a tooltip shows, or null when there is none", () => {
+		const hint = "Podman needs cgroup v2."
+
+		expect(hostCheckResult.parse({ ...RESULT, command: null, hint }).hint).toBe(hint)
+		expect(hostCheckResult.safeParse({ ...RESULT, command: null }).success).toBe(false)
+	})
+
+	it("refuses a name that is no longer checked", () => {
+		expect(
+			hostCheckResult.safeParse({ ...RESULT, name: "confinement", command: null, hint: null })
+				.success,
+		).toBe(false)
+	})
+})
 
 describe("the timestamps a host's public view sends over the wire", () => {
 	it.each(["hostKeyTrustedAt", "lastSeenAt", "teardownRequestedAt"] as const)(

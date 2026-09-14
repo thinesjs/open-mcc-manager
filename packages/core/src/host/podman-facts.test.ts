@@ -87,7 +87,7 @@ describe("reading Podman's version without starting its runtime", () => {
 		{ output: "Podman version 4.3.1" },
 		{ output: "podman version v4.3.1" },
 		{ output: "podman version 4.3.1 on 203.0.113.9" },
-		{ output: "[31mpodman version 4.3.1" },
+		{ output: "\u001b[31mpodman version 4.3.1" },
 		{ output: "sh: 1: podman: not found" },
 		{ output: "podman version 4.3.1\npodman version 5.0.0" },
 	])("reads '$output' as unreadable", ({ output }) => {
@@ -375,7 +375,7 @@ describe("parsing the host facts", () => {
 
 	it("keeps no remote text but the few words it expects", () => {
 		const facts = parseHostFacts(
-			"uid=0 203.0.113.9\nos=]8;;https://203.0.113.9 12\nhelper=/usr/bin/pasta\nsubuid=own 1:2 3",
+			"uid=0 203.0.113.9\nos=\u001b]8;;https://203.0.113.9\u0007 12\nhelper=/usr/bin/pasta\nsubuid=own 1:2 3",
 		)
 
 		expect(facts.uid).toBeNull()

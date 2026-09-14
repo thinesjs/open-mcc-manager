@@ -167,7 +167,7 @@ describe("checking a host before committing to enrol it", () => {
 		const report = await check(
 			hostWith(FRESH_FACTS, OWN_RANGES, {
 				"systemctl --version | head -n 1": ok(
-					`systemd 255 ]8;;https://203.0.113.9:8443${"x".repeat(200)}`,
+					`systemd 255 \u001b]8;;https://203.0.113.9:8443\u0007${"x".repeat(200)}`,
 				),
 			}),
 		)
@@ -177,7 +177,7 @@ describe("checking a host before committing to enrol it", () => {
 
 	it("★ withholds a machine name it cannot read when the architecture has no build", async () => {
 		const report = await check(
-			hostWith(FRESH_FACTS, OWN_RANGES, { "uname -m": ok("[2Jriscv64 203.0.113.9:2222") }),
+			hostWith(FRESH_FACTS, OWN_RANGES, { "uname -m": ok("\u001b[2Jriscv64 203.0.113.9:2222") }),
 		)
 		const detail = resultOf(report, "architecture")?.detail ?? ""
 

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { AffiliationNotice } from "~/components/affiliation-notice"
@@ -7,8 +7,15 @@ import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { authClient } from "~/lib/auth-client"
+import { decideFromSession, SIGNED_IN_LANDING } from "~/lib/session-guard"
 
 export const Route = createFileRoute("/sign-in")({
+	beforeLoad: async () => {
+		const session = await authClient.getSession()
+		if (decideFromSession(session) === "allow") {
+			throw redirect({ to: SIGNED_IN_LANDING })
+		}
+	},
 	component: SignInPage,
 })
 
@@ -38,7 +45,7 @@ function SignInPage() {
 			}
 
 			await authClient.organization.setActive({ organizationId: firstOrganization.id })
-			navigate({ to: "/hosts" })
+			navigate({ to: SIGNED_IN_LANDING })
 		} finally {
 			setIsSubmitting(false)
 		}
@@ -83,12 +90,6 @@ function SignInPage() {
 						{isSubmitting ? "Signing in…" : "Sign in"}
 					</Button>
 				</form>
-				<p className="text-center text-sm text-muted-foreground">
-					Have an invitation?{" "}
-					<Link to="/accept-invitation" className="text-primary underline-offset-4 hover:underline">
-						Accept it
-					</Link>
-				</p>
 				<AffiliationNotice className="text-center" />
 			</div>
 		</div>

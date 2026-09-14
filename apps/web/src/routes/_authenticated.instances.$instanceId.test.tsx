@@ -30,6 +30,8 @@ const STATS = {
 
 const NEARBY = { totalTracked: 3, entities: [{ id: 7, label: "Zombie", distance: 4 }] }
 
+const SIGN_IN_CODE = "WXYZ-1234"
+
 const server = {
 	instance: BOT,
 	config: { liveControlEnabled: true, entityDataEnabled: true },
@@ -58,12 +60,27 @@ const answer = async (procedure: string): Promise<object | null> => {
 	}
 }
 
+const outcome = async (procedure: string): Promise<object | null> => {
+	switch (procedure) {
+		case "authenticate":
+			return {
+				userCode: SIGN_IN_CODE,
+				verificationUri: "https://www.microsoft.com/link",
+				expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+			}
+		case "cancelAuthentication":
+			return { authenticated: false, status: "needs_auth" }
+		default:
+			return null
+	}
+}
+
 const procedure = (router: string, name: string) => ({
 	queryOptions: (input?: object) => ({
 		queryKey: [router, name, input ?? {}],
 		queryFn: () => answer(name),
 	}),
-	mutationOptions: (options: object) => ({ ...options, mutationFn: () => answer(name) }),
+	mutationOptions: (options: object) => ({ ...options, mutationFn: () => outcome(name) }),
 })
 
 const trpc = new Proxy(
@@ -154,5 +171,30 @@ describe("a live reading once the bot is no longer live", () => {
 		await act(() => client.refetchQueries())
 
 		await waitFor(() => expect(screen.queryByText("Zombie")).toBeNull())
+	})
+})
+
+describe("a Microsoft sign-in code", () => {
+	const requestCode = async () => {
+		server.instance = { ...BOT, status: "needs_auth" }
+		await mount()
+		fireEvent.click(await screen.findByRole("button", { name: "Get a sign-in code" }))
+		expect(await screen.findByText(SIGN_IN_CODE)).toBeDefined()
+	}
+
+	it("says how long the code stays valid", async () => {
+		await requestCode()
+
+		expect(screen.getByText(/Valid for 15 more minutes/)).toBeDefined()
+	})
+
+	it("is taken off the page once the sign-in is cancelled", async () => {
+		await requestCode()
+
+		await openTab("Danger zone")
+		fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }))
+
+		await waitFor(() => expect(screen.queryByText(SIGN_IN_CODE)).toBeNull())
+		expect(screen.queryByRole("button", { name: "I finished signing in" })).toBeNull()
 	})
 })

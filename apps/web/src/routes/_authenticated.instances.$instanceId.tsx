@@ -16,6 +16,7 @@ import { BotConfigPanel } from "~/components/bot-config-panel"
 import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
+import { DeviceCode } from "~/components/device-code"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
@@ -144,7 +145,14 @@ function InstanceDetailPage() {
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
 	const cancelAuthMutation = useMutation(
-		trpc.instance.cancelAuthentication.mutationOptions({ onSuccess, onError }),
+		trpc.instance.cancelAuthentication.mutationOptions({
+			onSuccess: async () => {
+				authenticateMutation.reset()
+				completeMutation.reset()
+				await onSuccess()
+			},
+			onError,
+		}),
 	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
@@ -282,24 +290,7 @@ function InstanceDetailPage() {
 						</Alert>
 					) : null}
 
-					{challenge ? (
-						<Alert variant="info" icon={<KeyRound />}>
-							<span className="block">
-								Open{" "}
-								<a
-									href={challenge.verificationUri}
-									target="_blank"
-									rel="noreferrer"
-									className="text-primary underline underline-offset-4"
-								>
-									{challenge.verificationUri}
-								</a>{" "}
-								and enter the code{" "}
-								<span className="font-mono font-semibold tracking-wider">{challenge.userCode}</span>
-								. Then choose “I finished signing in”.
-							</span>
-						</Alert>
-					) : null}
+					{challenge ? <DeviceCode challenge={challenge} /> : null}
 
 					<Tabs defaultValue="overview">
 						<TabsList>

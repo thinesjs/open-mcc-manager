@@ -4,7 +4,11 @@ import {
 	REJECTION_ERROR_CODES,
 	type RejectionCategory,
 } from "@open-mcc/contracts"
-import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
+import {
+	type MccRefusal,
+	McpProtocolError,
+	McpRefusalError,
+} from "@open-mcc/contracts/boundary/mcp"
 import {
 	DestinationDisabledError,
 	DestinationHasNoSigningKeyError,
@@ -108,7 +112,35 @@ const UNNAMED_CONSTRAINT_VIOLATION = mapped(
 	"That change conflicts with data already stored",
 )
 
+const TURNED_OFF = mapped("CONFLICT", "INSTANCE_LIVE_TURNED_OFF", "The client has that turned off")
+
+const REFUSALS: Record<MccRefusal, MappedError> = {
+	capability_disabled: TURNED_OFF,
+	feature_disabled: TURNED_OFF,
+	disconnected: mapped(
+		"CONFLICT",
+		"INSTANCE_LIVE_NOT_JOINED",
+		"The client is not connected to its server",
+	),
+	invalid_args: mapped(
+		"BAD_REQUEST",
+		"INSTANCE_LIVE_UNKNOWN_ITEM",
+		"The client did not recognise that item",
+	),
+	invalid_state: mapped(
+		"CONFLICT",
+		"INSTANCE_LIVE_ITEM_MISSING",
+		"The client does not have that item where it needs it",
+	),
+	action_failed: mapped(
+		"CONFLICT",
+		"INSTANCE_LIVE_ACTION_FAILED",
+		"The client tried, but the game did not let it",
+	),
+}
+
 export const mapKnownError = (cause: Error): MappedError | null => {
+	if (cause instanceof McpRefusalError) return REFUSALS[cause.refusal]
 	if (cause instanceof ForbiddenError) {
 		return mapped("FORBIDDEN", "FORBIDDEN", "You do not have permission to perform this action")
 	}

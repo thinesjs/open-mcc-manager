@@ -11,6 +11,7 @@ import {
 	isNotableEvent,
 	itemSlug,
 	McpProtocolError,
+	McpRefusalError,
 	recentEventsFrom,
 	regionsFor,
 	responseFrom,
@@ -18,6 +19,84 @@ import {
 	slotsBySlotNumber,
 	toolResultOf,
 } from "./mcp"
+
+const textReply = (envelope: string) =>
+	responseFrom(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 2,
+			result: { content: [{ type: "text", text: envelope }] },
+		}),
+	)
+
+const outcomeOf = (response: ReturnType<typeof responseFrom>): string => {
+	try {
+		toolResultOf(response)
+	} catch (error) {
+		if (error instanceof McpProtocolError) return "protocol"
+		if (error instanceof McpRefusalError) return error.refusal
+		return "other"
+	}
+	return "answered"
+}
+
+describe("a refusal the client sends on purpose", () => {
+	const REFUSALS = [
+		"capability_disabled",
+		"feature_disabled",
+		"disconnected",
+		"invalid_args",
+		"invalid_state",
+		"action_failed",
+	]
+
+	it("reads each reason the client can give as a refusal, not as a reply it could not read", () => {
+		for (const refusal of REFUSALS) {
+			expect(outcomeOf(textReply(`{"success":false,"errorCode":"${refusal}"}`)), refusal).toBe(
+				refusal,
+			)
+		}
+	})
+
+	it("reads a refusal that carries details about what was asked for", () => {
+		const envelope =
+			'{"success":false,"errorCode":"invalid_state","data":{"itemType":"Diamond","requestedCount":5,"availableCount":2,"cursorCount":0,"inventoryId":0}}'
+
+		expect(outcomeOf(textReply(envelope))).toBe("invalid_state")
+	})
+
+	it("reads a refusal sent as structured content the same way", () => {
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 2,
+				result: { structuredContent: { success: false, errorCode: "disconnected" } },
+			}),
+		)
+
+		expect(outcomeOf(response)).toBe("disconnected")
+	})
+
+	it("still treats a reason the client never gives as a reply it could not read", () => {
+		expect(outcomeOf(textReply('{"success":false,"errorCode":"on_fire"}'))).toBe("protocol")
+	})
+
+	it("still treats a refusal with no reason as a reply it could not read", () => {
+		expect(outcomeOf(textReply('{"success":false}'))).toBe("protocol")
+	})
+
+	it("still treats a failed call reported by the protocol itself as a reply it could not read", () => {
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 2,
+				result: { isError: true, content: [{ type: "text", text: "An error occurred" }] },
+			}),
+		)
+
+		expect(outcomeOf(response)).toBe("protocol")
+	})
+})
 
 describe("mcp wire format", () => {
 	it("reads a plain json response", () => {

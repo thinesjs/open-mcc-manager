@@ -64,6 +64,12 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"That instance's host is not ready yet. Enroll and provision the host first.",
 	INSTANCE_LIVE_CONTROL_UNREADABLE:
 		"This instance's live channel answered with something the manager could not read.",
+	INSTANCE_LIVE_TURNED_OFF: "This bot has that turned off. Check its settings, then restart it.",
+	INSTANCE_LIVE_NOT_JOINED: "The bot is not connected to its server right now.",
+	INSTANCE_LIVE_UNKNOWN_ITEM: "The bot did not recognise that item.",
+	INSTANCE_LIVE_ITEM_MISSING:
+		"The bot does not have that item where it needs it. Only items in the hotbar can be held.",
+	INSTANCE_LIVE_ACTION_FAILED: "The bot tried, but the game did not let it. Try again.",
 	HOST_CHANNEL_LIMIT:
 		"The host would not open another SSH session. It has reached its session limit; wait a moment and retry.",
 	INSTANCE_LIVE_CONTROL_REJECTED:

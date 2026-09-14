@@ -1,5 +1,10 @@
 import { isErrorCode } from "@open-mcc/contracts"
-import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
+import {
+	MCC_REFUSALS,
+	type MccRefusal,
+	McpProtocolError,
+	McpRefusalError,
+} from "@open-mcc/contracts/boundary/mcp"
 import * as core from "@open-mcc/core"
 import {
 	FingerprintMismatchError,
@@ -63,6 +68,38 @@ describe("mapKnownError", () => {
 		expect(mapped?.code).toBe("BAD_REQUEST")
 		expect(mapped?.message).not.toContain(secretFingerprint)
 		expect(mapped?.message).not.toContain("SHA256:")
+	})
+
+	it("never reports a refusal the client sent on purpose as a reply it could not read", () => {
+		for (const refusal of MCC_REFUSALS) {
+			const mapped = mapKnownError(new McpRefusalError(refusal))
+			expect(mapped, refusal).not.toBeNull()
+			expect(mapped?.errorCode, refusal).not.toBe("INSTANCE_LIVE_CONTROL_UNREADABLE")
+		}
+	})
+
+	it("gives each kind of refusal its own code, so the dashboard can say what happened", () => {
+		const codeFor = (refusal: MccRefusal) => mapKnownError(new McpRefusalError(refusal))?.errorCode
+
+		expect(codeFor("capability_disabled")).toBe("INSTANCE_LIVE_TURNED_OFF")
+		expect(codeFor("feature_disabled")).toBe("INSTANCE_LIVE_TURNED_OFF")
+		expect(codeFor("disconnected")).toBe("INSTANCE_LIVE_NOT_JOINED")
+		expect(codeFor("invalid_args")).toBe("INSTANCE_LIVE_UNKNOWN_ITEM")
+		expect(codeFor("invalid_state")).toBe("INSTANCE_LIVE_ITEM_MISSING")
+		expect(codeFor("action_failed")).toBe("INSTANCE_LIVE_ACTION_FAILED")
+	})
+
+	it("treats a refused item as a conflict with the bot's state, not a server fault", () => {
+		expect(mapKnownError(new McpRefusalError("invalid_state"))).toMatchObject({
+			code: "CONFLICT",
+			httpStatus: 409,
+		})
+	})
+
+	it("still reports a reply it truly could not read as unreadable", () => {
+		expect(mapKnownError(new McpProtocolError("malformed"))?.errorCode).toBe(
+			"INSTANCE_LIVE_CONTROL_UNREADABLE",
+		)
 	})
 
 	it("maps McpProtocolError to CONFLICT without echoing the address the client named", () => {

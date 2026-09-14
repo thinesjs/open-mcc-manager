@@ -6,8 +6,11 @@ import {
 	slotsBySlotNumber,
 } from "@open-mcc/contracts/boundary/mcp"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { CircleAlert } from "lucide-react"
 import { useState } from "react"
+import { Alert } from "~/components/ui/alert"
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "~/components/ui/context-menu"
+import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 export type LiveInventoryView = {
@@ -137,7 +140,14 @@ const Slot = ({ item, onDrop, onHold }: SlotProps) => {
 export const LiveInventory = ({ inventory, instanceId, canInteract }: LiveInventoryProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
-	const refresh = { onSuccess: () => queryClient.invalidateQueries() }
+	const [error, setError] = useState<string | undefined>(undefined)
+	const refresh = {
+		onSuccess: () => {
+			setError(undefined)
+			return queryClient.invalidateQueries()
+		},
+		onError: (cause: TRPCErrorLike) => setError(getErrorMessage(cause)),
+	}
 	const dropMutation = useMutation(trpc.instance.dropInventoryItem.mutationOptions(refresh))
 	const holdMutation = useMutation(trpc.instance.selectHeldItem.mutationOptions(refresh))
 	const byNumber = slotsBySlotNumber(inventory.slots)
@@ -145,6 +155,11 @@ export const LiveInventory = ({ inventory, instanceId, canInteract }: LiveInvent
 
 	return (
 		<div className="space-y-3">
+			{error ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{error}
+				</Alert>
+			) : null}
 			<div
 				className="inline-block w-max p-3"
 				style={{

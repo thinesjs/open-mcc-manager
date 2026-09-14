@@ -5,6 +5,7 @@ import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
 import { Spinner } from "~/components/ui/spinner"
+import { Tooltip } from "~/components/ui/tooltip"
 import { readCommandHistory, rememberCommand, writeCommandHistory } from "~/lib/command-history"
 import { getErrorMessage } from "~/lib/errors"
 import { completeName, suggestPlayers } from "~/lib/player-completion"
@@ -83,15 +84,19 @@ export const ConsoleComposer = ({ instanceId, running, players, onSent }: Consol
 				<div className="flex flex-wrap items-center gap-1.5">
 					<span className="text-xs text-muted-foreground">Recent</span>
 					{history.map((command) => (
-						<button
+						<Tooltip
 							key={command}
-							type="button"
-							onClick={() => prefill(command)}
-							title={`Put “${command}” in the box. It is not sent until you choose Send.`}
-							className="max-w-56 truncate rounded-full border border-border bg-muted/40 px-2.5 py-1 font-mono text-[0.6875rem] text-foreground transition-colors hover:bg-muted active:scale-[0.97]"
-						>
-							{command}
-						</button>
+							content={`Put “${command}” in the box. It is not sent until you choose Send.`}
+							render={
+								<button
+									type="button"
+									onClick={() => prefill(command)}
+									className="max-w-56 truncate rounded-full border border-border bg-muted/40 px-2.5 py-1 font-mono text-[0.6875rem] text-foreground transition-colors hover:bg-muted active:scale-[0.97]"
+								>
+									{command}
+								</button>
+							}
+						/>
 					))}
 				</div>
 			) : null}
@@ -99,15 +104,19 @@ export const ConsoleComposer = ({ instanceId, running, players, onSent }: Consol
 				<div className="flex flex-wrap items-center gap-1.5">
 					<span className="text-xs text-muted-foreground">Players</span>
 					{names.map((name) => (
-						<button
+						<Tooltip
 							key={name}
-							type="button"
-							onClick={() => complete(name)}
-							title={`Finish the name as “${name}”. Tab takes the first one.`}
-							className="max-w-56 truncate rounded-full border border-border bg-muted/40 px-2.5 py-1 font-mono text-[0.6875rem] text-foreground transition-colors hover:bg-muted active:scale-[0.97]"
-						>
-							{name}
-						</button>
+							content={`Finish the name as “${name}”. Tab takes the first one.`}
+							render={
+								<button
+									type="button"
+									onClick={() => complete(name)}
+									className="max-w-56 truncate rounded-full border border-border bg-muted/40 px-2.5 py-1 font-mono text-[0.6875rem] text-foreground transition-colors hover:bg-muted active:scale-[0.97]"
+								>
+									{name}
+								</button>
+							}
+						/>
 					))}
 				</div>
 			) : null}

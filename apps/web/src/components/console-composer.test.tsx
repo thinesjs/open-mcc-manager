@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { writeCommandHistory } from "~/lib/command-history"
 import { ConsoleComposer, type ConsoleComposerProps } from "./console-composer"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -23,6 +24,7 @@ vi.mock("~/lib/trpc", () => ({
 afterEach(() => {
 	cleanup()
 	mutate.mockReset()
+	window.localStorage.clear()
 })
 
 const ONLINE = ["Steve", "Stone_Age", "Alex_99"]
@@ -146,6 +148,52 @@ describe("Tab", () => {
 
 		expect(fireEvent.keyDown(box(), { key: "Tab", shiftKey: true })).toBe(true)
 		expect(box()).toHaveProperty("value", "/msg St")
+	})
+})
+
+const popupText = (): string => {
+	const popup = document.querySelector('[data-slot="tooltip-popup"]')
+	if (!popup) throw new Error("no tooltip popup is open")
+	return popup.textContent ?? ""
+}
+
+describe("hovering a suggested name or a recent command", () => {
+	it("carries no native title on the suggested-name chip", () => {
+		mount()
+		type("/msg St")
+
+		expect(screen.getByRole("button", { name: "Steve" }).getAttribute("title")).toBeNull()
+	})
+
+	it("explains what choosing the name does through the tooltip", async () => {
+		mount()
+		type("/msg St")
+
+		fireEvent.focus(screen.getByRole("button", { name: "Steve" }))
+
+		await waitFor(() => {
+			expect(popupText()).toMatch(/Finish the name as .Steve.\. Tab takes the first one\./)
+		})
+	})
+
+	it("carries no native title on a recent-command chip", () => {
+		writeCommandHistory("instance-1", ["say hi"])
+		mount()
+
+		expect(screen.getByRole("button", { name: "say hi" }).getAttribute("title")).toBeNull()
+	})
+
+	it("explains what choosing a recent command does through the tooltip", async () => {
+		writeCommandHistory("instance-1", ["say hi"])
+		mount()
+
+		fireEvent.focus(screen.getByRole("button", { name: "say hi" }))
+
+		await waitFor(() => {
+			expect(popupText()).toMatch(
+				/Put .say hi. in the box\. It is not sent until you choose Send\./,
+			)
+		})
 	})
 })
 

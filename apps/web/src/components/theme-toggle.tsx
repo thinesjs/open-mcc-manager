@@ -1,5 +1,6 @@
 import { Monitor, Moon, Sun } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Tooltip } from "~/components/ui/tooltip"
 import {
 	applyTheme,
 	nextPreference,
@@ -38,19 +39,23 @@ export const ThemeToggle = () => {
 	const Icon = ICONS[preference]
 
 	return (
-		<button
-			type="button"
-			aria-label={LABELS[preference]}
-			title={LABELS[preference]}
-			onClick={() => {
-				const next = nextPreference(preference)
-				setPreference(next)
-				storePreference(window.localStorage, next)
-			}}
-			className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
-		>
-			<Icon className="size-4" />
-			{LABELS[preference]}
-		</button>
+		<Tooltip
+			content={LABELS[preference]}
+			render={
+				<button
+					type="button"
+					aria-label={LABELS[preference]}
+					onClick={() => {
+						const next = nextPreference(preference)
+						setPreference(next)
+						storePreference(window.localStorage, next)
+					}}
+					className="flex w-full items-center gap-2.5 rounded-[var(--control-radius)] px-3 py-1.5 text-sm font-medium text-sidebar-muted-foreground transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
+				>
+					<Icon className="size-4" />
+					{LABELS[preference]}
+				</button>
+			}
+		/>
 	)
 }

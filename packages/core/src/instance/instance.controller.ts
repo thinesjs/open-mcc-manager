@@ -436,7 +436,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		runAt: timeOfDay(row.minuteOfDay),
 		timezone: row.timezone,
 		enabled: row.enabled,
-		lastRunAt: row.lastRunAt,
+		lastRunAt: row.lastRunAt?.toISOString() ?? null,
 		lastRunError: row.lastRunError,
 	})
 

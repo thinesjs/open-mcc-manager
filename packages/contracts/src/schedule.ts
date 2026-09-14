@@ -96,7 +96,7 @@ export const scheduledCommandPublic = z.object({
 	runAt: timeOfDaySchema,
 	timezone: z.string(),
 	enabled: z.boolean(),
-	lastRunAt: z.date().nullable(),
+	lastRunAt: z.string().datetime().nullable(),
 	lastRunError: z.string().nullable(),
 })
 export type ScheduledCommandPublic = z.infer<typeof scheduledCommandPublic>

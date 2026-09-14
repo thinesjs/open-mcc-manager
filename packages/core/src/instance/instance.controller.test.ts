@@ -792,6 +792,18 @@ describe("scheduled commands", () => {
 		)
 	})
 
+	it("carries lastRunAt as the ISO string the wire actually sends, not a Date object", async () => {
+		const { deps } = makeDeps()
+		vi.mocked(deps.commands.listForInstance).mockResolvedValue([
+			commandRow({ lastRunAt: new Date("2026-09-01T09:00:00.000Z") }),
+		])
+		const controller = createInstanceController(deps)
+
+		const [command] = await controller.listScheduledCommands(owner, "abc123")
+
+		expect(command?.lastRunAt).toBe("2026-09-01T09:00:00.000Z")
+	})
+
 	it("refuses a viewer's attempt to define a scheduled command", async () => {
 		const { deps } = makeDeps()
 		const controller = createInstanceController(deps)

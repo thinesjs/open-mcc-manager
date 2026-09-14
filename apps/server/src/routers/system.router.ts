@@ -24,7 +24,7 @@ export const systemRouter = router({
 						version: worker.version,
 						commit: worker.commit,
 						schemaVersion: worker.schemaVersion,
-						seenAt: worker.seenAt,
+						seenAt: worker.seenAt.toISOString(),
 					}
 				: null,
 		}

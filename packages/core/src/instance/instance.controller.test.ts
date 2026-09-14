@@ -548,6 +548,45 @@ describe("sleep windows", () => {
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
+	const START_TIMER_ENABLE = "systemctl enable --now 'open-mcc-sleep-start@abc123.timer'"
+
+	const refusingStart = () =>
+		createFakeTransport({
+			[START_TIMER_ENABLE]: { stdout: "", stderr: "Failed to enable unit", exitCode: 1 },
+		})
+
+	it("takes a new window's timers back off the host when one of them will not enable", async () => {
+		const refusing = refusingStart()
+		const { deps } = makeDeps({ createTransport: () => refusing })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostMisconfiguredError,
+		)
+
+		const afterFailure = refusing.commands.slice(refusing.commands.indexOf(START_TIMER_ENABLE) + 1)
+		expect(afterFailure).toContain(
+			"systemctl disable --now 'open-mcc-sleep-stop@abc123.timer' || true",
+		)
+		expect(afterFailure).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+	})
+
+	it("puts the stored window's timers back when a changed window will not enable", async () => {
+		const refusing = refusingStart()
+		const { deps } = makeDeps({ createTransport: () => refusing })
+		vi.mocked(deps.schedules.findByInstance).mockResolvedValue(scheduleRow())
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setSleepWindow(owner, { ...window, timezone: "UTC" }),
+		).rejects.toBeInstanceOf(HostMisconfiguredError)
+
+		expect(refusing.stdins.at(-2)).toContain("Asia/Kuala_Lumpur")
+		expect(refusing.stdins.at(-1)).toContain("Asia/Kuala_Lumpur")
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+	})
+
 	it("keeps the window when the host cannot be reached to remove its timers", async () => {
 		const unreachable = createFakeTransport({}, { connect: new Error("connect ETIMEDOUT") })
 		const { deps, audit } = makeDeps({ createTransport: () => unreachable })

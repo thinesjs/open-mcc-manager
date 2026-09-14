@@ -1270,7 +1270,21 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, input.instanceId)
 
-			await applySleepTimers(ctx, instance, input)
+			try {
+				await applySleepTimers(ctx, instance, input)
+			} catch (error) {
+				if (!(error instanceof HostUnreachableError)) {
+					await deps.schedules
+						.findByInstance(scopeOf(ctx), input.instanceId)
+						.then((current) =>
+							current
+								? applySleepTimers(ctx, instance, toSleepWindowPublic(current))
+								: removeSleepTimers(ctx, instance),
+						)
+						.catch(() => undefined)
+				}
+				throw error
+			}
 
 			const stored = await deps.withTransaction(async (repos) => {
 				const row = await repos.schedules.upsert(scopeOf(ctx), {

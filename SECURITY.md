@@ -189,6 +189,13 @@ depth, not a substitute for one.
 - **Capability-gated privileged operations.** Host enrollment, provisioning,
   and removal all check the caller's role against an explicit capability
   matrix before touching data or contacting a host.
+- **Removing a member ends their access at once.** An owner removes a member
+  through `member.remove`, which refuses the last owner and an owner removing
+  themselves, cancels the invitations the removed member still had pending, and
+  revokes their sessions in that organization through better-auth. A removed
+  owner therefore cannot come back through an invitation they sent earlier.
+  `apps/server/src/members.test.ts` proves the removed member's session is
+  refused on its next request.
 - **Serialized provisioning with a bounded-lease claim.** `provision` reads
   the host once, unlocked, to decide whether an attempt is worth starting at
   all (already-provisioning, missing ssh key, missing trusted fingerprint);
@@ -353,8 +360,10 @@ depth, not a substitute for one.
   `requireCapability`, never through a new entry in that list. Upgrading
   better-auth changes what those five paths do, so re-read them on an upgrade.
 - **Invitations are not emailed.** `member.invite` creates the invitation
-  record and returns it to the inviting owner, but no mailer is configured —
-  the owner must communicate the invitation id to the invitee out of band.
+  record and the dashboard shows the inviting owner a link to it, but no mailer
+  is configured — the owner sends that link to the invitee out of band. Anyone
+  holding the link can accept it until it is accepted, cancelled or expired, so
+  an owner should cancel one that went to the wrong place.
   Wiring an email delivery step is future work, not a current control gap:
   the invitation's authorization (who may create one, what it can accept)
   does not depend on how it is delivered.

@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
+import { memberControllerFor } from "./members"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -88,6 +89,7 @@ beforeAll(async () => {
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
 				selfHostController: createTestSelfHostController(db),
+				memberController: memberControllerFor(db, auth),
 			}),
 		}),
 	)
@@ -99,11 +101,8 @@ afterAll(async () => {
 
 const orgResponseSchema = z.object({ id: z.string() })
 const inviteResponseSchema = z.object({ result: z.object({ data: z.object({ id: z.string() }) }) })
-const acceptResponseSchema = z.object({
-	result: z.object({
-		data: z.object({ userId: z.string(), organizationId: z.string(), role: z.string() }),
-	}),
-})
+const userIdOf = async (email: string): Promise<string> =>
+	(await db.selectFrom("user").select("id").where("email", "=", email).executeTakeFirstOrThrow()).id
 
 const extractCookie = (res: Response): string => {
 	const cookies = res.headers.getSetCookie()
@@ -259,10 +258,7 @@ describe("member invitations", () => {
 		})
 		const acceptBody = await acceptRes.text()
 		expect(acceptRes.status, acceptBody).toBe(200)
-		const accepted = acceptResponseSchema.parse(JSON.parse(acceptBody)).result.data
-
-		expect(accepted.organizationId).toBe(owner.orgId)
-		expect(accepted.role).toBe("operator")
+		const accepted = { userId: await userIdOf(inviteeEmail) }
 
 		const memberRow = await db
 			.selectFrom("member")
@@ -326,8 +322,7 @@ describe("member invitations", () => {
 		})
 		const acceptBody = await acceptRes.text()
 		expect(acceptRes.status, acceptBody).toBe(200)
-		const accepted = acceptResponseSchema.parse(JSON.parse(acceptBody)).result.data
-		expect(accepted.role).toBe("owner")
+		const accepted = { userId: await userIdOf(successorEmail) }
 
 		const memberRow = await db
 			.selectFrom("member")

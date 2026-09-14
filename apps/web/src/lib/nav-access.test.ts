@@ -16,6 +16,13 @@ describe("which sidebar entries a role sees", () => {
 		expect(navItemVisible(undefined, "/hosts")).toBe(true)
 	})
 
+	it("shows Members to an owner alone, and to no one while the role is unknown", () => {
+		expect(navItemVisible("owner", "/members")).toBe(true)
+		expect(navItemVisible("operator", "/members")).toBe(false)
+		expect(navItemVisible("viewer", "/members")).toBe(false)
+		expect(navItemVisible(undefined, "/members")).toBe(false)
+	})
+
 	it("leaves every ungated entry alone", () => {
 		for (const to of ["/overview", "/instances", "/hosts", "/status", "/ssh-keys"]) {
 			expect(navItemVisible("viewer", to)).toBe(true)

@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto"
 import {
+	type AcceptInvitationResult,
 	acceptInvitationInput,
+	invitationIdInput,
 	inviteMemberInput,
 	isRole,
 	type MemberSelfView,
+	memberIdInput,
+	type PendingInvitation,
 } from "@open-mcc/contracts"
 import { createAuditRepository } from "@open-mcc/core"
 import { InvitationNotFoundError } from "../errors"
@@ -12,35 +16,62 @@ import { protectedProcedure, publicProcedure, requireCapability, router } from "
 export const memberRouter = router({
 	me: protectedProcedure.query(({ ctx }): MemberSelfView => ({ role: ctx.actor.role })),
 
-	invite: protectedProcedure.input(inviteMemberInput).mutation(async ({ ctx, input }) => {
+	list: protectedProcedure.query(({ ctx }) => {
 		requireCapability(ctx.actor.role, "member.manage")
-		const invitation = await ctx.auth.api.createInvitation({
-			headers: ctx.headers,
-			body: {
-				email: input.email,
-				role: input.role,
-				organizationId: ctx.actor.organizationId,
-			},
-		})
-
-		await createAuditRepository(ctx.db).record(
-			{ organizationId: ctx.actor.organizationId },
-			{
-				actorId: ctx.actor.memberId,
-				actorLabel: ctx.actor.actorLabel,
-				action: "member.invite",
-				subjectType: "invitation",
-				subjectId: invitation.id,
-				detail: { email: input.email, role: input.role },
-			},
-		)
-
-		return invitation
+		return ctx.memberController.list(ctx.actor)
 	}),
+
+	invitations: protectedProcedure.query(({ ctx }) => {
+		requireCapability(ctx.actor.role, "member.manage")
+		return ctx.memberController.invitations(ctx.actor)
+	}),
+
+	remove: protectedProcedure.input(memberIdInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "member.manage")
+		return ctx.memberController.remove(ctx.actor, input.memberId)
+	}),
+
+	cancelInvitation: protectedProcedure.input(invitationIdInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "member.manage")
+		return ctx.memberController.cancelInvitation(ctx.actor, input.invitationId)
+	}),
+
+	invite: protectedProcedure
+		.input(inviteMemberInput)
+		.mutation(async ({ ctx, input }): Promise<PendingInvitation> => {
+			requireCapability(ctx.actor.role, "member.manage")
+			const invitation = await ctx.auth.api.createInvitation({
+				headers: ctx.headers,
+				body: {
+					email: input.email,
+					role: input.role,
+					organizationId: ctx.actor.organizationId,
+				},
+			})
+
+			await createAuditRepository(ctx.db).record(
+				{ organizationId: ctx.actor.organizationId },
+				{
+					actorId: ctx.actor.memberId,
+					actorLabel: ctx.actor.actorLabel,
+					action: "member.invite",
+					subjectType: "invitation",
+					subjectId: invitation.id,
+					detail: { email: input.email, role: input.role },
+				},
+			)
+
+			return {
+				id: invitation.id,
+				email: invitation.email,
+				role: input.role,
+				expiresAt: invitation.expiresAt,
+			}
+		}),
 
 	acceptInvitation: publicProcedure
 		.input(acceptInvitationInput)
-		.mutation(async ({ ctx, input }) => {
+		.mutation(async ({ ctx, input }): Promise<AcceptInvitationResult> => {
 			const invitation = await ctx.db
 				.selectFrom("invitation")
 				.selectAll()
@@ -100,10 +131,6 @@ export const memberRouter = router({
 				)
 			})
 
-			return {
-				userId: signUpResult.user.id,
-				organizationId: invitation.organizationId,
-				role,
-			}
+			return { accepted: true }
 		}),
 })

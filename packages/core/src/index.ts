@@ -189,6 +189,19 @@ export {
 export { inRequestSpan } from "./log/request-span"
 export type { TracingHandle, TracingOptions } from "./log/tracing"
 export { activeTraceIds, startTracing, tracesUrl } from "./log/tracing"
+export type {
+	MemberController,
+	MemberControllerDeps,
+	MemberTransactionRepos,
+	WithMemberTransaction,
+} from "./member/member.controller"
+export {
+	createMemberController,
+	createMemberControllerTransaction,
+	LastOwnerError,
+} from "./member/member.controller"
+export type { MemberRepository } from "./member/member.repository"
+export { createMemberRepository } from "./member/member.repository"
 export type { MalformedJobReporter } from "./notification/delivery.batch"
 export { deliverQueuedBatch, malformedJobReporter } from "./notification/delivery.batch"
 export type {

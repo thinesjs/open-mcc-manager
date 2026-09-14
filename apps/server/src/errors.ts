@@ -36,6 +36,7 @@ import {
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
 	InstanceStillInUseError,
+	LastOwnerError,
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
 	OrganizationTestThrottledError,
@@ -50,6 +51,7 @@ import {
 	LiveChannelUnavailableError,
 	StreamOverflowError,
 } from "@open-mcc/transport"
+import { isAPIError } from "better-auth/api"
 
 export class InvitationNotFoundError extends Error {}
 
@@ -143,6 +145,10 @@ const REFUSALS: Record<MccRefusal, MappedError> = {
 		"The client tried, but the game did not let it",
 	),
 }
+const ALREADY_INVITED_CODES: ReadonlySet<string> = new Set([
+	"USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION",
+	"USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION",
+])
 
 export const mapKnownError = (cause: Error): MappedError | null => {
 	if (cause instanceof McpRefusalError) return REFUSALS[cause.refusal]
@@ -332,6 +338,16 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_REMOVAL_FAILED",
 			"The host could not finish removing this instance, so it was not removed",
+		)
+	}
+	if (cause instanceof LastOwnerError) {
+		return mapped("CONFLICT", "MEMBER_LAST_OWNER", "An organization must keep at least one owner")
+	}
+	if (isAPIError(cause) && ALREADY_INVITED_CODES.has(String(cause.body?.code))) {
+		return mapped(
+			"CONFLICT",
+			"MEMBER_ALREADY_INVITED",
+			"That person is already a member or already has an invitation",
 		)
 	}
 	if (cause instanceof InvitationNotFoundError) {

@@ -4,6 +4,7 @@ import type {
 	DestinationController,
 	HostController,
 	InstanceController,
+	MemberController,
 	ProcessIdentityRepository,
 	SelfHostController,
 	SshKeyController,
@@ -26,6 +27,7 @@ export type AppDeps = {
 	sshKeyController: SshKeyController
 	selfHostController: SelfHostController
 	destinationController: DestinationController
+	memberController: MemberController
 }
 
 const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | null> => {
@@ -72,6 +74,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			sshKeyController: deps.sshKeyController,
 			selfHostController: deps.selfHostController,
 			destinationController: deps.destinationController,
+			memberController: deps.memberController,
 			db: deps.db,
 		}
 	}

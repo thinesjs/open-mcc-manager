@@ -337,8 +337,8 @@ Dependency direction is one-way: router → controller → repository.
 
 - `apps/server/src/routers/member.router.ts` is the one exception to that last
   cell, and it is a standing exception rather than an unconverted file. It
-  reads `invitation` and writes `member` directly, in four places, with no
-  `member.controller.ts` behind it, because both operations are inseparable
+  reads `invitation` and writes `member` directly, in four places, in `invite` and
+  `acceptInvitation`, because both operations are inseparable
   from better-auth: the tables belong to better-auth's schema, `invite` calls
   `auth.api.createInvitation`, and `acceptInvitation` calls
   `signupAuth.api.signUpEmail` and must insert the member row in the same
@@ -350,7 +350,10 @@ Dependency direction is one-way: router → controller → repository.
   code, not an argument that the state is ideal. Do not read it as licence for
   a new router to query the database: `ssh-key.router.ts` and `host.router.ts`
   both go through controllers, and anything not bound to better-auth's own API
-  must too.
+  must too. The router's other procedures do: `list`, `invitations`, `remove` and
+  `cancelInvitation` call `packages/core/src/member/member.controller.ts`, which
+  takes its one better-auth call, session revocation, as the injected
+  `revokeSessions` from `apps/server/src/members.ts`.
 - `packages/contracts` owns every zod schema. `packages/core` contains none.
 - `packages/core` and `packages/transport` stay framework-agnostic — no
   Hono, no tRPC, no HTTP types.
@@ -522,6 +525,27 @@ request returns 500**, auth included. Migration 0026 drops the constraint. The
 failure is latent rather than immediate: it only appears once the image
 installs the pinned tree, so a cached Docker layer can hide it for a long time
 and a clean build will surface it without any code having changed.
+
+### Removing a member
+
+`member.remove` does not call better-auth's `removeMember`, and that is
+deliberate. That endpoint counts owners and deletes in separate statements with
+no lock, so two owners removing each other at once both pass and leave an
+organization with no owner; and as a better-auth write it cannot share a
+transaction with its audit row. `member.controller.ts` takes a per-organization
+advisory lock, counts owners under it, and commits the delete, the cancellation
+of every invitation the removed member still had pending, and the audit row
+together. `member.controller.transaction.test.ts` drives the race.
+
+- An owner cannot remove themselves. Another owner can, and the rule keeps an
+  owner from locking themselves out by mistake.
+- After the transaction commits, the removed member's sessions whose active
+  organization is this one are revoked through better-auth's own
+  `internalAdapter`, never by deleting `session` rows here. A session active in
+  another organization the person still belongs to is left alone.
+- What the member authored stays. `host.hostKeyTrustedBy`,
+  `instanceConfig.authorId` and `auditEvent.actorId` are nulled by their
+  column-scoped `ON DELETE SET NULL`, and each row keeps its label.
 
 ## Adding a domain end to end
 

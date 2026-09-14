@@ -60,20 +60,14 @@ const refusalFor = (name: string, value: string | readonly string[]): readonly s
 
 const rendered = (botConfig: BotConfig) => renderInstanceConfig({ ...BASE, botConfig })
 
-const expandedFileDrift = (entry: ConfigDrift): boolean =>
+const playerListFileDrift = (entry: ConfigDrift): boolean =>
 	entry.kind !== "section" && entry.key === "ChatBot.PlayerListLogger.File"
 
-const LITERAL_PATH_FIELDS = [
+const PATH_FIELDS = [
 	"ChatBot.Mailer.DatabaseFile",
 	"ChatBot.Mailer.IgnoreListFile",
+	"ChatBot.PlayerListLogger.File",
 ] as const
-
-const EXPANDED_PATH_FIELDS = ["ChatBot.PlayerListLogger.File"] as const
-
-const PATH_FIELDS = [...LITERAL_PATH_FIELDS, ...EXPANDED_PATH_FIELDS] as const
-
-const EXPANDS_TO_NO_SEPARATOR =
-	"The client fills in %username%, %login%, %serverport%, %datetime% and %date%"
 
 describe("the settings an operator may change on the client's own bots", () => {
 	it("registers the sections that were audited and nothing else", () => {
@@ -110,46 +104,36 @@ describe("a file name the operator gives a bot", () => {
 		}
 	})
 
-	it.each(LITERAL_PATH_FIELDS)(
-		"refuses a variable on %s, where the client writes the name it is given",
+	it.each(PATH_FIELDS)(
+		"★ refuses every variable on %s, because the client could fill one in as a file it already keeps",
 		(name) => {
-			expect(refusalFor(name, "log-%username%.txt")).toEqual(["A file name, not a path"])
+			for (const value of [
+				"%username%",
+				"%LOGIN%.log",
+				"log-%date%.txt",
+				"MinecraftClient%serverport%.ini",
+				"chatlog-%serverip%.txt",
+				"x-%players%.txt",
+				"x-%appdata%.txt",
+				"logs/%username%.txt",
+				"x-%.txt",
+			]) {
+				expect(refusalFor(name, value)).toEqual(["A file name, not a path"])
+			}
 		},
 	)
 
-	it.each(EXPANDED_PATH_FIELDS)("accepts every variable the client expands on %s", (name) => {
-		for (const token of ["username", "login", "serverport", "datetime", "date"]) {
-			expect(refusalFor(name, `log-%${token}%.txt`)).toEqual([])
-		}
-	})
-
-	it("★ refuses %serverip%, which is the SRV target and so belongs to whoever runs the domain", () => {
-		for (const name of EXPANDED_PATH_FIELDS) {
-			expect(refusalFor(name, `log-%serverip%.txt`)).toEqual([EXPANDS_TO_NO_SEPARATOR])
-		}
-	})
-
-	it("★ accepts an allowed token however the operator spelled its case, because the client lowercases it", () => {
-		for (const spelling of ["%USERNAME%", "%UserName%", "%username%"]) {
-			expect(refusalFor("ChatBot.PlayerListLogger.File", `chatlog-${spelling}.txt`)).toEqual([])
-		}
-	})
-
-	it("★ still refuses the DNS-controlled token whatever its case", () => {
-		for (const spelling of ["%SERVERIP%", "%ServerIp%", "%serverip%"]) {
-			expect(refusalFor("ChatBot.PlayerListLogger.File", `chatlog-${spelling}.txt`)).not.toEqual([])
-		}
-	})
-
-	it("★ does NOT call an operator's own allowed token a safety failure", () => {
+	it("★ calls a host that fills the player list file in from a variable a safety failure", () => {
 		const expected = rendered({
 			"ChatBot.PlayerListLogger.Enabled": "true",
 			"ChatBot.PlayerListLogger.File": "mine.txt",
 		})
-		const host = expected.replace('File = "mine.txt"', 'Log_File = "theirs-%username%.txt"')
-		const drift = compareInstanceConfig(expected, host).filter(expandedFileDrift)
+		for (const variable of ["%username%", "%Login%.log", "players-%date%.txt"]) {
+			const host = expected.replace('File = "mine.txt"', `File = ${JSON.stringify(variable)}`)
+			const drift = compareInstanceConfig(expected, host).filter(playerListFileDrift)
 
-		expect(drift[0]?.kind).toBe("operator")
+			expect(drift[0]?.kind).toBe("fixed")
+		}
 	})
 
 	it("still treats a file name the operator chose as their own preference", () => {
@@ -158,28 +142,9 @@ describe("a file name the operator gives a bot", () => {
 			"ChatBot.PlayerListLogger.File": "mine.txt",
 		})
 		const host = expected.replace('File = "mine.txt"', 'Log_File = "theirs.txt"')
-		const drift = compareInstanceConfig(expected, host).filter(expandedFileDrift)
+		const drift = compareInstanceConfig(expected, host).filter(playerListFileDrift)
 
 		expect(drift[0]?.kind).toBe("operator")
-	})
-
-	it.each(EXPANDED_PATH_FIELDS)("refuses a variable the client does not know on %s", (name) => {
-		for (const value of ["x-%appdata%.txt", "x-%home%.txt", "x-%.txt"]) {
-			expect(refusalFor(name, value)).toEqual([EXPANDS_TO_NO_SEPARATOR])
-		}
-	})
-
-	it.each(EXPANDED_PATH_FIELDS)(
-		"refuses a path on %s even when its variables are present",
-		(name) => {
-			expect(refusalFor(name, "logs/%username%.txt")).toEqual(["A file name, not a path"])
-		},
-	)
-
-	it("★ refuses %players%, which would let whoever fills the tab list choose the file", () => {
-		for (const name of EXPANDED_PATH_FIELDS) {
-			expect(refusalFor(name, "chatlog-%players%.txt")).toEqual([EXPANDS_TO_NO_SEPARATOR])
-		}
 	})
 
 	it("★ leaves no OTHER bot key whose client default hides a variable we never render", () => {
@@ -197,14 +162,6 @@ describe("a file name the operator gives a bot", () => {
 		})
 
 		expect(hiding).toEqual([])
-	})
-
-	it("★ allows %login% only because we always write the account, so the client never fills it in", () => {
-		expect(refusalFor("ChatBot.PlayerListLogger.File", "chatlog-%login%.txt")).toEqual([])
-		expect(rendered({})).toContain(`Login = ${JSON.stringify(BASE.minecraftAccount)}`)
-		expect(instanceConfigInput.safeParse({ ...BASE, minecraftAccount: "a/../b" }).success).toBe(
-			false,
-		)
 	})
 
 	it("★ refuses a server address that could reach a file name, even though %serverip% is now gone", () => {

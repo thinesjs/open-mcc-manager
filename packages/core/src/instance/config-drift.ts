@@ -31,10 +31,10 @@ export const isSecretKey = (key: string): boolean => SECRET_KEYS.includes(key)
 
 const EXPANDS_ON_THE_CLIENT: readonly string[] = ["ChatBot.PlayerListLogger.File"]
 
-const REFUSED_TOKEN = /%serverip%/i
+const CLIENT_VARIABLE = /%[\p{L}\p{Nd}_]+%/u
 
 const unsafeExpansion = (key: string, have: McConfigValue | undefined): boolean =>
-	EXPANDS_ON_THE_CLIENT.includes(key) && typeof have === "string" && REFUSED_TOKEN.test(have)
+	EXPANDS_ON_THE_CLIENT.includes(key) && typeof have === "string" && CLIENT_VARIABLE.test(have)
 const ALL_KEYS: readonly string[] = [
 	...ALLOWED_CONFIG_KEYS,
 	...FIXED_CONFIG_KEYS,

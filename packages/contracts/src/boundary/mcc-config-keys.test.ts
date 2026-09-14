@@ -383,6 +383,21 @@ describe("★ a bot file name the client or this manager already keeps in the in
 	})
 })
 
+describe("★ a variable in a bot file name", () => {
+	it.each([
+		"%username%",
+		"%USERNAME%.log",
+		"%login%",
+		"MinecraftClient%serverport%.ini",
+		"log-%date%.txt",
+	])(
+		"refuses %s on every bot file key, because the client could fill it in as a name it already keeps",
+		(value) => {
+			expect(fileKeysSaying(value, "A file name, not a path")).toEqual(FILE_KEYS)
+		},
+	)
+})
+
 const sharedFileIssues = (config: Readonly<Record<string, string>>) => {
 	const result = botConfigSchema.safeParse(config)
 	return result.success

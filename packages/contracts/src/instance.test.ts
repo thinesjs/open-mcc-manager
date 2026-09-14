@@ -434,6 +434,13 @@ describe("★ what stops a client filename escaping the instance directory once 
 		expect(instanceConfigInput.safeParse(legacy).success).toBe(false)
 	})
 
+	it("★ still READS a player list file named by a variable before that rule, so it stays fixable", () => {
+		const legacy = { ...VALID_CONFIG, botConfig: { "ChatBot.PlayerListLogger.File": "%username%" } }
+
+		expect(instanceConfigStored.safeParse(legacy).success).toBe(true)
+		expect(instanceConfigInput.safeParse(legacy).success).toBe(false)
+	})
+
 	it("still accepts the ordinary address and account an operator actually types", () => {
 		expect(
 			instanceConfigInput.safeParse({

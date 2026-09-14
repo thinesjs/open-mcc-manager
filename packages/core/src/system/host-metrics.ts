@@ -34,7 +34,6 @@ export const parseHostMetrics = (stdout: string, diskStdout: string): HostMetric
 	}
 }
 
-
 export const readHostMetrics = async (transport: HostTransport): Promise<HostMetrics> => {
 	const general = await transport.exec(HOST_METRICS_COMMAND, HOST_METRICS_TIMEOUT_MS)
 	if (general.exitCode !== 0) {

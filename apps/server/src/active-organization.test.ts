@@ -71,9 +71,7 @@ const seededEmail = (): string => {
 describe("a session knows which organization it belongs to", () => {
 	it("sets the active organization on sign-in, without which the dashboard bounces to sign-in", async () => {
 		const email = seededEmail()
-		expect((await post("sign-up/email", { email, password: PASSWORD, name: "A" })).status).toBe(
-			200,
-		)
+		expect((await post("sign-up/email", { email, password: PASSWORD, name: "A" })).status).toBe(200)
 
 		const user = await db
 			.selectFrom("user")

@@ -172,7 +172,7 @@ have:
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
-| The host status union matching between `packages/db` and `packages/contracts` | TypeScript — `apps/web`'s `HostStatusBadge` call sites reject a database union wider than the contract's, and `host-status.ts`'s `Record<HostStatus, ...>` rejects a contract union wider than the database's |
+| The host status union matching between `packages/db` and `packages/contracts` | TypeScript — `host.controller.ts`'s `toHostPublic` rejects a database union wider than the contract's, and `host-status.ts`'s `Record<HostStatus, ...>` rejects a contract union wider than the database's |
 | Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails |
 | The provisioning claim conditioned on the status read before the lock | `packages/core/src/host/host.controller.transaction.test.ts` — substituting the row read under the lock makes the claim always succeed, and fails the test named for it |
 | Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |

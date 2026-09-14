@@ -839,7 +839,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 		const result = await controller.provision(ctx, hostId)
 
 		expect(result?.status).toBe("ready")
-		expect(result?.provisioningAttemptId).toBeNull()
+		expect((await hosts.findById({ organizationId }, hostId))?.provisioningAttemptId).toBeNull()
 
 		const auditEvents = await createAuditRepository(db).list({ organizationId })
 		const reclaimEvent = auditEvents.find((event) => event.action === "host.provision.reclaim")

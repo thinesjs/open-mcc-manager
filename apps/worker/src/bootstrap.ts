@@ -178,6 +178,7 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 			queue,
 			policy,
 			now: () => new Date(),
+			onError: runtimeErrorReporter(logger),
 		})
 
 	const workDeliveries = (queue: QueueName) => async (jobs: Job[]) =>

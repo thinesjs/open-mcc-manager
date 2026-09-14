@@ -9,8 +9,15 @@ export type DeliveryOutcome =
 			statusCode: number | undefined
 			reason: string
 			retryAfterSeconds: number | undefined
+			detail?: string
 	  }
-	| { kind: "terminal"; statusCode: number | undefined; reason: string; stopSending: boolean }
+	| {
+			kind: "terminal"
+			statusCode: number | undefined
+			reason: string
+			stopSending: boolean
+			detail?: string
+	  }
 
 export const MAX_RETRY_AFTER_SECONDS = 60 * 60
 
@@ -78,6 +85,14 @@ export const classifyRefusal = (reason: string): DeliveryOutcome => ({
 
 const TELEGRAM_TERMINAL: ReadonlySet<number> = new Set([400, 401, 403, 404])
 
+const TELEGRAM_REASONS: Readonly<Record<number, string>> = {
+	400: "Telegram refused the message; check the chat ID",
+	401: "Telegram did not accept the bot token",
+	403: "The bot may not post in that chat",
+	404: "Telegram did not accept the bot token",
+	429: "Telegram asked us to slow down",
+}
+
 export const classifyTelegramReply = (
 	httpStatus: number,
 	reply: TelegramReply | undefined,
@@ -86,17 +101,20 @@ export const classifyTelegramReply = (
 	if (reply.ok) return { kind: "delivered", statusCode: httpStatus }
 
 	const code = reply.errorCode ?? httpStatus
-	const reason = reply.description ?? `Telegram refused with ${code}`
+	const reason = TELEGRAM_REASONS[code] ?? `Telegram refused with ${code}`
+	const detail = reply.description === undefined ? {} : { detail: reply.description }
 	const retryAfterSeconds =
 		reply.retryAfterSeconds === undefined
 			? undefined
 			: Math.min(reply.retryAfterSeconds, MAX_RETRY_AFTER_SECONDS)
 
-	if (code === 429) return { kind: "retryable", statusCode: code, reason, retryAfterSeconds }
-	if (TELEGRAM_TERMINAL.has(code)) {
-		return { kind: "terminal", statusCode: code, reason, stopSending: false }
+	if (code === 429) {
+		return { kind: "retryable", statusCode: code, reason, retryAfterSeconds, ...detail }
 	}
-	return { kind: "retryable", statusCode: code, reason, retryAfterSeconds }
+	if (TELEGRAM_TERMINAL.has(code)) {
+		return { kind: "terminal", statusCode: code, reason, stopSending: false, ...detail }
+	}
+	return { kind: "retryable", statusCode: code, reason, retryAfterSeconds, ...detail }
 }
 
 const RESEND_QUOTA_SPENT: ReadonlySet<string> = new Set([

@@ -66,16 +66,28 @@ describe("telegram, which reports failure inside a 200", () => {
 		).toBe("retryable")
 	})
 
-	it("keeps the reason telegram gave, so an operator can act on it", () => {
-		const outcome = classifyTelegramReply(200, {
-			ok: false,
-			errorCode: 400,
-			description: "Bad Request: chat not found",
-			retryAfterSeconds: undefined,
-		})
+	it.each([
+		{ code: 400, reason: "Telegram refused the message; check the chat ID" },
+		{ code: 401, reason: "Telegram did not accept the bot token" },
+		{ code: 403, reason: "The bot may not post in that chat" },
+		{ code: 404, reason: "Telegram did not accept the bot token" },
+		{ code: 429, reason: "Telegram asked us to slow down" },
+		{ code: 502, reason: "Telegram refused with 502" },
+	])(
+		"★ stores its own words for a $code, and keeps Telegram's words for the log alone",
+		({ code, reason }) => {
+			const description = "Bad Request: chat 203.0.113.9:8443 not found"
+			const outcome = classifyTelegramReply(200, {
+				ok: false,
+				errorCode: code,
+				description,
+				retryAfterSeconds: undefined,
+			})
 
-		expect(outcome.kind === "terminal" ? outcome.reason : "").toBe("Bad Request: chat not found")
-	})
+			expect(outcome.kind === "delivered" ? undefined : outcome.reason).toBe(reason)
+			expect(outcome.kind === "delivered" ? undefined : outcome.detail).toBe(description)
+		},
+	)
 
 	it("falls back to the status code when the body is unreadable", () => {
 		expect(classifyTelegramReply(503, undefined).kind).toBe("retryable")

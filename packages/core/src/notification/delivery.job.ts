@@ -3,6 +3,7 @@ import type { Json, NotificationDestinationRow } from "@open-mcc/db"
 import type { SqlRunner } from "../job/executor-adapter"
 import type { QueueName, SendJob } from "../job/job.queue"
 import { NOTIFICATION_DEADLETTER_QUEUE } from "../job/queue-setup"
+import type { RuntimeErrorReporter } from "../log/reporters"
 import { redact } from "../security/redact"
 import type { EgressPolicy } from "./egress"
 import type { NotificationRepository } from "./notification.repository"
@@ -73,6 +74,7 @@ export type DeliveryDeps = {
 	readonly policy: EgressPolicy
 	readonly now: () => Date
 	readonly retryLimit?: number
+	readonly onError?: RuntimeErrorReporter
 }
 
 export type DeliveryResult = {
@@ -136,7 +138,14 @@ export const createDeliveryHandler =
 		try {
 			outcome = await deps.send(destination, envelope, deps.policy)
 		} catch (error) {
-			outcome = classifyRefusal(redact(error instanceof Error ? error.message : GAVE_UP))
+			deps.onError?.(
+				`Delivery ${delivery.id} could not be sent`,
+				error instanceof Error ? error : GAVE_UP,
+			)
+			outcome = classifyRefusal(GAVE_UP)
+		}
+		if (outcome.kind !== "delivered" && outcome.detail !== undefined) {
+			deps.onError?.(`Delivery ${delivery.id} was refused`, redact(outcome.detail))
 		}
 
 		const settledAt = deps.now()

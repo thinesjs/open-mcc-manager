@@ -30,7 +30,8 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 		refetchInterval: 60_000,
 	})
 
-	const bot = summaryQuery.data?.bots.find((entry) => entry.instanceId === instanceId)
+	const summary = summaryQuery.data
+	const bot = summary?.bots.find((entry) => entry.instanceId === instanceId)
 	const coverage = bot ? describeCoverage(bot.availability) : undefined
 
 	return (
@@ -47,7 +48,7 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 			<CardContent className="space-y-3">
 				{summaryQuery.isPending ? <LoadingBlock label="Loading uptime" /> : null}
 
-				{bot ? (
+				{summary && bot ? (
 					<div className="space-y-1.5">
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-sm text-muted-foreground">
@@ -59,9 +60,9 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 						</div>
 						<UptimeBars
 							buckets={bot.buckets}
-							granularity={summaryQuery.data?.granularity ?? "hour"}
-							fromLabel="24 hours ago"
+							bucketSeconds={summary.bucketSeconds}
 							goodLabel="On its server"
+							partialLabel="Mostly on its server"
 							badLabel="Off its server"
 						/>
 						<div className="flex items-baseline justify-between gap-4">

@@ -37,12 +37,6 @@ const RANGE_LABEL: Record<StatusRange, string> = {
 	"30d": "30 days",
 }
 
-const FROM_LABEL: Record<StatusRange, string> = {
-	"24h": "24 hours ago",
-	"7d": "7 days ago",
-	"30d": "30 days ago",
-}
-
 function StatusPage() {
 	const trpc = useTRPC()
 	const [range, setRange] = useState<StatusRange>("24h")
@@ -112,8 +106,7 @@ function StatusPage() {
 										</div>
 										<UptimeBars
 											buckets={host.buckets}
-											granularity={summaryQuery.data.granularity}
-											fromLabel={FROM_LABEL[range]}
+											bucketSeconds={summaryQuery.data.bucketSeconds}
 										/>
 										<div className="flex items-baseline justify-between gap-4">
 											<span className="text-xs text-muted-foreground">
@@ -161,9 +154,9 @@ function StatusPage() {
 										</div>
 										<UptimeBars
 											buckets={bot.buckets}
-											granularity={summaryQuery.data.granularity}
-											fromLabel={FROM_LABEL[range]}
+											bucketSeconds={summaryQuery.data.bucketSeconds}
 											goodLabel="On its server"
+											partialLabel="Mostly on its server"
 											badLabel="Off its server"
 										/>
 										<div className="flex items-baseline justify-between gap-4">

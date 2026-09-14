@@ -1,10 +1,9 @@
 import { type Availability, coverageRatio, uptimeRatio } from "@open-mcc/contracts"
 
 export const formatPercent = (ratio: number): string => {
-	const percent = ratio * 100
-	if (percent >= 99.95) return "100%"
-	if (percent >= 99.5) return `${percent.toFixed(2)}%`
-	return `${percent.toFixed(1)}%`
+	if (ratio === 1) return "100%"
+	const hundredths = Math.min(9_999, Math.floor(ratio * 10_000 + 1e-9))
+	return `${(hundredths / 100).toFixed(2)}%`
 }
 
 export const describeUptime = (availability: Availability): string => {

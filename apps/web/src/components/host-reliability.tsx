@@ -29,7 +29,8 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 		refetchInterval: 60_000,
 	})
 
-	const host = summaryQuery.data?.hosts.find((entry) => entry.hostId === hostId)
+	const summary = summaryQuery.data
+	const host = summary?.hosts.find((entry) => entry.hostId === hostId)
 	const coverage = host ? describeCoverage(host.availability) : undefined
 
 	return (
@@ -46,7 +47,7 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 			<CardContent className="space-y-3">
 				{summaryQuery.isPending ? <LoadingBlock label="Loading reliability" /> : null}
 
-				{host ? (
+				{summary && host ? (
 					<div className="space-y-1.5">
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-sm text-muted-foreground">
@@ -56,11 +57,7 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 								{describeUptime(host.availability)}
 							</span>
 						</div>
-						<UptimeBars
-							buckets={host.buckets}
-							granularity={summaryQuery.data?.granularity ?? "hour"}
-							fromLabel="24 hours ago"
-						/>
+						<UptimeBars buckets={host.buckets} bucketSeconds={summary.bucketSeconds} />
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-xs text-muted-foreground">
 								Last checked {new Date(host.lastCheckedAt).toLocaleTimeString()}

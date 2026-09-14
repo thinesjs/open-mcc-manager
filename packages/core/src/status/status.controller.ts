@@ -1,8 +1,8 @@
 import {
 	type Availability,
+	BUCKET_SECONDS,
 	EMPTY_AVAILABILITY,
 	FLAPPING_WINDOW_MS,
-	granularityFor,
 	INSTANCE_INTERRUPTED_TO_DOWN_MS,
 	isFlapping,
 	RANGE_SECONDS,
@@ -35,7 +35,7 @@ import {
 	worthClaimingFlapping,
 } from "./incident"
 import { nextReachability, type ReachabilityCurrent, UNOBSERVED } from "./reachability"
-import { bucketStarts, rollUpWindow, SECONDS_PER_BUCKET } from "./rollup"
+import { bucketStartsFor, rollUpBuckets, rollUpWindow } from "./rollup"
 import { createStatusRepository, type StatusRepository } from "./status.repository"
 
 export type StatusTransactionBundle = {
@@ -430,7 +430,10 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 
 	summary: async (scope: OrgScope, requested: StatusRange): Promise<StatusSummary> => {
 		const range = rangeWithinRetention(requested, deps.retentionDays)
-		const since = new Date(deps.now().getTime() - RANGE_SECONDS[range] * 1000)
+		const now = deps.now()
+		const starts = bucketStartsFor(range, now)
+		const since = starts[0] ?? now
+		const bucketSeconds = BUCKET_SECONDS[range]
 		const names = await deps.hostNames(scope)
 		return await deps.withTransaction(async ({ status }) => {
 			const conditions = await status.listConditions(scope, HOST_REACHABILITY)
@@ -438,10 +441,6 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 				dimension: HOST_REACHABILITY,
 				since,
 			})
-			const now = deps.now()
-			const granularity = granularityFor(range)
-			const starts = bucketStarts(since, now, granularity)
-			const step = SECONDS_PER_BUCKET[granularity] * 1000
 			const hosts = names.map((host) => {
 				const condition = conditions.find((entry) => entry.hostId === host.id)
 				const mine = intervals.filter((entry) => entry.hostId === host.id)
@@ -457,10 +456,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 					since: condition?.startedAt ?? since,
 					lastCheckedAt: condition?.lastObservedAt ?? since,
 					availability: availabilityOver(mine, since, now),
-					buckets: starts.map((start) => ({
-						start: start.toISOString(),
-						availability: rollUpWindow(clipped, start, new Date(start.getTime() + step)),
-					})),
+					buckets: rollUpBuckets(clipped, starts, bucketSeconds),
 				}
 			})
 			const botNames = await deps.instanceNames(scope)
@@ -482,10 +478,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 					instanceName: bot.name,
 					state: condition?.state ?? "unknown",
 					availability: availabilityOver(mine, since, now),
-					buckets: starts.map((start) => ({
-						start: start.toISOString(),
-						availability: rollUpWindow(clipped, start, new Date(start.getTime() + step)),
-					})),
+					buckets: rollUpBuckets(clipped, starts, bucketSeconds),
 					lastChangeAt: condition?.startedAt ?? null,
 				}
 			})
@@ -495,7 +488,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 				bots,
 				answering: hosts.filter((host) => host.state === "up").length,
 				total: hosts.length,
-				granularity,
+				bucketSeconds,
 				retentionDays: deps.retentionDays,
 			}
 		})

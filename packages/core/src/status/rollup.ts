@@ -1,6 +1,12 @@
-import { type Availability, EMPTY_AVAILABILITY, type StatusState } from "@open-mcc/contracts"
-
-export const SECONDS_PER_DAY = 24 * 60 * 60
+import {
+	type Availability,
+	BUCKET_SECONDS,
+	type BucketAvailability,
+	EMPTY_AVAILABILITY,
+	RANGE_SECONDS,
+	type StatusRange,
+	type StatusState,
+} from "@open-mcc/contracts"
 
 export type RollableInterval = {
 	state: StatusState
@@ -31,12 +37,6 @@ const BUCKET_BY_STATE: Record<StatusState, AvailabilityBucket> = {
 
 export const bucketOf = (state: StatusState): AvailabilityBucket => BUCKET_BY_STATE[state]
 
-export const startOfUtcDay = (moment: Date): Date =>
-	new Date(Date.UTC(moment.getUTCFullYear(), moment.getUTCMonth(), moment.getUTCDate(), 0, 0, 0, 0))
-
-export const addDays = (day: Date, count: number): Date =>
-	new Date(day.getTime() + count * SECONDS_PER_DAY * 1000)
-
 export const overlapSeconds = (
 	interval: RollableInterval,
 	dayStart: Date,
@@ -60,47 +60,19 @@ export const rollUpWindow = (
 		return { ...totals, [bucket]: totals[bucket] + seconds }
 	}, EMPTY_AVAILABILITY)
 
-export const rollUpDay = (intervals: readonly RollableInterval[], dayStart: Date): Availability =>
-	rollUpWindow(intervals, dayStart, addDays(dayStart, 1))
-
-export type Granularity = "hour" | "day"
-
-export const SECONDS_PER_BUCKET: Record<Granularity, number> = {
-	hour: 60 * 60,
-	day: SECONDS_PER_DAY,
+export const bucketStartsFor = (range: StatusRange, now: Date): Date[] => {
+	const step = BUCKET_SECONDS[range] * 1000
+	const count = RANGE_SECONDS[range] / BUCKET_SECONDS[range]
+	const current = Math.floor(now.getTime() / step) * step
+	return Array.from({ length: count }, (_, index) => new Date(current - (count - 1 - index) * step))
 }
 
-export const startOfUtcHour = (moment: Date): Date =>
-	new Date(
-		Date.UTC(
-			moment.getUTCFullYear(),
-			moment.getUTCMonth(),
-			moment.getUTCDate(),
-			moment.getUTCHours(),
-			0,
-			0,
-			0,
-		),
-	)
-
-export const bucketStarts = (from: Date, until: Date, granularity: Granularity): Date[] => {
-	const step = SECONDS_PER_BUCKET[granularity] * 1000
-	const starts: Date[] = []
-	let cursor = granularity === "hour" ? startOfUtcHour(from) : startOfUtcDay(from)
-	while (cursor.getTime() < until.getTime()) {
-		starts.push(cursor)
-		cursor = new Date(cursor.getTime() + step)
-	}
-	return starts
-}
-
-export const daysBetween = (from: Date, until: Date): Date[] => {
-	const days: Date[] = []
-	let cursor = startOfUtcDay(from)
-	const last = startOfUtcDay(until)
-	while (cursor.getTime() < last.getTime()) {
-		days.push(cursor)
-		cursor = addDays(cursor, 1)
-	}
-	return days
-}
+export const rollUpBuckets = (
+	intervals: readonly RollableInterval[],
+	starts: readonly Date[],
+	bucketSeconds: number,
+): BucketAvailability[] =>
+	starts.map((start) => ({
+		start: start.toISOString(),
+		availability: rollUpWindow(intervals, start, new Date(start.getTime() + bucketSeconds * 1000)),
+	}))

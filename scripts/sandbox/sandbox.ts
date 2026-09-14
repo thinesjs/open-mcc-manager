@@ -150,6 +150,7 @@ export const hostRunArguments = (name: string, runId: string, image: string): re
 	"/run",
 	"--tmpfs",
 	"/run/lock",
+	"--",
 	image,
 ]
 
@@ -187,6 +188,7 @@ export const dockerRunArguments = (name: string, runId: string): readonly string
 	name,
 	...labelled(runId, "docker"),
 	"--privileged",
+	"--",
 	DOCKER_IMAGE,
 ]
 

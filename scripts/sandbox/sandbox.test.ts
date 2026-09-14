@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
 	checkoutFiles,
+	DOCKER_IMAGE,
 	docker,
 	dockerRunArguments,
 	hostRunArguments,
@@ -110,6 +111,22 @@ describe("what a sandbox container may see of the machine running the suite", ()
 describe("which sandbox host it boots", () => {
 	it("boots the image this run built, by its id, never a tag another run could move", () => {
 		expect(hostRunArguments("name", "run", IMAGE).at(-1)).toBe(IMAGE)
+	})
+})
+
+describe("where the harness's own run calls end docker's options", () => {
+	it.each([
+		{ kind: "host", args: hostRunArguments("name", "run", IMAGE), image: IMAGE },
+		{ kind: "docker", args: dockerRunArguments("name", "run"), image: DOCKER_IMAGE },
+	])("passes -- right before the $kind image, so the mount scan stops there", ({ args, image }) => {
+		expect(args.at(-2)).toBe("--")
+		expect(args.at(-1)).toBe(image)
+	})
+
+	it("allows a -v in the command after --, which runs inside the container and mounts nothing", () => {
+		expect(reachesThisMachine(["run", "--detach", "--", IMAGE, "cp", "-av", "/a", "/b"])).toBe(
+			false,
+		)
 	})
 })
 

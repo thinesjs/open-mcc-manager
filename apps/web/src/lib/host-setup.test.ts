@@ -31,8 +31,48 @@ describe("the command an operator pastes onto a new host", () => {
 	it("adds the key only when it is missing, so running it twice leaves one copy", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 
-		expect(script).toContain('grep -qF -- "$material"')
+		expect(script).toContain('awk -v blob="$material" -f "$scan"')
 		expect(script).toContain('>> "$home/.ssh/authorized_keys"')
+	})
+
+	it("skips comment lines when checking whether the key is already there", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain("/^[ \\t]*#/ { next }")
+	})
+
+	it("stops on any option carrying a quote or an equals sign, rather than parsing what is inside it", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain('index(f[i], "\\"") > 0 || index(f[i], "=") > 0')
+	})
+
+	it("accepts only an exact allowlist of bare options, and requires port-forwarding alongside restrict", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain(
+			't == "pty" || t == "no-pty" || t == "agent-forwarding" || t == "no-agent-forwarding" || t == "X11-forwarding" || t == "no-X11-forwarding" || t == "user-rc" || t == "no-user-rc"',
+		)
+		expect(script).toContain("if (ok && (!has_restrict || has_portfwd)) is_clean = 1")
+	})
+
+	it("decides present, clean and the stop line from the first matching record alone", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain("decided { next }")
+		expect(script).toContain("decided = 1")
+	})
+
+	it("names the offending line number, never the key material, when it stops", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+		const stopLine = script
+			.split("\n")
+			.find((line) => line.includes("restricts it in a way that would block the manager"))
+
+		expect(stopLine).toBeDefined()
+		expect(stopLine).toContain("$badline")
+		expect(stopLine).not.toContain("$key")
+		expect(stopLine).not.toContain("$material")
 	})
 
 	it("writes the account's ssh files as that account, so a link it planted cannot aim root at another file", () => {

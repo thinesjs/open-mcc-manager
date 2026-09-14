@@ -6,6 +6,8 @@ export const SCRIPT_HEREDOC = "OPENMCC_SETUP"
 
 export const KEY_HEREDOC = "OPENMCC_KEY"
 
+export const SCAN_HEREDOC = "OPENMCC_AUTHKEY_SCAN"
+
 export const fingerprintCommand = (): string =>
 	"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}'"
 
@@ -52,8 +54,61 @@ chmod 700 "$home/.ssh"
 touch "$home/.ssh/authorized_keys"
 chmod 600 "$home/.ssh/authorized_keys"
 material=$(printf "%s" "$key" | awk "{print \\$2}")
-if [ -n "$material" ] && grep -qF -- "$material" "$home/.ssh/authorized_keys"; then
+scan=$(mktemp)
+cat <<"${SCAN_HEREDOC}" > "$scan"
+function is_keytype(s) { return s ~ /^(ssh-|ecdsa-|sk-)/ }
+BEGIN { if (blob == "") exit }
+/^[ \\t]*#/ { next }
+/^[ \\t]*$/ { next }
+decided { next }
+{
+	n = split($0, f, /[ \\t]+/)
+	k = 0
+	for (i = 1; i <= n; i++) {
+		if (is_keytype(f[i])) { k = i; break }
+	}
+	if (k == 0 || f[k + 1] != blob) next
+	decided = 1
+	present = 1
+	dangerous = 0
+	for (i = 1; i < k; i++) {
+		if (index(f[i], "\\"") > 0 || index(f[i], "=") > 0) dangerous = 1
+	}
+	is_clean = 0
+	if (k == 1) {
+		is_clean = 1
+	} else if (!dangerous) {
+		opts = f[1]
+		for (i = 2; i < k; i++) opts = opts "," f[i]
+		nopt = split(opts, tokens, ",")
+		ok = 1
+		has_restrict = 0
+		has_portfwd = 0
+		for (i = 1; i <= nopt; i++) {
+			t = tokens[i]
+			if (t == "restrict") { has_restrict = 1 }
+			else if (t == "port-forwarding") { has_portfwd = 1 }
+			else if (t == "pty" || t == "no-pty" || t == "agent-forwarding" || t == "no-agent-forwarding" || t == "X11-forwarding" || t == "no-X11-forwarding" || t == "user-rc" || t == "no-user-rc") { }
+			else { ok = 0 }
+		}
+		if (ok && (!has_restrict || has_portfwd)) is_clean = 1
+	}
+	if (is_clean) clean = 1
+	else badline = NR
+}
+END { printf "%d %d %d", present + 0, clean + 0, badline + 0 }
+${SCAN_HEREDOC}
+info=$(awk -v blob="$material" -f "$scan" "$home/.ssh/authorized_keys")
+rm -f "$scan"
+set -- $info
+present=\${1:-0}
+clean=\${2:-0}
+badline=\${3:-0}
+if [ "$present" = "1" ] && [ "$clean" = "1" ]; then
   echo "  key already present, left alone"
+elif [ "$present" = "1" ]; then
+  echo "This key is already authorised in authorized_keys, but line $badline restricts it in a way that would block the manager. Edit or remove that line, then run this setup again." >&2
+  exit 1
 else
   if [ -s "$home/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$home/.ssh/authorized_keys")" ]; then
     printf "\\n" >> "$home/.ssh/authorized_keys"

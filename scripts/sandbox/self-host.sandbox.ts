@@ -25,6 +25,7 @@ const SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bi
 
 const PROVING = "/opt/stand-in"
 const MEDDLING = "/opt/stand-in-meddling"
+const RACE = "/opt/stand-in-race"
 const FAILING_AWK = "/opt/stand-in-awk"
 const HALF_MINTING = "/opt/stand-in-keygen"
 
@@ -57,6 +58,19 @@ case "$1" in
 		;;
 	*) exit 1 ;;
 esac
+`,
+	],
+	[
+		`${RACE}/tail`,
+		`#!/bin/sh
+for each in "$@"; do
+	file="$each"
+done
+if [ -f "${RACE}/added" ] && [ -n "$file" ] && [ -f "$file" ]; then
+	added="$(cat "${RACE}/added")"
+	grep -qxF -- "$added" "$file" 2>/dev/null || printf '%s\\n' "$added" >> "$file"
+fi
+exec /usr/bin/tail "$@"
 `,
 	],
 	[
@@ -457,7 +471,7 @@ describe("self-host.sh, where a key file is already there or cannot be made", ()
 })
 
 describe("self-host.sh, when the key it minted cannot sign in", () => {
-	it("takes back everything it wrote, down to the newline it added to an existing file", async () => {
+	it("takes back everything it wrote, leaving only the entry that was already there", async () => {
 		const account = await newAccount(host)
 		const other = await mintKey(host)
 		await seedAuthorizedKeys(host, account, other.publicKey)
@@ -478,13 +492,14 @@ describe("self-host.sh, when the key it minted cannot sign in", () => {
 			),
 			"turning the account away at sshd",
 		)
-		const before = await snapshot(host, homeOf(account))
 
 		const ran = await selfHost(account, { standIns: PROVEN })
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain("did not authenticate")
-		expect(await snapshot(host, homeOf(account))).toBe(before)
+		expect(await read(host, authorizedKeysOf(account))).toBe(`${other.publicKey}\n`)
+		const left = await exec(host, ROOT, ["ls", "-A", `${homeOf(account)}/.ssh`])
+		expect(left.stdout.trim().split("\n")).toEqual(["authorized_keys"])
 	})
 })
 
@@ -514,7 +529,7 @@ describe("self-host.sh, when the forced command lets a session through", () => {
 })
 
 describe("self-host.sh, when authorized_keys changes while it runs", () => {
-	it("takes back only its own entry, keeps what changed meanwhile, and says so", async () => {
+	it("takes back only its own entry, keeping what changed meanwhile", async () => {
 		const account = await newAccount(host)
 		const kept = await mintKey(host)
 		const revoked = await mintKey(host)
@@ -535,12 +550,107 @@ describe("self-host.sh, when authorized_keys changes while it runs", () => {
 		const ran = await selfHost(account, { standIns: [MEDDLING] })
 
 		expect(ran.status).not.toBe(0)
-		expect(ran.stderr).toContain("changed while")
 		expect(await read(host, authorizedKeysOf(account))).toBe(
 			`${kept.publicKey}\n${added.publicKey}\n`,
 		)
 		const left = await exec(host, ROOT, ["ls", "-A", `${homeOf(account)}/.ssh`])
 		expect(left.stdout.trim().split("\n")).toEqual(["authorized_keys"])
+	})
+})
+
+describe("self-host.sh, when an earlier run left an identical entry behind", () => {
+	it("removes only the copy this run added, leaving the earlier one in place", async () => {
+		const account = await newAccount(host)
+		const kept = await mintKey(host)
+		const key = await mintKey(host)
+		const duplicate = restrictedEntry(account, key.publicKey)
+		await seedAuthorizedKeys(host, account, `${kept.publicKey}\n`)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				'printf "%s\\n" "$2" > "$1/added" && chmod 644 "$1/added"',
+				RACE,
+				duplicate,
+			),
+			"telling the stand-in what to duplicate",
+		)
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${key.publicKey}\n`,
+			standIns: [RACE],
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await read(host, authorizedKeysOf(account))).toBe(`${kept.publicKey}\n${duplicate}\n`)
+	})
+})
+
+describe("self-host.sh, when it finds its own entry already listed", () => {
+	it("removes nothing on rollback, because this run wrote nothing to authorized_keys", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		const existing = restrictedEntry(account, key.publicKey)
+		await seedAuthorizedKeys(host, account, `${existing}\n`)
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${key.publicKey}\n`,
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await read(host, authorizedKeysOf(account))).toBe(`${existing}\n`)
+	})
+})
+
+describe("self-host.sh, when a key arrives while it is still writing its own entry", () => {
+	it("keeps that key on rollback instead of restoring the file from before this ran", async () => {
+		const account = await newAccount(host)
+		const kept = await mintKey(host)
+		const added = await mintKey(host)
+		await seedAuthorizedKeys(host, account, `${kept.publicKey}\n`)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				'printf "%s\\n" "$2" > "$1/added" && chmod 644 "$1/added"',
+				RACE,
+				added.publicKey,
+			),
+			"telling the stand-in what to add",
+		)
+
+		const ran = await selfHost(account, { standIns: [RACE] })
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await read(host, authorizedKeysOf(account))).toBe(
+			`${kept.publicKey}\n${added.publicKey}\n`,
+		)
+		const left = await exec(host, ROOT, ["ls", "-A", `${homeOf(account)}/.ssh`])
+		expect(left.stdout.trim().split("\n")).toEqual(["authorized_keys"])
+	})
+})
+
+describe("self-host.sh, when the supplied key's own comment carries a backslash", () => {
+	it("still recognizes its own entry on rollback and takes it back", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		const [type, blob] = key.publicKey.split(" ")
+		const backslashCommented = `${type} ${blob} CORP\\nathan`
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await selfHost(account, {
+			args: ["--public-key", "-"],
+			input: `${backslashCommented}\n`,
+		})
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
+		expect(await snapshot(host, homeOf(account))).toBe(before)
 	})
 })
 

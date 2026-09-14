@@ -150,6 +150,117 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 			expect(asKey.stdout.trim()).toBe(account)
 		})
 
+		it("adds the key when the only existing record for it is commented out", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			const blob = key.publicKey.split(" ")[1] ?? ""
+			await seedAuthorizedKeys(host, account, `# revoked ${key.publicKey}\n`)
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			const lines = (await read(host, authorizedKeysOf(account))).split("\n")
+			expect(lines[0]).toBe(`# revoked ${key.publicKey}`)
+			expect(lines[1]).toBe(key.publicKey)
+			expect(await holdersOf(host, key.publicKey)).toEqual([authorizedKeysOf(account)])
+			const holderLines = (await read(host, authorizedKeysOf(account))).split("\n")
+			expect(holderLines.filter((line) => line.includes(blob)).length).toBe(2)
+		})
+
+		it("refuses rather than treating a restricted match as ready, and changes nothing", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			const restricted = `command="/bin/echo hi there" ${key.publicKey}\n`
+			await seedAuthorizedKeys(host, account, restricted)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status).not.toBe(0)
+			expect(ran.stderr).toContain("Could not authorise the key")
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
+		it.each([
+			{ shape: "permitopen=", line: (key: string) => `permitopen="127.0.0.2:*" ${key}` },
+			{
+				shape: "an expired expiry-time=",
+				line: (key: string) => `expiry-time="202001010000" ${key}`,
+			},
+			{ shape: "bare restrict", line: (key: string) => `restrict ${key}` },
+			{ shape: "cert-authority", line: (key: string) => `cert-authority ${key}` },
+			{
+				shape: "an unrelated environment=",
+				line: (key: string) => `environment="A=restricted-value" ${key}`,
+			},
+		])(
+			"refuses rather than treating a match under $shape as ready, and changes nothing",
+			async ({ line }) => {
+				const account = await accountFor(host, mode)
+				const key = await mintKey(host)
+				await seedAuthorizedKeys(host, account, `${line(key.publicKey)}\n`)
+				const before = await read(host, authorizedKeysOf(account))
+
+				const ran = await setUp(host, mode, account, key.publicKey)
+
+				expect(ran.status).not.toBe(0)
+				expect(ran.stderr).toContain("Could not authorise the key")
+				expect(await read(host, authorizedKeysOf(account))).toBe(before)
+			},
+		)
+
+		it("treats restrict,port-forwarding as ready, since live control needs forwarding", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, `restrict,port-forwarding ${key.publicKey}\n`)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
+		it("adds the key when its blob appears only inside another key's comment", async () => {
+			const account = await accountFor(host, mode)
+			const other = await mintKey(host)
+			const key = await mintKey(host)
+			const blob = key.publicKey.split(" ")[1] ?? ""
+			await seedAuthorizedKeys(host, account, `${other.publicKey} mentions-${blob}\n`)
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			const lines = (await read(host, authorizedKeysOf(account))).split("\n")
+			expect(lines[0]).toBe(`${other.publicKey} mentions-${blob}`)
+			expect(lines[1]).toBe(key.publicKey)
+		})
+
+		it("refuses when the first matching record is restricted, even if a later one is clean", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, `restrict ${key.publicKey}\n${key.publicKey}\n`)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status).not.toBe(0)
+			expect(ran.stderr).toContain("Could not authorise the key")
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
+		it("accepts when the first matching record is clean, even if a later one is restricted", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, `${key.publicKey}\nrestrict ${key.publicKey}\n`)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
 		it("refuses an account that does not exist, having changed nothing", async () => {
 			const key = await mintKey(host)
 			const watched = ["/home", "/root", "/.ssh", "/var/lib/systemd/linger"]

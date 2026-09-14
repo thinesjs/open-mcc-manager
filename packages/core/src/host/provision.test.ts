@@ -163,6 +163,18 @@ describe("where provisioning puts a host's files", () => {
 		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 	})
 
+	it.each([
+		["a leading space a login script added to HOME", " /home/mcc\n/home/mcc"],
+		["a second line smuggled into HOME", "/home/mcc\n/home/mcc\n/home/mcc"],
+		["trailing whitespace on the account's own home", "/home/mcc\n/home/mcc "],
+	])("refuses a home carrying %s, before it writes anything", async (_case, stdout) => {
+		const transport = await connected({ ...PROVISIONABLE, [HOME_COMMAND]: answer(stdout) })
+
+		await expect(provisionHost(transport)).rejects.toThrow(/account's own home/)
+		expect(transport.commands.some((command) => command.includes("install -d"))).toBe(false)
+		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
+	})
+
 	it("refuses to go on without lingering, since every host runs its bots under a user manager", async () => {
 		const transport = await connected({ ...PROVISIONABLE, [LINGER_COMMAND]: answer("no") })
 

@@ -69,13 +69,15 @@ const step = async (
 }
 
 const assertUsableHome = async (transport: HostTransport): Promise<void> => {
-	const read = await step(
-		transport,
-		HOME_COMMAND,
-		"Failed to read the home directory of the connecting user",
-	)
-	const [home = "", passwdHome = ""] = read.split("\n")
-	if (!isUsableHome(home, passwdHome)) {
+	const read = await transport.exec(HOME_COMMAND, PROVISION_STEP_TIMEOUT_MS)
+	if (read.exitCode !== 0) {
+		throw new Error(
+			`Failed to read the home directory of the connecting user: ${read.stderr.trim()}`,
+		)
+	}
+	const lines = read.stdout.split("\n")
+	const [home = "", passwdHome = ""] = lines
+	if (lines.length !== 2 || !isUsableHome(home, passwdHome)) {
 		throw new Error(
 			"The remote home directory must be an absolute path containing only letters, digits, '.', '_', '-', and '/', and must be the account's own home",
 		)

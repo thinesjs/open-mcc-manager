@@ -8,10 +8,8 @@ export const UNIT_DIR = `"$HOME"/${UNITS_PATH}`
 
 const HOME_PATTERN = /^\/[A-Za-z0-9._\-/]*$/
 
-const withoutTrailingSlash = (path: string): string => path.replace(/\/+$/, "")
-
 export const isUsableHome = (home: string, passwdHome: string): boolean =>
-	HOME_PATTERN.test(home) && withoutTrailingSlash(home) === withoutTrailingSlash(passwdHome)
+	HOME_PATTERN.test(home) && home === passwdHome
 
 const RUNTIME_DIR_PREFIX = "XDG_RUNTIME_DIR=/run/user/$(id -u) "
 

@@ -14,9 +14,24 @@ describe("where every host keeps its files", () => {
 })
 
 describe("the home directory those paths are rooted at", () => {
-	it("is usable when it is a plain absolute path and matches the account's own entry", () => {
+	it("is usable when it is a plain absolute path and matches the account's own entry byte for byte", () => {
 		expect(isUsableHome("/home/mcc", "/home/mcc")).toBe(true)
-		expect(isUsableHome("/home/mcc/", "/home/mcc")).toBe(true)
+		expect(isUsableHome("/home/mcc/", "/home/mcc/")).toBe(true)
+		expect(isUsableHome("/home/mcc/", "/home/mcc")).toBe(false)
+	})
+
+	it("is refused when either side carries whitespace or a control character", () => {
+		for (const home of [
+			" /home/mcc",
+			"/home/mcc ",
+			"/home/m cc",
+			"/home/mcc\n",
+			"/home/m\tcc",
+			"/home/mcc\u0000",
+		]) {
+			expect(isUsableHome(home, home)).toBe(false)
+			expect(isUsableHome("/home/mcc", home)).toBe(false)
+		}
 	})
 
 	it("is refused when it could smuggle shell metacharacters into a unit", () => {

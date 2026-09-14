@@ -87,48 +87,37 @@ WROTE_KEY="no"
 WROTE_WRAPPER="no"
 WROTE_AUTHORIZED="no"
 WROTE_ENTRY="no"
-NEEDS_NEWLINE="no"
-APPENDED_LEN="0"
 FINISHED="no"
 
 take_back() {
 	trap '' HUP INT TERM
 	[ "$FINISHED" = "no" ] || return 0
 	if [ "$WROTE_ENTRY" = "yes" ] && [ -f "$AUTHORIZED" ]; then
-		if [ "$NEEDS_NEWLINE" = "yes" ]; then
-			EXPECTED_TAIL="$(printf '\n%s' "$ENTRY")"
-		else
-			EXPECTED_TAIL="$(printf '%s' "$ENTRY")"
-		fi
-		ACTUAL_TAIL="$(tail -c "$APPENDED_LEN" "$AUTHORIZED" 2>/dev/null || true)"
-		FILTERED=0
-		if [ "$ACTUAL_TAIL" = "$EXPECTED_TAIL" ]; then
+		if grep -qxF -- "$ENTRY" "$AUTHORIZED"; then
+			FILTERED=1
 			if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
-				CURRENT_LEN="$(wc -c < "$AUTHORIZED" | tr -d ' ')"
-				head -c "$((CURRENT_LEN - APPENDED_LEN))" "$AUTHORIZED" > "$ROLLBACK_TMP"
+				awk -v entry="$ENTRY" '
+					$0 == entry { last = NR }
+					{ lines[NR] = $0 }
+					END {
+						for (i = 1; i <= NR; i++) {
+							if (i == last) continue
+							print lines[i]
+						}
+					}
+				' "$AUTHORIZED" > "$ROLLBACK_TMP" && FILTERED=0
+			fi
+			if [ "$FILTERED" -eq 0 ]; then
+				if [ "$WROTE_AUTHORIZED" = "yes" ] && [ ! -s "$ROLLBACK_TMP" ]; then
+					rm -f "$AUTHORIZED" "$ROLLBACK_TMP"
+				else
+					mv -f "$ROLLBACK_TMP" "$AUTHORIZED"
+				fi
 			else
-				FILTERED=2
-			fi
-		else
-			if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
-				grep -vxF -- "$ENTRY" "$AUTHORIZED" > "$ROLLBACK_TMP" || FILTERED=$?
-			else
-				FILTERED=2
-			fi
-		fi
-		if [ "$FILTERED" -le 1 ]; then
-			if [ "$WROTE_AUTHORIZED" = "yes" ] && [ ! -s "$ROLLBACK_TMP" ]; then
-				rm -f "$AUTHORIZED" "$ROLLBACK_TMP"
-			else
-				mv -f "$ROLLBACK_TMP" "$AUTHORIZED"
-			fi
-			if [ "$ACTUAL_TAIL" != "$EXPECTED_TAIL" ]; then
-				warn "authorized_keys changed while this ran, so only the entry this run added was taken out of it"
-			fi
-		else
-			rm -f "$ROLLBACK_TMP"
-			warn "authorized_keys changed while this ran and could not be read back. Remove this line from it by hand:
+				warn "authorized_keys could not be read back to take out this run's entry. Remove this line from it by hand:
          $ENTRY"
+			fi
+			rm -f "$ROLLBACK_TMP"
 		fi
 	fi
 	if [ "$WROTE_WRAPPER" = "yes" ]; then rm -f "$WRAPPER"; fi
@@ -260,9 +249,9 @@ fi
 
 # 5. The authorized_keys entry. Append only, and only when this exact key is
 #    not already listed. Taking it back never restores a whole earlier copy of
-#    the file: it removes exactly the bytes appended here, verified still
-#    present at the tail, so a key some other process adds concurrently is
-#    never at risk.
+#    the file: it removes only the last line byte-equal to this run's own
+#    entry, and only when this run is the one that appended it — a run that
+#    found the entry already listed removes nothing.
 
 make_ssh_dir
 
@@ -273,16 +262,9 @@ else
 		WROTE_AUTHORIZED="yes"
 		: > "$AUTHORIZED"
 	elif [ -s "$AUTHORIZED" ] && [ -n "$(tail -c 1 "$AUTHORIZED")" ]; then
-		NEEDS_NEWLINE="yes"
-	fi
-	if [ "$NEEDS_NEWLINE" = "yes" ]; then
 		printf '\n' >> "$AUTHORIZED"
 	fi
 	printf '%s\n' "$ENTRY" >> "$AUTHORIZED"
-	APPENDED_LEN="$(printf '%s\n' "$ENTRY" | wc -c | tr -d ' ')"
-	if [ "$NEEDS_NEWLINE" = "yes" ]; then
-		APPENDED_LEN=$((APPENDED_LEN + 1))
-	fi
 	WROTE_ENTRY="yes"
 	say "Added a restricted entry to $AUTHORIZED"
 fi

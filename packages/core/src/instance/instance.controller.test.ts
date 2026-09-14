@@ -383,7 +383,7 @@ describe("instance creation prepares the host", () => {
 	it("seals the live control token rather than storing it in the clear", async () => {
 		const { deps } = makeDeps()
 		const controller = createInstanceController(deps)
-		const created = await controller.create(owner, {
+		await controller.create(owner, {
 			hostId: "host-1",
 			name: "afk-1",
 			accountType: "microsoft",
@@ -391,8 +391,13 @@ describe("instance creation prepares the host", () => {
 			serverAddress: "play.example.com",
 		})
 
-		expect(created.liveControlTokenKeyId).not.toBeNull()
-		expect(created.liveControlTokenEncrypted).not.toBeNull()
+		expect(deps.instances.insert).toHaveBeenCalledWith(
+			{ organizationId: owner.organizationId },
+			expect.objectContaining({
+				liveControlTokenEncrypted: "sealed(32)",
+				liveControlTokenKeyId: "k1",
+			}),
+		)
 	})
 
 	it("never writes the token into the config file the client rewrites", async () => {

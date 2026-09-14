@@ -169,6 +169,7 @@ export const instancePublic = z.object({
 	name: z.string(),
 	accountType: accountTypeSchema,
 	minecraftAccount: z.string(),
+	minecraftUsername: z.string().nullable(),
 	status: instanceStatusSchema,
 	lastExitCode: z.number().int().nullable(),
 	createdAt: z.date(),

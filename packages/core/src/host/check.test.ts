@@ -94,7 +94,7 @@ describe("checking a host before committing to enrol it", () => {
 		expect(report.checks.find((check) => check.name === "systemd")?.detail).toBe("Unknown")
 	})
 
-	it("★ repeats no untrusted host output when the architecture has no build", async () => {
+	it("★ withholds a machine name it cannot read when the architecture has no build", async () => {
 		const report = await checkHostOverTransport(
 			await connected({
 				...READY,

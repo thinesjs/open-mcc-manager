@@ -951,12 +951,20 @@ credential syntaxes continue through the redactor, which masks a
 
 That allowance is for logs alone. **A failure stored in a column or returned to
 the browser carries only this project's own fixed words**, never text a host,
-the SSH transport or the client produced. Map at the point the failure is
-recorded, not where it is thrown: `host.controller.ts` records the fixed copy
-for the step provisioning reached (`provision-failure.ts`), the teardown job and
-the scheduler do the same, and each hands the raw error to its redacted
-`onError` reporter. A rewrite of the steps behind those boundaries then cannot
-reopen the leak.
+the SSH transport, the client, a Minecraft server or a notification provider
+produced. Map at the point the failure is recorded, not where it is thrown:
+`host.controller.ts` records the fixed copy for the step provisioning reached
+(`provision-failure.ts`); the teardown job, the scheduler and the notification
+delivery job (`delivery.job.ts`, with fixed provider wording in `outcome.ts`) do
+the same; and each hands the raw error or provider text to its redacted
+`onError` reporter. A bot's disconnect reason is not stored at all. A rewrite of
+the steps behind those boundaries then cannot reopen the leak.
+
+The one exception is what a host reports about itself: its OS name and id, its
+systemd release line, and the machine name the architecture check repeats when
+it refuses. Those reach a column or the browser only through `hostFact` in
+`facts.ts`, which passes printable ASCII of at most 128 characters and turns
+anything else into `Unknown`.
 
 Every deployment path that runs a daemon must forward `LOG_LEVEL` and
 `OTEL_EXPORTER_OTLP_ENDPOINT`. Compose passes only the variables it lists —

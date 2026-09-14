@@ -270,7 +270,7 @@ describe("symlinked packages in the deployed tree", () => {
 		expect(result.status).toBe(0)
 		const written = readFileSync(outFile, "utf8")
 		expect(written).toContain("resolved licence text")
-		expect(written).toContain("1.0.0")
+		expect(written).toContain("real-target 1.0.0")
 	})
 
 	it("fails loudly when a symlinked package resolves outside the deployed tree", () => {

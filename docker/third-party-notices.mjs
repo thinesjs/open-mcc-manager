@@ -158,8 +158,9 @@ export const readPackage = (name, dir) => {
 	const manifest = fs.existsSync(manifestPath)
 		? JSON.parse(fs.readFileSync(manifestPath, "utf8"))
 		: {}
+	const declaredName = typeof manifest.name === "string" && manifest.name.length > 0
 	return {
-		name,
+		name: declaredName ? manifest.name : name,
 		version: typeof manifest.version === "string" ? manifest.version : "",
 		licence: declaredLicence(manifest),
 		text: licenceTextIn(dir),

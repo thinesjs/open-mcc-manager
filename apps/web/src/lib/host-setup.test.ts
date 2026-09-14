@@ -3,6 +3,8 @@ import { fingerprintCommand, hostSetupScript, requiresRootAccount } from "./host
 
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI manager key"
 
+const ACCOUNT_STEP = 'setsid su -s /bin/sh "$account" -c "$authorise"'
+
 describe("the command an operator pastes onto a new host", () => {
 	it("is one paste, not a list of steps to get right in order", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
@@ -28,14 +30,20 @@ describe("the command an operator pastes onto a new host", () => {
 	it("adds the key only when it is missing, so running it twice leaves one copy", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 
-		expect(script).toContain('grep -qF "$material"')
+		expect(script).toContain('grep -qF -- "$material"')
 		expect(script).toContain('>> "$home/.ssh/authorized_keys"')
 	})
 
-	it("gives the file to the account rather than leaving it owned by root", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain(
-			'chown "$account:" "$home/.ssh/authorized_keys"',
-		)
+	it("writes the account's ssh files as that account, so a link it planted cannot aim root at another file", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain(`printf '%s\\n' "$key" | ${ACCOUNT_STEP}`)
+		expect(script).not.toContain("chown")
+		expect(script).not.toContain("install -d")
+	})
+
+	it("gives the step it runs as the account no terminal to push input into", () => {
+		expect(hostSetupScript("rootless", "pi", KEY)).toContain(`| ${ACCOUNT_STEP}`)
 	})
 
 	it("stops rather than continuing when the account does not exist", () => {
@@ -71,8 +79,11 @@ describe("what each mode adds to that command", () => {
 		expect(hostSetupScript("system", "root", KEY)).not.toContain("enable-linger")
 	})
 
-	it("catches a root-owned host being set up under an account that is not root", () => {
-		expect(hostSetupScript("system", "root", KEY)).toContain('if [ "$account" != "root" ]')
+	it("catches a root-owned host being set up under an account that is not root, before touching it", () => {
+		const script = hostSetupScript("system", "root", KEY)
+
+		expect(script).toContain('if [ "$account" != "root" ]')
+		expect(script.indexOf('if [ "$account" != "root" ]')).toBeLessThan(script.indexOf(ACCOUNT_STEP))
 		expect(requiresRootAccount("system", "pi")).toBe(true)
 		expect(requiresRootAccount("rootless", "pi")).toBe(false)
 	})

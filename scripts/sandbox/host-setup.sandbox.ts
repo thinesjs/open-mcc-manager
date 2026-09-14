@@ -173,6 +173,75 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 			expect(ran.stdout.trim().split("\n").at(-1)).toBe(presented)
 		})
 
+		if (mode === "rootless") {
+			it("leaves a root-owned file alone when the account has linked authorized_keys to it", async () => {
+				const account = await newAccount(host)
+				const key = await mintKey(host)
+				const target = `/etc/open-mcc-sentinel-${account}`
+				succeeded(
+					await shell(
+						host,
+						{ ...ROOT, input: "root:x:0:0:root:/root:/bin/bash\n" },
+						'cat > "$1" && chmod 644 "$1"',
+						target,
+					),
+					"writing a root-owned sentinel",
+				)
+				succeeded(
+					await shell(
+						host,
+						{ user: account },
+						'mkdir -p "$1/.ssh" && ln -s "$2" "$1/.ssh/authorized_keys"',
+						homeOf(account),
+						target,
+					),
+					"linking authorized_keys to it as the account",
+				)
+				const before = await snapshot(host, target)
+
+				await setUp(host, mode, account, key.publicKey)
+
+				expect(await snapshot(host, target)).toBe(before)
+			})
+
+			it("leaves a root-owned directory alone when the account has linked .ssh to it", async () => {
+				const account = await newAccount(host)
+				const key = await mintKey(host)
+				const target = `/etc/open-mcc-sentinel-${account}.d`
+				succeeded(
+					await shell(
+						host,
+						{ ...ROOT, input: "root owns this\n" },
+						'mkdir "$1" && cat > "$1/keep" && chmod 755 "$1" && chmod 644 "$1/keep"',
+						target,
+					),
+					"writing a root-owned sentinel directory",
+				)
+				succeeded(
+					await shell(host, { user: account }, 'ln -s "$2" "$1/.ssh"', homeOf(account), target),
+					"linking .ssh to it as the account",
+				)
+				const before = await snapshot(host, target)
+
+				await setUp(host, mode, account, key.publicKey)
+
+				expect(await snapshot(host, target)).toBe(before)
+			})
+		} else {
+			it("refuses an account that is not root, having changed nothing", async () => {
+				const account = await newAccount(host)
+				const key = await mintKey(host)
+				const watched = [homeOf(account), "/var/lib/systemd/linger"]
+				const before = await snapshot(host, ...watched)
+
+				const ran = await setUp(host, mode, account, key.publicKey)
+
+				expect(ran.status).not.toBe(0)
+				expect(ran.stderr).toContain("is not root")
+				expect(await snapshot(host, ...watched)).toBe(before)
+			})
+		}
+
 		it(
 			mode === "rootless"
 				? "turns lingering on, so the account's systemd runs with nobody logged in"

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { STATUS_RANGES } from "@open-mcc/contracts"
+import { RANGE_SECONDS, STATUS_RANGES } from "@open-mcc/contracts"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
 import { createStatusController, createStatusControllerTransaction } from "./status.controller"
@@ -56,9 +56,9 @@ beforeAll(async () => {
 	await testDb()
 		.insertInto("statusInterval")
 		.values([
-			interval(hostId, "up", "2026-08-01T00:00:00Z", "2026-09-13T08:10:00Z"),
-			interval(hostId, "down", "2026-09-13T08:10:00Z", "2026-09-13T08:20:00Z"),
-			interval(hostId, "up", "2026-09-13T08:20:00Z", null),
+			interval(hostId, "up", "2026-08-01T00:00:00Z", "2026-09-13T08:00:00Z"),
+			interval(hostId, "down", "2026-09-13T08:00:00Z", "2026-09-13T08:10:00Z"),
+			interval(hostId, "up", "2026-09-13T08:10:00Z", null),
 			interval(edgeHostId, "up", "2026-08-01T00:00:00Z", "2026-08-14T10:07:30Z"),
 			interval(edgeHostId, "down", "2026-08-14T10:07:30Z", "2026-08-14T10:12:30Z"),
 			interval(edgeHostId, "up", "2026-08-14T10:12:30Z", "2026-09-06T10:07:30Z"),
@@ -88,7 +88,8 @@ describe("the uptime summary, taken through the real controller and database", (
 					?.buckets.map((bucket) => Date.parse(bucket.start)) ?? []
 
 			expect(starts).toHaveLength(count)
-			expect((starts[1] ?? 0) - (starts[0] ?? 0)).toBe(summary.bucketSeconds * 1000)
+			expect(starts[0]).toBe(now.getTime() - RANGE_SECONDS[range] * 1000)
+			expect((starts[2] ?? 0) - (starts[1] ?? 0)).toBe(summary.bucketSeconds * 1000)
 		}
 	})
 

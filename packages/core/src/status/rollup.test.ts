@@ -120,17 +120,35 @@ describe("cutting a range into bars", () => {
 		expect(bucketStartsFor("30d", now)).toHaveLength(90)
 	})
 
-	it("lays the bars end to end from exactly the start of the range, with the last one ending now", () => {
+	it("starts the first bar exactly at the start of the range and every later one on a clock boundary, the last holding now", () => {
 		for (const instant of instants) {
 			for (const range of STATUS_RANGES) {
 				const step = BUCKET_SECONDS[range] * 1000
 				const starts = bucketStartsFor(range, instant).map((start) => start.getTime())
-				const gaps = starts.slice(1).map((start, index) => start - (starts[index] ?? 0))
+				const first = starts[0] ?? 0
+				const later = starts.slice(1)
+				const gaps = later.slice(1).map((start, index) => start - (later[index] ?? 0))
+				const last = starts.at(-1) ?? 0
 
-				expect(starts[0]).toBe(instant.getTime() - RANGE_SECONDS[range] * 1000)
+				expect(first).toBe(instant.getTime() - RANGE_SECONDS[range] * 1000)
+				expect((later[0] ?? 0) - first).toBeGreaterThan(step)
+				expect((later[0] ?? 0) - first).toBeLessThanOrEqual(2 * step)
+				expect(later.filter((start) => start % step !== 0)).toEqual([])
 				expect(gaps.filter((gap) => gap !== step)).toEqual([])
-				expect((starts.at(-1) ?? 0) + step).toBe(instant.getTime())
+				expect(last).toBeLessThanOrEqual(instant.getTime())
+				expect(instant.getTime()).toBeLessThan(last + step)
 			}
+		}
+	})
+
+	it("★ keeps every bar edge still across two refreshes a minute apart", () => {
+		for (const range of STATUS_RANGES) {
+			const edgesAt = (refreshedAt: Date) =>
+				bucketStartsFor(range, refreshedAt)
+					.slice(1)
+					.map((start) => start.getTime())
+
+			expect(edgesAt(new Date("2026-09-13T10:08:30Z"))).toEqual(edgesAt(now))
 		}
 	})
 
@@ -152,7 +170,7 @@ describe("cutting a range into bars", () => {
 		}
 	})
 
-	it("★ keeps an outage in the first minutes of the range, however far now sits into a bar", () => {
+	it("★ keeps an outage in the leading partial stretch of the range, inside the first bar", () => {
 		for (const instant of instants) {
 			for (const range of STATUS_RANGES) {
 				const since = instant.getTime() - RANGE_SECONDS[range] * 1000
@@ -161,9 +179,11 @@ describe("cutting a range into bars", () => {
 					bucketStartsFor(range, instant),
 					BUCKET_SECONDS[range],
 				)
-				const bad = buckets.reduce((total, bucket) => total + bucket.availability.badSeconds, 0)
 
-				expect(bad).toBe(300)
+				expect(buckets.map((bucket) => bucket.availability.badSeconds)).toEqual([
+					300,
+					...Array.from({ length: buckets.length - 1 }, () => 0),
+				])
 			}
 		}
 	})

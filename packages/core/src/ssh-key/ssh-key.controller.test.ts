@@ -104,6 +104,16 @@ describe("sshKeyController.create", () => {
 		expect(serialized).not.toContain(PLAINTEXT_PRIVATE_KEY)
 	})
 
+	it("carries createdAt as the ISO string the wire actually sends, not a Date object", async () => {
+		const { deps } = harness()
+		const created = await createSshKeyController(deps).create(actor("owner"), {
+			name: "deploy",
+			type: "ed25519",
+		})
+
+		expect(created.createdAt).toBe("2026-08-30T00:00:00.000Z")
+	})
+
 	it("seals the generated private key and stores only the sealed form", async () => {
 		const { deps, repos } = harness()
 		await createSshKeyController(deps).create(actor("owner"), { name: "deploy", type: "ed25519" })

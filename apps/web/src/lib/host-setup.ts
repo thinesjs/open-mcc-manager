@@ -56,50 +56,56 @@ chmod 600 "$home/.ssh/authorized_keys"
 material=$(printf "%s" "$key" | awk "{print \\$2}")
 scan=$(mktemp)
 cat <<"${SCAN_HEREDOC}" > "$scan"
-function is_keytype(s) { return s ~ /^(ssh-|ecdsa-sha2-|sk-)/ }
-function options_end(line,    i, n, inquote, c) {
-	n = length(line)
-	inquote = 0
-	for (i = 1; i <= n; i++) {
-		c = substr(line, i, 1)
-		if (c == "\\\\" && inquote) { i++; continue }
-		if (c == "\\"") { inquote = !inquote; continue }
-		if ((c == " " || c == "\\t") && !inquote) return i
-	}
-	return n + 1
-}
+function is_keytype(s) { return s ~ /^(ssh-|ecdsa-|sk-)/ }
 BEGIN { if (blob == "") exit }
 /^[ \\t]*#/ { next }
 /^[ \\t]*$/ { next }
 {
-	line = $0
-	sub(/^[ \\t]+/, "", line)
-	first = line
-	sub(/[ \\t].*$/, "", first)
-	opts = ""
-	rest = line
-	if (first != "" && !is_keytype(first)) {
-		e = options_end(line)
-		opts = substr(line, 1, e - 1)
-		rest = substr(line, e)
-		sub(/^[ \\t]+/, "", rest)
+	n = split($0, f, /[ \\t]+/)
+	k = 0
+	for (i = 1; i <= n; i++) {
+		if (is_keytype(f[i])) { k = i; break }
 	}
-	split(rest, f, /[ \\t]+/)
-	if (f[2] == blob) {
-		present = 1
-		if (opts !~ /(^|,)(command=|from=|restrict|no-pty|no-agent-forwarding|no-port-forwarding|no-X11-forwarding|no-user-rc)/) clean = 1
+	if (k == 0 || f[k + 1] != blob) next
+	present = 1
+	dangerous = 0
+	for (i = 1; i < k; i++) {
+		if (index(f[i], "\\"") > 0 || index(f[i], "=") > 0) dangerous = 1
 	}
+	is_clean = 0
+	if (k == 1) {
+		is_clean = 1
+	} else if (!dangerous) {
+		opts = f[1]
+		for (i = 2; i < k; i++) opts = opts "," f[i]
+		nopt = split(opts, tokens, ",")
+		ok = 1
+		has_restrict = 0
+		has_portfwd = 0
+		for (i = 1; i <= nopt; i++) {
+			t = tokens[i]
+			if (t == "restrict") { has_restrict = 1 }
+			else if (t == "port-forwarding") { has_portfwd = 1 }
+			else if (t == "pty" || t == "no-pty" || t == "agent-forwarding" || t == "no-agent-forwarding" || t == "X11-forwarding" || t == "no-X11-forwarding" || t == "user-rc" || t == "no-user-rc") { }
+			else { ok = 0 }
+		}
+		if (ok && (!has_restrict || has_portfwd)) is_clean = 1
+	}
+	if (is_clean) clean = 1
+	else if (badline == 0) badline = NR
 }
-END { printf "%d %d", present + 0, clean + 0 }
+END { printf "%d %d %d", present + 0, clean + 0, badline + 0 }
 ${SCAN_HEREDOC}
 info=$(awk -v blob="$material" -f "$scan" "$home/.ssh/authorized_keys")
 rm -f "$scan"
-present=\${info%% *}
-clean=\${info##* }
+set -- $info
+present=\${1:-0}
+clean=\${2:-0}
+badline=\${3:-0}
 if [ "$present" = "1" ] && [ "$clean" = "1" ]; then
   echo "  key already present, left alone"
 elif [ "$present" = "1" ]; then
-  echo "This account already has that key in authorized_keys, but only under options (command=, from=, restrict, no-pty or similar) that would stop the control plane running commands. Fix or remove that line by hand, then run this again." >&2
+  echo "This key is already authorised in authorized_keys, but line $badline restricts it in a way that would block the manager. Edit or remove that line, then run this setup again." >&2
   exit 1
 else
   if [ -s "$home/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$home/.ssh/authorized_keys")" ]; then

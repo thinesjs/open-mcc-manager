@@ -293,6 +293,33 @@ describe("host controller enrollment", () => {
 		}
 	})
 
+	it("carries hostKeyTrustedAt, lastSeenAt and teardownRequestedAt as ISO strings, not Date objects", async () => {
+		const d = deps()
+		vi.mocked(d.hosts.insert).mockResolvedValueOnce(
+			makeHostRow({
+				hostKeyTrustedAt: new Date("2026-08-30T00:00:00.000Z"),
+				lastSeenAt: new Date("2026-09-01T00:00:00.000Z"),
+				teardownRequestedAt: new Date("2026-09-02T00:00:00.000Z"),
+			}),
+		)
+		const expected = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)
+		const controller = createHostController(d)
+
+		const created = await controller.enroll(ctx, {
+			name: "vps",
+			hostname: "10.0.0.1",
+			port: 22,
+			username: "mcc",
+			mode: "system",
+			sshKeyId: "key-1",
+			expectedFingerprint: expected,
+		})
+
+		expect(created.hostKeyTrustedAt).toBe("2026-08-30T00:00:00.000Z")
+		expect(created.lastSeenAt).toBe("2026-09-01T00:00:00.000Z")
+		expect(created.teardownRequestedAt).toBe("2026-09-02T00:00:00.000Z")
+	})
+
 	it("enrolls and audits when the fingerprint matches", async () => {
 		const d = deps()
 		const expected = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)

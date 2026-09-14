@@ -1,4 +1,4 @@
-import type { HostStatus } from "@open-mcc/contracts"
+import type { HostPublic, HostStatus } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { CircleAlert, Plus } from "lucide-react"
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_authenticated/hosts/$hostId")({
 	component: HostDetailPage,
 })
 
-const formatDate = (value: Date | string | null): string => {
+const formatDate = (value: HostPublic["lastSeenAt"]): string => {
 	if (!value) return "Never"
 	return new Date(value).toLocaleString()
 }

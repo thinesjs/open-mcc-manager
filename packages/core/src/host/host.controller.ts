@@ -94,20 +94,20 @@ const toHostPublic = (row: HostRow): HostPublic => ({
 	status: row.status,
 	hostKeyFingerprint: row.hostKeyFingerprint,
 	hostKeyAlgorithm: row.hostKeyAlgorithm,
-	hostKeyTrustedAt: row.hostKeyTrustedAt,
+	hostKeyTrustedAt: row.hostKeyTrustedAt?.toISOString() ?? null,
 	hostKeyTrustedByLabel: row.hostKeyTrustedByLabel,
 	osId: row.osId,
 	osName: row.osName,
 	osRelease: row.osRelease,
 	sandboxed: row.sandboxed,
-	lastSeenAt: row.lastSeenAt,
+	lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
 	failedUnits: row.failedUnits,
 	provisioningStep: row.provisioningStep,
 	provisioningStepIndex: row.provisioningStepIndex,
 	provisioningStepTotal: row.provisioningStepTotal,
 	provisioningError: row.provisioningError,
 	teardownError: row.teardownError,
-	teardownRequestedAt: row.teardownRequestedAt,
+	teardownRequestedAt: row.teardownRequestedAt?.toISOString() ?? null,
 })
 
 export const createHostController = (deps: HostControllerDeps) => {

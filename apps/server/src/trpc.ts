@@ -16,18 +16,6 @@ const sentenceFor = (invalid: ZodError): string =>
 			defaultErrorMap(issue, { defaultError: issue.message, data: undefined }).message,
 	)?.message ?? INVALID_INPUT_MESSAGE
 
-const fieldsOf = (invalid: ZodError): string[] => [
-	...new Set(
-		invalid.issues
-			.flatMap((issue) =>
-				issue.code === "unrecognized_keys"
-					? issue.keys.map((key) => [...issue.path, key].join("."))
-					: [issue.path.join(".")],
-			)
-			.filter((field) => field.length > 0),
-	),
-]
-
 const GENERIC_UNMAPPED: Record<string, { message: string; errorCode: ErrorCode }> = {
 	UNAUTHORIZED: { message: "Authentication required", errorCode: "UNAUTHORIZED" },
 	FORBIDDEN: {
@@ -47,7 +35,6 @@ const t = initTRPC.context<RequestContext>().create({
 			httpStatus: known?.httpStatus ?? shape.data.httpStatus,
 			...(known && { errorCode: known.errorCode }),
 			...(!known && generic && { errorCode: generic.errorCode }),
-			...(invalid && { fields: fieldsOf(invalid) }),
 			...(shape.data.path !== undefined && { path: shape.data.path }),
 		}
 		if (known) return { ...shape, message: known.message, data }

@@ -222,10 +222,7 @@ describe("HTTP error serialization regression coverage", () => {
 const errorBody = z.object({
 	error: z.object({
 		message: z.string(),
-		data: z.object({
-			httpStatus: z.number(),
-			fields: z.array(z.string()).optional(),
-		}),
+		data: z.object({ httpStatus: z.number() }),
 	}),
 })
 
@@ -245,10 +242,11 @@ describe("what a rejected input tells the dashboard", () => {
 		expect(raw).not.toMatch(/"path":\s*\[/)
 	})
 
-	it("names the field that was wrong, so a form can point at it", async () => {
-		const { body } = await readError(await postEnroll(enrollBody("not-a-fingerprint")))
+	it("sends no field names, which nothing on the dashboard reads", async () => {
+		const { raw } = await readError(await postEnroll(enrollBody("not-a-fingerprint")))
 
-		expect(body.error.data.fields).toEqual(["expectedFingerprint"])
+		expect(raw).not.toContain('"fields"')
+		expect(raw).not.toContain("expectedFingerprint")
 	})
 
 	it("puts plain words in place of a message the schema library wrote", async () => {
@@ -257,7 +255,6 @@ describe("what a rejected input tells the dashboard", () => {
 
 		expect(body.error.data.httpStatus).toBe(400)
 		expect(body.error.message).toBe("Check what you entered and try again.")
-		expect(body.error.data.fields).toEqual(["name", "port"])
 		expect(raw).not.toContain("String must contain")
 		expect(raw).not.toContain("Expected number")
 	})

@@ -418,8 +418,9 @@ describe("instance router capability boundaries", () => {
 
 		expect(res.status).toBe(400)
 		const body = await res.text()
-		expect(body).toContain('"fields":["config.advancedKeys"]')
+		expect(body).toContain("Check what you entered and try again.")
 		expect(body).not.toContain("unrecognized_keys")
+		expect(body).not.toContain("advancedKeys")
 	})
 
 	it("★ refuses a key the registry does not hold, so the strict schema reaches the wire", async () => {

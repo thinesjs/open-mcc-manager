@@ -880,10 +880,10 @@ per service.
   state must arrive with an `errorCode`, which is what forces copy for it.
   The zod message is one sentence, never the issue list: `trpc.ts` sends the
   first message a contract wrote, or a fixed sentence when every issue carries
-  zod's own wording, plus the offending field names in `data.fields`. Only an
-  input failure gets that treatment; a zod error raised inside a procedure is a
-  server fault and gets the generic message. `getErrorMessage` refuses a message
-  that is a stringified structure all the same.
+  zod's own wording. Only an input failure gets that treatment; a zod error
+  raised inside a procedure is a server fault and gets the generic message.
+  `getErrorMessage` refuses a message that is a stringified structure all the
+  same.
 - Design tokens are pinned by
   `apps/web/src/index.css.test.ts`, which parses `index.css` and compares
   every custom property it declares, as `scope name: value`, against one

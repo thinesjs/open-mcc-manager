@@ -1072,9 +1072,14 @@ minted at boot, and a sudo-capable `tester` account. It starts `--privileged
 --cgroupns=private` with tmpfs on `/run`. The installer runs inside `docker:dind`
 on a copy of the checkout, never the checkout itself, because it writes `.env`.
 
-No sandbox container may see the machine running the suite: no host path, no
-home directory, no `~/.ssh`, no Docker socket. Every `docker` call goes through
-the guard in `scripts/sandbox/sandbox.ts`. Every container carries the
+No sandbox container is given a host path, home directory, `~/.ssh` or the
+Docker socket. Every `docker` call goes through the guard in
+`scripts/sandbox/sandbox.ts`, and files reach a container on `docker exec` stdin.
+A host is privileged, so this is not isolation from the kernel or its devices.
+The image masks `systemd-sysctl`, `systemd-binfmt` and `systemd-modules-load`,
+which would otherwise apply the image's kernel settings to the machine running
+the suite at every boot, and `scripts/sandbox/host.sandbox.ts` fails if any of
+them is not masked. Every container carries the
 `open-mcc.sandbox` label and a label for its run. It is stopped with
 `--timeout -1`, which lets systemd shut down and never escalates to a kill, and
 then removed with its volumes. The global teardown removes whatever its run left

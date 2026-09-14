@@ -24,9 +24,9 @@ export const verdictFor = (entry: BucketAvailability): Verdict => {
 
 const TONE: Record<Verdict, string> = {
 	good: "bg-success/60",
-	partial: "bg-error/30",
-	bad: "bg-error/70",
-	none: "bg-muted-foreground/20",
+	partial: "bg-error/55",
+	bad: "bg-error/85",
+	none: "bg-muted-foreground/10",
 }
 
 const SPAN = new Intl.DateTimeFormat(undefined, {

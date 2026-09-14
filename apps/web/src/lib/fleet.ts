@@ -1,10 +1,6 @@
-import type { HostStatus, InstanceStatus } from "@open-mcc/contracts"
+import type { HostStatus, InstancePublic, InstanceStatus } from "@open-mcc/contracts"
 
-export type FleetInstance = {
-	id: string
-	name: string
-	status: InstanceStatus
-}
+export type FleetInstance = Pick<InstancePublic, "id" | "name" | "status">
 
 export type FleetCount<T extends string> = {
 	status: T

@@ -1,16 +1,14 @@
+import type { InstancePublic } from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ReactElement, ReactNode } from "react"
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "~/components/ui/context-menu"
 import { useTRPC } from "~/lib/trpc"
 
-export type InstanceContextTarget = {
-	id: string
-	name: string
-	status: string
-	hostId: string
-	minecraftAccount: string
-}
+export type InstanceContextTarget = Pick<
+	InstancePublic,
+	"id" | "name" | "status" | "hostId" | "minecraftAccount"
+>
 
 export type InstanceContextMenuProps = {
 	instance: InstanceContextTarget

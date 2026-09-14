@@ -337,22 +337,21 @@ depth, not a substitute for one.
   SSH key must apply the same lock-then-reread treatment to `sshKeyId`, or a
   concurrent key change could swap the credential used for a connection whose
   fingerprint check has already passed.
-- **Mounting a third-party auth handler makes that library's entire route
-  table part of this system's authorization surface.** `bootstrap.ts` mounts
-  better-auth at `/api/auth/*` — a wildcard, so every route better-auth and its
-  enabled plugins define is reachable, including routes no code in this
-  repository names, calls, or reviews. Those routes carry better-auth's
-  authorization decisions, not this system's: the capability matrix in
-  `authz.ts` and the `requireCapability` checks in the tRPC routers govern
-  `/trpc/*` alone and never see this traffic. The organization plugin's
-  `/organization/create` is the worked example — reachable and owner-granting
-  until it was explicitly denied, and no control at the tRPC layer could have
-  caught it. Upgrading better-auth, or enabling another of its plugins,
-  therefore changes this system's authorization surface. Re-read the route
-  tables an upgrade adds or changes, decide for each route whether it should be
-  reachable at all, and close the ones that should not at the plugin's own
-  options; a route introduced by a minor version is live the moment the
-  dependency lands.
+- **Only the better-auth routes the dashboard calls are mounted.** `auth-routes.ts`
+  names five, each with its method: `sign-in/email`, `sign-out`, `get-session`,
+  `organization/list` and `organization/set-active`. Every other path under
+  `/api/auth` answers 404 before better-auth sees it, which
+  `auth-routes.wiring.test.ts` proves against the server `bootstrap.ts` builds.
+  The library's full route table carries better-auth's own authorization, not
+  this system's: the capability matrix in `authz.ts` governs `/trpc/*` alone.
+  While everything was
+  mounted, a viewer could read a pending invitation's id from
+  `organization/list-invitations` or `organization/get-full-organization`, and
+  `member.acceptInvitation` accepts on that id alone, so any member could take
+  an owner invitation. Anything else the dashboard needs from better-auth goes
+  through a tRPC procedure that calls `auth.api` in-process after
+  `requireCapability`, never through a new entry in that list. Upgrading
+  better-auth changes what those five paths do, so re-read them on an upgrade.
 - **Invitations are not emailed.** `member.invite` creates the invitation
   record and returns it to the inviting owner, but no mailer is configured —
   the owner must communicate the invitation id to the invitee out of band.

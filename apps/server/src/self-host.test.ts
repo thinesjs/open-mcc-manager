@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
-import { type SelfHostOffer, selfHostPublicOffer } from "@open-mcc/contracts"
+import { hostPublic, type SelfHostOffer, selfHostPublicOffer } from "@open-mcc/contracts"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
 	createHostController,
@@ -178,6 +178,7 @@ const offerResponseSchema = z.object({
 	result: z.object({ data: selfHostPublicOffer.nullable() }),
 })
 const adoptResponseSchema = z.object({ result: z.object({ data: z.object({ id: z.string() }) }) })
+const adoptedHostSchema = z.object({ result: z.object({ data: z.object({}).passthrough() }) })
 const hostListResponseSchema = z.object({
 	result: z.object({ data: z.array(z.object({ id: z.string(), hostname: z.string() })) }),
 })
@@ -319,6 +320,26 @@ describe("adding the machine the dashboard offers", () => {
 		expect(secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId)).toContain(
 			"OPENSSH PRIVATE KEY",
 		)
+	})
+
+	it("★ hands back only the public host fields for the machine it added", async () => {
+		const app = appWith(materialsFor())
+		const owner = await signUpOwner(app)
+
+		const res = await adopt(app, owner)
+		const text = await res.text()
+		expect(res.status, text).toBe(200)
+
+		const added = adoptedHostSchema.parse(JSON.parse(text)).result.data
+		expect(Object.keys(added).sort()).toEqual(Object.keys(hostPublic.shape).sort())
+
+		const withheld = (await hostsIn(owner.orgId))
+			.flatMap((host) => [host.sshKeyId, host.hostKeyTrustedBy, host.organizationId])
+			.filter((value) => value !== null)
+		expect(withheld.length).toBeGreaterThan(0)
+		for (const value of withheld) {
+			expect(text).not.toContain(value)
+		}
 	})
 
 	it("refuses when the address answers with a key other than the one the installer read", async () => {

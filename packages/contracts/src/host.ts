@@ -40,6 +40,33 @@ export type CreateHostInput = z.infer<typeof createHostInput>
 export const hostIdInput = z.object({ hostId: z.string().min(1) })
 export type HostIdInput = z.infer<typeof hostIdInput>
 
+export const hostPublic = z.object({
+	id: z.string(),
+	name: z.string(),
+	hostname: z.string(),
+	port: z.number().int(),
+	username: z.string(),
+	mode: hostMode,
+	status: hostStatusSchema,
+	hostKeyFingerprint: z.string().nullable(),
+	hostKeyAlgorithm: z.string().nullable(),
+	hostKeyTrustedAt: z.date().nullable(),
+	hostKeyTrustedByLabel: z.string(),
+	osId: z.string().nullable(),
+	osName: z.string().nullable(),
+	osRelease: z.string().nullable(),
+	sandboxed: z.boolean().nullable(),
+	lastSeenAt: z.date().nullable(),
+	failedUnits: z.number().int().nullable(),
+	provisioningStep: z.string().nullable(),
+	provisioningStepIndex: z.number().int().nullable(),
+	provisioningStepTotal: z.number().int().nullable(),
+	provisioningError: z.string().nullable(),
+	teardownError: z.string().nullable(),
+	teardownRequestedAt: z.date().nullable(),
+})
+export type HostPublic = z.infer<typeof hostPublic>
+
 export const retrustHostKeyInput = z.object({
 	hostId: z.string().min(1),
 	hostKeyFingerprint: hostKeyFingerprint,

@@ -5,6 +5,7 @@ import {
 	createInstanceInput,
 	type InstanceBotsInput,
 	type InstanceConfigInput,
+	type InstancePublic,
 	type InstanceSettingsInput,
 	instanceBotsInput,
 	instanceConfigInput,
@@ -400,6 +401,18 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return found
 	}
 
+	const toInstancePublic = (row: InstanceRow): InstancePublic => ({
+		id: row.id,
+		hostId: row.hostId,
+		name: row.name,
+		accountType: row.accountType,
+		minecraftAccount: row.minecraftAccount,
+		minecraftUsername: row.minecraftUsername,
+		status: row.status,
+		lastExitCode: row.lastExitCode,
+		createdAt: row.createdAt,
+	})
+
 	const toScheduledCommandPublic = (row: InstanceCommandRow): ScheduledCommandPublic => ({
 		id: row.id,
 		instanceId: row.instanceId,
@@ -496,17 +509,17 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	}
 
 	const controller = {
-		list: async (ctx: ActorContext): Promise<InstanceRow[]> => {
+		list: async (ctx: ActorContext): Promise<InstancePublic[]> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			return await deps.instances.list(scopeOf(ctx))
+			return (await deps.instances.list(scopeOf(ctx))).map(toInstancePublic)
 		},
 
-		get: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
+		get: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			return await requireInstance(ctx, instanceId)
+			return toInstancePublic(await requireInstance(ctx, instanceId))
 		},
 
-		create: async (ctx: ActorContext, given: CreateInstanceInput): Promise<InstanceRow> => {
+		create: async (ctx: ActorContext, given: CreateInstanceInput): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.create")
 			const input = createInstanceInput.parse(given)
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
@@ -617,10 +630,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				await transport.close().catch(() => undefined)
 			}
 
-			return created
+			return toInstancePublic(created)
 		},
 
-		start: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
+		start: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)
 			if (instance.status === "needs_auth") {
@@ -651,10 +664,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				})
 				return row
 			})
-			return updated
+			return toInstancePublic(updated)
 		},
 
-		restart: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
+		restart: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)
 			if (instance.status === "needs_auth") {
@@ -669,7 +682,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			await writeConfigDocument(ctx, rotated, document)
 			await unitCommand(ctx, rotated, "start")
 
-			return await deps.withTransaction(async (repos) => {
+			const restarted = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
 				if (!row) {
 					throw new InstanceConcurrentlyModifiedError(
@@ -686,15 +699,16 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				})
 				return row
 			})
+			return toInstancePublic(restarted)
 		},
 
-		stop: async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
+		stop: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)
 
 			await unitCommand(ctx, instance, "stop")
 
-			return await deps.withTransaction(async (repos) => {
+			const stopped = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "stopped" })
 				if (!row) {
 					throw new InstanceConcurrentlyModifiedError(
@@ -711,6 +725,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				})
 				return row
 			})
+			return toInstancePublic(stopped)
 		},
 
 		sendCommand: async (ctx: ActorContext, instanceId: string, command: string): Promise<void> => {

@@ -1,16 +1,12 @@
+import type { HostPublic } from "@open-mcc/contracts"
 import { useNavigate } from "@tanstack/react-router"
 import type { ReactElement, ReactNode } from "react"
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "~/components/ui/context-menu"
 
-export type HostContextTarget = {
-	id: string
-	name: string
-	hostname: string
-	username: string
-	port: number
-	status: string
-	hostKeyFingerprint: string | null
-}
+export type HostContextTarget = Pick<
+	HostPublic,
+	"id" | "name" | "hostname" | "username" | "port" | "status" | "hostKeyFingerprint"
+>
 
 export type HostContextMenuProps = {
 	host: HostContextTarget

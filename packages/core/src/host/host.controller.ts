@@ -3,6 +3,7 @@ import {
 	type CreateHostInput,
 	can,
 	type HostCheckReport,
+	type HostPublic,
 	type Role,
 } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
@@ -78,6 +79,32 @@ export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
 export class HostConcurrentlyModifiedError extends Error {}
 export class HostProvisioningInProgressError extends Error {}
+
+const toHostPublic = (row: HostRow): HostPublic => ({
+	id: row.id,
+	name: row.name,
+	hostname: row.hostname,
+	port: row.port,
+	username: row.username,
+	mode: row.mode,
+	status: row.status,
+	hostKeyFingerprint: row.hostKeyFingerprint,
+	hostKeyAlgorithm: row.hostKeyAlgorithm,
+	hostKeyTrustedAt: row.hostKeyTrustedAt,
+	hostKeyTrustedByLabel: row.hostKeyTrustedByLabel,
+	osId: row.osId,
+	osName: row.osName,
+	osRelease: row.osRelease,
+	sandboxed: row.sandboxed,
+	lastSeenAt: row.lastSeenAt,
+	failedUnits: row.failedUnits,
+	provisioningStep: row.provisioningStep,
+	provisioningStepIndex: row.provisioningStepIndex,
+	provisioningStepTotal: row.provisioningStepTotal,
+	provisioningError: row.provisioningError,
+	teardownError: row.teardownError,
+	teardownRequestedAt: row.teardownRequestedAt,
+})
 
 export const createHostController = (deps: HostControllerDeps) => {
 	const teardownPayloadFor = async (host: HostRow): Promise<Record<string, string> | undefined> => {
@@ -174,7 +201,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					},
 				})
 
-				return created
+				return toHostPublic(created)
 			})
 		},
 
@@ -345,7 +372,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					detail: { osRelease: result.osRelease, mode: result.profile.mode },
 				})
 
-				return updated
+				return toHostPublic(updated)
 			})
 		},
 
@@ -385,13 +412,13 @@ export const createHostController = (deps: HostControllerDeps) => {
 					detail: { fingerprint: trust.hostKeyFingerprint },
 				})
 
-				return updated
+				return toHostPublic(updated)
 			})
 		},
 
 		list: async (ctx: ActorContext) => {
 			if (!can(ctx.role, "instance.read")) throw new ForbiddenError("Forbidden: read")
-			return deps.hosts.list({ organizationId: ctx.organizationId })
+			return (await deps.hosts.list({ organizationId: ctx.organizationId })).map(toHostPublic)
 		},
 
 		remove: async (ctx: ActorContext, hostId: string) => {

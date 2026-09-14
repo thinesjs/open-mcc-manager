@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
+import { instancePublic } from "@open-mcc/contracts"
 import type {
 	McpLoadedBot,
 	McpPlayerStats,
@@ -15,6 +16,7 @@ import {
 	createSshKeyRepository,
 	generateKeyPair,
 	generateSshKeyPair,
+	type SecretStore,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
@@ -35,6 +37,7 @@ const ORIGIN = "http://localhost:5173"
 
 let db: Db
 let app: Hono
+let secrets: SecretStore
 
 beforeAll(async () => {
 	db = createDb(process.env.TEST_DATABASE_URL ?? "")
@@ -45,7 +48,7 @@ beforeAll(async () => {
 		disableRateLimit: true,
 		allowOrganizationCreation: true,
 	})
-	const secrets = await createSecretStore(await generateKeyPair("k1"))
+	secrets = await createSecretStore(await generateKeyPair("instancepublicsealbox"))
 	const hosts = createHostRepository(db)
 	const sshKeys = createSshKeyRepository(db)
 
@@ -79,7 +82,7 @@ beforeAll(async () => {
 				},
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
-				instanceController: await createTestInstanceController(db),
+				instanceController: await createTestInstanceController(db, secrets),
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController: createSshKeyController({
@@ -127,8 +130,10 @@ afterEach(async () => {
 	}
 	if (organizationIds.length > 0) {
 		await db.deleteFrom("auditEvent").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("instanceConfig").where("organizationId", "in", organizationIds).execute()
 		await db.deleteFrom("instance").where("organizationId", "in", organizationIds).execute()
 		await db.deleteFrom("host").where("organizationId", "in", organizationIds).execute()
+		await db.deleteFrom("sshKey").where("organizationId", "in", organizationIds).execute()
 		await db.deleteFrom("member").where("organizationId", "in", organizationIds).execute()
 		await db.deleteFrom("organization").where("id", "in", organizationIds).execute()
 	}
@@ -607,4 +612,226 @@ describe("which controller method each readout route reaches", () => {
 			expect(await res.json()).toMatchObject({ result: { data: SENTINELS[route] } })
 		},
 	)
+})
+
+const SEALED_TOKEN_SENTINEL = "sealed-live-control-token-sentinel"
+const TOKEN_KEY_SENTINEL = "sealed-token-key-id-sentinel"
+const AUTH_CLAIM_SENTINEL = "auth-claim-id-sentinel"
+
+const WITHHELD_INSTANCE_FIELDS = [
+	"liveControlTokenEncrypted",
+	"liveControlTokenKeyId",
+	"authClaimId",
+	"authClaimedAt",
+	"organizationId",
+]
+
+const PUBLIC_INSTANCE_FIELDS = Object.keys(instancePublic.shape).sort()
+
+const shownResponseSchema = z.object({
+	result: z.object({
+		data: z.union([z.array(z.object({}).passthrough()), z.object({}).passthrough()]),
+	}),
+})
+
+const shownEntries = (text: string) => {
+	const data = shownResponseSchema.parse(JSON.parse(text)).result.data
+	return Array.isArray(data) ? data : [data]
+}
+
+const seedReadyInstance = async (
+	orgId: string,
+	memberId: string,
+): Promise<{ hostId: string; instanceId: string }> => {
+	const sshKeyId = randomUUID()
+	const sealed = secrets.seal("PRIVATE KEY")
+	await db
+		.insertInto("sshKey")
+		.values({
+			id: sshKeyId,
+			organizationId: orgId,
+			name: `key-${sshKeyId}`,
+			publicKey: "ssh-ed25519 AAAA",
+			privateKeyEncrypted: sealed.ciphertext,
+			privateKeyKeyId: sealed.keyId,
+		})
+		.execute()
+	const hostId = randomUUID()
+	await db
+		.insertInto("host")
+		.values({
+			id: hostId,
+			organizationId: orgId,
+			name: `vps-${hostId}`,
+			hostname: "10.0.0.1",
+			mode: "system",
+			status: "ready",
+			sshKeyId,
+			hostKeyAlgorithm: "ssh-ed25519",
+			hostKeyFingerprint: "SHA256:instancepublicIJKLMNOPQRSTUVWXYZabcdefghijk",
+			hostKeyTrustedBy: memberId,
+			hostKeyTrustedByLabel: "seed@example.com",
+			hostKeyTrustedAt: new Date(),
+			instancesRoot: "/srv/open-mcc",
+			unitDir: "/etc/systemd/system",
+		})
+		.execute()
+	const instanceId = randomUUID()
+	await db
+		.insertInto("instance")
+		.values({
+			id: instanceId,
+			organizationId: orgId,
+			hostId,
+			name: `afk-${instanceId.slice(0, 8)}`,
+			minecraftAccount: "afk@example.com",
+			minecraftUsername: null,
+			liveControlPort: 48919,
+			liveControlTokenEncrypted: SEALED_TOKEN_SENTINEL,
+			liveControlTokenKeyId: TOKEN_KEY_SENTINEL,
+			authClaimId: AUTH_CLAIM_SENTINEL,
+			authClaimedAt: new Date(),
+			status: "stopped",
+		})
+		.execute()
+	seededInstanceIds.push(instanceId)
+	return { hostId, instanceId }
+}
+
+const readInstance = async (cookie: string, instanceId: string): Promise<Response> =>
+	await app.request(
+		`/trpc/instance.get?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+		{
+			headers: { Origin: ORIGIN, Cookie: cookie },
+		},
+	)
+
+const INSTANCE_PROCEDURES = [
+	{
+		procedure: "list",
+		role: "viewer",
+		send: (cookie: string) =>
+			app.request("/trpc/instance.list", { headers: { Origin: ORIGIN, Cookie: cookie } }),
+	},
+	{
+		procedure: "get",
+		role: "viewer",
+		send: (cookie: string, seeded: { instanceId: string }) =>
+			readInstance(cookie, seeded.instanceId),
+	},
+	{
+		procedure: "create",
+		role: "owner",
+		send: (cookie: string, seeded: { hostId: string }) =>
+			call("instance.create", cookie, {
+				hostId: seeded.hostId,
+				name: "public-shape-bot",
+				accountType: "offline",
+				minecraftAccount: "PublicShapeBot",
+				serverAddress: "play.example.com",
+			}),
+	},
+	{
+		procedure: "start",
+		role: "owner",
+		send: (cookie: string, seeded: { instanceId: string }) =>
+			call("instance.start", cookie, { instanceId: seeded.instanceId }),
+	},
+	{
+		procedure: "restart",
+		role: "owner",
+		send: (cookie: string, seeded: { instanceId: string }) =>
+			call("instance.restart", cookie, { instanceId: seeded.instanceId }),
+	},
+	{
+		procedure: "stop",
+		role: "owner",
+		send: (cookie: string, seeded: { instanceId: string }) =>
+			call("instance.stop", cookie, { instanceId: seeded.instanceId }),
+	},
+]
+
+describe("what an instance procedure sends the browser", () => {
+	it.each(INSTANCE_PROCEDURES)(
+		"★ instance.$procedure hands a $role exactly the public instance fields",
+		async ({ role, send }) => {
+			const { cookie, orgId, memberId } = await signUpAndActivate()
+			const seeded = await seedReadyInstance(orgId, memberId)
+			await demoteToRole(orgId, role)
+
+			const res = await send(cookie, seeded)
+			const text = await res.text()
+			expect(res.status, text).toBe(200)
+
+			const entries = shownEntries(text)
+			expect(entries.length).toBeGreaterThan(0)
+			for (const entry of entries) {
+				expect(Object.keys(entry).sort()).toEqual(PUBLIC_INSTANCE_FIELDS)
+			}
+		},
+	)
+
+	it.each(INSTANCE_PROCEDURES)(
+		"★ instance.$procedure never carries the sealed live control token, its key or the sign-in claim",
+		async ({ role, send }) => {
+			const { cookie, orgId, memberId } = await signUpAndActivate()
+			const seeded = await seedReadyInstance(orgId, memberId)
+			await demoteToRole(orgId, role)
+
+			const res = await send(cookie, seeded)
+			const text = await res.text()
+			expect(res.status, text).toBe(200)
+
+			for (const field of WITHHELD_INSTANCE_FIELDS) {
+				expect(PUBLIC_INSTANCE_FIELDS).not.toContain(field)
+				for (const entry of shownEntries(text)) {
+					expect(Object.keys(entry)).not.toContain(field)
+				}
+			}
+
+			const stored = await db
+				.selectFrom("instance")
+				.select([
+					"liveControlTokenEncrypted",
+					"liveControlTokenKeyId",
+					"authClaimId",
+					"organizationId",
+				])
+				.where("organizationId", "=", orgId)
+				.execute()
+			const withheldValues = stored
+				.flatMap((row) => [
+					row.liveControlTokenEncrypted,
+					row.liveControlTokenKeyId,
+					row.authClaimId,
+					row.organizationId,
+				])
+				.filter((value) => value !== null)
+			expect(withheldValues.length).toBeGreaterThan(0)
+			for (const value of withheldValues) {
+				expect(text).not.toContain(value)
+			}
+		},
+	)
+
+	it("★ a refused start names nothing the instance withholds", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		await db
+			.updateTable("instance")
+			.set({ status: "needs_auth" })
+			.where("id", "=", instanceId)
+			.execute()
+
+		const res = await call("instance.start", cookie, { instanceId })
+		const text = await res.text()
+		expect(res.status, text).toBe(409)
+
+		for (const value of [SEALED_TOKEN_SENTINEL, TOKEN_KEY_SENTINEL, AUTH_CLAIM_SENTINEL, orgId]) {
+			expect(text).not.toContain(value)
+		}
+		for (const field of WITHHELD_INSTANCE_FIELDS) {
+			expect(text).not.toContain(field)
+		}
+	})
 })

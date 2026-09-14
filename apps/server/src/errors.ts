@@ -44,7 +44,12 @@ import {
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
 import { constraintViolationOf } from "@open-mcc/db"
-import { ChannelLimitReachedError } from "@open-mcc/transport"
+import {
+	ChannelLimitReachedError,
+	CommandAbortedError,
+	LiveChannelUnavailableError,
+	StreamOverflowError,
+} from "@open-mcc/transport"
 
 export class InvitationNotFoundError extends Error {}
 
@@ -257,6 +262,20 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_LIVE_CONTROL_UNREADABLE",
 			"The client answered in a way this manager could not read",
+		)
+	}
+	if (cause instanceof LiveChannelUnavailableError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_LIVE_UNAVAILABLE",
+			"The client's live channel is not available right now",
+		)
+	}
+	if (cause instanceof CommandAbortedError || cause instanceof StreamOverflowError) {
+		return mapped(
+			"CONFLICT",
+			"HOST_COMMAND_INTERRUPTED",
+			"A command on the host stopped before it finished",
 		)
 	}
 	if (cause instanceof ChannelLimitReachedError) {

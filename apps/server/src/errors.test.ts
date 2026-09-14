@@ -17,6 +17,8 @@ import {
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
+import * as transport from "@open-mcc/transport"
+import { LiveChannelUnavailableError } from "@open-mcc/transport"
 import { DatabaseError } from "pg"
 import { describe, expect, it } from "vitest"
 import * as serverErrors from "./errors"
@@ -233,10 +235,17 @@ describe("mapKnownError coverage of the error classes it is given", () => {
 	const wireErrorConstructors = [
 		...exportedErrorConstructors(core),
 		...exportedErrorConstructors(serverErrors),
+		...exportedErrorConstructors(transport),
 	]
 
 	it("finds error classes to check, so the coverage assertion below cannot pass vacuously", () => {
 		expect(wireErrorConstructors.length).toBeGreaterThan(0)
+	})
+
+	it("answers a drop or hold with no live channel as a conflict the dashboard can explain", () => {
+		expect(
+			mapKnownError(new LiveChannelUnavailableError("Live view is not open for this instance")),
+		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_LIVE_UNAVAILABLE", httpStatus: 409 })
 	})
 
 	it("maps every error class the domain packages export, so a new one cannot become a silent 500", () => {

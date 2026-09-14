@@ -273,6 +273,22 @@ describe("live reads with no channel", () => {
 		const body = z.object({ result: z.object({ data: z.null() }) }).safeParse(await res.json())
 		expect(body.success).toBe(true)
 	})
+
+	it("says the live view is not available when a drop has no channel to go through", async () => {
+		const { cookie, orgId } = await signUpAndActivate()
+		const instanceId = await seedInstance(orgId)
+
+		const res = await call("instance.dropInventoryItem", cookie, {
+			instanceId,
+			itemType: "Diamond",
+			count: 1,
+		})
+		const body = await res.text()
+
+		expect(res.status).toBe(409)
+		expect(body).toContain("INSTANCE_LIVE_UNAVAILABLE")
+		expect(body).not.toContain("Internal server error")
+	})
 })
 
 describe("instance router capability boundaries", () => {

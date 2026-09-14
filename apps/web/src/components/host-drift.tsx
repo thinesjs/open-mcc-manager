@@ -42,6 +42,8 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	const summary = query.data ? summariseDrift(query.data) : undefined
 	const nameFor = (instanceId: string): string =>
 		instancesQuery.data?.find((instance) => instance.id === instanceId)?.name ?? instanceId
+	const isRestarting = (instanceId: string): boolean =>
+		restartMutation.isPending && restartMutation.variables?.instanceId === instanceId
 	const isRunning = (instanceId: string): boolean =>
 		instancesQuery.data?.find((instance) => instance.id === instanceId)?.status === "running"
 
@@ -151,10 +153,10 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 											<Button
 												size="sm"
 												variant="secondary"
-												disabled={restartMutation.isPending}
+												disabled={isRestarting(group.instanceId)}
 												onClick={() => restartMutation.mutate({ instanceId: group.instanceId })}
 											>
-												{restartMutation.isPending ? (
+												{isRestarting(group.instanceId) ? (
 													<Spinner label="Restarting" />
 												) : (
 													"Restart to fix"

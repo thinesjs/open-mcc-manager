@@ -10,6 +10,7 @@ const restart = vi.fn()
 const INSTANCES = [
 	{ id: "parked", name: "Parked", status: "stopped" },
 	{ id: "busy", name: "Busy", status: "running" },
+	{ id: "other", name: "Other", status: "running" },
 ]
 
 const RECONCILIATION: HostReconciliation = {
@@ -17,7 +18,7 @@ const RECONCILIATION: HostReconciliation = {
 	reachable: true,
 	unitDrift: [],
 	stateDrift: [],
-	configDrift: ["parked", "busy"].map((instanceId) => ({
+	configDrift: ["parked", "busy", "other"].map((instanceId) => ({
 		instanceId,
 		kind: "managed",
 		key: "Main.General.Server",
@@ -87,5 +88,17 @@ describe("fixing a bot whose config drifted", () => {
 
 		await waitFor(() => expect(restart).toHaveBeenCalledTimes(1))
 		expect(restart.mock.calls[0]?.[0]).toEqual({ instanceId: "busy" })
+	})
+
+	it("shows only the bot being restarted as restarting, and leaves the other one ready", async () => {
+		restart.mockImplementation(() => new Promise(() => undefined))
+		mount()
+		const busy = await rowFor("Busy")
+		const other = await rowFor("Other")
+
+		fireEvent.click(busy.getByRole("button", { name: "Restart to fix" }))
+
+		expect(await busy.findByRole("button", { name: "Restarting" })).toBeDefined()
+		expect(other.getByRole("button", { name: "Restart to fix" })).toHaveProperty("disabled", false)
 	})
 })

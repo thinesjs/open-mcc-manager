@@ -62,6 +62,7 @@ import {
 	InstanceBotConfigUnusableError,
 	InstanceConfigUnusableError,
 	type InstanceControllerDeps,
+	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceNotRunningError,
 	InstanceRemovalFailedError,
@@ -131,7 +132,7 @@ const hostRow: HostRow = {
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
 	provisioningError: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	cpuCount: null,
 	memoryMb: null,
 	lastSeenAt: null,
@@ -741,7 +742,9 @@ describe("reconciliation", () => {
 
 	it("★ tells a host that was never finished apart from one that did not answer", async () => {
 		const { deps } = makeDeps({
-			hosts: { findById: vi.fn(async () => ({ ...hostRow, status: "pending" as const })) },
+			hosts: {
+				findById: vi.fn(async () => ({ ...hostRow, status: "pending" as const, osRelease: null })),
+			},
 		})
 		const controller = createInstanceController(deps)
 
@@ -1820,5 +1823,60 @@ describe("stopping an instance", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+})
+
+describe("a bot on a host whose Repair setup did not finish", () => {
+	const setUpOnce = (status: HostRow["status"]): HostRow => ({
+		...hostRow,
+		status,
+		osRelease: "systemd 252",
+	})
+
+	const onHost = (host: HostRow) => makeDeps({ hosts: { findById: vi.fn(async () => host) } })
+
+	it.each(["error", "provisioning"] as const)(
+		"can still be stopped while the host is %s after a repair",
+		async (status) => {
+			const { deps, transport } = onHost(setUpOnce(status))
+
+			await createInstanceController(deps).stop(owner, "abc123")
+
+			expect(transport.commands.some((each) => each.includes("stop 'open-mcc@abc123'"))).toBe(true)
+		},
+	)
+
+	it("can still be removed, its row deleted, after a repair failed", async () => {
+		const { deps, transport, instances } = onHost(setUpOnce("error"))
+
+		await createInstanceController(deps).remove(owner, "abc123")
+
+		expect(transport.commands).toContain('rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123')
+		expect(instances.delete).toHaveBeenCalledTimes(1)
+	})
+
+	it("is not joined by a new bot until a repair succeeds, and the host is never reached", async () => {
+		const { deps, transport, instances } = onHost(setUpOnce("error"))
+
+		await expect(
+			createInstanceController(deps).create(owner, {
+				hostId: "host-1",
+				name: "afk-2",
+				accountType: "microsoft",
+				minecraftAccount: "afk@example.com",
+				serverAddress: "play.example.com",
+			}),
+		).rejects.toBeInstanceOf(InstanceHostNotProvisionedError)
+		expect(transport.commands).toEqual([])
+		expect(instances.insert).not.toHaveBeenCalled()
+	})
+
+	it("is refused on a host that was never set up, before the host is reached", async () => {
+		const { deps, transport } = onHost({ ...hostRow, status: "error", osRelease: null })
+
+		await expect(createInstanceController(deps).stop(owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceHostNotProvisionedError,
+		)
+		expect(transport.commands).toEqual([])
 	})
 })

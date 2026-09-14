@@ -72,9 +72,9 @@ export const startAuthCommand = (instanceId: string): string => {
 	return `rm -f ${instanceDir(instanceId)}/auth.log && ${systemctl(`start ${unit}`)}`
 }
 
-const requireReady = (host: Pick<HostRow, "status">): void => {
-	if (host.status !== "ready") {
-		throw new InstanceHostNotFoundError("Host has not finished provisioning")
+const requireSetUpOnce = (host: Pick<HostRow, "osRelease">): void => {
+	if (host.osRelease === null) {
+		throw new InstanceHostNotFoundError("Host has never finished provisioning")
 	}
 }
 
@@ -120,7 +120,7 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 	}
 
-	requireReady(host)
+	requireSetUpOnce(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -197,7 +197,7 @@ export const completeAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireReady(host)
+	requireSetUpOnce(host)
 	const dir = instanceDir(instance.id)
 	const transport = deps.createTransport()
 	try {
@@ -263,7 +263,7 @@ export const cancelAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireReady(host)
+	requireSetUpOnce(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {

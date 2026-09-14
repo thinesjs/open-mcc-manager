@@ -27,6 +27,7 @@ import {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
+	InstanceHostNotFoundError,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
@@ -93,7 +94,7 @@ const hostRow: HostRow = {
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
 	provisioningError: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	cpuCount: null,
 	memoryMb: null,
 	lastSeenAt: null,
@@ -473,6 +474,34 @@ describe("cancelAuthentication", () => {
 			expect.anything(),
 			expect.objectContaining({ detail: expect.objectContaining({ phase: "cancelled" }) }),
 		)
+	})
+
+	it("still stops a sign-in on a host a failed Repair setup left in error", async () => {
+		const { deps, transport } = makeDeps("", {
+			hosts: {
+				findById: vi.fn(async () => ({ ...hostRow, status: "error" as const })),
+			},
+		})
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).resolves.toEqual({
+			authenticated: false,
+			status: "needs_auth",
+		})
+		expect(
+			transport.commands.some((each) => each.includes("stop 'open-mcc-auth@abc123.service'")),
+		).toBe(true)
+	})
+
+	it("refuses a host that was never set up, before reaching it", async () => {
+		const { deps, transport } = makeDeps("", {
+			hosts: { findById: vi.fn(async () => ({ ...hostRow, osRelease: null })) },
+		})
+		const connect = vi.spyOn(transport, "connect")
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceHostNotFoundError,
+		)
+		expect(connect).not.toHaveBeenCalled()
 	})
 })
 

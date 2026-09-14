@@ -64,7 +64,7 @@ const HOST: HostRow = {
 	memoryMb: null,
 	osId: null,
 	osName: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	failedUnits: null,
 	provisioningAttemptId: null,
 	provisioningClaimedAt: null,

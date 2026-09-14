@@ -206,8 +206,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!host.hostKeyFingerprint) {
 			throw new InstanceHostNotFoundError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
-		if (host.status !== "ready") {
-			throw new InstanceHostNotProvisionedError(`Host ${hostId} has not finished provisioning`)
+		if (host.osRelease === null) {
+			throw new InstanceHostNotProvisionedError(`Host ${hostId} has never finished provisioning`)
 		}
 		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
@@ -518,6 +518,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const input = createInstanceInput.parse(given)
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
+			if (host.status !== "ready") {
+				throw new InstanceHostNotProvisionedError(`Host ${input.hostId} is not ready for a new bot`)
+			}
 
 			const onHost = (await deps.instances.list(scopeOf(ctx))).filter(
 				(instance) => instance.hostId === input.hostId,

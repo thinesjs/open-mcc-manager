@@ -27,10 +27,14 @@ const deps = (
 	claimRun = vi.fn(async () => true),
 ) => {
 	const recordRun = vi.fn(async () => undefined)
+	const onError = vi.fn((_message: string, _error: Error | string) => {})
+	const describeFailure = vi.fn((_error: Error | string) => "The command could not be sent")
 	return {
 		send,
 		claimRun,
 		recordRun,
+		onError,
+		describeFailure,
 		dueCommands: async () => rows,
 		now: () => monday9am,
 	}
@@ -64,19 +68,22 @@ describe("scheduler tick", () => {
 
 		const result = await runSchedulerTick(base)
 
-		expect(result.failed).toEqual([{ id: "cmd-1", reason: "Connection refused" }])
+		expect(result.failed).toEqual([{ id: "cmd-1", reason: "The command could not be sent" }])
 		expect(result.fired).toEqual(["cmd-2"])
 	})
 
-	it("records the failure reason so an operator can see why it never ran", async () => {
+	it("★ records its own words for why a command never ran, and gives the host's words to the log alone", async () => {
+		const refused = new Error("cat: /home/mcc/instances/abc123/control: 203.0.113.9:2222")
 		const send = vi.fn(async () => {
-			throw new Error("Host unreachable")
+			throw refused
 		})
 		const base = deps([row()], send)
 
 		await runSchedulerTick(base)
 
-		expect(base.recordRun).toHaveBeenCalledWith("cmd-1", monday9am, "Host unreachable")
+		expect(base.recordRun).toHaveBeenCalledWith("cmd-1", monday9am, "The command could not be sent")
+		expect(base.describeFailure).toHaveBeenCalledWith(refused)
+		expect(base.onError).toHaveBeenCalledWith("Scheduled command cmd-1 failed", refused)
 	})
 
 	it("records a bad timezone as a failure rather than throwing out of the tick", async () => {
@@ -112,6 +119,7 @@ describe("scheduler loop", () => {
 				send: async () => undefined,
 				claimRun: async () => true,
 				recordRun: async () => undefined,
+				describeFailure: () => "The command could not be sent",
 				now: () => monday9am,
 			},
 			10,
@@ -133,6 +141,7 @@ describe("scheduler loop", () => {
 				send: async () => undefined,
 				claimRun: async () => true,
 				recordRun: async () => undefined,
+				describeFailure: () => "The command could not be sent",
 				now: () => monday9am,
 			},
 			10,

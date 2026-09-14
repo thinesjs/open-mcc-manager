@@ -137,6 +137,7 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 		onFailed: async (hostId, organizationId, reason) => {
 			await hosts.recordTeardownFailure(hostId, organizationId, reason).catch(() => undefined)
 		},
+		onError: runtimeErrorReporter(logger),
 	})
 
 	await boss.work(HOST_TEARDOWN_QUEUE, async (jobs: Job[]) => {

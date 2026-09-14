@@ -39,6 +39,7 @@ import {
 	runtimeErrorReporter,
 	type SchedulerHandle,
 	type SendJob,
+	scheduledRunFailure,
 	startHealthPoller,
 	startHeartbeat,
 	startScheduler,
@@ -158,6 +159,7 @@ export const startServer = async (
 				.filter((instance) => instance.hostId === hostId)
 				.map((instance) => instance.id),
 		withTransaction: createHostControllerTransaction(db, sendJob),
+		onError: runtimeErrorReporter(logger),
 	})
 	const statusController = createStatusController({
 		withTransaction: createStatusControllerTransaction(db),
@@ -260,6 +262,7 @@ export const startServer = async (
 	const scheduler = startScheduler({
 		dueCommands: () => commands.listEnabledAcrossOrganizations(),
 		send: (row) => instanceController.runScheduledCommand(row),
+		describeFailure: scheduledRunFailure,
 		claimRun: (id, ranAt, notRunSince) => commands.claimRun(id, ranAt, notRunSince),
 		recordRun: (id, ranAt, error) => commands.recordRun(id, ranAt, error),
 		now: () => new Date(),

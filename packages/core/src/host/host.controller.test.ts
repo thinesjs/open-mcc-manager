@@ -793,7 +793,11 @@ describe("host controller provisioning", () => {
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
 
-		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
+			new HostProvisioningFailedError(
+				"Could not confirm systemd and a usable home directory on this host.",
+			),
+		)
 
 		expect(transport.wasClosed()).toBe(true)
 		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
@@ -816,7 +820,9 @@ describe("host controller provisioning", () => {
 		const logged = vi.spyOn(console, "error").mockImplementation(() => {})
 
 		try {
-			await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+			await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
+				HostProvisioningFailedError,
+			)
 			const closeLog = logged.mock.calls.find((call) => String(call[0]).includes("close transport"))
 			expect(closeLog).toBeDefined()
 			const loggedText = closeLog?.slice(1).join(" ") ?? ""
@@ -829,10 +835,18 @@ describe("host controller provisioning", () => {
 
 	it("does not let a close() failure mask the original provisioning error", async () => {
 		const transport = createRejectingTransport("exec", { closeThrows: true })
-		const d = deps({ createTransport: vi.fn(() => transport) })
+		const onError = vi.fn((_message: string, _error: Error | string) => {})
+		const d = deps({ createTransport: vi.fn(() => transport), onError })
 		const controller = createHostController(d)
 
-		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection reset/i)
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
+			new HostProvisioningFailedError(
+				"Could not confirm systemd and a usable home directory on this host.",
+			),
+		)
+		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
+			expect.stringMatching(/connection reset/i),
+		])
 
 		expect(transport.wasClosed()).toBe(true)
 		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
@@ -963,7 +977,10 @@ describe("provisionHost", () => {
 })
 
 describe("what provisioning tells the operator when it fails", () => {
-	const provisioningHosts = (transport: HostTransport) => {
+	const provisioningHosts = (
+		transport: HostTransport,
+		onError: HostControllerDeps["onError"] = vi.fn(),
+	) => {
 		const hosts = {
 			findById: vi.fn(async () =>
 				makeHostRow({
@@ -1002,7 +1019,7 @@ describe("what provisioning tells the operator when it fails", () => {
 		return {
 			hosts,
 			controller: createHostController(
-				deps({ hosts, withTransaction, createTransport: () => transport }),
+				deps({ hosts, withTransaction, createTransport: () => transport, onError }),
 			),
 		}
 	}
@@ -1035,6 +1052,53 @@ describe("what provisioning tells the operator when it fails", () => {
 			"host-1",
 			"attempt-1",
 			"The server refused the connection",
+		)
+	})
+
+	it("★ records only its own words for the step that failed, and gives the host's words to the log alone", async () => {
+		const onError = vi.fn((_message: string, _error: Error | string) => {})
+		const { controller, hosts } = provisioningHosts(
+			createFakeTransport({
+				"systemctl --version | head -n 1": {
+					stdout: "",
+					stderr: "curl: (7) Failed to connect to 203.0.113.9 port 2222, token hunter2",
+					exitCode: 1,
+				},
+			}),
+			onError,
+		)
+		const copy = "Could not confirm systemd and a usable home directory on this host."
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
+			new HostProvisioningFailedError(copy),
+		)
+		expect(hosts.recordProvisioningFailure).toHaveBeenCalledWith(
+			expect.anything(),
+			"host-1",
+			"attempt-1",
+			copy,
+		)
+		expect(
+			onError.mock.calls.map(([, error]) => (error instanceof Error ? error.message : error)),
+		).toEqual([expect.stringContaining("203.0.113.9 port 2222")])
+	})
+
+	it("★ keeps to its own words when the connection fails part way, whatever the host said", async () => {
+		const { controller, hosts } = provisioningHosts(
+			createFakeTransport(
+				{},
+				{ exec: { "uname -m": new Error("Command timed out: uname -m on 203.0.113.9:2222") } },
+			),
+		)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+		expect(hosts.recordProvisioningFailure).toHaveBeenCalledWith(
+			expect.anything(),
+			"host-1",
+			"attempt-1",
+			"This host's processor could not be read, or has no client build.",
 		)
 	})
 

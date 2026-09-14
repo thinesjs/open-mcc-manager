@@ -949,6 +949,15 @@ same category as the server address they typed into the settings form. Known
 credential syntaxes continue through the redactor, which masks a
 `SEALBOX_KEYS=...` assignment and not a bare key value.
 
+That allowance is for logs alone. **A failure stored in a column or returned to
+the browser carries only this project's own fixed words**, never text a host,
+the SSH transport or the client produced. Map at the point the failure is
+recorded, not where it is thrown: `host.controller.ts` records the fixed copy
+for the step provisioning reached (`provision-failure.ts`), the teardown job and
+the scheduler do the same, and each hands the raw error to its redacted
+`onError` reporter. A rewrite of the steps behind those boundaries then cannot
+reopen the leak.
+
 Every deployment path that runs a daemon must forward `LOG_LEVEL` and
 `OTEL_EXPORTER_OTLP_ENDPOINT`. Compose passes only the variables it lists —
 there is no `env_file:` — so an unforwarded variable makes correct code ship a

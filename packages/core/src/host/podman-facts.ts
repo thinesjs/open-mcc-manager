@@ -85,7 +85,7 @@ export const storageStepCommand = (): string =>
 		`if [ -n "$overrides" ]; then printf 'refused\\n'; exit 1; fi`,
 		`state=$(${STORAGE_STATE_COMMAND})`,
 		`if [ "$state" = storage=fresh ]; then dir="$HOME"/.config/containers; mkdir -p "$dir" || exit 1; tmp=$(mktemp "$dir"/.storage.conf.XXXXXX) || exit 1; if ! printf '${STORAGE_CONF_FORMAT}' > "$tmp" || ! mv -f "$tmp" "$dir"/storage.conf; then rm -f "$tmp"; exit 1; fi; fi`,
-		`info=$(${PODMAN_INFO_COMMAND}) || exit 1`,
+		`if ! info=$(${PODMAN_INFO_COMMAND}); then [ "$state" != storage=used ] || printf 'used\\n'; exit 1; fi`,
 		`case "$info" in "true overlay") printf 'ready\\n' ;; "true "*) printf 'used\\n'; exit 1 ;; *) printf 'root\\n'; exit 1 ;; esac`,
 	].join("\n")
 

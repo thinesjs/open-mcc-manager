@@ -54,12 +54,12 @@ const writeFile = (home: string, relative: string, content: string): string => {
 	return path
 }
 
-const fakePodman = (home: string, info: string): string => {
+const fakePodman = (home: string, info: string, status = 0): string => {
 	const bin = join(home, "bin")
 	mkdirSync(bin)
 	writeFileSync(
 		join(bin, "podman"),
-		`#!/bin/sh\necho "$*" >> "$HOME/podman-calls"\nprintf '%s\\n' '${info}'\n`,
+		`#!/bin/sh\necho "$*" >> "$HOME/podman-calls"\nprintf '%s\\n' '${info}'\nexit ${status}\n`,
 	)
 	chmodSync(join(bin, "podman"), 0o755)
 	return `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`
@@ -247,6 +247,28 @@ describe("the storage step", () => {
 		expect(ran.status).not.toBe(0)
 		expect(outputOf(ran).trim()).toBe("used")
 		expect(existsSync(join(home, CONF))).toBe(false)
+	})
+
+	it("refuses as already used when Podman cannot start on an account that already ran it", () => {
+		const home = scratchHome()
+		mkdirSync(join(home, GRAPH, "vfs"), { recursive: true })
+		const path = fakePodman(home, "", 125)
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(ran.status).not.toBe(0)
+		expect(outputOf(ran).trim()).toBe("used")
+		expect(existsSync(join(home, CONF))).toBe(false)
+	})
+
+	it("reports no refusal word when Podman cannot start on an account it just set up", () => {
+		const home = scratchHome()
+		const path = fakePodman(home, "", 125)
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(ran.status).not.toBe(0)
+		expect(outputOf(ran).trim()).toBe("")
 	})
 
 	it("proceeds on an account that already ran Podman when it already reports overlay", () => {

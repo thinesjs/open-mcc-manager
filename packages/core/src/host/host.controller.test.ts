@@ -8,9 +8,11 @@ import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	CONNECT_TIMEOUT_MS,
 	createHostController,
+	FingerprintMismatchError,
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
 	HostHasInstancesError,
+	HostNotFoundError,
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostUnreachableError,
@@ -392,6 +394,88 @@ describe("what the dashboard hears when a host cannot be reached", () => {
 
 		expect(reachable?.outcome).toBe("fail")
 		expect(reachable?.detail).toBe("The server refused the connection")
+	})
+})
+
+describe("host controller re-trust", () => {
+	it("refuses a role without host.enroll before contacting the host", async () => {
+		const d = deps()
+
+		await expect(
+			createHostController(d).retrustHostKey({ ...ctx, role: "operator" }, "host-1", {
+				hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+			}),
+		).rejects.toThrow(/forbidden/i)
+
+		expect(d.probeHostKey).not.toHaveBeenCalled()
+		expect(d.hosts.updateHostKeyTrust).not.toHaveBeenCalled()
+	})
+
+	it("refuses a host this organization does not have before contacting anything", async () => {
+		const d = deps()
+		vi.mocked(d.hosts.findById).mockResolvedValueOnce(undefined)
+
+		await expect(
+			createHostController(d).retrustHostKey(ctx, "host-elsewhere", {
+				hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+			}),
+		).rejects.toBeInstanceOf(HostNotFoundError)
+
+		expect(d.probeHostKey).not.toHaveBeenCalled()
+	})
+
+	it("refuses a fingerprint the host does not present, without saying which one it presented", async () => {
+		const d = deps()
+		const presented = fingerprintFromKey(DEFAULT_HOST_KEY_BLOB)
+
+		const refusal = await createHostController(d)
+			.retrustHostKey(ctx, "host-1", {
+				hostKeyFingerprint: "SHA256:wrongIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst",
+			})
+			.then(
+				() => undefined,
+				(error: Error) => error,
+			)
+
+		expect(refusal).toBeInstanceOf(FingerprintMismatchError)
+		expect(refusal?.message).not.toContain(presented)
+		expect(d.hosts.updateHostKeyTrust).not.toHaveBeenCalled()
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	it("stores the key type the host presents, and audits the fingerprint it matched", async () => {
+		const blob = encodeAlgorithmBlob("ssh-rsa", Buffer.from("rsa-rotated-key-material"))
+		const expected = fingerprintFromKey(blob)
+		const d = deps({ probeHostKey: vi.fn(async () => blob) })
+
+		await createHostController(d).retrustHostKey(ctx, "host-1", { hostKeyFingerprint: expected })
+
+		expect(d.probeHostKey).toHaveBeenCalledWith("10.0.0.1", 22, expect.any(Number))
+		expect(d.hosts.updateHostKeyTrust).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"host-1",
+			expect.objectContaining({ hostKeyAlgorithm: "ssh-rsa", hostKeyFingerprint: expected }),
+		)
+		expect(d.audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ action: "host.retrust", detail: { fingerprint: expected } }),
+		)
+	})
+
+	it("says the host is unreachable when its key cannot be read, and changes nothing", async () => {
+		const d = deps({
+			probeHostKey: vi.fn(async () => {
+				throw new Error("Timed out reading host key from 10.0.0.1:22")
+			}),
+		})
+
+		await expect(
+			createHostController(d).retrustHostKey(ctx, "host-1", {
+				hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+			}),
+		).rejects.toBeInstanceOf(HostUnreachableError)
+
+		expect(d.hosts.updateHostKeyTrust).not.toHaveBeenCalled()
 	})
 })
 

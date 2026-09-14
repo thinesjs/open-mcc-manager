@@ -13,8 +13,6 @@ import { getErrorMessage } from "~/lib/errors"
 import { fingerprintCommand } from "~/lib/host-setup"
 import { useTRPC } from "~/lib/trpc"
 
-const ED25519 = "ssh-ed25519"
-
 export type RetrustHostKeyProps = {
 	hostId: string
 	hostName: string
@@ -49,7 +47,7 @@ export const RetrustHostKey = ({ hostId, hostName, role, disabled }: RetrustHost
 
 	const trust = (fingerprint: string) => {
 		retrustMutation.mutate(
-			{ hostId, hostKeyFingerprint: fingerprint, hostKeyAlgorithm: ED25519 },
+			{ hostId, hostKeyFingerprint: fingerprint },
 			{
 				onSuccess: () => {
 					queryClient.invalidateQueries({ queryKey: trpc.host.list.queryKey() })

@@ -75,11 +75,7 @@ describe("trusting a new fingerprint", () => {
 		fireEvent.click(trustButton())
 
 		await waitFor(() =>
-			expect(retrust.mock.calls[0]?.[0]).toEqual({
-				hostId: "host-1",
-				hostKeyFingerprint: FIRST,
-				hostKeyAlgorithm: "ssh-ed25519",
-			}),
+			expect(retrust.mock.calls[0]?.[0]).toEqual({ hostId: "host-1", hostKeyFingerprint: FIRST }),
 		)
 	})
 

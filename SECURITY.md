@@ -161,7 +161,10 @@ depth, not a substitute for one.
   required and checked there too. A tailnet authenticates the *network peer*,
   not the SSH service the manager then speaks to, and it does not distinguish a
   reinstalled or substituted host from the original — so it narrows who can
-  attempt the connection without establishing what answers it.
+  attempt the connection without establishing what answers it. Re-trusting a
+  host after its key changes follows the same rule: the operator supplies the
+  new fingerprint, the control plane reads the key the host presents, refuses
+  one that does not match, and stores the key type the host presented.
 - **Sealed secrets with rotation.** Private keys and other secrets are sealed
   with `libsodium` public-key sealed boxes, addressed by `keyId`. Exactly one
   key pair is active for sealing new secrets at a time (`SecretStore.activeKeyId`);

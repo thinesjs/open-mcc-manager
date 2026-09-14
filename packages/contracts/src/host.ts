@@ -70,7 +70,6 @@ export type HostPublic = z.infer<typeof hostPublic>
 export const retrustHostKeyInput = z.object({
 	hostId: z.string().min(1),
 	hostKeyFingerprint: hostKeyFingerprint,
-	hostKeyAlgorithm: z.string().min(1),
 })
 
 export type RetrustHostKeyInput = z.infer<typeof retrustHostKeyInput>

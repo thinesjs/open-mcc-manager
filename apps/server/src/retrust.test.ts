@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
+import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
 	createHostController,
 	createHostControllerTransaction,
@@ -29,7 +30,15 @@ import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
 const ORIGINAL_FINGERPRINT = "SHA256:originalIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
-const NEW_FINGERPRINT = "SHA256:newvalueIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
+const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
+	const name = Buffer.from(algorithm, "ascii")
+	const length = Buffer.alloc(4)
+	length.writeUInt32BE(name.length, 0)
+	return Buffer.concat([length, name, extra])
+}
+const ROTATED_HOST_KEY = encodeAlgorithmBlob("ssh-rsa", Buffer.from("retrust-rotated-key"))
+const NEW_FINGERPRINT = fingerprintFromKey(ROTATED_HOST_KEY)
+const NOT_PRESENTED_FINGERPRINT = "SHA256:absentIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs"
 
 let db: Db
 let app: Hono
@@ -52,9 +61,7 @@ beforeAll(async () => {
 		hosts,
 		sshKeys,
 		secrets,
-		probeHostKey: async () => {
-			throw new Error("probeHostKey should not be called by retrustHostKey")
-		},
+		probeHostKey: async () => ROTATED_HOST_KEY,
 		createTransport: () => createFakeTransport(),
 		instanceIdsOnHost: async () => [],
 		now: () => new Date(),
@@ -224,7 +231,6 @@ describe("host.retrustHostKey", () => {
 			body: JSON.stringify({
 				hostId,
 				hostKeyFingerprint: NEW_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
 			}),
 		})
 		const body = await res.text()
@@ -232,11 +238,12 @@ describe("host.retrustHostKey", () => {
 
 		const row = await db
 			.selectFrom("host")
-			.select(["hostKeyFingerprint", "hostKeyTrustedByLabel"])
+			.select(["hostKeyFingerprint", "hostKeyTrustedByLabel", "hostKeyAlgorithm"])
 			.where("id", "=", hostId)
 			.executeTakeFirst()
 		expect(row?.hostKeyFingerprint).toBe(NEW_FINGERPRINT)
 		expect(row?.hostKeyTrustedByLabel).toBe(email)
+		expect(row?.hostKeyAlgorithm).toBe("ssh-rsa")
 
 		const audit = await db
 			.selectFrom("auditEvent")
@@ -245,6 +252,32 @@ describe("host.retrustHostKey", () => {
 			.where("action", "=", "host.retrust")
 			.executeTakeFirst()
 		expect(audit?.actorLabel).toBe(email)
+	})
+
+	it("refuses a fingerprint the host does not present, leaving the trusted one and leaking neither", async () => {
+		const { email, cookie, orgId } = await signUpAndActivate()
+		const memberId = await ownerMemberId(orgId, email)
+		const hostId = await seedTrustedHost(orgId, memberId)
+
+		const res = await app.request("/trpc/host.retrustHostKey", {
+			method: "POST",
+			headers: { "content-type": "application/json", Origin: ORIGIN, Cookie: cookie },
+			body: JSON.stringify({ hostId, hostKeyFingerprint: NOT_PRESENTED_FINGERPRINT }),
+		})
+		const body = await res.text()
+
+		expect(res.status, body).toBe(400)
+		expect(errorResponseSchema.parse(JSON.parse(body)).error.data.errorCode).toBe(
+			"FINGERPRINT_MISMATCH",
+		)
+		expect(body).not.toContain(NEW_FINGERPRINT)
+		expect(body).not.toContain(NOT_PRESENTED_FINGERPRINT)
+		const row = await db
+			.selectFrom("host")
+			.select(["hostKeyFingerprint"])
+			.where("id", "=", hostId)
+			.executeTakeFirst()
+		expect(row?.hostKeyFingerprint).toBe(ORIGINAL_FINGERPRINT)
 	})
 
 	it("rejects a retrust while provisioning is in progress with a distinct code, and leaves the fingerprint unchanged, without leaking any fingerprint", async () => {
@@ -268,7 +301,6 @@ describe("host.retrustHostKey", () => {
 			body: JSON.stringify({
 				hostId,
 				hostKeyFingerprint: NEW_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
 			}),
 		})
 		const body = await res.text()
@@ -327,7 +359,6 @@ describe("host.retrustHostKey", () => {
 			body: JSON.stringify({
 				hostId,
 				hostKeyFingerprint: NEW_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
 			}),
 		})
 		const body = await res.text()

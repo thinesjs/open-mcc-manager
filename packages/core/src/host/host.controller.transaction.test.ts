@@ -989,7 +989,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		const retrustPromise = retrustController
 			.retrustHostKey(ctx, hostId, {
 				hostKeyFingerprint: ROTATED_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
 			})
 			.finally(() => {
 				retrustSettled = true
@@ -1080,7 +1079,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			await sshKeyLookupStarted
 			await retrustController.retrustHostKey(ctx, hostId, {
 				hostKeyFingerprint: ROTATED_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
 			})
 		} finally {
 			releaseSshKeyLookup()
@@ -1472,7 +1470,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			await expect(
 				retrustController.retrustHostKey(ctx, hostId, {
 					hostKeyFingerprint: ROTATED_FINGERPRINT,
-					hostKeyAlgorithm: "ssh-ed25519",
 				}),
 			).rejects.toThrow(HostProvisioningInProgressError)
 		} finally {
@@ -1524,7 +1521,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		})
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
 			hostKeyFingerprint: ROTATED_FINGERPRINT,
-			hostKeyAlgorithm: "ssh-ed25519",
 		})
 
 		expect(retrusted?.hostKeyFingerprint).toBe(ROTATED_FINGERPRINT)
@@ -1549,7 +1545,6 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		const ctx = actorFor(organizationId, memberId)
 		const retrusted = await retrustController.retrustHostKey(ctx, hostId, {
 			hostKeyFingerprint: ROTATED_FINGERPRINT,
-			hostKeyAlgorithm: "ssh-ed25519",
 		})
 
 		expect(retrusted?.hostKeyFingerprint).toBe(ROTATED_FINGERPRINT)

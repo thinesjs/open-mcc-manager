@@ -3,26 +3,19 @@
 ## Trust boundary
 
 The control plane holds credentials — SSH private keys and, through them, the
-ability to install and start systemd units — for every host it manages. How far
-that reaches depends on the host's privilege model, chosen at enrolment and
-fixed thereafter:
-
-- **Without root** (the default). The manager connects as an ordinary account
-  and works only inside that account's home directory, under its systemd user
-  manager. It never gains root, and a stolen key yields one unprivileged account
-  per host rather than the host itself. The operator runs
-  `loginctl enable-linger <user>` once, by hand, so instances survive logout and
-  start at boot; provisioning refuses to continue until they have.
-- **With root.** The manager installs system-wide units under
-  `/etc/systemd/system` and gives each instance its own locked account. This
-  buys isolation between instances on one host, and costs root-equivalent
-  control of that host.
+ability to install and start systemd units — for every host it manages. Every
+host is managed the same way. The manager connects as the one account enrolled
+for that host and works only inside that account's home directory, under its
+systemd user manager. It never asks for root, so enrol an ordinary account: a
+stolen key then yields that one unprivileged account rather than the host
+itself. The operator runs `loginctl enable-linger <user>` once, by hand, so
+instances survive logout and start at boot; provisioning refuses to continue
+until they have.
 
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an
-attacker gains on each host is bounded by that host's mode: an unprivileged
-account under **Without root**, and root under **With root**. A compromise limited to
-the database alone is narrower — private keys are stored sealed (see
+attacker gains on each host is bounded by that enrolled account. A compromise
+limited to the database alone is narrower — private keys are stored sealed (see
 **Sealed secrets with rotation** below), so a database-only attacker gets
 ciphertext they cannot open without also reaching the application process or
 its environment secrets. Treat a database compromise as serious regardless —
@@ -275,50 +268,33 @@ depth, not a substitute for one.
   permanently diverging from upstream's cache handling. A compromised host yields
   that account's Microsoft refresh token, and hosts should not be shared across
   trust boundaries an operator cares about keeping separate.
-- **Without root, instances share a user, so their isolation rests entirely on
-  systemd.** Creating an account per instance needs root. Under **Without root**
-  every instance runs as the connecting account, and identical ownership makes
-  `0700`/`0600` no barrier between siblings. The units therefore hide the home
+- **Instances on one host share a user, so their isolation rests entirely on
+  systemd.** Every instance runs as the connecting account, and identical
+  ownership makes `0700`/`0600` no barrier between siblings. The units therefore hide the home
   directory behind a tmpfs and bind back only the instance's own directory, so
   an instance cannot see another's Microsoft session cache at all. That holds
   only where the host's systemd applies it — see the next point — and where it
-  does not, one instance can read every other's files. Choose **With root**
-  where the isolation must not depend on the host's systemd version.
-- **Under Without root, systemd's filesystem hardening may be silently
-  discarded.** The instance unit asks for `ProtectSystem=strict`, `PrivateTmp`
-  and a `ReadWritePaths=` scoped to its own directory. Those directives need a
+  does not, one instance can read every other's files.
+- **systemd's filesystem hardening may be silently discarded.** The instance
+  unit asks for `ProtectSystem=strict`, `PrivateTmp` and a `ReadWritePaths=`
+  scoped to its own directory. Those directives need a
   mount namespace, and a systemd user manager that cannot set one up ignores
   them without logging anything. Whether it can depends on the host, not on the
   unit: the same systemd version was measured enforcing them on one machine and
-  discarding them on another, so the version alone does not tell you. Because
-  the answer cannot be inferred, provisioning measures it. The host is asked to
-  run a throwaway unit with `PrivateTmp` and the result is checked for whether
-  the isolation actually took, and the host page reports whether
-  confinement is **Enforced by systemd** or **Not enforced by this host's
-  systemd**. Where it is not enforced, an instance is confined only by POSIX
-  ownership — which, per the point above, does not separate it from its
-  siblings. `NoNewPrivileges=yes`, `UMask=0077` and the exit-code restart policy
-  need no namespace and apply in both cases. Under **With root** the system
-  manager enforces all of it.
+  discarding them on another, so the version alone does not tell you, and
+  nothing here measures it. Where they are discarded, an instance is confined
+  only by POSIX ownership — which, per the point above, does not separate it
+  from its siblings. `NoNewPrivileges=yes`, `UMask=0077` and the exit-code
+  restart policy need no namespace and apply either way.
 - **Signing in to Microsoft runs under its own unit, with the same
   restrictions.** Reading the device code needs the client's output, which the
   manager takes from a file inside the instance's directory rather than by
   launching the client outside systemd. Sign-in is therefore confined exactly as
   a running instance is, and is stopped by unit name rather than by matching
   process names.
-- **With root, instances sharing a host are isolated by systemd and POSIX
-  ownership, not by containers.** Each runs as its own unprivileged user in its own private group
-  under `ProtectSystem=strict`, `NoNewPrivileges=yes`, and a `ReadWritePaths=`
-  scoped to its own directory. Instance state is owner-only: the directory is
-  `0700`, and `env`, `MinecraftClient.ini`, `auth.log` and the control FIFO are
-  all `0600`, so no instance is a group peer of any other. That is weaker than
-  kernel-namespace isolation, and it is a deliberate trade: the exit-code policy
-  the supervisor needs — never restart on a rejected login — cannot be expressed
-  by a container restart policy. An escape from one instance's sandbox reaches
-  the other instances on that host.
 - **Drift reporting discloses other organizations' instance ids on a shared
   host.** Reconciliation enumerates the manager's unit files in
-  `/etc/systemd/system` and reports any the requesting organization does not
+  `~/.config/systemd/user` and reports any the requesting organization does not
   define. That listing is host-wide, while the expected set is organization-
   scoped, so if two organizations enroll the *same* machine, each sees the
   other's sleep timers — and therefore the other's instance ids — reported as

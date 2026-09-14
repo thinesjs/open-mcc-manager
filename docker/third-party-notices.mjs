@@ -53,40 +53,76 @@ const directoryEntries = (dir) => {
 	}
 }
 
-const packageDirsIn = (nodeModules, found, seen) => {
+const isWithin = (root, target) => {
+	const rel = path.relative(root, target)
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`))
+}
+
+const resolveEntry = (dir, entry, root) => {
+	if (!entry.isSymbolicLink()) return dir
+	let real
+	try {
+		real = fs.realpathSync(dir)
+	} catch {
+		return null
+	}
+	let stat
+	try {
+		stat = fs.statSync(real)
+	} catch {
+		return null
+	}
+	if (!stat.isDirectory()) return null
+	if (!isWithin(root, real)) {
+		throw new Error(`symlinked package escapes the deployed tree: ${dir} -> ${real}`)
+	}
+	return real
+}
+
+const packageDirsIn = (nodeModules, found, seen, root) => {
 	for (const entry of directoryEntries(nodeModules)) {
 		if (entry.name.startsWith(".")) continue
-		if (entry.isSymbolicLink()) continue
-		if (!entry.isDirectory()) continue
+		if (!entry.isSymbolicLink() && !entry.isDirectory()) continue
+		const dir = path.join(nodeModules, entry.name)
 		if (entry.name.startsWith("@")) {
-			for (const scoped of directoryEntries(path.join(nodeModules, entry.name))) {
+			const scopeDir = resolveEntry(dir, entry, root)
+			if (scopeDir === null) continue
+			for (const scoped of directoryEntries(scopeDir)) {
 				if (scoped.name.startsWith(".")) continue
-				if (scoped.isSymbolicLink()) continue
-				if (!scoped.isDirectory()) continue
+				if (!scoped.isSymbolicLink() && !scoped.isDirectory()) continue
 				recordPackageDir(
 					`${entry.name}/${scoped.name}`,
-					path.join(nodeModules, entry.name, scoped.name),
+					path.join(scopeDir, scoped.name),
+					scoped,
 					found,
 					seen,
+					root,
 				)
 			}
 			continue
 		}
-		recordPackageDir(entry.name, path.join(nodeModules, entry.name), found, seen)
+		recordPackageDir(entry.name, dir, entry, found, seen, root)
 	}
 }
 
-const recordPackageDir = (name, dir, found, seen) => {
-	const real = fs.realpathSync(dir)
+const recordPackageDir = (name, dir, entry, found, seen, root) => {
+	const real = resolveEntry(dir, entry, root)
+	if (real === null) return
 	if (seen.has(real)) return
 	seen.add(real)
-	addLocation(found, name, dir)
-	packageDirsIn(path.join(dir, "node_modules"), found, seen)
+	addLocation(found, name, real)
+	packageDirsIn(path.join(real, "node_modules"), found, seen, root)
 }
 
 export const shippedPackages = (nodeModules) => {
 	const found = new Map()
-	packageDirsIn(nodeModules, found, new Set())
+	let root
+	try {
+		root = fs.realpathSync(nodeModules)
+	} catch {
+		return found
+	}
+	packageDirsIn(root, found, new Set(), root)
 	return found
 }
 
@@ -186,7 +222,7 @@ export const collectEntries = (installRoot, deployRoot, metafiles) => {
 	const byVersion = new Map()
 	for (const { name, dir } of locations) {
 		const entry = readPackage(name, dir)
-		const key = `${entry.name}@${entry.version}`
+		const key = entry.version.length > 0 ? `${entry.name}@${entry.version}` : `${entry.name}@${dir}`
 		if (!byVersion.has(key)) byVersion.set(key, entry)
 	}
 	return [...byVersion.values()]
@@ -201,7 +237,13 @@ const main = () => {
 		process.exit(1)
 	}
 
-	const entries = collectEntries(installRoot, deployRoot, metafiles)
+	let entries
+	try {
+		entries = collectEntries(installRoot, deployRoot, metafiles)
+	} catch (error) {
+		process.stdout.write(`${error instanceof Error ? error.message : String(error)}\n`)
+		process.exit(1)
+	}
 	const missing = unattributed(entries)
 	if (missing.length > 0) {
 		process.stdout.write(`no licence text and no declared licence for: ${missing.join(", ")}\n`)

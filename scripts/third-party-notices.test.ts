@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -30,6 +30,12 @@ afterEach(() => {
 const writePackage = (dir: string, name: string, version: string, licenceText?: string) => {
 	mkdirSync(dir, { recursive: true })
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ name, version, license: "MIT" }))
+	if (licenceText !== undefined) writeFileSync(join(dir, "LICENSE"), licenceText)
+}
+
+const writeManifest = (dir: string, manifest: Record<string, string>, licenceText?: string) => {
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(join(dir, "package.json"), JSON.stringify(manifest))
 	if (licenceText !== undefined) writeFileSync(join(dir, "LICENSE"), licenceText)
 }
 
@@ -247,5 +253,89 @@ describe("generating notices against a real deployed tree", () => {
 		const result = runGenerator(installRoot, deployRoot, outFile)
 		expect(result.status).not.toBe(0)
 		expect(result.stdout).toContain("left-pad 2.0.0")
+	})
+})
+
+describe("symlinked packages in the deployed tree", () => {
+	it("attributes a symlinked package at its realpath-resolved directory", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		const realDir = join(deployRoot, "node_modules/.store/real-target")
+		writePackage(realDir, "real-target", "1.0.0", "resolved licence text")
+		symlinkSync(realDir, join(deployRoot, "node_modules/linked-alias"), "dir")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written).toContain("resolved licence text")
+		expect(written).toContain("1.0.0")
+	})
+
+	it("fails loudly when a symlinked package resolves outside the deployed tree", () => {
+		const installRoot = scratch()
+		const outerRoot = scratch()
+		const deployRoot = join(outerRoot, "deploy")
+		const outsideDir = join(outerRoot, "elsewhere", "linked-pkg")
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		writePackage(outsideDir, "linked-pkg", "1.0.0", "outside licence text")
+		writePackage(
+			join(deployRoot, "node_modules/real-pkg"),
+			"real-pkg",
+			"1.0.0",
+			"inside licence text",
+		)
+		symlinkSync(outsideDir, join(deployRoot, "node_modules/linked-pkg"), "dir")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).not.toBe(0)
+		expect(result.stdout).toContain("escapes the deployed tree")
+	})
+
+	it("terminates a symlink cycle and records a revisited package once", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		const cycDir = join(deployRoot, "node_modules/cyc")
+		writePackage(cycDir, "cyc", "1.0.0", "cyc licence text")
+		mkdirSync(join(cycDir, "node_modules"), { recursive: true })
+		symlinkSync(cycDir, join(cycDir, "node_modules/cyc-self"), "dir")
+		symlinkSync(cycDir, join(deployRoot, "node_modules/alias-to-cyc"), "dir")
+
+		const started = Date.now()
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(Date.now() - started).toBeLessThan(5000)
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written.split("cyc licence text").length - 1).toBe(1)
+	})
+})
+
+describe("version-less packages in the deployed tree", () => {
+	it("keeps two version-less packages with different licence texts distinct", () => {
+		const installRoot = scratch()
+		const deployRoot = scratch()
+		const outFile = join(scratch(), "NOTICES.txt")
+
+		writeManifest(
+			join(deployRoot, "node_modules/widget"),
+			{ name: "widget", license: "MIT" },
+			"TEXT-A",
+		)
+		writeManifest(
+			join(deployRoot, "node_modules/holder/node_modules/widget"),
+			{ name: "widget", license: "MIT" },
+			"TEXT-B",
+		)
+		writePackage(join(deployRoot, "node_modules/holder"), "holder", "1.0.0", "holder licence")
+
+		const result = runGenerator(installRoot, deployRoot, outFile)
+		expect(result.status).toBe(0)
+		const written = readFileSync(outFile, "utf8")
+		expect(written).toContain("TEXT-A")
+		expect(written).toContain("TEXT-B")
 	})
 })

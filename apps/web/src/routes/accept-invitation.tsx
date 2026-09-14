@@ -1,12 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { type FormEvent, type ReactNode, useState } from "react"
 import { z } from "zod"
 import { AffiliationNotice } from "~/components/affiliation-notice"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
+import { Spinner } from "~/components/ui/spinner"
+import { authClient } from "~/lib/auth-client"
 import { getErrorMessage } from "~/lib/errors"
 import { trpcClient } from "~/lib/trpc"
 
@@ -16,12 +18,66 @@ const acceptInvitationSearchSchema = z.object({
 
 export const Route = createFileRoute("/accept-invitation")({
 	validateSearch: acceptInvitationSearchSchema,
+	loader: async () => {
+		const session = await authClient.getSession()
+		return { signedInEmail: session.data?.user.email ?? null }
+	},
 	component: AcceptInvitationPage,
 })
 
 function AcceptInvitationPage() {
 	const { invitation } = Route.useSearch()
-	const [invitationId, setInvitationId] = useState(invitation ?? "")
+	const { signedInEmail } = Route.useLoaderData()
+
+	if (!invitation) {
+		return (
+			<NoticePage>
+				<p className="text-sm text-muted-foreground">This invitation link is incomplete.</p>
+			</NoticePage>
+		)
+	}
+	if (signedInEmail) return <SignedInNotice email={signedInEmail} />
+	return <AcceptInvitationForm invitationId={invitation} />
+}
+
+function NoticePage({ children }: { children: ReactNode }) {
+	return (
+		<div className="flex min-h-dvh items-center justify-center bg-background p-6">
+			<div className="w-full max-w-sm space-y-4 text-center">
+				{children}
+				<AffiliationNotice />
+			</div>
+		</div>
+	)
+}
+
+function SignedInNotice({ email }: { email: string }) {
+	const router = useRouter()
+	const [isSigningOut, setIsSigningOut] = useState(false)
+
+	const handleSignOut = async () => {
+		setIsSigningOut(true)
+		try {
+			await authClient.signOut()
+			await router.invalidate()
+		} finally {
+			setIsSigningOut(false)
+		}
+	}
+
+	return (
+		<NoticePage>
+			<p className="text-sm text-foreground">
+				You're signed in as {email}. Sign out to accept this invitation.
+			</p>
+			<Button variant="outline" className="w-full" disabled={isSigningOut} onClick={handleSignOut}>
+				{isSigningOut ? <Spinner label="Signing out" /> : "Sign out"}
+			</Button>
+		</NoticePage>
+	)
+}
+
+function AcceptInvitationForm({ invitationId }: { invitationId: string }) {
 	const [name, setName] = useState("")
 	const [password, setPassword] = useState("")
 	const [confirmPassword, setConfirmPassword] = useState("")
@@ -55,17 +111,14 @@ function AcceptInvitationPage() {
 
 	if (accepted) {
 		return (
-			<div className="flex min-h-dvh items-center justify-center bg-background p-6">
-				<div className="w-full max-w-sm space-y-4 text-center">
-					<Alert variant="success" icon={<CircleCheck />}>
-						Your account has been created. Sign in with your email and the password you just set.
-					</Alert>
-					<Link to="/sign-in" className="text-sm text-primary underline-offset-4 hover:underline">
-						Go to sign in
-					</Link>
-					<AffiliationNotice />
-				</div>
-			</div>
+			<NoticePage>
+				<Alert variant="success" icon={<CircleCheck />}>
+					Your account has been created. Sign in with your email and the password you just set.
+				</Alert>
+				<Link to="/sign-in" className="text-sm text-primary underline-offset-4 hover:underline">
+					Go to sign in
+				</Link>
+			</NoticePage>
 		)
 	}
 
@@ -84,15 +137,6 @@ function AcceptInvitationPage() {
 							{error}
 						</Alert>
 					) : null}
-					<div className="space-y-2">
-						<Label htmlFor="invitationId">Invitation ID</Label>
-						<Input
-							id="invitationId"
-							required
-							value={invitationId}
-							onChange={(event) => setInvitationId(event.target.value)}
-						/>
-					</div>
 					<div className="space-y-2">
 						<Label htmlFor="name">Name</Label>
 						<Input

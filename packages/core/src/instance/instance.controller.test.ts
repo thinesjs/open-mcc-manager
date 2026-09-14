@@ -9,7 +9,14 @@ import type {
 	SshKeyRow,
 } from "@open-mcc/db"
 import { DatabaseError } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import {
+	createFakeTransport,
+	createReadConnections,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+	type ReusableTransport,
+} from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 
 const READER_RESULTS = {
@@ -224,6 +231,14 @@ const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceComman
 
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport()
+	const readTransports: { next: () => ReusableTransport } = { next: () => transport }
+	const readConnections = createReadConnections({
+		createTransport: () => readTransports.next(),
+		idleMs: READ_CONNECTION_IDLE_MS,
+		hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+		channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+		now: () => Date.now(),
+	})
 	const audit: Pick<AuditRepository, "record"> = {
 		record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => auditEventRow({ ...entry })),
 	}
@@ -271,10 +286,11 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 			activeKeyId: "k1",
 		},
 		createTransport: () => transport,
+		readConnections,
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
 		...overrides,
 	}
-	return { transport, audit, instances, deps }
+	return { transport, audit, instances, deps, readTransports, readConnections }
 }
 
 describe("instance controller authorization", () => {
@@ -677,8 +693,8 @@ describe("★ what a scheduled command's failure is recorded as", () => {
 
 describe("reconciliation", () => {
 	it("reports an unreachable host as unknown, never as drift", async () => {
-		const { deps } = makeDeps()
-		deps.createTransport = () => {
+		const { deps, readTransports } = makeDeps()
+		readTransports.next = () => {
 			const transport = createFakeTransport()
 			transport.connect = async () => {
 				throw new Error("Connection refused")
@@ -696,11 +712,11 @@ describe("reconciliation", () => {
 
 	it("reports a host whose unit listing is refused as unknown, not as having nothing extra", async () => {
 		const { deps, transport } = makeDeps()
-		const original = transport.exec
-		transport.exec = async (command: string, timeoutMs: number, stdin?: string) =>
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
 			command.startsWith("ls -1")
 				? { stdout: "", stderr: "Permission denied", exitCode: 2 }
-				: await original(command, timeoutMs, stdin)
+				: await original(command, signal)
 		const controller = createInstanceController(deps)
 
 		const result = await controller.reconcileHost(owner, "host-1")
@@ -711,7 +727,7 @@ describe("reconciliation", () => {
 
 	it("reports a host that dies mid-check as unknown rather than fully drifted", async () => {
 		const { deps, transport } = makeDeps()
-		transport.exec = async () => {
+		transport.execUntil = async () => {
 			throw new Error("Connection reset by peer")
 		}
 		const controller = createInstanceController(deps)
@@ -724,8 +740,8 @@ describe("reconciliation", () => {
 	})
 
 	it("★ never carries the host's own words about why, which name its address", async () => {
-		const { deps } = makeDeps()
-		deps.createTransport = () => {
+		const { deps, readTransports } = makeDeps()
+		readTransports.next = () => {
 			const transport = createFakeTransport()
 			transport.connect = async () => {
 				throw new Error("connect ECONNREFUSED 10.4.5.6:22")
@@ -1644,11 +1660,11 @@ describe("saving the client's own bots, which reuses the config write", () => {
 			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
 			liveControlPort: instanceRow().liveControlPort,
 		}).replace("RequireAuthToken = true", "RequireAuthToken = false")
-		const exec = transport.exec
-		transport.exec = async (command, timeoutMs, stdin) =>
+		const execUntil = transport.execUntil
+		transport.execUntil = async (command, signal) =>
 			command.startsWith("cat ") && command.includes("MinecraftClient.ini")
 				? { stdout: onHost, stderr: "", exitCode: 0 }
-				: await exec(command, timeoutMs, stdin)
+				: await execUntil(command, signal)
 		const controller = createInstanceController(deps)
 
 		const result = await controller.reconcileHost(owner, "host-1")
@@ -1754,7 +1770,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 
 	it("★ still reports a transport failure as an unreachable host", async () => {
 		const { deps, transport } = withUnusableSavedConfig()
-		transport.exec = async () => {
+		transport.execUntil = async () => {
 			throw new Error("Connection reset by peer")
 		}
 		const controller = createInstanceController(deps)
@@ -1764,13 +1780,13 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		expect(result.reachable).toBe(false)
 	})
 
-	it("★ closes the host connection even when a saved document is unusable", async () => {
-		const { deps, transport } = withUnusableSavedConfig()
+	it("★ gives the host connection back even when a saved document is unusable", async () => {
+		const { deps, readConnections } = withUnusableSavedConfig()
 		const controller = createInstanceController(deps)
 
 		await controller.reconcileHost(owner, "host-1")
 
-		expect(transport.state()).toBe("disconnected")
+		expect(readConnections.activeLeases()).toBe(0)
 	})
 
 	it("★ refuses a settings save rather than silently emptying bots it could not read", async () => {

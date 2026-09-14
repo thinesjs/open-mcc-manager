@@ -1,5 +1,5 @@
 import type { InstanceConfigRow, InstanceRow } from "@open-mcc/db"
-import type { HostTransport } from "@open-mcc/transport"
+import type { HostReader } from "@open-mcc/transport"
 import { LiveChannelUnavailableError } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { resolveMinecraftName } from "./username"
@@ -52,57 +52,61 @@ const configRow = (document: InstanceConfigRow["document"]): InstanceConfigRow =
 	createdAt: new Date(),
 })
 
-const spyTransport = () => {
+const spyReader = () => {
 	const forwarded: number[] = []
-	const transport: HostTransport = {
-		state: () => "ready",
-		connect: async () => undefined,
+	let released = 0
+	const reader: HostReader = {
 		exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-		canForward: async () => true,
 		forward: async (port) => {
 			forwarded.push(port)
 			throw new LiveChannelUnavailableError("no channel in this test")
 		},
-		close: async () => undefined,
+		probePort: async () => "refused",
+		release: () => {
+			released += 1
+		},
 	}
-	return { transport, forwarded }
+	return { reader, forwarded, released: () => released }
 }
 
 describe("resolving the name an instance plays under", () => {
 	it("reads a document written before delays were ranges and still consults the client", async () => {
-		const { transport, forwarded } = spyTransport()
+		const { reader, forwarded, released } = spyReader()
 
-		const name = await resolveMinecraftName(instance(), transport, {
+		const name = await resolveMinecraftName(instance(), {
 			latestConfig: async () => configRow(LEGACY_DOCUMENT),
 			openToken: () => "token",
+			reader: async () => reader,
 		})
 
 		expect(forwarded).toEqual([33333])
 		expect(name).toBeUndefined()
+		expect(released()).toBe(1)
 	})
 
 	it("does not consult the client when the operator left live control off", async () => {
-		const { transport, forwarded } = spyTransport()
+		const { reader, forwarded } = spyReader()
 
-		await resolveMinecraftName(instance(), transport, {
+		await resolveMinecraftName(instance(), {
 			latestConfig: async () => configRow({ ...LEGACY_DOCUMENT, liveControlEnabled: false }),
 			openToken: () => "token",
+			reader: async () => reader,
 		})
 
 		expect(forwarded).toEqual([])
 	})
 
 	it("answers with the in-game name straight away for an offline account", async () => {
-		const { transport, forwarded } = spyTransport()
+		const { reader, forwarded } = spyReader()
 
 		const name = await resolveMinecraftName(
 			instance({ accountType: "offline", minecraftAccount: "Steve" }),
-			transport,
 			{
 				latestConfig: async () => {
 					throw new Error("the config should not be read for an offline account")
 				},
 				openToken: () => "token",
+				reader: async () => reader,
 			},
 		)
 

@@ -7,7 +7,8 @@ export {
 	ReadDeadlineExceededError,
 	TransportInterruptedError,
 } from "./errors"
-export { createFakeTransport } from "./fake"
+export type { FakeFailures, FakeScript } from "./fake"
+export { createFakeTransport, readerOver } from "./fake"
 export type {
 	ConnectionIdentity,
 	HostReader,

@@ -4,7 +4,6 @@ import {
 	controlLine,
 	DisallowedInternalCommandError,
 	INTERNAL_COMMANDS,
-	readConsole,
 	sendCommand,
 } from "./control"
 
@@ -87,26 +86,6 @@ describe("instance control channel", () => {
 	it("runs an allowed client command, which a slash line could never reach", () => {
 		expect(controlLine("!respawn")).toBe("/respawn")
 		expect(controlLine("!list")).toBe("/list")
-	})
-
-	it("bounds the journal read rather than streaming the whole unit history", async () => {
-		const transport = await connected()
-		await readConsole(transport, "abc", 100)
-		expect(transport.commands[0]).toContain("--lines 100")
-		expect(transport.commands[0]).toContain("open-mcc@abc")
-	})
-
-	it("reads the user journal, where the unit's log lives", async () => {
-		const transport = await connected()
-		await readConsole(transport, "abc", 100)
-		expect(transport.commands[0]).toContain("journalctl --user")
-	})
-
-	it("refuses an unbounded or absurd line count", async () => {
-		const transport = await connected()
-		await expect(readConsole(transport, "abc", 0)).rejects.toThrow()
-		await expect(readConsole(transport, "abc", 10_000)).rejects.toThrow()
-		expect(transport.commands).toEqual([])
 	})
 
 	it("emits an allowed command in the exact casing MCC's parser matches", () => {

@@ -1,5 +1,5 @@
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import { createFakeTransport, type FakeFailures, readerOver } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { renderUnitTemplates } from "../host/unit-template"
 import { renderInstanceConfig } from "./config"
@@ -50,8 +50,9 @@ const schedule = (overrides: Partial<InstanceScheduleRow> = {}): InstanceSchedul
 
 const connected = async (
 	script: Record<string, { stdout: string; stderr: string; exitCode: number }>,
+	failures: FakeFailures = {},
 ) => {
-	const transport = createFakeTransport(script)
+	const transport = createFakeTransport(script, failures)
 	await transport.connect({
 		hostname: "h",
 		port: 22,
@@ -60,7 +61,7 @@ const connected = async (
 		expectedFingerprint: "f",
 		timeoutMs: 1000,
 	})
-	return transport
+	return await readerOver(transport)
 }
 
 const listingOf = (names: string[]) => ({
@@ -819,7 +820,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-		})
+		}, { refusePorts: [33401] })
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,

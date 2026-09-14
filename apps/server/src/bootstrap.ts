@@ -30,7 +30,9 @@ import {
 	HOST_TEARDOWN_QUEUE,
 	hostList,
 	hostReadKey,
+	LIVE_CONTROL_TIMEOUT_MS,
 	type Logger,
+	leaseHostReader,
 	lockLostHandler,
 	readBuildInfo,
 	readConnectionChanges,
@@ -199,6 +201,7 @@ export const startServer = async (
 		sshKeys,
 		secrets,
 		createTransport: createSshTransport,
+		readConnections,
 		withTransaction: createInstanceControllerTransaction(db),
 	})
 	const destinationController = createDestinationController({
@@ -328,9 +331,18 @@ export const startServer = async (
 				if (reading.cursor !== null && reading.cursor !== cursor) {
 					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
 				}
-				const resolved = await resolveMinecraftName(instance, transport, {
+				const resolved = await resolveMinecraftName(instance, {
 					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
 					openToken: (sealed, keyId) => secrets.open(sealed, keyId),
+					reader: async () => {
+						const leased = await leaseHostReader(
+							{ hosts, sshKeys, secrets, readConnections },
+							scope,
+							host.id,
+							LIVE_CONTROL_TIMEOUT_MS,
+						)
+						return leased.kind === "leased" ? leased.reader : undefined
+					},
 				})
 				if (resolved !== undefined && resolved !== instance.minecraftUsername) {
 					await createInstanceRepository(db)

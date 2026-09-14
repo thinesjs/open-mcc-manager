@@ -1,6 +1,13 @@
 import { PassThrough } from "node:stream"
 import { ReadConnectionLostError } from "./errors"
 import {
+	createReadConnections,
+	type HostReader,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+} from "./read-connections"
+import {
 	type ConnectionState,
 	type ExecResult,
 	type ForwardedStream,
@@ -19,6 +26,7 @@ export type FakeFailures = {
 	exec?: Record<string, Error>
 	stall?: readonly string[]
 	stallPorts?: readonly number[]
+	refusePorts?: readonly number[]
 }
 
 export const createFakeTransport = (
@@ -121,7 +129,9 @@ export const createFakeTransport = (
 
 		forwardUntil: async (port: number, signal: AbortSignal) => {
 			if (state !== "ready") throw new ReadConnectionLostError("The fake connection is not open")
-			if (!forwarding) throw new LiveChannelUnavailableError("Forwarding is refused")
+			if (!forwarding || failures.refusePorts?.includes(port)) {
+				throw new LiveChannelUnavailableError("Forwarding is refused")
+			}
 			if (failures.stallPorts?.includes(port)) {
 				return await stallUntilAbandoned<ForwardedStream>(signal)
 			}
@@ -139,3 +149,30 @@ export const createFakeTransport = (
 		},
 	}
 }
+
+export const readerOver = (
+	transport: ReusableTransport,
+	deadlineMs = 60_000,
+): Promise<HostReader> =>
+	createReadConnections({
+		createTransport: () => transport,
+		idleMs: READ_CONNECTION_IDLE_MS,
+		hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+		channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+		now: () => Date.now(),
+	}).lease(
+		"fake",
+		{ hostname: "fake", port: 22, username: "fake", sshKeyId: "fake", hostKeyFingerprint: "fake" },
+		deadlineMs,
+		async (opened) => {
+			if (opened.state() === "ready") return
+			await opened.connect({
+				hostname: "fake",
+				port: 22,
+				username: "fake",
+				privateKey: "fake",
+				expectedFingerprint: "fake",
+				timeoutMs: 1_000,
+			})
+		},
+	)

@@ -8,7 +8,7 @@ import type {
 } from "@open-mcc/contracts"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import type { HostTransport } from "@open-mcc/transport"
+import { asReadCommand, type HostReader, ReadDeadlineExceededError } from "@open-mcc/transport"
 import { journalctl, systemctl, UNIT_DIR } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
@@ -31,7 +31,9 @@ export type {
 	UnitDrift,
 }
 
-export const RECONCILE_STEP_TIMEOUT_MS = 15_000
+export const RECONCILE_DEADLINE_MS = 60_000
+
+type SetupReader = Pick<HostReader, "exec" | "probePort">
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -91,10 +93,9 @@ export const desiredStateIsSatisfied = (
 
 const MISSING_MARKER = "__open_mcc_missing__"
 
-const readFile = async (transport: HostTransport, path: string): Promise<string | undefined> => {
-	const result = await transport.exec(
-		`cat ${path} 2>/dev/null || printf '%s' ${shellQuote(MISSING_MARKER)}`,
-		RECONCILE_STEP_TIMEOUT_MS,
+const readFile = async (reader: SetupReader, path: string): Promise<string | undefined> => {
+	const result = await reader.exec(
+		asReadCommand(`cat ${path} 2>/dev/null || printf '%s' ${shellQuote(MISSING_MARKER)}`),
 	)
 	return result.stdout === MISSING_MARKER ? undefined : result.stdout
 }
@@ -123,8 +124,8 @@ export const MANAGED_UNIT_PATTERN =
 
 export const isManagedUnit = (name: string): boolean => MANAGED_UNIT_PATTERN.test(name)
 
-const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
-	const result = await transport.exec(`ls -1 ${UNIT_DIR}`, RECONCILE_STEP_TIMEOUT_MS)
+const listManagedUnits = async (reader: SetupReader): Promise<string[]> => {
+	const result = await reader.exec(asReadCommand(`ls -1 ${UNIT_DIR}`))
 	if (result.exitCode !== 0) {
 		throw new Error(`Could not list the unit directory: ${result.stderr.trim()}`)
 	}
@@ -140,11 +141,11 @@ export type HostObservation = {
 }
 
 const readInstanceConfig = async (
-	transport: HostTransport,
+	reader: SetupReader,
 	instanceId: string,
 ): Promise<string | undefined> => {
 	const path = `${instanceDir(instanceId)}/${CONFIG_PATH_NAME}`
-	const result = await transport.exec(`cat ${path} 2>/dev/null || true`, RECONCILE_STEP_TIMEOUT_MS)
+	const result = await reader.exec(asReadCommand(`cat ${path} 2>/dev/null || true`))
 	const text = result.stdout
 	return text.trim().length === 0 ? undefined : text
 }
@@ -192,7 +193,7 @@ const toPublicDrift = (instanceId: string, entry: ConfigDrift): ConfigDriftPubli
 }
 
 const configDriftFor = async (
-	transport: HostTransport,
+	reader: SetupReader,
 	instances: readonly InstanceRow[],
 	expectedConfigs: ReadonlyMap<string, string>,
 ): Promise<ConfigDriftPublic[]> => {
@@ -200,7 +201,7 @@ const configDriftFor = async (
 	for (const instance of instances) {
 		const want = expectedConfigs.get(instance.id)
 		if (want === undefined) continue
-		const actual = await readInstanceConfig(transport, instance.id)
+		const actual = await readInstanceConfig(reader, instance.id)
 		if (actual === undefined) {
 			drift.push({
 				instanceId: instance.id,
@@ -232,7 +233,7 @@ const configDriftFor = async (
 }
 
 const silentLiveControl = async (
-	transport: HostTransport,
+	reader: SetupReader,
 	instances: readonly InstanceRow[],
 	expectedConfigs: ReadonlyMap<string, string>,
 	joined: ReadonlySet<string>,
@@ -249,7 +250,9 @@ const silentLiveControl = async (
 		if (reading.values.get("ChatBot.McpServer.Enabled") !== true) continue
 		const port = reading.values.get("ChatBot.McpServer.Transport.Port")
 		if (typeof port !== "number") continue
-		if (await transport.canForward(port, RECONCILE_STEP_TIMEOUT_MS)) continue
+		const probed = await reader.probePort(port)
+		if (probed === "open") continue
+		if (probed === "timeout") throw new ReadDeadlineExceededError("The setup check ran out of time")
 		drift.push({
 			instanceId: instance.id,
 			kind: "unreachable",
@@ -262,7 +265,7 @@ const silentLiveControl = async (
 }
 
 export const reconcileHostOverTransport = async (
-	transport: HostTransport,
+	reader: SetupReader,
 	hostId: string,
 	instances: readonly InstanceRow[],
 	expected: Map<string, string>,
@@ -270,12 +273,12 @@ export const reconcileHostOverTransport = async (
 ): Promise<HostObservation> => {
 	const unitDrift: UnitDrift[] = []
 	for (const [name, contents] of expected) {
-		const actual = await readFile(transport, `${UNIT_DIR}/${shellQuote(name)}`)
+		const actual = await readFile(reader, `${UNIT_DIR}/${shellQuote(name)}`)
 		if (actual === undefined) unitDrift.push({ kind: "missing", unit: name })
 		else if (actual !== contents) unitDrift.push({ kind: "differs", unit: name })
 	}
 
-	for (const name of await listManagedUnits(transport)) {
+	for (const name of await listManagedUnits(reader)) {
 		if (!expected.has(name)) unitDrift.push({ kind: "unexpected", unit: name })
 	}
 
@@ -283,15 +286,13 @@ export const reconcileHostOverTransport = async (
 	const joined = new Set<string>()
 	const seenPlayers = new Map<string, string>()
 	for (const instance of instances) {
-		const result = await transport.exec(
-			`${systemctl(`is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
-			RECONCILE_STEP_TIMEOUT_MS,
+		const result = await reader.exec(
+			asReadCommand(`${systemctl(`is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`),
 		)
 		let observed = parseObservedState(result.stdout)
 		if (observed === "active" && instance.status === "running") {
-			const journal = await transport.exec(
-				`${journalctl(`-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`,
-				RECONCILE_STEP_TIMEOUT_MS,
+			const journal = await reader.exec(
+				asReadCommand(`${journalctl(`-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`),
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"
 			if (journal.stdout.includes(JOINED_MARKER)) joined.add(instance.id)
@@ -303,8 +304,8 @@ export const reconcileHostOverTransport = async (
 		}
 	}
 
-	const configDrift = await configDriftFor(transport, instances, expectedConfigs)
-	configDrift.push(...(await silentLiveControl(transport, instances, expectedConfigs, joined)))
+	const configDrift = await configDriftFor(reader, instances, expectedConfigs)
+	configDrift.push(...(await silentLiveControl(reader, instances, expectedConfigs, joined)))
 
 	return {
 		reconciliation: { hostId, reachable: true, unitDrift, stateDrift, configDrift },

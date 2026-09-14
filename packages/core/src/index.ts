@@ -83,13 +83,13 @@ export {
 export type { CommandRepository, ScheduledCommandValues } from "./instance/command.repository"
 export { createCommandRepository } from "./instance/command.repository"
 export { ALLOWED_CONFIG_KEYS, renderInstanceConfig } from "./instance/config"
+export { CONSOLE_READ_DEADLINE_MS, readConsole } from "./instance/console"
 export {
 	CONTROL_TIMEOUT_MS,
 	controlLine,
 	DisallowedInternalCommandError,
 	INTERNAL_COMMAND_PREFIX,
 	INTERNAL_COMMANDS,
-	readConsole,
 	sendCommand,
 } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"
@@ -123,6 +123,7 @@ export {
 } from "./instance/instance.repository"
 export {
 	callLiveTool,
+	callReadTool,
 	LIVE_CHAT_MAX_LINES,
 	LIVE_CONTROL_TIMEOUT_MS,
 	LIVE_EVENT_MAX,

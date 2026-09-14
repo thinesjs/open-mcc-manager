@@ -32,8 +32,13 @@ import {
 	playersListFrom,
 	statusEffectsFrom,
 } from "@open-mcc/contracts/boundary/mcp-readouts"
-import type { HostTransport } from "@open-mcc/transport"
-import { LiveChannelUnavailableError } from "@open-mcc/transport"
+import {
+	type ForwardedStream,
+	type HostReader,
+	type HostTransport,
+	LiveChannelUnavailableError,
+	TransportInterruptedError,
+} from "@open-mcc/transport"
 
 export const LIVE_CONTROL_TIMEOUT_MS = 10_000
 
@@ -43,29 +48,61 @@ export const MAX_LIVE_RESPONSE_BYTES = 1024 * 1024
 
 export class LiveResponseTooLargeError extends Error {}
 
-export type LiveControlTarget = {
-	transport: HostTransport
+export const READ_TOOLS = [
+	"mcc_session_status",
+	"mcc_chat_history",
+	"mcc_recent_events",
+	"mcc_world_state",
+	"mcc_player_stats",
+	"mcc_status_effects",
+	"mcc_loaded_bots",
+	"mcc_players_list",
+	"mcc_entities_list",
+	"mcc_inventory_snapshot",
+] as const
+
+export type ReadToolName = (typeof READ_TOOLS)[number]
+
+export const WRITE_TOOLS = ["mcc_inventory_drop_item", "mcc_select_item"] as const
+
+export type WriteToolName = (typeof WRITE_TOOLS)[number]
+
+type LiveEndpoint = {
 	port: number
 	route: string
 	token: string
 }
 
+export type LiveControlTarget = LiveEndpoint & { transport: HostTransport }
+
+export type LiveReadTarget = LiveEndpoint & { reader: HostReader }
+
+type LiveChannels = {
+	open: (port: number) => Promise<ForwardedStream>
+	answerWithinMs: number | undefined
+}
+
 type HttpReply = { status: number; body: string; sessionId: string | undefined }
 
+const unavailable = (error: Error): Error =>
+	error instanceof TransportInterruptedError
+		? error
+		: new LiveChannelUnavailableError(error.message)
+
 const post = async (
-	target: LiveControlTarget,
+	channels: LiveChannels,
+	endpoint: LiveEndpoint,
 	payload: JsonRpcRequest | JsonRpcNotification,
 	sessionId: string | undefined,
-	timeoutMs: number,
 ): Promise<HttpReply> => {
-	const channel = await target.transport.forward(target.port, timeoutMs)
+	const channel = await channels.open(endpoint.port)
 	const body = JSON.stringify(payload)
 	const headers: Record<string, string> = {
 		"content-type": "application/json",
 		accept: "application/json, text/event-stream",
-		authorization: `Bearer ${target.token}`,
+		authorization: `Bearer ${endpoint.token}`,
 		"content-length": String(Buffer.byteLength(body)),
-		host: `127.0.0.1:${target.port}`,
+		host: `127.0.0.1:${endpoint.port}`,
 	}
 	if (sessionId !== undefined) headers[MCP_SESSION_HEADER] = sessionId
 
@@ -78,15 +115,20 @@ const post = async (
 			channel.close()
 			outcome()
 		}
-		const timer = setTimeout(
-			() => finish(() => reject(new LiveChannelUnavailableError("The client did not answer"))),
-			timeoutMs,
-		)
+		const timer =
+			channels.answerWithinMs === undefined
+				? undefined
+				: setTimeout(
+						() =>
+							finish(() => reject(new LiveChannelUnavailableError("The client did not answer"))),
+						channels.answerWithinMs,
+					)
+		channel.socket.on("error", (error: Error) => finish(() => reject(unavailable(error))))
 		const call = httpRequest(
 			{
 				createConnection: () => channel.socket,
 				method: "POST",
-				path: target.route,
+				path: endpoint.route,
 				headers,
 			},
 			(response) => {
@@ -116,14 +158,10 @@ const post = async (
 						}),
 					),
 				)
-				response.on("error", (error: Error) =>
-					finish(() => reject(new LiveChannelUnavailableError(error.message))),
-				)
+				response.on("error", (error: Error) => finish(() => reject(unavailable(error))))
 			},
 		)
-		call.on("error", (error: Error) =>
-			finish(() => reject(new LiveChannelUnavailableError(error.message))),
-		)
+		call.on("error", (error: Error) => finish(() => reject(unavailable(error))))
 		call.end(body)
 	})
 }
@@ -144,115 +182,108 @@ const ensureAccepted = (reply: HttpReply): void => {
 
 export type ToolArguments = Record<string, string | number | boolean>
 
-export const callLiveTool = async <T>(
-	target: LiveControlTarget,
-	tool: string,
+const callTool = async <T>(
+	channels: LiveChannels,
+	endpoint: LiveEndpoint,
+	tool: ReadToolName | WriteToolName,
 	read: (response: JsonRpcResponse) => T,
-	args: ToolArguments = {},
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
+	args: ToolArguments,
 ): Promise<T> => {
 	const handshake = await post(
-		target,
+		channels,
+		endpoint,
 		initializeRequest(1, LIVE_CONTROL_CLIENT),
 		undefined,
-		timeoutMs,
 	)
 	ensureAccepted(handshake)
 	responseFrom(handshake.body)
 
 	const session = handshake.sessionId
-	await post(target, initializedNotification(), session, timeoutMs)
+	await post(channels, endpoint, initializedNotification(), session)
 
-	const reply = await post(target, callToolRequest(2, tool, args), session, timeoutMs)
+	const reply = await post(channels, endpoint, callToolRequest(2, tool, args), session)
 	ensureAccepted(reply)
 	return read(responseFrom(reply.body))
 }
 
-export const readSessionStatus = (
+export const callLiveTool = <T>(
 	target: LiveControlTarget,
+	tool: WriteToolName,
+	read: (response: JsonRpcResponse) => T,
+	args: ToolArguments = {},
 	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpSessionStatus> =>
-	callLiveTool(target, "mcc_session_status", sessionStatusFrom, {}, timeoutMs)
+): Promise<T> =>
+	callTool(
+		{ open: (port) => target.transport.forward(port, timeoutMs), answerWithinMs: timeoutMs },
+		target,
+		tool,
+		read,
+		args,
+	)
+
+export const callReadTool = <T>(
+	target: LiveReadTarget,
+	tool: ReadToolName,
+	read: (response: JsonRpcResponse) => T,
+	args: ToolArguments = {},
+): Promise<T> =>
+	callTool(
+		{ open: (port) => target.reader.forward(port), answerWithinMs: undefined },
+		target,
+		tool,
+		read,
+		args,
+	)
+
+export const readSessionStatus = (target: LiveReadTarget): Promise<McpSessionStatus> =>
+	callReadTool(target, "mcc_session_status", sessionStatusFrom)
 
 export const LIVE_CHAT_MAX_LINES = 200
 
 export const readChatHistory = (
-	target: LiveControlTarget,
+	target: LiveReadTarget,
 	maxCount: number = LIVE_CHAT_MAX_LINES,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpChatEntry[]> =>
-	callLiveTool(
-		target,
-		"mcc_chat_history",
-		chatHistoryFrom,
-		{ maxCount, includeJson: true },
-		timeoutMs,
-	)
+	callReadTool(target, "mcc_chat_history", chatHistoryFrom, { maxCount, includeJson: true })
 
 export const LIVE_EVENT_MAX = 50
 
 export const readRecentEvents = (
-	target: LiveControlTarget,
+	target: LiveReadTarget,
 	afterId = 0,
 	maxCount: number = LIVE_EVENT_MAX,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
 ): Promise<McpEventPage> =>
-	callLiveTool(target, "mcc_recent_events", recentEventsFrom, { afterId, maxCount }, timeoutMs)
+	callReadTool(target, "mcc_recent_events", recentEventsFrom, { afterId, maxCount })
 
-export const readWorldState = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpWorldState> => callLiveTool(target, "mcc_world_state", worldStateFrom, {}, timeoutMs)
+export const readWorldState = (target: LiveReadTarget): Promise<McpWorldState> =>
+	callReadTool(target, "mcc_world_state", worldStateFrom)
 
-export const readPlayerStats = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpPlayerStats> =>
-	callLiveTool(target, "mcc_player_stats", playerStatsFrom, {}, timeoutMs)
+export const readPlayerStats = (target: LiveReadTarget): Promise<McpPlayerStats> =>
+	callReadTool(target, "mcc_player_stats", playerStatsFrom)
 
-export const readStatusEffects = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpStatusEffect[]> =>
-	callLiveTool(target, "mcc_status_effects", statusEffectsFrom, {}, timeoutMs)
+export const readStatusEffects = (target: LiveReadTarget): Promise<McpStatusEffect[]> =>
+	callReadTool(target, "mcc_status_effects", statusEffectsFrom)
 
-export const readLoadedBots = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpLoadedBot[]> => callLiveTool(target, "mcc_loaded_bots", loadedBotsFrom, {}, timeoutMs)
+export const readLoadedBots = (target: LiveReadTarget): Promise<McpLoadedBot[]> =>
+	callReadTool(target, "mcc_loaded_bots", loadedBotsFrom)
 
-export const readPlayersList = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<string[]> => callLiveTool(target, "mcc_players_list", playersListFrom, {}, timeoutMs)
+export const readPlayersList = (target: LiveReadTarget): Promise<string[]> =>
+	callReadTool(target, "mcc_players_list", playersListFrom)
 
 export const LIVE_ENTITY_MAX = 25
 
 export const LIVE_ENTITY_RADIUS = 32
 
-export const readEntities = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpEntityList> =>
-	callLiveTool(
-		target,
-		"mcc_entities_list",
-		entityListFrom,
-		{ maxCount: LIVE_ENTITY_MAX, radius: LIVE_ENTITY_RADIUS },
-		timeoutMs,
-	)
+export const readEntities = (target: LiveReadTarget): Promise<McpEntityList> =>
+	callReadTool(target, "mcc_entities_list", entityListFrom, {
+		maxCount: LIVE_ENTITY_MAX,
+		radius: LIVE_ENTITY_RADIUS,
+	})
 
-export const readInventory = (
-	target: LiveControlTarget,
-	timeoutMs: number = LIVE_CONTROL_TIMEOUT_MS,
-): Promise<McpInventory> =>
-	callLiveTool(
-		target,
-		"mcc_inventory_snapshot",
-		inventoryFrom,
-		{ inventoryId: PLAYER_INVENTORY_ID },
-		timeoutMs,
-	)
+export const readInventory = (target: LiveReadTarget): Promise<McpInventory> =>
+	callReadTool(target, "mcc_inventory_snapshot", inventoryFrom, {
+		inventoryId: PLAYER_INVENTORY_ID,
+	})
 
 export const dropInventoryItem = (
 	target: LiveControlTarget,

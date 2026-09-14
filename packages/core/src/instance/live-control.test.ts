@@ -1,9 +1,20 @@
 import { createServer, type Server } from "node:http"
 import { connect } from "node:net"
-import type { HostTransport } from "@open-mcc/transport"
+import type { HostReader } from "@open-mcc/transport"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { LIVE_CONTROL_ROUTE } from "./config"
-import { readLoadedBots, readPlayerStats, readPlayersList, readStatusEffects } from "./live-control"
+import {
+	type LiveControlTarget,
+	type LiveReadTarget,
+	READ_TOOLS,
+	type ReadToolName,
+	readLoadedBots,
+	readPlayerStats,
+	readPlayersList,
+	readStatusEffects,
+	WRITE_TOOLS,
+	type WriteToolName,
+} from "./live-control"
 
 const PAYLOADS: Record<string, object> = {
 	mcc_player_stats: {
@@ -88,19 +99,22 @@ afterAll(async () => {
 	await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
-const transport: HostTransport = {
-	state: () => "ready",
-	connect: async () => undefined,
+const reader: HostReader = {
 	exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-	canForward: async () => true,
 	forward: async () => {
 		const socket = connect(servedPort, "127.0.0.1")
 		return { socket, close: () => socket.destroy() }
 	},
-	close: async () => undefined,
+	probePort: async () => "open",
+	release: () => undefined,
 }
 
-const target = () => ({ transport, port: servedPort, route: LIVE_CONTROL_ROUTE, token: "t" })
+const target = (): LiveReadTarget => ({
+	reader,
+	port: servedPort,
+	route: LIVE_CONTROL_ROUTE,
+	token: "t",
+})
 
 describe("reading the four live readouts over a real channel", () => {
 	it("asks the client for the player stats by name and normalises the answer", async () => {
@@ -172,5 +186,27 @@ describe("one refused readout leaves the others alone", () => {
 
 		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1)
 		expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(3)
+	})
+})
+
+type Assignable<From, To> = [From] extends [To] ? true : false
+
+describe("T17: the read side cannot name a write, checked by the compiler", () => {
+	const dropIsNotARead: Assignable<"mcc_inventory_drop_item", ReadToolName> = false
+	const selectIsNotARead: Assignable<"mcc_select_item", ReadToolName> = false
+	const noWriteIsARead: Assignable<WriteToolName, ReadToolName> = false
+	const aReadTargetIsNotAWriteTarget: Assignable<LiveReadTarget, LiveControlTarget> = false
+	const aReaderIsNotAWriteTransport: Assignable<HostReader, LiveControlTarget["transport"]> = false
+
+	it("keeps both inventory writes, and the transport they need, off the read side", () => {
+		expect([
+			dropIsNotARead,
+			selectIsNotARead,
+			noWriteIsARead,
+			aReadTargetIsNotAWriteTarget,
+			aReaderIsNotAWriteTransport,
+		]).toEqual([false, false, false, false, false])
+		const readable = new Set<string>(READ_TOOLS)
+		expect(WRITE_TOOLS.filter((write) => readable.has(write))).toEqual([])
 	})
 })

@@ -70,10 +70,24 @@ export const run = (
 const commandOf = (args: readonly string[]): readonly string[] =>
 	args[0] === "container" ? args.slice(1) : args
 
-const MOUNT = /^(?:-[A-Za-z]*v|--volume(?:=|$)|--mount|--volumes-from)|docker\.sock/
+const MOUNT_FLAG = /^(?:-[A-Za-z]*v.*|--volume(?:=.*)?|--mount(?:=.*)?|--volumes-from(?:=.*)?)$/
+const SOCKET = /docker\.sock/
+
+const mountsIntoRunOrCreate = (args: readonly string[]): boolean => {
+	const command = commandOf(args)
+	if (command[0] !== "run" && command[0] !== "create") return false
+	for (let index = 1; index < command.length; index += 1) {
+		const each = command[index]
+		if (each === "--") return false
+		if (each !== undefined && MOUNT_FLAG.test(each)) return true
+	}
+	return false
+}
 
 export const reachesThisMachine = (args: readonly string[]): boolean =>
-	commandOf(args)[0] === "cp" || args.some((each) => MOUNT.test(each))
+	commandOf(args)[0] === "cp" ||
+	args.some((each) => SOCKET.test(each)) ||
+	mountsIntoRunOrCreate(args)
 
 const FORCE = /^(?:--force(?:=.*)?|-[A-Za-z]*f[A-Za-z]*)$/
 const SIGNAL = /^(?:--signal(?:=.*)?|-s.*)$/

@@ -260,6 +260,48 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 	},
 )
 
+describe("the host setup script, when the account step prints an escape sequence", () => {
+	let host = ""
+
+	beforeAll(async () => {
+		host = await startHost(inject("sandbox"))
+		succeeded(
+			await shell(
+				host,
+				{
+					...ROOT,
+					input: [
+						"#!/bin/sh",
+						"printf '\\033[1Aowned\\n'",
+						"printf '\\033[1Aowned\\n' >&2",
+						'exec /usr/bin/su "$@"',
+						"",
+					].join("\n"),
+				},
+				"cat > /usr/local/bin/su && chmod 755 /usr/local/bin/su",
+			),
+			"installing a su that emits an escape sequence, as a compromised account's surviving child would",
+		)
+	})
+
+	afterAll(async () => {
+		await remove(host)
+	})
+
+	it("shows no escape byte from it, so the account cannot rewrite the fingerprint root prints", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+
+		const ran = await setUp(host, "rootless", account, key.publicKey)
+
+		expect(ran.status, ran.stderr).toBe(0)
+		expect(ran.stdout).toContain("owned")
+		expect(ran.stdout).not.toContain("\u001b")
+		expect(ran.stderr).not.toContain("\u001b")
+		expect(await read(host, authorizedKeysOf(account))).toBe(`${key.publicKey}\n`)
+	})
+})
+
 describe("the host setup script, on a machine with no libicu", () => {
 	let host = ""
 

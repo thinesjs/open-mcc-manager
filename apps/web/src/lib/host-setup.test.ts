@@ -4,6 +4,7 @@ import { fingerprintCommand, hostSetupScript, requiresRootAccount } from "./host
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI manager key"
 
 const ACCOUNT_STEP = 'setsid su -s /bin/sh "$account" -c "$authorise"'
+const STRIP_CONTROL = "tr -d '\\000-\\010\\013-\\037\\177'"
 
 describe("the command an operator pastes onto a new host", () => {
 	it("is one paste, not a list of steps to get right in order", () => {
@@ -37,13 +38,17 @@ describe("the command an operator pastes onto a new host", () => {
 	it("writes the account's ssh files as that account, so a link it planted cannot aim root at another file", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 
-		expect(script).toContain(`printf '%s\\n' "$key" | ${ACCOUNT_STEP}`)
+		expect(script).toContain(`said=$(printf '%s\\n' "$key" | ${ACCOUNT_STEP} 2>&1)`)
 		expect(script).not.toContain("chown")
 		expect(script).not.toContain("install -d")
 	})
 
-	it("gives the step it runs as the account no terminal to push input into", () => {
-		expect(hostSetupScript("rootless", "pi", KEY)).toContain(`| ${ACCOUNT_STEP}`)
+	it("captures the step's output rather than giving it the terminal, and strips control bytes before printing", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain(`said=$(printf '%s\\n' "$key" | ${ACCOUNT_STEP} 2>&1)`)
+		expect(script).toContain(`printf '%s\\n' "$said" | ${STRIP_CONTROL} >&2`)
+		expect(script).toContain(`printf '%s\\n' "$said" | ${STRIP_CONTROL}\n`)
 	})
 
 	it("stops rather than continuing when the account does not exist", () => {

@@ -83,10 +83,12 @@ if [ -z "$home" ]; then
 fi
 ${rootCheck(mode)}
 authorise='${AUTHORISE}'
-if ! printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise"; then
+if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
+  printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2
   echo "Could not authorise the key for $account." >&2
   exit 1
 fi
+printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177'
 ${lingerSection(mode)}
 machine=$(uname -m)
 case "$machine" in

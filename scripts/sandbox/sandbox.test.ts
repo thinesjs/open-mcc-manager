@@ -80,6 +80,14 @@ describe("what a sandbox container may see of the machine running the suite", ()
 		)
 	})
 
+	it.each([
+		{ args: ["exec", "name", "grep", "-v", "x", "f"] },
+		{ args: ["exec", "name", "cp", "-av", "/checkout", "/x"] },
+		{ args: ["exec", "name", "tar", "-xvf", "-", "-C", "/checkout"] },
+	])("allows $args, whose -v runs inside a container and mounts nothing", ({ args }) => {
+		expect(reachesThisMachine(args)).toBe(false)
+	})
+
 	it("still lets a host and a Docker machine start, and lets their anonymous volumes go with them", () => {
 		expect(reachesThisMachine(hostRunArguments("name", "run", IMAGE))).toBe(false)
 		expect(reachesThisMachine(dockerRunArguments("name", "run"))).toBe(false)

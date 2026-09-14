@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
+import { memberControllerFor } from "./members"
 import { appRouter } from "./routers/index"
 import { createTestDestinationController } from "./test/destination-controller"
 import { createTestInstanceController } from "./test/instance-controller"
@@ -119,6 +120,7 @@ const ctx: RequestContext = {
 	instanceController: await createTestInstanceController(db),
 	statusController: createTestStatusController(db),
 	destinationController: createTestDestinationController(db, hostControllerDeps.secrets),
+	memberController: memberControllerFor(db, auth, () => undefined),
 	sshKeyController,
 	selfHostController: createTestSelfHostController(db, hostController.enroll),
 	db,

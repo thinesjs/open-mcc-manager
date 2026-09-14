@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { z } from "zod"
 import { type Auth, createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
+import { memberControllerFor } from "./members"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -91,6 +92,7 @@ beforeAll(async () => {
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
 				selfHostController: createTestSelfHostController(db),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)
@@ -219,7 +221,7 @@ describe("member.acceptInvitation failure modes", () => {
 		const invitationId = await inviteOperator(owner.cookie, inviteeEmail)
 
 		const firstBody = await (await accept(invitationId, INVITEE_PASSWORD)).text()
-		expect(firstBody).toContain("operator")
+		expect(JSON.parse(firstBody)).toEqual({ result: { data: { accepted: true } } })
 		const afterFirst = await memberIdsFor(owner.orgId)
 		expect(afterFirst).toHaveLength(2)
 
@@ -337,7 +339,7 @@ describe("member.acceptInvitation failure modes", () => {
 			.select("id")
 			.where("email", "in", [inviteeEmail, replayEmail])
 			.execute()
-		expect(bothUsers).toHaveLength(2)
+		expect(bothUsers).toHaveLength(1)
 		const membersForBothUsers = await db
 			.selectFrom("member")
 			.select("userId")

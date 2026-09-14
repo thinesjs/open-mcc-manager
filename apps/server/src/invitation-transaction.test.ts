@@ -45,6 +45,7 @@ const {
 } = await import("@open-mcc/core")
 const { createAuth } = await import("./auth")
 const { createRequestContext } = await import("./create-context")
+const { memberControllerFor } = await import("./members")
 const { appRouter } = await import("./routers/index")
 const { requireSameOrigin, strictCors } = await import("./security/cors")
 const { securityHeaders } = await import("./security/headers")
@@ -111,6 +112,7 @@ beforeAll(async () => {
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController,
 				selfHostController: createTestSelfHostController(db),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)

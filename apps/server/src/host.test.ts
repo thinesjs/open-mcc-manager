@@ -21,6 +21,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
+import { memberControllerFor } from "./members"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -40,9 +41,6 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 
 const PRESENTED_HOST_KEY = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("host-public-test-key"))
 const PRESENTED_FINGERPRINT = fingerprintFromKey(PRESENTED_HOST_KEY)
-const RETRUSTED_FINGERPRINT = fingerprintFromKey(
-	encodeAlgorithmBlob("ssh-ed25519", Buffer.from("host-public-test-rotated-key")),
-)
 
 const CLIENT_PROBE = "'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1"
 
@@ -122,6 +120,7 @@ beforeAll(async () => {
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
 				selfHostController: createTestSelfHostController(db),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)
@@ -304,8 +303,7 @@ const HOST_PROCEDURES = [
 		send: (cookie: string, seeded: { hostId: string }) =>
 			post("host.retrustHostKey", cookie, {
 				hostId: seeded.hostId,
-				hostKeyFingerprint: RETRUSTED_FINGERPRINT,
-				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: PRESENTED_FINGERPRINT,
 			}),
 	},
 ]

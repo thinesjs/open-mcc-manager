@@ -4,6 +4,7 @@ import type {
 	DestinationController,
 	HostController,
 	InstanceController,
+	MemberController,
 	ProcessIdentityRepository,
 	SelfHostController,
 	SshKeyController,
@@ -33,5 +34,6 @@ export type RequestContext = {
 	sshKeyController: SshKeyController
 	selfHostController: SelfHostController
 	destinationController: DestinationController
+	memberController: MemberController
 	db: Db
 }

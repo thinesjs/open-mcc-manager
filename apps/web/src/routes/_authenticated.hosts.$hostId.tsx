@@ -10,6 +10,7 @@ import { HostMetricsPanel } from "~/components/host-metrics"
 import { HostReliability } from "~/components/host-reliability"
 import { HostStatusBadge } from "~/components/host-status-badge"
 import { ProvisionProgress } from "~/components/provision-progress"
+import { RetrustHostKey } from "~/components/retrust-host-key"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
@@ -18,6 +19,7 @@ import { Modal } from "~/components/ui/modal"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
+import { mayUseHostControl } from "~/lib/host-actions"
 import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
 import { useTRPC } from "~/lib/trpc"
 
@@ -48,6 +50,8 @@ function HostDetailPage() {
 	})
 	const provisionMutation = useMutation(trpc.host.provision.mutationOptions())
 	const removeMutation = useMutation(trpc.host.remove.mutationOptions())
+	const me = useQuery(trpc.member.me.queryOptions())
+	const role = me.data?.role
 
 	const host = hostsQuery.data?.find((candidate) => candidate.id === hostId)
 
@@ -164,7 +168,15 @@ function HostDetailPage() {
 						<p className="text-foreground">{confinementLabel(host.sandboxed)}</p>
 					</div>
 					<div className="col-span-2">
-						<p className="text-muted-foreground">Verified server fingerprint</p>
+						<div className="flex items-center justify-between gap-2">
+							<p className="text-muted-foreground">Verified server fingerprint</p>
+							<RetrustHostKey
+								hostId={host.id}
+								hostName={host.name}
+								role={role}
+								disabled={host.status === "provisioning" || host.status === "removing"}
+							/>
+						</div>
 						<p className="break-all font-mono text-foreground">
 							{host.hostKeyFingerprint ?? "Not set"}
 						</p>
@@ -236,38 +248,44 @@ function HostDetailPage() {
 			<HostDrift hostId={host.id} ready={host.status === "ready"} />
 
 			<div className="flex gap-3">
-				{host.status === "ready" ? (
+				{host.status === "ready" && mayUseHostControl(role, "createInstance") ? (
 					<Button onClick={() => setCreatingInstance(true)}>
 						<Plus className="size-4" />
 						New instance
 					</Button>
 				) : null}
-				<Button
-					variant={host.status === "ready" ? "secondary" : "default"}
-					onClick={() => setConfirmingProvision(true)}
-					disabled={
-						provisionMutation.isPending ||
-						host.status === "provisioning" ||
-						host.status === "removing"
-					}
-				>
-					{provisionMutation.isPending ? (
-						<Spinner label="Setting up" />
-					) : host.status === "ready" ? (
-						"Repair setup"
-					) : (
-						"Set up"
-					)}
-				</Button>
-				<Button
-					variant="destructive-outline"
-					onClick={() => setConfirmingRemove(true)}
-					disabled={
-						removeMutation.isPending || host.status === "provisioning" || host.status === "removing"
-					}
-				>
-					{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove"}
-				</Button>
+				{mayUseHostControl(role, "setUp") ? (
+					<Button
+						variant={host.status === "ready" ? "secondary" : "default"}
+						onClick={() => setConfirmingProvision(true)}
+						disabled={
+							provisionMutation.isPending ||
+							host.status === "provisioning" ||
+							host.status === "removing"
+						}
+					>
+						{provisionMutation.isPending ? (
+							<Spinner label="Setting up" />
+						) : host.status === "ready" ? (
+							"Repair setup"
+						) : (
+							"Set up"
+						)}
+					</Button>
+				) : null}
+				{mayUseHostControl(role, "remove") ? (
+					<Button
+						variant="destructive-outline"
+						onClick={() => setConfirmingRemove(true)}
+						disabled={
+							removeMutation.isPending ||
+							host.status === "provisioning" ||
+							host.status === "removing"
+						}
+					>
+						{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove"}
+					</Button>
+				) : null}
 			</div>
 
 			<ConfirmDialog

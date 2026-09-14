@@ -55,6 +55,7 @@ import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { defaultIconFetch, itemIconHandler } from "./item-icon"
+import { memberControllerFor } from "./members"
 import { applyRequestLimits } from "./request-limits"
 import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
@@ -240,6 +241,7 @@ export const startServer = async (
 				sshKeyController,
 				selfHostController,
 				destinationController,
+				memberController: memberControllerFor(db, auth, runtimeErrorReporter(logger)),
 			}),
 		}),
 	)

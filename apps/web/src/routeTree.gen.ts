@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated.alerts'
+import { Route as AuthenticatedMembersRouteImport } from './routes/_authenticated.members'
 import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
 import { Route as AuthenticatedSshKeysRouteImport } from './routes/_authenticated.ssh-keys'
 import { Route as AuthenticatedStatusRouteImport } from './routes/_authenticated.status'
@@ -45,6 +46,11 @@ const SignInRoute = SignInRouteImport.update({
 const AuthenticatedAlertsRoute = AuthenticatedAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMembersRoute = AuthenticatedMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedOverviewRoute = AuthenticatedOverviewRouteImport.update({
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
   '/alerts': typeof AuthenticatedAlertsRoute
+  '/members': typeof AuthenticatedMembersRoute
   '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
   '/alerts': typeof AuthenticatedAlertsRoute
+  '/members': typeof AuthenticatedMembersRoute
   '/overview': typeof AuthenticatedOverviewRoute
   '/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/accept-invitation': typeof AcceptInvitationRoute
   '/sign-in': typeof SignInRoute
   '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
+  '/_authenticated/members': typeof AuthenticatedMembersRoute
   '/_authenticated/overview': typeof AuthenticatedOverviewRoute
   '/_authenticated/ssh-keys': typeof AuthenticatedSshKeysRoute
   '/_authenticated/status': typeof AuthenticatedStatusRoute
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/accept-invitation'
     | '/sign-in'
     | '/alerts'
+    | '/members'
     | '/overview'
     | '/ssh-keys'
     | '/status'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/accept-invitation'
     | '/sign-in'
     | '/alerts'
+    | '/members'
     | '/overview'
     | '/ssh-keys'
     | '/status'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/accept-invitation'
     | '/sign-in'
     | '/_authenticated/alerts'
+    | '/_authenticated/members'
     | '/_authenticated/overview'
     | '/_authenticated/ssh-keys'
     | '/_authenticated/status'
@@ -223,6 +235,13 @@ declare module '@tanstack/react-router' {
       path: '/alerts'
       fullPath: '/alerts'
       preLoaderRoute: typeof AuthenticatedAlertsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/members': {
+      id: '/_authenticated/members'
+      path: '/members'
+      fullPath: '/members'
+      preLoaderRoute: typeof AuthenticatedMembersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/overview': {
@@ -286,6 +305,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
+  AuthenticatedMembersRoute: typeof AuthenticatedMembersRoute
   AuthenticatedOverviewRoute: typeof AuthenticatedOverviewRoute
   AuthenticatedSshKeysRoute: typeof AuthenticatedSshKeysRoute
   AuthenticatedStatusRoute: typeof AuthenticatedStatusRoute
@@ -298,6 +318,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAlertsRoute: AuthenticatedAlertsRoute,
+  AuthenticatedMembersRoute: AuthenticatedMembersRoute,
   AuthenticatedOverviewRoute: AuthenticatedOverviewRoute,
   AuthenticatedSshKeysRoute: AuthenticatedSshKeysRoute,
   AuthenticatedStatusRoute: AuthenticatedStatusRoute,

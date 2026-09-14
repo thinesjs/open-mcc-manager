@@ -10,6 +10,7 @@ import {
 	Menu,
 	Search,
 	Server,
+	Users,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { AffiliationNotice } from "~/components/affiliation-notice"
@@ -54,7 +55,10 @@ const SECTIONS = [
 	},
 	{
 		label: "Access",
-		items: [{ to: "/ssh-keys", icon: KeyRound, label: "SSH keys" }],
+		items: [
+			{ to: "/ssh-keys", icon: KeyRound, label: "SSH keys" },
+			{ to: "/members", icon: Users, label: "Members" },
+		],
 	},
 ] as const
 

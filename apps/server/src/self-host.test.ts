@@ -23,6 +23,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { type Auth, createAuth } from "./auth"
 import { createRequestContext } from "./create-context"
+import { memberControllerFor } from "./members"
 import { appRouter } from "./routers/index"
 import { requireSameOrigin, strictCors } from "./security/cors"
 import { securityHeaders } from "./security/headers"
@@ -142,6 +143,7 @@ const appWith = (
 					withTransaction: createSshKeyControllerTransaction(db),
 				}),
 				selfHostController: createTestSelfHostController(db, hostController.enroll, materials),
+				memberController: memberControllerFor(db, auth, () => undefined),
 			}),
 		}),
 	)

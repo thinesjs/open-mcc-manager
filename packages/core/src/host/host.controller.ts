@@ -39,7 +39,6 @@ export type HostTransactionRepos = {
 
 export type RetrustHostKeyInput = {
 	hostKeyFingerprint: string
-	hostKeyAlgorithm: string
 }
 
 export type WithTransaction = <T>(fn: (repos: HostTransactionRepos) => Promise<T>) => Promise<T>
@@ -388,6 +387,22 @@ export const createHostController = (deps: HostControllerDeps) => {
 			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
 			const scope = { organizationId: ctx.organizationId }
 
+			const target = await deps.hosts.findById(scope, hostId)
+			if (!target) throw new HostNotFoundError(`Host not found: ${hostId}`)
+			let presented: Buffer
+			try {
+				presented = await deps.probeHostKey(target.hostname, target.port, PROBE_TIMEOUT_MS)
+			} catch (error) {
+				throw new HostUnreachableError(
+					error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
+				)
+			}
+			const verification = verifyHostKey(presented, trust.hostKeyFingerprint)
+			if (!verification.ok) {
+				throw new FingerprintMismatchError(`Host key fingerprint mismatch for host ${hostId}`)
+			}
+			const algorithm = algorithmFromKey(presented)
+
 			return deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 
@@ -404,8 +419,8 @@ export const createHostController = (deps: HostControllerDeps) => {
 				const trustUpdate: HostKeyTrustUpdate = {
 					hostKeyTrustedBy: ctx.memberId,
 					hostKeyTrustedByLabel: ctx.actorLabel,
-					hostKeyFingerprint: trust.hostKeyFingerprint,
-					hostKeyAlgorithm: trust.hostKeyAlgorithm,
+					hostKeyFingerprint: verification.fingerprint,
+					hostKeyAlgorithm: algorithm,
 					hostKeyTrustedAt: new Date(),
 				}
 				const updated = await repos.hosts.updateHostKeyTrust(scope, hostId, trustUpdate)
@@ -417,7 +432,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					action: "host.retrust",
 					subjectType: "host",
 					subjectId: hostId,
-					detail: { fingerprint: trust.hostKeyFingerprint },
+					detail: { fingerprint: verification.fingerprint },
 				})
 
 				return toHostPublic(updated)

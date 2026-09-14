@@ -36,7 +36,6 @@ export const hostRouter = router({
 		requireCapability(ctx.actor.role, "host.enroll")
 		return ctx.hostController.retrustHostKey(ctx.actor, input.hostId, {
 			hostKeyFingerprint: input.hostKeyFingerprint,
-			hostKeyAlgorithm: input.hostKeyAlgorithm,
 		})
 	}),
 })

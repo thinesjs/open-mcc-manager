@@ -21,8 +21,4 @@ describe("how long a sign-in code stays valid", () => {
 	it("says the code has expired once its time is up", () => {
 		expect(describeCodeValidity(inMs(0), NOW)).toBe("This code has expired. Get a new one.")
 	})
-
-	it("reads the date the contract names as well as the string the wire carries", () => {
-		expect(describeCodeValidity(new Date(NOW + 2 * 60_000), NOW)).toBe("Valid for 2 more minutes.")
-	})
 })

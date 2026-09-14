@@ -57,7 +57,7 @@ const extractChallenge = (output: string): DeviceCodeChallenge | undefined => {
 	return {
 		userCode,
 		verificationUri,
-		expiresAt: new Date(Date.now() + DEVICE_CODE_TTL_MS),
+		expiresAt: new Date(Date.now() + DEVICE_CODE_TTL_MS).toISOString(),
 	}
 }
 

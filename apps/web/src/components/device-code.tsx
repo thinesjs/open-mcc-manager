@@ -7,7 +7,7 @@ import { describeCodeValidity, hasCodeExpired } from "~/lib/device-code"
 const TICK_MS = 15_000
 
 export type DeviceCodeProps = {
-	challenge: Omit<DeviceCodeChallenge, "expiresAt"> & { expiresAt: Date | string }
+	challenge: DeviceCodeChallenge
 }
 
 export const DeviceCode = ({ challenge }: DeviceCodeProps) => {

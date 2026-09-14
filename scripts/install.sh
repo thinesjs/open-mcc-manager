@@ -94,7 +94,6 @@ BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
 BETTER_AUTH_URL=http://localhost:$SERVER_PORT
 SEALBOX_KEYS=$SEALBOX_KEYS
 ALLOWED_ORIGINS=http://localhost:$WEB_PORT
-INSTANCES_ROOT=/srv/open-mcc
 ENVFILE
 
 say "Wrote .env with generated secrets, mode 600"

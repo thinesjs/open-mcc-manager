@@ -165,14 +165,14 @@ describe("how the route feeds the readouts", () => {
 	)
 
 	it.each(QUERIES)(
-		"hands $query straight to the $prop the component renders",
+		"hands $query to the $prop the component renders only while it is live",
 		({ prop, query }) => {
-			expect(detail).toContain(`${prop}={${query}.data}`)
+			expect(detail).toContain(`${prop}={liveReading(${query}, liveOn)}`)
 		},
 	)
 
 	it("mounts the readouts outside the world block, so an absent world cannot hide them", () => {
-		const worldBlock = detail.indexOf("{liveWorldQuery.data ? (")
+		const worldBlock = detail.indexOf("{liveWorld ? (")
 		const worldClosed = detail.indexOf(") : null}", worldBlock)
 
 		expect(detail.indexOf("<LiveReadouts")).toBeGreaterThan(worldClosed)

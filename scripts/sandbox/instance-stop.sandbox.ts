@@ -5,7 +5,11 @@ import {
 	rootlessProfile,
 	systemProfile,
 } from "../../packages/core/src/host/profile"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../../packages/core/src/host/unit-template"
+import {
+	INSTANCE_UNIT_NAME,
+	QUIT_WRITE_TIMEOUT_SECONDS,
+	renderUnitTemplates,
+} from "../../packages/core/src/host/unit-template"
 import {
 	type As,
 	exec,
@@ -236,7 +240,7 @@ describe.each([{ mode: "system" }, { mode: "rootless" }] as const)(
 						ready().as,
 						`sleep "$2" && ${ready().manager} show -p Result -p ActiveState -p NRestarts "$1"`,
 						`open-mcc@${instance.id}.service`,
-						String(unitSeconds(ready().profile, "RestartSec") + 10),
+						String(unitSeconds(ready().profile, "RestartSec") + QUIT_WRITE_TIMEOUT_SECONDS + 10),
 					),
 					"reading the unit once a restart would have happened",
 				),

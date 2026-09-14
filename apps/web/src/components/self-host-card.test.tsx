@@ -31,7 +31,6 @@ const OFFER: SelfHostPublicOffer = {
 	hostname: "host.docker.internal",
 	port: 22,
 	username: "mcc",
-	mode: "rootless",
 	reach: "proven",
 	systemd: true,
 	linger: true,
@@ -55,6 +54,14 @@ describe("what the card offers", () => {
 
 		expect(addButton()).not.toBeNull()
 		expect(screen.getByText("mcc@host.docker.internal:22")).toBeDefined()
+	})
+
+	it("shows no privilege choice, since every machine is added the same way", () => {
+		mount()
+
+		expect(screen.queryByText("Privilege")).toBeNull()
+		expect(screen.queryByText("Without root")).toBeNull()
+		expect(screen.queryByText("With root")).toBeNull()
 	})
 
 	it.each([{ reach: "reachable" as const }, { reach: "unproven" as const }])(

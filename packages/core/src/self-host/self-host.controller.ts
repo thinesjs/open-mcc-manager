@@ -78,7 +78,6 @@ export const createSelfHostController = (deps: SelfHostControllerDeps) => ({
 			hostname: materials.offer.hostname,
 			port: materials.offer.port,
 			username: materials.offer.username,
-			mode: materials.offer.mode,
 			sshKeyId: key.id,
 			expectedFingerprint: materials.offer.fingerprint,
 		})

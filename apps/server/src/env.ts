@@ -24,7 +24,6 @@ const envSchema = z.object({
 	SELF_HOST_HOSTNAME: z.string().optional(),
 	SELF_HOST_PORT: z.string().optional(),
 	SELF_HOST_USERNAME: z.string().optional(),
-	SELF_HOST_MODE: z.string().optional(),
 	SELF_HOST_FINGERPRINT: z.string().optional(),
 	SELF_HOST_PUBLIC_KEY: z.string().optional(),
 	SELF_HOST_PRIVATE_KEY_SEALED: z.string().optional(),

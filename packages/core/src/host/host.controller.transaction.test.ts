@@ -12,6 +12,7 @@ import {
 	trackHostId,
 	trackSshKeyId,
 } from "../test/db"
+import { LINGER_COMMAND } from "./check"
 import {
 	type ActorContext,
 	createHostController,
@@ -28,13 +29,16 @@ import {
 	type OrgScope,
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
+import { HOME_COMMAND } from "./provision"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
 const sendJobDouble = async () => null
 
-const CLIENT_PROBE_OK = {
-	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+const PROVISIONABLE = {
+	[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
+	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
+	'"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1': {
 		stdout: "Minecraft Console Client v26.2",
 		stderr: "",
 		exitCode: 0,
@@ -117,7 +121,6 @@ describe("host controller transactional mutations", () => {
 					hostname: "10.0.0.50",
 					port: 22,
 					username: "mcc",
-					mode: "system",
 					sshKeyId: sshKeyRow.id,
 					expectedFingerprint: EXPECTED_FINGERPRINT,
 				},
@@ -192,7 +195,6 @@ describe("host controller transactional mutations", () => {
 					hostname: "10.0.0.52",
 					port: 22,
 					username: "mcc",
-					mode: "system",
 					sshKeyId: sshKeyRow.id,
 					expectedFingerprint: EXPECTED_FINGERPRINT,
 				},
@@ -232,10 +234,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				hostname: "10.0.0.90",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
+				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -286,7 +285,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -322,7 +321,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 
 		const createTransport = vi.fn(() =>
 			createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			}),
 		)
@@ -376,10 +375,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 				hostname: "10.0.0.91",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
+				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -466,7 +462,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 
 		const gatedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -520,7 +516,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -611,10 +607,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 				hostname: "10.0.0.92",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
+				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -666,7 +659,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 		const sightings: boolean[] = []
 		const instrumentedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -719,7 +712,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 
 		const slowTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -782,10 +775,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 				hostname: "10.0.0.93",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
+				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -826,7 +816,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -899,10 +889,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 				hostname: "10.0.0.94",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
+				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -964,7 +951,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -1037,7 +1024,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedFingerprint: string | undefined
 		const recordingTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1114,7 +1101,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedTarget: { hostname: string; port: number; username: string } | undefined
 		const recordingTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1196,7 +1183,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		const open = vi.fn((encrypted: string) => `private-key-of:${encrypted}`)
 		const createTransport = vi.fn(() =>
 			createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			}),
 		)
@@ -1321,7 +1308,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
@@ -1424,7 +1411,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		let observedFingerprint: string | undefined
 		const gatedTransport = (): HostTransport => {
 			const inner = createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 			})
 			return {
@@ -1498,7 +1485,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
-					...CLIENT_PROBE_OK,
+					...PROVISIONABLE,
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),

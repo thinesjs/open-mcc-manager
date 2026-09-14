@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { hostKeyFingerprint, hostMode } from "./host"
+import { hostKeyFingerprint } from "./host"
 
 export const SELF_HOST_REACHES = ["proven", "reachable", "unproven"] as const
 
@@ -12,7 +12,6 @@ export const selfHostOffer = z.object({
 	hostname: z.string().min(1).max(255),
 	port: z.number().int().min(1).max(65535),
 	username: z.string().min(1).max(64),
-	mode: hostMode,
 	fingerprint: hostKeyFingerprint,
 	reach: selfHostReach,
 	systemd: z.boolean(),
@@ -28,8 +27,7 @@ export type SelfHostPublicOffer = z.infer<typeof selfHostPublicOffer>
 export const canAdoptSelfHost = (offer: SelfHostPublicOffer): boolean =>
 	offer.reach === "proven" && offer.systemd
 
-export const needsLinger = (offer: SelfHostPublicOffer): boolean =>
-	offer.mode === "rootless" && !offer.linger
+export const needsLinger = (offer: SelfHostPublicOffer): boolean => !offer.linger
 
 export const lingerCommand = (offer: SelfHostPublicOffer): string =>
 	`sudo loginctl enable-linger ${offer.username}`

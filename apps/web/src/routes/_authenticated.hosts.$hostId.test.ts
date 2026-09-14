@@ -30,3 +30,13 @@ describe("host page actions a role cannot use", () => {
 		expect(source).toContain("const role = me.data?.role")
 	})
 })
+
+describe("what the host page says about a host", () => {
+	it("shows no privilege row and no isolation label, since every host runs bots one way", () => {
+		expect(source).not.toContain("Privilege")
+		expect(source).not.toContain("confinementLabel")
+		expect(source).not.toContain("Bot isolation")
+		expect(source).not.toContain("host.mode")
+		expect(source).not.toContain("host.sandboxed")
+	})
+})

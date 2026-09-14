@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import { failedUnitsCommand, healthFor, OFFLINE_AFTER_MS, parseFailedUnits } from "./health"
-import { rootlessProfile, systemProfile } from "./profile"
 
 const NOW = new Date("2026-09-06T12:00:00Z")
 const secondsAgo = (ms: number) => new Date(NOW.getTime() - ms)
@@ -57,13 +56,12 @@ describe("deciding whether a host is up", () => {
 })
 
 describe("counting what has failed on a host", () => {
-	it("asks the manager that actually owns the units", () => {
-		expect(failedUnitsCommand(rootlessProfile("/home/u"))).toContain("--user")
-		expect(failedUnitsCommand(systemProfile())).not.toContain("--user")
+	it("asks the user manager, which owns the units", () => {
+		expect(failedUnitsCommand()).toContain("systemctl --user")
 	})
 
 	it("asks only about units this control plane installed", () => {
-		expect(failedUnitsCommand(systemProfile())).toContain("'open-mcc*'")
+		expect(failedUnitsCommand()).toContain("'open-mcc*'")
 	})
 
 	it("reads a count, and treats anything unreadable as nothing failed", () => {

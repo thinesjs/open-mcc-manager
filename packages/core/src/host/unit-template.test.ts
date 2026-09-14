@@ -1,192 +1,130 @@
-import { readdirSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { rootlessProfile, systemProfile } from "./profile"
-import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "./unit-template"
+import {
+	AUTH_UNIT_NAME,
+	INSTANCE_UNIT_NAME,
+	renderUnitTemplates,
+	SLEEP_START_UNIT_NAME,
+	SLEEP_STOP_UNIT_NAME,
+} from "./unit-template"
 
-const SYSTEMD_DIR = join(
-	dirname(fileURLToPath(import.meta.url)),
-	"..",
-	"..",
-	"..",
-	"..",
-	"docker",
-	"systemd",
-)
+const units = renderUnitTemplates()
+const instance = units[INSTANCE_UNIT_NAME] ?? ""
+const signIn = units[AUTH_UNIT_NAME] ?? ""
+const DIR = "%h/.local/share/open-mcc/instances/%i"
 
-const system = renderUnitTemplates(systemProfile())
-const rootless = renderUnitTemplates(rootlessProfile("/home/mccuser"))
-
-describe("the units a root-owned host runs", () => {
-	it("covers every unit file the repository ships, so none is silently left behind", () => {
-		expect(Object.keys(system).sort()).toEqual(readdirSync(SYSTEMD_DIR).sort())
-	})
-
-	it("is byte-identical to each shipped unit file, so the two cannot drift", () => {
-		for (const [name, rendered] of Object.entries(system)) {
-			expect(rendered).toBe(readFileSync(join(SYSTEMD_DIR, name), "utf8"))
+describe("the units every host runs", () => {
+	it("names no user or group, and never hides the whole home, because the connecting account runs every bot", () => {
+		for (const template of Object.values(units)) {
+			expect(template).not.toContain("User=")
+			expect(template).not.toContain("Group=")
+			expect(template).not.toContain("ProtectHome=yes")
 		}
 	})
 
+	it("spells every path from the account's home with %h, so no path is stored or guessed", () => {
+		for (const template of Object.values(units)) {
+			const paths = template.match(/[^\s'"=]*\.local\/share\/open-mcc[^\s'"]*/g) ?? []
+			for (const path of paths) expect(path.startsWith("%h/")).toBe(true)
+			expect(template).not.toContain("/srv/open-mcc")
+			expect(template).not.toContain("/home/")
+		}
+		expect(instance).toContain(`WorkingDirectory=${DIR}`)
+		expect(signIn).toContain(`WorkingDirectory=${DIR}`)
+	})
+
 	it("keeps the start rate limit in the section systemd reads it from", () => {
-		const template = system[INSTANCE_UNIT_NAME] ?? ""
-		const unitSection = template.slice(0, template.indexOf("[Service]"))
+		const unitSection = instance.slice(0, instance.indexOf("[Service]"))
 		expect(unitSection).toContain("StartLimitIntervalSec=600")
 		expect(unitSection).toContain("StartLimitBurst=5")
-		expect(template.slice(template.indexOf("[Service]"))).not.toContain("StartLimit")
-	})
-})
-
-describe("the units a host without root runs", () => {
-	it("names no user, because the manager cannot create one", () => {
-		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
-		expect(template).not.toContain("User=")
-		expect(template).not.toContain("Group=")
-	})
-
-	it("hides the home directory its files live in, but binds its own directory back", () => {
-		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
-		const dir = "/home/mccuser/.local/share/open-mcc/instances/%i"
-
-		expect(template).toContain("ProtectHome=tmpfs")
-		expect(template).toContain(`BindPaths=${dir}`)
-		expect(template).toContain(`WorkingDirectory=${dir}`)
-		expect(system[INSTANCE_UNIT_NAME]).toContain("ProtectHome=yes")
+		expect(instance.slice(instance.indexOf("[Service]"))).not.toContain("StartLimit")
 	})
 
 	it("keeps the watchdog policy that stops a doomed client from restarting forever", () => {
-		expect(rootless[INSTANCE_UNIT_NAME]).toContain("RestartPreventExitStatus=4")
+		expect(instance).toContain("RestartPreventExitStatus=4")
 	})
 
 	it("keeps the hardening that does not require privilege", () => {
 		for (const directive of ["NoNewPrivileges=yes", "UMask=0077", "ProtectSystem=strict"]) {
-			expect(rootless[INSTANCE_UNIT_NAME]).toContain(directive)
+			expect(instance).toContain(directive)
 		}
 	})
 
 	it("enables against a target the user manager actually has", () => {
-		expect(rootless[INSTANCE_UNIT_NAME]).toContain("WantedBy=default.target")
-		expect(system[INSTANCE_UNIT_NAME]).toContain("WantedBy=multi-user.target")
-	})
-
-	it("keeps every path inside the user's own home", () => {
-		const template = rootless[INSTANCE_UNIT_NAME] ?? ""
-		expect(template).not.toContain("/srv/open-mcc")
-		expect(template).toContain("/home/mccuser/.local/share/open-mcc/instances/%i")
+		expect(instance).toContain("WantedBy=default.target")
 	})
 
 	it("drives its sleep units through the user manager", () => {
-		expect(rootless["open-mcc-sleep-stop@.service"]).toContain(
-			"systemctl --user stop open-mcc@%i.service",
+		expect(units[SLEEP_STOP_UNIT_NAME]).toContain(
+			"ExecStart=/usr/bin/systemctl --user stop open-mcc@%i.service",
 		)
-		expect(rootless["open-mcc-sleep-start@.service"]).toContain(
-			"systemctl --user start open-mcc@%i.service",
+		expect(units[SLEEP_START_UNIT_NAME]).toContain(
+			"ExecStart=/usr/bin/systemctl --user start open-mcc@%i.service",
 		)
 	})
-})
 
-describe("the units both modes run", () => {
 	it("holds the control channel open for writing, so the client is not blocked at startup waiting for one", () => {
-		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
-			expect(template).toContain("exec 3<>")
-			expect(template).toContain("<&3")
-		}
+		expect(instance).toContain(`exec 3<>"${DIR}/control"`)
+		expect(instance).toContain("<&3")
 	})
 
 	it("does not take stdin straight from the fifo, which blocks until a writer appears", () => {
-		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
-			expect(template).not.toContain("StandardInput=file:")
-		}
+		expect(instance).not.toContain("StandardInput=file:")
 	})
 
 	it("still routes the console to journald, which is how the manager reads it", () => {
-		for (const template of [system[INSTANCE_UNIT_NAME] ?? "", rootless[INSTANCE_UNIT_NAME] ?? ""]) {
-			expect(template).toContain("StandardOutput=journal")
-			expect(template).toContain("StandardError=journal")
-		}
-	})
-
-	it("drives the sleep units through systemctl on the instance's own unit", () => {
-		expect(system["open-mcc-sleep-stop@.service"]).toContain("systemctl stop open-mcc@%i.service")
-		expect(system["open-mcc-sleep-start@.service"]).toContain("systemctl start open-mcc@%i.service")
+		expect(instance).toContain("StandardOutput=journal")
+		expect(instance).toContain("StandardError=journal")
 	})
 })
 
 describe("the unit that signs an instance in to Microsoft", () => {
-	it("exists in both modes, so sign-in is never an unsupervised process", () => {
-		expect(system[AUTH_UNIT_NAME]).toBeDefined()
-		expect(rootless[AUTH_UNIT_NAME]).toBeDefined()
+	it("exists, so sign-in is never an unsupervised process", () => {
+		expect(units[AUTH_UNIT_NAME]).toBeDefined()
 	})
 
 	it("carries the same confinement as the instance it signs in", () => {
-		for (const template of [system[AUTH_UNIT_NAME] ?? "", rootless[AUTH_UNIT_NAME] ?? ""]) {
-			expect(template).toContain("ProtectSystem=strict")
-			expect(template).toContain("NoNewPrivileges=yes")
-			expect(template).toContain("PrivateTmp=yes")
-			expect(template).toContain("ReadWritePaths=")
+		for (const directive of [
+			"ProtectSystem=strict",
+			"NoNewPrivileges=yes",
+			"PrivateTmp=yes",
+			`ReadWritePaths=${DIR}`,
+		]) {
+			expect(signIn).toContain(directive)
 		}
 	})
 
-	it("runs as the instance's own account wherever there is one", () => {
-		expect(system[AUTH_UNIT_NAME]).toContain("User=mcc-%i")
-		expect(rootless[AUTH_UNIT_NAME]).not.toContain("User=")
-	})
-
 	it("takes no input, since a sign-in has nothing to read", () => {
-		expect(system[AUTH_UNIT_NAME]).toContain("StandardInput=null")
+		expect(signIn).toContain("StandardInput=null")
 	})
 
 	it("never restarts, because a sign-in is a single attempt an operator is watching", () => {
-		expect(system[AUTH_UNIT_NAME]).not.toContain("Restart=")
+		expect(signIn).not.toContain("Restart=")
 	})
 
 	it("is started on demand rather than enabled at boot", () => {
-		expect(system[AUTH_UNIT_NAME]).not.toContain("[Install]")
+		expect(signIn).not.toContain("[Install]")
 	})
 })
 
-describe("keeping rootless instances out of each other's files", () => {
-	const rootlessUnits = [AUTH_UNIT_NAME, INSTANCE_UNIT_NAME]
-
-	it("hides the home directory and binds back only the instance's own, in every rootless unit", () => {
-		for (const name of rootlessUnits) {
-			const template = rootless[name] ?? ""
+describe("keeping instances out of each other's files", () => {
+	it("hides the home directory and binds back only the instance's own, in every unit that runs the client", () => {
+		for (const template of [instance, signIn]) {
 			expect(template).toContain("ProtectHome=tmpfs")
-			expect(template).toContain("BindPaths=/home/mccuser/.local/share/open-mcc/instances/%i")
+			expect(template).toContain(`BindPaths=${DIR}`)
 		}
 	})
 
 	it("binds the client read-only, since an instance has no reason to rewrite it", () => {
-		expect(rootless[INSTANCE_UNIT_NAME]).toContain(
-			"BindReadOnlyPaths=/home/mccuser/.local/share/open-mcc/bin",
-		)
-	})
-
-	it("leaves a root-owned host to its per-instance accounts instead", () => {
-		for (const name of rootlessUnits) {
-			expect(system[name]).not.toContain("BindPaths=")
-			expect(system[name]).toContain("ProtectHome=yes")
-		}
+		expect(instance).toContain("BindReadOnlyPaths=%h/.local/share/open-mcc/bin")
 	})
 })
 
 describe("stopping an instance", () => {
-	it.each([
-		{ mode: "system", units: system, dir: "/srv/open-mcc/instances/%i" },
-		{
-			mode: "rootless",
-			units: rootless,
-			dir: "/home/mccuser/.local/share/open-mcc/instances/%i",
-		},
-	])(
-		"asks a running client to quit within five seconds, then waits for it to exit, in $mode mode",
-		({ units, dir }) => {
-			const stop = /^ExecStop=.*$/m.exec(units[INSTANCE_UNIT_NAME] ?? "")?.[0]
+	it("asks a running client to quit within five seconds, then waits for it to exit", () => {
+		const stop = /^ExecStop=.*$/m.exec(instance)?.[0]
 
-			expect(stop).toBe(
-				`ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout 5 sh -c "echo /quit > ${dir}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'`,
-			)
-		},
-	)
+		expect(stop).toBe(
+			`ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout 5 sh -c "echo /quit > ${DIR}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'`,
+		)
+	})
 })

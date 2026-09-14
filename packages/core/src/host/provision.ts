@@ -1,47 +1,26 @@
 import {
-	type HostMode,
 	LINGER_STEP_LABEL,
 	PROVISION_STEP_LABELS,
 	type ProvisionStepLabel,
-	provisionStepLabels,
-	ROOTLESS_PROVISION_STEP_LABELS,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import {
-	hostFact,
-	OS_RELEASE_COMMAND,
-	parseOsRelease,
-	readSandboxing,
-	UNKNOWN_HOST_FACT,
-} from "./facts"
+import { hostFact, OS_RELEASE_COMMAND, parseOsRelease, UNKNOWN_HOST_FACT } from "./facts"
 import { mccReleaseForMachine } from "./mcc-release"
-import {
-	type HostProfile,
-	rootlessProfile,
-	systemctl,
-	systemProfile,
-	usesPerInstanceUsers,
-	validateHostPath,
-} from "./profile"
+import { INSTANCES_ROOT, isUsableHome, systemctl, UNIT_DIR } from "./profile"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "./unit-template"
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
 export const PROVISION_STEPS = PROVISION_STEP_LABELS
 
-export const ROOTLESS_PROVISION_STEPS = ROOTLESS_PROVISION_STEP_LABELS
-
 export type ProvisionStep = ProvisionStepLabel
 
 export type ProvisionOptions = {
-	mode: HostMode
 	onProgress?: ProvisionReporter
 }
 
 export type ProvisionResult = {
 	osRelease: string
-	profile: HostProfile
-	sandboxed: boolean
 	osId: string | null
 	osName: string | null
 }
@@ -62,6 +41,9 @@ export const CLIENT_PROBE_TIMEOUT_MS = 30_000
 
 export const CLIENT_BANNER = "Minecraft Console Client"
 
+export const HOME_COMMAND =
+	'printf \'%s\\n%s\' "$HOME" "$(getent passwd "$(id -un)" | cut -d: -f6)"'
+
 export const explainClientFailure = (output: string): string => {
 	if (/ICU/i.test(output)) {
 		return "The client needs the libicu library, which this host does not have. Install it (Debian and Ubuntu: libicu; Alpine: icu-libs; RHEL and Fedora: libicu) and provision again."
@@ -71,9 +53,6 @@ export const explainClientFailure = (output: string): string => {
 		? `The installed client could not start: ${firstLine}`
 		: "The installed client could not start, and reported nothing."
 }
-
-export const validateInstancesRoot = (instancesRoot: string): string =>
-	validateHostPath(instancesRoot, "instancesRoot")
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -89,14 +68,20 @@ const step = async (
 	return result.stdout.trim()
 }
 
-const resolveProfile = async (transport: HostTransport, mode: HostMode): Promise<HostProfile> => {
-	if (mode === "system") return systemProfile()
-	const home = await step(
-		transport,
-		'printf %s "$HOME"',
-		"Failed to read the home directory of the connecting user",
-	)
-	return rootlessProfile(home)
+const assertUsableHome = async (transport: HostTransport): Promise<void> => {
+	const read = await transport.exec(HOME_COMMAND, PROVISION_STEP_TIMEOUT_MS)
+	if (read.exitCode !== 0) {
+		throw new Error(
+			`Failed to read the home directory of the connecting user: ${read.stderr.trim()}`,
+		)
+	}
+	const lines = read.stdout.split("\n")
+	const [home = "", passwdHome = ""] = lines
+	if (lines.length !== 2 || !isUsableHome(home, passwdHome)) {
+		throw new Error(
+			"The remote home directory must be an absolute path containing only letters, digits, '.', '_', '-', and '/', and must be the account's own home",
+		)
+	}
 }
 
 const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
@@ -116,13 +101,12 @@ const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
 
 export const provisionHost = async (
 	transport: HostTransport,
-	options: ProvisionOptions,
+	options: ProvisionOptions = {},
 ): Promise<ProvisionResult> => {
-	const steps = provisionStepLabels(options.mode)
 	let completed = 0
 	const advance = (): void => {
-		const next = steps[completed]
-		if (next) options.onProgress?.({ step: next, index: completed, total: steps.length })
+		const next = PROVISION_STEPS[completed]
+		if (next) options.onProgress?.({ step: next, index: completed, total: PROVISION_STEPS.length })
 		completed += 1
 	}
 
@@ -139,18 +123,15 @@ export const provisionHost = async (
 	const osRead = await transport.exec(OS_RELEASE_COMMAND, PROVISION_STEP_TIMEOUT_MS)
 	const { osId, osName } = parseOsRelease(osRead.stdout)
 
-	const profile = await resolveProfile(transport, options.mode)
-
-	if (profile.mode === "rootless") {
-		advance()
-		await assertLingerEnabled(transport)
-	}
+	await assertUsableHome(transport)
 
 	advance()
-	const ownership = usesPerInstanceUsers(profile) ? "-o root -g root " : ""
+	await assertLingerEnabled(transport)
+
+	advance()
 	await step(
 		transport,
-		`install -d -m 0711 ${ownership}${shellQuote(`${profile.instancesRoot}/instances`)}`,
+		`install -d -m 0711 ${INSTANCES_ROOT}/instances`,
 		"Failed to create instances directory",
 	)
 
@@ -177,9 +158,7 @@ export const provisionHost = async (
 		advance()
 		await step(
 			transport,
-			`install -D -m 0755 ${shellQuote(`${workDir}/mcc`)} ${shellQuote(
-				`${profile.instancesRoot}/bin/MinecraftClient`,
-			)}`,
+			`install -D -m 0755 ${shellQuote(`${workDir}/mcc`)} ${INSTANCES_ROOT}/bin/MinecraftClient`,
 			"Failed to install the client",
 		)
 	} finally {
@@ -190,7 +169,7 @@ export const provisionHost = async (
 
 	advance()
 	const probe = await transport.exec(
-		`${shellQuote(`${profile.instancesRoot}/bin/MinecraftClient`)} --help < /dev/null 2>&1`,
+		`${INSTANCES_ROOT}/bin/MinecraftClient --help < /dev/null 2>&1`,
 		CLIENT_PROBE_TIMEOUT_MS,
 	)
 	const probeOutput = `${probe.stdout}\n${probe.stderr}`
@@ -198,20 +177,12 @@ export const provisionHost = async (
 		throw new Error(explainClientFailure(probeOutput))
 	}
 
-	let sandboxed = true
-	if (profile.mode === "rootless") {
-		advance()
-		sandboxed = await readSandboxing(transport, profile)
-	}
-
-	const templates = renderUnitTemplates(profile)
+	const templates = renderUnitTemplates()
 
 	advance()
 	await step(
 		transport,
-		`${profile.mode === "rootless" ? `mkdir -p ${shellQuote(profile.unitDir)} && ` : ""}cat > ${shellQuote(
-			`${profile.unitDir}/${INSTANCE_UNIT_NAME}`,
-		)}`,
+		`mkdir -p ${UNIT_DIR} && cat > ${UNIT_DIR}/${shellQuote(INSTANCE_UNIT_NAME)}`,
 		"Failed to install the instance unit template",
 		PROVISION_STEP_TIMEOUT_MS,
 		templates[INSTANCE_UNIT_NAME],
@@ -221,7 +192,7 @@ export const provisionHost = async (
 	for (const name of SUPPORTING_UNIT_NAMES) {
 		await step(
 			transport,
-			`cat > ${shellQuote(`${profile.unitDir}/${name}`)}`,
+			`cat > ${UNIT_DIR}/${shellQuote(name)}`,
 			`Failed to install the ${name} unit template`,
 			PROVISION_STEP_TIMEOUT_MS,
 			templates[name],
@@ -229,9 +200,9 @@ export const provisionHost = async (
 	}
 
 	advance()
-	await step(transport, systemctl(profile, "daemon-reload"), "Failed to reload systemd")
+	await step(transport, systemctl("daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease, profile, sandboxed, osId, osName }
+	return { osRelease, osId, osName }
 }
 
 export { LINGER_STEP_LABEL }

@@ -64,11 +64,10 @@ export interface Host {
 	hostKeyTrustedByLabel: Generated<string>
 	hostname: string
 	id: string
-	instancesRoot: string | null
 	lastSeenAt: Timestamp | null
 	memoryMb: number | null
-	mode: Generated<string>
 	name: string
+	networkStack: string | null
 	organizationId: string
 	osId: string | null
 	osName: string | null
@@ -80,12 +79,10 @@ export interface Host {
 	provisioningStep: string | null
 	provisioningStepIndex: number | null
 	provisioningStepTotal: number | null
-	sandboxed: boolean | null
 	sshKeyId: string | null
 	status: Generated<string>
 	teardownError: string | null
 	teardownRequestedAt: Timestamp | null
-	unitDir: string | null
 	username: Generated<string>
 }
 

@@ -51,9 +51,7 @@ const HOST: HostRow = {
 	port: 22,
 	username: "mcc",
 	status: "ready",
-	mode: "rootless",
-	instancesRoot: "/home/mcc/.local/share/open-mcc",
-	unitDir: "/home/mcc/.config/systemd/user",
+	networkStack: null,
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:abc",
 	hostKeyAlgorithm: "ssh-ed25519",
@@ -66,9 +64,8 @@ const HOST: HostRow = {
 	memoryMb: null,
 	osId: null,
 	osName: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	failedUnits: null,
-	sandboxed: null,
 	provisioningAttemptId: null,
 	provisioningClaimedAt: null,
 	provisioningError: null,
@@ -167,7 +164,7 @@ const commandsSweptWith = async (botConfig: Json): Promise<readonly string[]> =>
 }
 
 const readsPlayerList = (commands: readonly string[], name: string): boolean =>
-	commands.some((command) => command.startsWith("head -c") && command.includes(`/${name}'`))
+	commands.some((command) => command.startsWith("head -c") && command.includes(`/'${name}'`))
 
 describe("★ the file names the worker hands its artifact collector", () => {
 	it("reads the operator's own player list from a stored config the repository returns as an object", async () => {
@@ -183,7 +180,7 @@ describe("★ the file names the worker hands its artifact collector", () => {
 		expect(readsPlayerList(commands, "playerlog.txt")).toBe(false)
 		expect(
 			commands.some(
-				(command) => command.includes("wc -c < '") && command.includes("/playerlog.txt'"),
+				(command) => command.includes("wc -c < ") && command.includes("/'playerlog.txt'"),
 			),
 		).toBe(true)
 	})

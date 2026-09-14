@@ -11,6 +11,8 @@ import {
 	createSshKeyRepository,
 	generateKeyPair,
 	generateSshKeyPair,
+	HOME_COMMAND,
+	LINGER_COMMAND,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
@@ -68,7 +70,9 @@ beforeAll(async () => {
 		now: () => new Date(),
 		createTransport: () =>
 			createFakeTransport({
-				"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+				[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
+				[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
+				['"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1']: {
 					stdout: "Minecraft Console Client v26.2",
 					stderr: "",
 					exitCode: 0,
@@ -218,7 +222,6 @@ describe("actor label derivation gate", () => {
 			body: JSON.stringify({
 				name: "vps-1",
 				hostname: "10.0.0.9",
-				mode: "system",
 				port: 22,
 				username: "root",
 				sshKeyId: sshKeyRow.id,

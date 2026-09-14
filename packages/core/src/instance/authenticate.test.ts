@@ -10,7 +10,6 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { systemProfile } from "../host/profile"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
@@ -28,6 +27,7 @@ import {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
+	InstanceHostNotFoundError,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
@@ -74,11 +74,8 @@ const hostRow: HostRow = {
 	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
-	username: "root",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	sandboxed: true,
+	username: "mcc",
+	networkStack: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -97,7 +94,7 @@ const hostRow: HostRow = {
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
 	provisioningError: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	cpuCount: null,
 	memoryMb: null,
 	lastSeenAt: null,
@@ -313,7 +310,7 @@ describe("beginAuthentication", () => {
 			"abc123",
 			claimedWith,
 		)
-		expect(transport.commands.some((each) => each.includes("systemctl stop"))).toBe(true)
+		expect(transport.commands.some((each) => each.includes("systemctl --user stop"))).toBe(true)
 	})
 
 	it("holds the claim on success, because the operator needs minutes to finish the login", async () => {
@@ -365,7 +362,7 @@ describe("completeAuthentication", () => {
 		)
 		expect(
 			transport.commands.some((each) =>
-				each.includes("rm -f '/srv/open-mcc/instances/abc123/auth.log'"),
+				each.includes('rm -f "$HOME"/.local/share/open-mcc/instances/abc123/auth.log'),
 			),
 		).toBe(true)
 	})
@@ -381,7 +378,7 @@ describe("completeAuthentication", () => {
 			transport.commands.some(
 				(each) =>
 					each ===
-					"test -s '/srv/open-mcc/instances/abc123/SessionCache.db' || test -s '/srv/open-mcc/instances/abc123/SessionCache.ini'",
+					'test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.db || test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.ini',
 			),
 		).toBe(true)
 	})
@@ -478,6 +475,34 @@ describe("cancelAuthentication", () => {
 			expect.objectContaining({ detail: expect.objectContaining({ phase: "cancelled" }) }),
 		)
 	})
+
+	it("still stops a sign-in on a host a failed Repair setup left in error", async () => {
+		const { deps, transport } = makeDeps("", {
+			hosts: {
+				findById: vi.fn(async () => ({ ...hostRow, status: "error" as const })),
+			},
+		})
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).resolves.toEqual({
+			authenticated: false,
+			status: "needs_auth",
+		})
+		expect(
+			transport.commands.some((each) => each.includes("stop 'open-mcc-auth@abc123.service'")),
+		).toBe(true)
+	})
+
+	it("refuses a host that was never set up, before reaching it", async () => {
+		const { deps, transport } = makeDeps("", {
+			hosts: { findById: vi.fn(async () => ({ ...hostRow, osRelease: null })) },
+		})
+		const connect = vi.spyOn(transport, "connect")
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceHostNotFoundError,
+		)
+		expect(connect).not.toHaveBeenCalled()
+	})
 })
 
 describe("signing in through a host that cannot be reached", () => {
@@ -525,9 +550,7 @@ describe("stopping the instance before a sign-in", () => {
 	it("gives the stop longer than the unit can wait before killing the client", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(
-				renderUnitTemplates(systemProfile())[INSTANCE_UNIT_NAME] ?? "",
-			)?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
 		)
 
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)

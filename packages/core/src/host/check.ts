@@ -1,11 +1,6 @@
-import {
-	type HostCheckReport,
-	type HostCheckResult,
-	type HostMode,
-	reportFrom,
-} from "@open-mcc/contracts"
+import { type HostCheckReport, type HostCheckResult, reportFrom } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { hostFact, readsAsEnforced, sandboxProbeCommand } from "./facts"
+import { hostFact } from "./facts"
 import { architectureForMachine } from "./mcc-release"
 import { explainClientFailure } from "./provision"
 
@@ -49,13 +44,11 @@ export const unreachableReport = (reason: string): HostCheckReport =>
 		skipped("architecture", "Not checked"),
 		skipped("client-runtime", "Not checked"),
 		skipped("lingering", "Not checked"),
-		skipped("confinement", "Not checked"),
 		skipped("tcp-forwarding", "Not checked"),
 	])
 
 export const checkHostOverTransport = async (
 	transport: HostTransport,
-	mode: HostMode,
 ): Promise<HostCheckReport> => {
 	const checks: HostCheckResult[] = [pass("reachable", "Connected and the host key matched")]
 
@@ -88,27 +81,12 @@ export const checkHostOverTransport = async (
 				),
 	)
 
-	if (mode === "rootless") {
-		const linger = await transport.exec(LINGER_COMMAND, CHECK_TIMEOUT_MS)
-		checks.push(
-			linger.stdout.trim() === "yes"
-				? pass("lingering", "Instances will keep running after logout")
-				: fail("lingering", "Lingering is off, so instances would stop when the session ends"),
-		)
-
-		const probe = await transport.exec(sandboxProbeCommand(), CHECK_TIMEOUT_MS)
-		checks.push(
-			readsAsEnforced(probe.stdout)
-				? pass("confinement", "This host's systemd confines instances from each other")
-				: warn(
-						"confinement",
-						"This host's systemd ignores the unit's filesystem restrictions, so instances will not be isolated from each other",
-					),
-		)
-	} else {
-		checks.push(skipped("lingering", "Not used when running with root"))
-		checks.push(skipped("confinement", "Enforced by the system manager"))
-	}
+	const linger = await transport.exec(LINGER_COMMAND, CHECK_TIMEOUT_MS)
+	checks.push(
+		linger.stdout.trim() === "yes"
+			? pass("lingering", "Instances will keep running after logout")
+			: fail("lingering", "Lingering is off, so instances would stop when the session ends"),
+	)
 
 	const forwards = await transport.canForward(FORWARD_PROBE_PORT, CHECK_TIMEOUT_MS)
 	checks.push(

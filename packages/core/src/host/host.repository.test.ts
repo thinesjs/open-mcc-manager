@@ -1,3 +1,4 @@
+import { sql } from "kysely"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
 import {
@@ -132,10 +133,6 @@ describe("host repository trust attribution label", () => {
 					hostname: "10.0.0.7",
 					port: 22,
 					username: "mcc",
-					mode: "system",
-					instancesRoot: "/srv/open-mcc",
-					unitDir: "/etc/systemd/system",
-					sandboxed: true,
 					osId: "debian",
 					osName: "Debian GNU/Linux 12 (bookworm)",
 					failedUnits: null,
@@ -158,10 +155,6 @@ describe("host repository trust attribution label", () => {
 					hostname: "10.0.0.21",
 					port: 22,
 					username: "mcc",
-					mode: "system",
-					instancesRoot: "/srv/open-mcc",
-					unitDir: "/etc/systemd/system",
-					sandboxed: true,
 					osId: "debian",
 					osName: "Debian GNU/Linux 12 (bookworm)",
 					failedUnits: null,
@@ -184,10 +177,6 @@ describe("host repository trust attribution label", () => {
 				hostname: "10.0.0.22",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -213,10 +202,6 @@ describe("host repository trust attribution label", () => {
 				hostname: "10.0.0.20",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -254,10 +239,6 @@ describe("host repository trust attribution label", () => {
 					hostname: "10.0.0.9",
 					port: 22,
 					username: "mcc",
-					mode: "system",
-					instancesRoot: "/srv/open-mcc",
-					unitDir: "/etc/systemd/system",
-					sandboxed: true,
 					osId: "debian",
 					osName: "Debian GNU/Linux 12 (bookworm)",
 					failedUnits: null,
@@ -284,10 +265,6 @@ describe("host repository trust attribution label", () => {
 					hostname: "10.0.0.19",
 					port: 22,
 					username: "mcc",
-					mode: "system",
-					instancesRoot: "/srv/open-mcc",
-					unitDir: "/etc/systemd/system",
-					sandboxed: true,
 					osId: "debian",
 					osName: "Debian GNU/Linux 12 (bookworm)",
 					failedUnits: null,
@@ -315,10 +292,6 @@ describe("host repository trust attribution label", () => {
 				hostname: "10.0.0.10",
 				port: 22,
 				username: "mcc",
-				mode: "system",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				failedUnits: null,
@@ -725,5 +698,57 @@ describe("host repository advisory lock scoping (real Postgres)", () => {
 			releaseHeld()
 			await holder
 		}
+	})
+})
+
+describe("the host table after the single host model (real Postgres)", () => {
+	it("keeps no mode, no stored paths and no confinement flag", async () => {
+		const { rows } = await sql<{ column_name: string }>`
+			select column_name from information_schema.columns
+			where table_schema = 'public' and table_name = 'host'
+		`.execute(testDb())
+		const columns = rows.map((row) => row.column_name)
+
+		for (const gone of ["mode", "instancesRoot", "unitDir", "sandboxed"]) {
+			expect(columns).not.toContain(gone)
+		}
+		expect(columns).toContain("networkStack")
+	})
+
+	it.each([null, "slirp4netns", "pasta"] as const)(
+		"accepts %s as a network stack",
+		async (stack) => {
+			const created = await repo.insert(
+				{ organizationId: orgA },
+				{
+					name: `stack-${stack}`,
+					hostname: "10.0.0.40",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+				},
+			)
+			trackHostId(created.id)
+
+			await testDb()
+				.updateTable("host")
+				.set({ networkStack: stack })
+				.where("id", "=", created.id)
+				.execute()
+
+			expect((await repo.findById({ organizationId: orgA }, created.id))?.networkStack).toBe(stack)
+		},
+	)
+
+	it("refuses a network stack it does not know", async () => {
+		const created = await repo.insert(
+			{ organizationId: orgA },
+			{ name: "stack-other", hostname: "10.0.0.41", port: 22, username: "mcc", sshKeyId: null },
+		)
+		trackHostId(created.id)
+
+		await expect(
+			sql`update "host" set "networkStack" = 'other' where "id" = ${created.id}`.execute(testDb()),
+		).rejects.toThrow(/host_network_stack_known/)
 	})
 })

@@ -12,6 +12,8 @@ import {
 	createSshKeyRepository,
 	generateKeyPair,
 	generateSshKeyPair,
+	HOME_COMMAND,
+	LINGER_COMMAND,
 	type SecretStore,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
@@ -42,7 +44,7 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 const PRESENTED_HOST_KEY = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("host-public-test-key"))
 const PRESENTED_FINGERPRINT = fingerprintFromKey(PRESENTED_HOST_KEY)
 
-const CLIENT_PROBE = "'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1"
+const CLIENT_PROBE = '"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1'
 
 const STALE_CLAIM_AGE_MS = 60 * 60 * 1000
 
@@ -93,6 +95,8 @@ beforeAll(async () => {
 					probeHostKey: async () => PRESENTED_HOST_KEY,
 					createTransport: () =>
 						createFakeTransport({
+							[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
+							[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
 							[CLIENT_PROBE]: {
 								stdout: "Minecraft Console Client v26.2",
 								stderr: "",
@@ -246,7 +250,6 @@ const seedHost = async (
 			name: `vps-${hostId}`,
 			hostname: "10.0.0.42",
 			username: "mcc",
-			mode: "system",
 			status: "provisioning",
 			sshKeyId,
 			hostKeyAlgorithm: "ssh-ed25519",
@@ -254,8 +257,6 @@ const seedHost = async (
 			hostKeyTrustedBy: memberId,
 			hostKeyTrustedByLabel: "seed@example.com",
 			hostKeyTrustedAt: new Date(),
-			instancesRoot: "/srv/open-mcc",
-			unitDir: "/etc/systemd/system",
 			provisioningAttemptId: randomUUID(),
 			provisioningClaimedAt: new Date(Date.now() - STALE_CLAIM_AGE_MS),
 		})
@@ -286,7 +287,6 @@ const HOST_PROCEDURES = [
 				hostname: "10.0.0.43",
 				port: 22,
 				username: "mcc",
-				mode: "system",
 				sshKeyId: seeded.sshKeyId,
 				expectedFingerprint: PRESENTED_FINGERPRINT,
 			}),

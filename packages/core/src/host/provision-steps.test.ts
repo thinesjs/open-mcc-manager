@@ -1,10 +1,17 @@
-import { PROVISION_STEP_LABELS } from "@open-mcc/contracts"
+import { LINGER_STEP_LABEL, PROVISION_STEP_LABELS } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
+import * as provision from "./provision"
 import { PROVISION_STEPS } from "./provision"
 
 describe("the provisioning plan", () => {
 	it("is the same list the dashboard renders, in the same order", () => {
 		expect([...PROVISION_STEPS]).toEqual([...PROVISION_STEP_LABELS])
+	})
+
+	it("is one list for every host, checking lingering and never checking confinement", () => {
+		expect(PROVISION_STEPS).toContain(LINGER_STEP_LABEL)
+		expect(PROVISION_STEPS).not.toContain("Checking that instances are confined")
+		expect(Object.keys(provision)).not.toContain("ROOTLESS_PROVISION_STEPS")
 	})
 
 	it("reports the download, its verification and its installation separately", () => {

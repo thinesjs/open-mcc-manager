@@ -159,7 +159,6 @@ const materialsFor = (overrides: Partial<SelfHostOffer> = {}): SelfHostMaterials
 			hostname: "host.docker.internal",
 			port: 22,
 			username: "mcc",
-			mode: "rootless",
 			fingerprint: THIS_MACHINE_FINGERPRINT,
 			reach: "proven",
 			systemd: true,

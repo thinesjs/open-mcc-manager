@@ -9,7 +9,6 @@ import {
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import type { HostProfile } from "../host/profile"
 import { instanceDir } from "./unit"
 
 export const ARTIFACT_STEP_TIMEOUT_MS = 20_000
@@ -179,7 +178,7 @@ const readBase64 = async (
 ): Promise<string | undefined> => {
 	try {
 		const result = await transport.exec(
-			`head -c ${upTo} ${shellQuote(path)} 2>/dev/null | base64 | tr -d '\\n'`,
+			`head -c ${upTo} ${path} 2>/dev/null | base64 | tr -d '\\n'`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		return result.stdout
@@ -194,8 +193,8 @@ const drainHead = async (
 	name: string,
 	bytes: number,
 ): Promise<boolean> => {
-	const part = shellQuote(`${directory}/${DRAIN_TEMPORARY}`)
-	const target = shellQuote(`${directory}/${name}`)
+	const part = `${directory}/${shellQuote(DRAIN_TEMPORARY)}`
+	const target = `${directory}/${shellQuote(name)}`
 	try {
 		const result = await transport.exec(
 			`tail -c +${bytes + 1} ${target} > ${part} && mv -f ${part} ${target} || { rm -f ${part}; exit 1; }`,
@@ -209,7 +208,7 @@ const drainHead = async (
 
 const removeFile = async (transport: HostTransport, path: string): Promise<boolean> => {
 	try {
-		const result = await transport.exec(`rm -f ${shellQuote(path)}`, ARTIFACT_STEP_TIMEOUT_MS)
+		const result = await transport.exec(`rm -f ${path}`, ARTIFACT_STEP_TIMEOUT_MS)
 		return result.exitCode === 0
 	} catch {
 		return false
@@ -224,7 +223,7 @@ const collectPlayerList = async (
 	keep: KeepArtifact,
 	tally: Tally,
 ): Promise<void> => {
-	const path = `${directory}/${name}`
+	const path = `${directory}/${shellQuote(name)}`
 	const encoded = await readBase64(transport, path, MAX_ARTIFACT_BYTES)
 	if (encoded === undefined) {
 		tally.failed += 1
@@ -261,7 +260,7 @@ const listSettledReplays = async (
 ): Promise<readonly string[] | undefined> => {
 	try {
 		const result = await transport.exec(
-			`find ${shellQuote(directory)} -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`,
+			`find ${directory} -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		return result.stdout
@@ -288,7 +287,7 @@ const collectReplays = async (
 		return
 	}
 	for (const name of names) {
-		const path = `${directory}/${name}`
+		const path = `${directory}/${shellQuote(name)}`
 		const encoded = await readBase64(transport, path, MAX_ARTIFACT_BYTES + 1)
 		if (encoded === undefined) {
 			tally.failed += 1
@@ -331,7 +330,7 @@ const pruneReplays = async (
 ): Promise<void> => {
 	try {
 		const result = await transport.exec(
-			`find ${shellQuote(directory)} -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`,
+			`find ${directory} -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		tally.replaysPruned += countFrom(result.stdout)
@@ -345,10 +344,9 @@ const pruneRecordingCache = async (
 	directory: string,
 	tally: Tally,
 ): Promise<void> => {
-	const quoted = shellQuote(directory)
 	try {
 		const result = await transport.exec(
-			`find ${quoted} -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${quoted} -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`,
+			`find ${directory} -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${directory} -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
 		tally.cacheDirectoriesPruned += countFrom(result.stdout)
@@ -367,8 +365,8 @@ const measureMailerState = async (
 		tally.refused += 1
 		return
 	}
-	const database = shellQuote(`${directory}/${names.mailerDatabase}`)
-	const ignoreList = shellQuote(`${directory}/${names.mailerIgnoreList}`)
+	const database = `${directory}/${shellQuote(names.mailerDatabase)}`
+	const ignoreList = `${directory}/${shellQuote(names.mailerIgnoreList)}`
 	try {
 		const result = await transport.exec(
 			`printf '%s %s' "$(wc -c < ${database} 2>/dev/null || printf 0)" "$(wc -c < ${ignoreList} 2>/dev/null || printf 0)"`,
@@ -382,14 +380,13 @@ const measureMailerState = async (
 
 export const sweepHostArtifacts = async (
 	transport: HostTransport,
-	profile: HostProfile,
 	instances: readonly InstanceRow[],
 	documents: ReadonlyMap<string, string>,
 	keep: KeepArtifact,
 ): Promise<readonly InstanceArtifactSweep[]> => {
 	const sweeps: InstanceArtifactSweep[] = []
 	for (const instance of instances) {
-		const directory = instanceDir(profile.instancesRoot, instance.id)
+		const directory = instanceDir(instance.id)
 		const names = artifactNamesFor(documents.get(instance.id))
 		const tally = emptyTally()
 

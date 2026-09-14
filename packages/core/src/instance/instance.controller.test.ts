@@ -49,7 +49,6 @@ vi.mock("./live-control", async (importOriginal) => {
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import { HostMisconfiguredError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { systemProfile } from "../host/profile"
 import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
@@ -63,6 +62,7 @@ import {
 	InstanceBotConfigUnusableError,
 	InstanceConfigUnusableError,
 	type InstanceControllerDeps,
+	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceNotRunningError,
 	InstanceRemovalFailedError,
@@ -71,7 +71,7 @@ import {
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
-import { instanceDir, instanceUser, unitName } from "./unit"
+import { instanceDir, unitName } from "./unit"
 
 const owner: ActorContext = {
 	organizationId: "org-1",
@@ -82,6 +82,10 @@ const owner: ActorContext = {
 
 const viewer: ActorContext = { ...owner, role: "viewer" }
 const operator: ActorContext = { ...owner, role: "operator" }
+
+const SYSTEMCTL = "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user"
+
+const UNITS = '"$HOME"/.config/systemd/user'
 
 const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
@@ -108,11 +112,8 @@ const hostRow: HostRow = {
 	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
-	username: "root",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	sandboxed: true,
+	username: "mcc",
+	networkStack: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -131,7 +132,7 @@ const hostRow: HostRow = {
 	provisioningStepIndex: null,
 	provisioningStepTotal: null,
 	provisioningError: null,
-	osRelease: null,
+	osRelease: "systemd 252",
 	cpuCount: null,
 	memoryMb: null,
 	lastSeenAt: null,
@@ -382,7 +383,7 @@ describe("instance creation prepares the host", () => {
 		expect(created.createdAt).toBe("2026-09-01T00:00:00.000Z")
 	})
 
-	it("creates the user, directory and control fifo, and writes the environment as stdin", async () => {
+	it("creates the directory and control fifo, and writes the environment as stdin", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 		await controller.create(owner, {
@@ -394,9 +395,8 @@ describe("instance creation prepares the host", () => {
 		})
 
 		const joined = transport.commands.join("\n")
-		expect(joined).toContain("useradd -r -U")
 		expect(joined).toContain("mkfifo -m 0600")
-		expect(joined).toContain("/srv/open-mcc/instances/abc123/env")
+		expect(joined).toContain('"$HOME"/.local/share/open-mcc/instances/abc123/env')
 		expect(transport.stdins.some((each) => each.includes("MCC_MCP_AUTH_TOKEN="))).toBe(true)
 	})
 
@@ -436,7 +436,7 @@ describe("instance creation prepares the host", () => {
 		expect(written).not.toContain("MCC_MCP_AUTH_TOKEN=")
 	})
 
-	it("gives the instance a private group and no group-readable state, so co-tenants cannot reach it", async () => {
+	it("creates no account, changes no owner and keeps no group-readable state, since the connecting account runs every bot", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 
@@ -449,30 +449,17 @@ describe("instance creation prepares the host", () => {
 		})
 
 		const joined = transport.commands.join("\n")
-		const user = "mcc-abc123"
 
-		expect(joined).not.toContain("open-mcc'")
-		expect(joined).not.toContain("-g open-mcc")
-		expect(joined).toContain(`install -d -m 0700 -o '${user}' -g '${user}'`)
-		expect(joined).toContain(`chown '${user}:${user}' '/srv/open-mcc/instances/abc123/control'`)
-		expect(joined).toContain("(umask 077; cat > '/srv/open-mcc/instances/abc123/env')")
+		expect(joined).not.toContain("useradd")
+		expect(joined).not.toContain("chown")
+		expect(joined).toContain('install -d -m 0700 "$HOME"/.local/share/open-mcc/instances/abc123')
+		expect(joined).toContain(
+			'(umask 077; cat > "$HOME"/.local/share/open-mcc/instances/abc123/env)',
+		)
 
 		for (const mode of joined.match(/-m [0-7]{4}/g) ?? []) {
 			expect(Number.parseInt(mode.slice(3), 8) & 0o077).toBe(0)
 		}
-	})
-
-	it("creates the instance user idempotently so a retry after a partial failure does not fail", async () => {
-		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps)
-		await controller.create(owner, {
-			hostId: "host-1",
-			name: "afk-1",
-			accountType: "microsoft",
-			minecraftAccount: "afk@example.com",
-			serverAddress: "play.example.com",
-		})
-		expect(transport.commands.find((each) => each.includes("useradd"))).toContain("|| true")
 	})
 })
 
@@ -515,11 +502,11 @@ describe("sleep windows", () => {
 
 		const written = transport.commands.filter((each) => each.startsWith("cat > "))
 		expect(written).toEqual([
-			"cat > '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'",
-			"cat > '/etc/systemd/system/open-mcc-sleep-start@abc123.timer'",
+			`cat > ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`,
+			`cat > ${UNITS}/'open-mcc-sleep-start@abc123.timer'`,
 		])
-		const reload = transport.commands.indexOf("systemctl daemon-reload")
-		const enable = transport.commands.findIndex((each) => each.startsWith("systemctl enable"))
+		const reload = transport.commands.indexOf(`${SYSTEMCTL} daemon-reload`)
+		const enable = transport.commands.findIndex((each) => each.startsWith(`${SYSTEMCTL} enable`))
 		expect(reload).toBeGreaterThan(transport.commands.indexOf(written[1] ?? ""))
 		expect(enable).toBeGreaterThan(reload)
 	})
@@ -539,7 +526,7 @@ describe("sleep windows", () => {
 
 	it("records nothing when the host will not take the timers, and says so as a host problem", async () => {
 		const refusing = createFakeTransport({
-			"cat > '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'": {
+			[`cat > ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`]: {
 				stdout: "",
 				stderr: "Permission denied",
 				exitCode: 1,
@@ -567,7 +554,7 @@ describe("sleep windows", () => {
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
-	const START_TIMER_ENABLE = "systemctl enable --now 'open-mcc-sleep-start@abc123.timer'"
+	const START_TIMER_ENABLE = `${SYSTEMCTL} enable --now 'open-mcc-sleep-start@abc123.timer'`
 
 	const refusingStart = () =>
 		createFakeTransport({
@@ -585,9 +572,9 @@ describe("sleep windows", () => {
 
 		const afterFailure = refusing.commands.slice(refusing.commands.indexOf(START_TIMER_ENABLE) + 1)
 		expect(afterFailure).toContain(
-			"systemctl disable --now 'open-mcc-sleep-stop@abc123.timer' || true",
+			`${SYSTEMCTL} disable --now 'open-mcc-sleep-stop@abc123.timer' || true`,
 		)
-		expect(afterFailure).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+		expect(afterFailure).toContain(`rm -f ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`)
 		expect(deps.schedules.upsert).not.toHaveBeenCalled()
 	})
 
@@ -625,9 +612,9 @@ describe("sleep windows", () => {
 		await controller.clearSleepWindow(owner, "abc123")
 
 		const joined = transport.commands.join("\n")
-		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-stop@abc123.timer'")
-		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
-		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-stop@abc123.timer'`)
+		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-start@abc123.timer'`)
+		expect(joined).toContain(`rm -f ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`)
 	})
 })
 
@@ -755,7 +742,9 @@ describe("reconciliation", () => {
 
 	it("★ tells a host that was never finished apart from one that did not answer", async () => {
 		const { deps } = makeDeps({
-			hosts: { findById: vi.fn(async () => ({ ...hostRow, instancesRoot: null, unitDir: null })) },
+			hosts: {
+				findById: vi.fn(async () => ({ ...hostRow, status: "pending" as const, osRelease: null })),
+			},
 		})
 		const controller = createInstanceController(deps)
 
@@ -848,47 +837,19 @@ describe("removing an instance", () => {
 		await controller.remove(owner, "abc123")
 
 		const joined = transport.commands.join("\n")
-		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-stop@abc123.timer'")
-		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
-		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
-		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-start@abc123.timer'")
+		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-stop@abc123.timer'`)
+		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-start@abc123.timer'`)
+		expect(joined).toContain(`rm -f ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`)
+		expect(joined).toContain(`rm -f ${UNITS}/'open-mcc-sleep-start@abc123.timer'`)
 	})
 
-	const rootlessHostRow: HostRow = {
-		...hostRow,
-		mode: "rootless",
-		username: "mcc",
-		instancesRoot: "/home/mcc/.local/share/open-mcc",
-		unitDir: "/home/mcc/.config/systemd/user",
-	}
-
-	const user = "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user"
-
-	const PROFILES = [
-		{
-			mode: "system",
-			host: hostRow,
-			timer: "systemctl disable --now 'open-mcc-sleep-start@abc123.timer' || true",
-			stopInstance:
-				"systemctl stop 'open-mcc@abc123.service' || true; systemctl disable 'open-mcc@abc123.service' || true; systemctl reset-failed 'open-mcc@abc123.service' || true",
-			stopSignIn:
-				"systemctl stop 'open-mcc-auth@abc123.service' || true; systemctl reset-failed 'open-mcc-auth@abc123.service' || true",
-			quiet:
-				"id -u 'mcc-abc123' >/dev/null 2>&1 || exit 0; pkill -KILL -u 'mcc-abc123'; for attempt in 1 2 3 4 5; do pgrep -u 'mcc-abc123' >/dev/null; [ $? -eq 1 ] && exit 0; sleep 1; done; exit 1",
-			directory: "rm -rf -- '/srv/open-mcc/instances/abc123'",
-			last: "if id -u 'mcc-abc123' >/dev/null 2>&1; then userdel 'mcc-abc123' || exit 1; fi; ! getent group 'mcc-abc123' >/dev/null || groupdel 'mcc-abc123'",
-		},
-		{
-			mode: "rootless",
-			host: rootlessHostRow,
-			timer: `${user} disable --now 'open-mcc-sleep-start@abc123.timer' || true`,
-			stopInstance: `${user} stop 'open-mcc@abc123.service' || true; ${user} disable 'open-mcc@abc123.service' || true; ${user} reset-failed 'open-mcc@abc123.service' || true`,
-			stopSignIn: `${user} stop 'open-mcc-auth@abc123.service' || true; ${user} reset-failed 'open-mcc-auth@abc123.service' || true`,
-			quiet: `real=$(cd '/home/mcc/.local/share/open-mcc/instances/abc123' 2>/dev/null && pwd -P) || exit 0; for process in /proc/[0-9]*; do case "$(readlink "$process/cwd" 2>/dev/null)" in "$real"|"$real"/*) exit 1;; esac; done; exit 0`,
-			directory: "rm -rf -- '/home/mcc/.local/share/open-mcc/instances/abc123'",
-			last: `${user} stop 'open-mcc-auth@abc123.service' || true; ${user} reset-failed 'open-mcc-auth@abc123.service' || true`,
-		},
-	] as const
+	const REMOVAL = {
+		timer: `${SYSTEMCTL} disable --now 'open-mcc-sleep-start@abc123.timer' || true`,
+		stopInstance: `${SYSTEMCTL} stop 'open-mcc@abc123.service' || true; ${SYSTEMCTL} disable 'open-mcc@abc123.service' || true; ${SYSTEMCTL} reset-failed 'open-mcc@abc123.service' || true`,
+		stopSignIn: `${SYSTEMCTL} stop 'open-mcc-auth@abc123.service' || true; ${SYSTEMCTL} reset-failed 'open-mcc-auth@abc123.service' || true`,
+		quiet: `real=$(cd "$HOME"/.local/share/open-mcc/instances/abc123 2>/dev/null && pwd -P) || exit 0; for process in /proc/[0-9]*; do case "$(readlink "$process/cwd" 2>/dev/null)" in "$real"|"$real"/*) exit 1;; esac; done; exit 0`,
+		directory: 'rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123',
+	} as const
 
 	const failed = { stdout: "", stderr: "", exitCode: 1 }
 
@@ -900,170 +861,137 @@ describe("removing an instance", () => {
 		return { instances, audit, outcome: createInstanceController(deps).remove(owner, "abc123") }
 	}
 
-	for (const profile of PROFILES) {
-		describe(`on a ${profile.mode} host`, () => {
-			it("stops the sign-in unit as well as the instance before checking what is still running", async () => {
-				const transport = createFakeTransport()
-				await removeOn(profile.host, transport).outcome
-				const at = (command: string) => transport.commands.indexOf(command)
-
-				expect(at(profile.stopInstance)).toBeGreaterThanOrEqual(0)
-				expect(at(profile.stopSignIn)).toBeGreaterThanOrEqual(0)
-				expect(at(profile.stopInstance)).toBeLessThan(at(profile.quiet))
-				expect(at(profile.stopSignIn)).toBeLessThan(at(profile.quiet))
-			})
-
-			it("takes the sleep timers away first, so neither can start the instance again", async () => {
-				const transport = createFakeTransport()
-				await removeOn(profile.host, transport).outcome
-				const at = (command: string) => transport.commands.indexOf(command)
-
-				expect(at(profile.timer)).toBeGreaterThanOrEqual(0)
-				expect(at(profile.timer)).toBeLessThan(at(profile.stopInstance))
-			})
-
-			it("deletes the instance's directory, which holds its sign-in and live-control secrets, once nothing is running", async () => {
-				const transport = createFakeTransport()
-				await removeOn(profile.host, transport).outcome
-				const at = (command: string) => transport.commands.indexOf(command)
-
-				expect(at(profile.directory)).toBeGreaterThanOrEqual(0)
-				expect(at(profile.quiet)).toBeGreaterThanOrEqual(0)
-				expect(at(profile.quiet)).toBeLessThan(at(profile.directory))
-			})
-
-			it("stops both units again once the directory is gone, so a start in that window does not outlive the removal", async () => {
-				const transport = createFakeTransport()
-				await removeOn(profile.host, transport).outcome
-				const directoryAt = transport.commands.indexOf(profile.directory)
-
-				expect(directoryAt).toBeGreaterThanOrEqual(0)
-				expect(transport.commands.lastIndexOf(profile.stopInstance)).toBeGreaterThan(directoryAt)
-				expect(transport.commands.lastIndexOf(profile.stopSignIn)).toBeGreaterThan(directoryAt)
-			})
-
-			it("never asks to disable the sign-in unit, which nothing ever enables", async () => {
-				const transport = createFakeTransport()
-				await removeOn(profile.host, transport).outcome
-
-				expect(
-					transport.commands.filter((command) => command.includes("disable 'open-mcc-auth@")),
-				).toEqual([])
-			})
-
-			it("deletes the row only after every host step has run", async () => {
-				const transport = createFakeTransport()
-				const { instances, audit, outcome } = removeOn(profile.host, transport)
-				let commandsBeforeDelete = -1
-				instances.delete = vi.fn(async () => {
-					commandsBeforeDelete = transport.commands.length
-					return true
-				})
-				await outcome
-
-				expect(commandsBeforeDelete).toBe(transport.commands.length)
-				expect(transport.commands.at(-1)).toBe(profile.last)
-				expect(audit.record).toHaveBeenCalledTimes(1)
-			})
-
-			it("keeps the row, and deletes nothing, when something is still using the instance", async () => {
-				const transport = createFakeTransport({ [profile.quiet]: failed })
-				const { instances, audit, outcome } = removeOn(profile.host, transport)
-
-				await expect(outcome).rejects.toThrow(InstanceStillInUseError)
-				expect(transport.commands).not.toContain(profile.directory)
-				expect(instances.delete).not.toHaveBeenCalled()
-				expect(audit.record).not.toHaveBeenCalled()
-			})
-
-			it("keeps the row when the host cannot delete the directory", async () => {
-				const transport = createFakeTransport({ [profile.directory]: failed })
-				const { instances, audit, outcome } = removeOn(profile.host, transport)
-
-				await expect(outcome).rejects.toThrow(InstanceRemovalFailedError)
-				expect(transport.commands.at(-1)).toBe(profile.directory)
-				expect(instances.delete).not.toHaveBeenCalled()
-				expect(audit.record).not.toHaveBeenCalled()
-			})
-
-			it("keeps the row when the host cannot be reached", async () => {
-				const transport = createFakeTransport({}, { connect: new Error("connection refused") })
-				const { instances, audit, outcome } = removeOn(profile.host, transport)
-
-				await expect(outcome).rejects.toThrow(HostUnreachableError)
-				expect(transport.commands).toEqual([])
-				expect(instances.delete).not.toHaveBeenCalled()
-				expect(audit.record).not.toHaveBeenCalled()
-			})
-
-			it("keeps the row when a step never answers", async () => {
-				const transport = createFakeTransport(
-					{},
-					{ exec: { [profile.stopInstance]: new Error("Command timed out") } },
-				)
-				const { instances, audit, outcome } = removeOn(profile.host, transport)
-
-				await expect(outcome).rejects.toThrow("Command timed out")
-				expect(instances.delete).not.toHaveBeenCalled()
-				expect(audit.record).not.toHaveBeenCalled()
-			})
-		})
-	}
-
-	it("deletes a root host's per-instance account after its directory, and never with -r", async () => {
+	it("stops the sign-in unit as well as the instance before checking what is still running", async () => {
 		const transport = createFakeTransport()
 		await removeOn(hostRow, transport).outcome
-		const [system] = PROFILES
+		const at = (command: string) => transport.commands.indexOf(command)
 
-		expect(transport.commands.filter((command) => command.includes("userdel"))).toEqual([
-			system.last,
-		])
-		expect(transport.commands.indexOf(system.last)).toBeGreaterThan(
-			transport.commands.indexOf(system.directory),
+		expect(at(REMOVAL.stopInstance)).toBeGreaterThanOrEqual(0)
+		expect(at(REMOVAL.stopSignIn)).toBeGreaterThanOrEqual(0)
+		expect(at(REMOVAL.stopInstance)).toBeLessThan(at(REMOVAL.quiet))
+		expect(at(REMOVAL.stopSignIn)).toBeLessThan(at(REMOVAL.quiet))
+	})
+
+	it("takes the sleep timers away first, so neither can start the instance again", async () => {
+		const transport = createFakeTransport()
+		await removeOn(hostRow, transport).outcome
+		const at = (command: string) => transport.commands.indexOf(command)
+
+		expect(at(REMOVAL.timer)).toBeGreaterThanOrEqual(0)
+		expect(at(REMOVAL.timer)).toBeLessThan(at(REMOVAL.stopInstance))
+	})
+
+	it("deletes the instance's directory, which holds its sign-in and live-control secrets, once nothing is running", async () => {
+		const transport = createFakeTransport()
+		await removeOn(hostRow, transport).outcome
+		const at = (command: string) => transport.commands.indexOf(command)
+
+		expect(at(REMOVAL.directory)).toBeGreaterThanOrEqual(0)
+		expect(at(REMOVAL.quiet)).toBeGreaterThanOrEqual(0)
+		expect(at(REMOVAL.quiet)).toBeLessThan(at(REMOVAL.directory))
+	})
+
+	it("stops both units again once the directory is gone, so a start in that window does not outlive the removal", async () => {
+		const transport = createFakeTransport()
+		await removeOn(hostRow, transport).outcome
+		const directoryAt = transport.commands.indexOf(REMOVAL.directory)
+
+		expect(directoryAt).toBeGreaterThanOrEqual(0)
+		expect(transport.commands.lastIndexOf(REMOVAL.stopInstance)).toBeGreaterThan(directoryAt)
+		expect(transport.commands.lastIndexOf(REMOVAL.stopSignIn)).toBeGreaterThan(directoryAt)
+	})
+
+	it("never asks to disable the sign-in unit, which nothing ever enables", async () => {
+		const transport = createFakeTransport()
+		await removeOn(hostRow, transport).outcome
+
+		expect(
+			transport.commands.filter((command) => command.includes("disable 'open-mcc-auth@")),
+		).toEqual([])
+	})
+
+	it("deletes the row only after every host step has run", async () => {
+		const transport = createFakeTransport()
+		const { instances, audit, outcome } = removeOn(hostRow, transport)
+		let commandsBeforeDelete = -1
+		instances.delete = vi.fn(async () => {
+			commandsBeforeDelete = transport.commands.length
+			return true
+		})
+		await outcome
+
+		expect(commandsBeforeDelete).toBe(transport.commands.length)
+		expect(transport.commands.at(-1)).toBe(REMOVAL.stopSignIn)
+		expect(audit.record).toHaveBeenCalledTimes(1)
+	})
+
+	it("keeps the row, and deletes nothing, when something is still using the instance", async () => {
+		const transport = createFakeTransport({ [REMOVAL.quiet]: failed })
+		const { instances, audit, outcome } = removeOn(hostRow, transport)
+
+		await expect(outcome).rejects.toThrow(InstanceStillInUseError)
+		expect(transport.commands).not.toContain(REMOVAL.directory)
+		expect(instances.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("keeps the row when the host cannot delete the directory", async () => {
+		const transport = createFakeTransport({ [REMOVAL.directory]: failed })
+		const { instances, audit, outcome } = removeOn(hostRow, transport)
+
+		await expect(outcome).rejects.toThrow(InstanceRemovalFailedError)
+		expect(transport.commands.at(-1)).toBe(REMOVAL.directory)
+		expect(instances.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("keeps the row when the host cannot be reached", async () => {
+		const transport = createFakeTransport({}, { connect: new Error("connection refused") })
+		const { instances, audit, outcome } = removeOn(hostRow, transport)
+
+		await expect(outcome).rejects.toThrow(HostUnreachableError)
+		expect(transport.commands).toEqual([])
+		expect(instances.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("keeps the row when a step never answers", async () => {
+		const transport = createFakeTransport(
+			{},
+			{ exec: { [REMOVAL.stopInstance]: new Error("Command timed out") } },
 		)
-		expect(transport.commands.lastIndexOf(system.stopInstance)).toBeLessThan(
-			transport.commands.indexOf(system.last),
-		)
-		expect(transport.commands.lastIndexOf(system.stopSignIn)).toBeLessThan(
-			transport.commands.indexOf(system.last),
-		)
+		const { instances, audit, outcome } = removeOn(hostRow, transport)
+
+		await expect(outcome).rejects.toThrow("Command timed out")
+		expect(instances.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("gives each unit longer to stop than the unit itself waits before killing it", async () => {
 		const transport = createFakeTransport()
 		await removeOn(hostRow, transport).outcome
-		const [system] = PROFILES
-		const templates = renderUnitTemplates(systemProfile())
+		const templates = renderUnitTemplates()
 		const stopSeconds = (unit: string) =>
 			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
 		const timeoutFor = (command: string) => transport.timeouts[transport.commands.indexOf(command)]
 
 		expect(stopSeconds(INSTANCE_UNIT_NAME)).toBeGreaterThan(0)
 		expect(stopSeconds(AUTH_UNIT_NAME)).toBeGreaterThan(0)
-		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(
+		expect(timeoutFor(REMOVAL.stopInstance)).toBeGreaterThan(
 			2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000,
 		)
-		expect(timeoutFor(system.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
+		expect(timeoutFor(REMOVAL.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
 	})
 
-	it("keeps the row when a root host cannot delete the per-instance account", async () => {
-		const [system] = PROFILES
-		const transport = createFakeTransport({ [system.last]: failed })
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
-
-		await expect(outcome).rejects.toThrow(InstanceRemovalFailedError)
-		expect(instances.delete).not.toHaveBeenCalled()
-		expect(audit.record).not.toHaveBeenCalled()
-	})
-
-	it("never kills or deletes by account on a host whose instances share one", async () => {
+	it("issues no account command, and never kills or deletes by account", async () => {
 		const transport = createFakeTransport()
-		await removeOn(rootlessHostRow, transport).outcome
+		await removeOn(hostRow, transport).outcome
 
 		expect(
 			transport.commands.filter(
 				(command) =>
 					command.includes("pkill") ||
+					command.includes("useradd") ||
 					command.includes("userdel") ||
 					command.includes("groupdel") ||
 					command.includes("-u 'mcc-"),
@@ -1074,15 +1002,9 @@ describe("removing an instance", () => {
 
 describe("running several instances on one host", () => {
 	it("gives each its own directory and its own unit, so they do not collide", () => {
-		const root = "/srv/open-mcc"
-
-		expect(instanceDir(root, "alpha")).not.toBe(instanceDir(root, "beta"))
+		expect(instanceDir("alpha")).not.toBe(instanceDir("beta"))
 		expect(unitName("alpha")).toBe("open-mcc@alpha")
 		expect(unitName("beta")).toBe("open-mcc@beta")
-	})
-
-	it("keeps each instance's account separate where the host has per-instance accounts", () => {
-		expect(instanceUser("alpha")).not.toBe(instanceUser("beta"))
 	})
 
 	it("keeps the port the row owns, whatever a config save asks for", async () => {
@@ -1892,9 +1814,7 @@ describe("stopping an instance", () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(
-				renderUnitTemplates(systemProfile())[INSTANCE_UNIT_NAME] ?? "",
-			)?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
 		)
 
 		await controller.stop(owner, "abc123")
@@ -1903,5 +1823,60 @@ describe("stopping an instance", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+})
+
+describe("a bot on a host whose Repair setup did not finish", () => {
+	const setUpOnce = (status: HostRow["status"]): HostRow => ({
+		...hostRow,
+		status,
+		osRelease: "systemd 252",
+	})
+
+	const onHost = (host: HostRow) => makeDeps({ hosts: { findById: vi.fn(async () => host) } })
+
+	it.each(["error", "provisioning"] as const)(
+		"can still be stopped while the host is %s after a repair",
+		async (status) => {
+			const { deps, transport } = onHost(setUpOnce(status))
+
+			await createInstanceController(deps).stop(owner, "abc123")
+
+			expect(transport.commands.some((each) => each.includes("stop 'open-mcc@abc123'"))).toBe(true)
+		},
+	)
+
+	it("can still be removed, its row deleted, after a repair failed", async () => {
+		const { deps, transport, instances } = onHost(setUpOnce("error"))
+
+		await createInstanceController(deps).remove(owner, "abc123")
+
+		expect(transport.commands).toContain('rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123')
+		expect(instances.delete).toHaveBeenCalledTimes(1)
+	})
+
+	it("is not joined by a new bot until a repair succeeds, and the host is never reached", async () => {
+		const { deps, transport, instances } = onHost(setUpOnce("error"))
+
+		await expect(
+			createInstanceController(deps).create(owner, {
+				hostId: "host-1",
+				name: "afk-2",
+				accountType: "microsoft",
+				minecraftAccount: "afk@example.com",
+				serverAddress: "play.example.com",
+			}),
+		).rejects.toBeInstanceOf(InstanceHostNotProvisionedError)
+		expect(transport.commands).toEqual([])
+		expect(instances.insert).not.toHaveBeenCalled()
+	})
+
+	it("is refused on a host that was never set up, before the host is reached", async () => {
+		const { deps, transport } = onHost({ ...hostRow, status: "error", osRelease: null })
+
+		await expect(createInstanceController(deps).stop(owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceHostNotProvisionedError,
+		)
+		expect(transport.commands).toEqual([])
 	})
 })

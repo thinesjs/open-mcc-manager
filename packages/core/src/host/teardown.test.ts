@@ -1,7 +1,19 @@
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { rootlessProfile, systemProfile } from "./profile"
-import { isSafeToRemove, PROTECTED_PATHS, selfExcludingPattern, tearDownHost } from "./teardown"
+import { selfExcludingPattern, tearDownHost } from "./teardown"
+
+const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
+
+const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
+
+const LINGER = 'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no'
+
+const answer = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
+
+const CLEAN = {
+	[LIST_UNITS]: answer("open-mcc@.service\nopen-mcc-auth@.service\nsshd.service\n"),
+	[INSTANCES_LEFT]: answer("gone"),
+}
 
 const connected = async (
 	responses: Record<string, { stdout: string; stderr: string; exitCode: number }>,
@@ -18,139 +30,64 @@ const connected = async (
 	return transport
 }
 
-const CLEAN = {
-	"ls -1 '/etc/systemd/system' 2>/dev/null || true": {
-		stdout: "open-mcc@.service\nopen-mcc-auth@.service\nsshd.service\n",
-		stderr: "",
-		exitCode: 0,
-	},
-	"test -e '/srv/open-mcc' && printf present || printf gone": {
-		stdout: "gone",
-		stderr: "",
-		exitCode: 0,
-	},
-}
-
-describe("refusing to delete a path that is not ours", () => {
-	it("refuses every well-known system directory", () => {
-		for (const path of PROTECTED_PATHS) {
-			expect(isSafeToRemove(path)).toBe(false)
-		}
-	})
-
-	it("refuses a path shallow enough to be a system directory", () => {
-		expect(isSafeToRemove("/opt")).toBe(false)
-		expect(isSafeToRemove("/anything")).toBe(false)
-	})
-
-	it("refuses anything that could climb out with a parent segment", () => {
-		expect(isSafeToRemove("/srv/open-mcc/../../etc")).toBe(false)
-	})
-
-	it("refuses a relative path, which would delete from an unknown directory", () => {
-		expect(isSafeToRemove("srv/open-mcc")).toBe(false)
-	})
-
-	it("accepts the roots this control plane actually installs into", () => {
-		expect(isSafeToRemove("/srv/open-mcc")).toBe(true)
-		expect(isSafeToRemove("/home/pi/.local/share/open-mcc")).toBe(true)
-		expect(isSafeToRemove("/srv/open-mcc/")).toBe(true)
-	})
-})
-
 describe("cleaning a host when it is removed", () => {
 	it("removes only the units this control plane installed", async () => {
 		const transport = await connected(CLEAN)
 
-		const report = await tearDownHost(transport, systemProfile(), [])
+		const report = await tearDownHost(transport)
 
 		expect(report.unitsRemoved).toEqual(["open-mcc@.service", "open-mcc-auth@.service"])
 		expect(transport.commands.some((command) => command.includes("sshd.service"))).toBe(false)
 	})
 
-	it("stops each unit before deleting its file, so nothing keeps running headless", async () => {
+	it("stops each unit through the user manager before deleting its file, so nothing keeps running headless", async () => {
 		const transport = await connected(CLEAN)
 
-		await tearDownHost(transport, systemProfile(), [])
+		await tearDownHost(transport)
 
-		const stopAt = transport.commands.findIndex((c) => c.includes("disable --now"))
+		const stopAt = transport.commands.findIndex((c) => c.includes("systemctl --user disable --now"))
 		const removeAt = transport.commands.findIndex((c) => c.startsWith("rm -f"))
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(stopAt).toBeLessThan(removeAt)
 	})
 
+	it("removes the instances directory under the account's own home", async () => {
+		const transport = await connected(CLEAN)
+
+		await tearDownHost(transport)
+
+		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+	})
+
 	it("kills anything still running from the instances directory", async () => {
 		const transport = await connected(CLEAN)
 
-		await tearDownHost(transport, systemProfile(), [])
+		await tearDownHost(transport)
 
-		expect(transport.commands.some((c) => c.startsWith("pkill -f '/srv/[o]pen-mcc'"))).toBe(true)
+		expect(transport.commands).toContain(`pkill -f "$HOME"/'.local/share/[o]pen-mcc' || true`)
 	})
 
-	it("removes the per-instance accounts on a host that has them", async () => {
+	it("never deletes an account, since every bot runs as the one it connects as", async () => {
 		const transport = await connected(CLEAN)
 
-		const report = await tearDownHost(transport, systemProfile(), ["abc", "def"])
+		await tearDownHost(transport)
 
-		expect(report.accountsRemoved).toEqual(["mcc-abc", "mcc-def"])
-	})
-
-	it("does not try to remove accounts on a host that never created any", async () => {
-		const transport = await connected({
-			"ls -1 '/home/pi/.config/systemd/user' 2>/dev/null || true": {
-				stdout: "",
-				stderr: "",
-				exitCode: 0,
-			},
-			"test -e '/home/pi/.local/share/open-mcc' && printf present || printf gone": {
-				stdout: "gone",
-				stderr: "",
-				exitCode: 0,
-			},
-		})
-
-		const report = await tearDownHost(transport, rootlessProfile("/home/pi"), ["abc"])
-
-		expect(report.accountsRemoved).toEqual([])
-		expect(transport.commands.some((c) => c.includes("userdel"))).toBe(false)
+		expect(transport.commands.some((command) => /userdel|groupdel/.test(command))).toBe(false)
 	})
 
 	it("reports what it could not clean rather than claiming success", async () => {
-		const transport = await connected({
-			...CLEAN,
-			"test -e '/srv/open-mcc' && printf present || printf gone": {
-				stdout: "present",
-				stderr: "",
-				exitCode: 0,
-			},
-		})
+		const transport = await connected({ ...CLEAN, [INSTANCES_LEFT]: answer("present") })
 
-		const report = await tearDownHost(transport, systemProfile(), [])
+		const report = await tearDownHost(transport)
 
 		expect(report.directoryRemoved).toBe(false)
-		expect(report.remaining.join(" ")).toContain("/srv/open-mcc")
+		expect(report.remaining.join(" ")).toContain(".local/share/open-mcc")
 	})
 
 	it("says lingering is still enabled, since removing it needs root the manager does not have", async () => {
-		const transport = await connected({
-			"ls -1 '/home/pi/.config/systemd/user' 2>/dev/null || true": {
-				stdout: "",
-				stderr: "",
-				exitCode: 0,
-			},
-			"test -e '/home/pi/.local/share/open-mcc' && printf present || printf gone": {
-				stdout: "gone",
-				stderr: "",
-				exitCode: 0,
-			},
-			'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no': {
-				stdout: "yes",
-				stderr: "",
-				exitCode: 0,
-			},
-		})
+		const transport = await connected({ ...CLEAN, [LINGER]: answer("yes") })
 
-		const report = await tearDownHost(transport, rootlessProfile("/home/pi"), [])
+		const report = await tearDownHost(transport)
 
 		expect(report.lingeringLeft).toBe(true)
 	})
@@ -158,34 +95,33 @@ describe("cleaning a host when it is removed", () => {
 
 describe("sweeping leftover processes without killing the sweep itself", () => {
 	it("hides the pattern from its own command line, which pkill would otherwise match", () => {
-		expect(selfExcludingPattern("/srv/open-mcc")).toBe("/srv/[o]pen-mcc")
-		expect(selfExcludingPattern("/home/pi/.local/share/open-mcc")).toBe(
-			"/home/pi/.local/share/[o]pen-mcc",
-		)
+		expect(selfExcludingPattern(".local/share/open-mcc")).toBe(".local/share/[o]pen-mcc")
 	})
 
 	it("still matches the real path, since the class matches its own first character", () => {
-		const pattern = selfExcludingPattern("/srv/open-mcc")
+		const pattern = selfExcludingPattern("/home/pi/.local/share/open-mcc")
 
-		expect(new RegExp(pattern).test("/srv/open-mcc/bin/MinecraftClient")).toBe(true)
+		expect(new RegExp(pattern).test("/home/pi/.local/share/open-mcc/bin/MinecraftClient")).toBe(
+			true,
+		)
 	})
 
 	it("does not match the command that carries the pattern, which is the whole point", () => {
-		const pattern = selfExcludingPattern("/srv/open-mcc")
+		const pattern = selfExcludingPattern("/home/pi/.local/share/open-mcc")
 
 		expect(new RegExp(pattern).test(`pkill -f ${pattern}`)).toBe(false)
 	})
 
 	it("tolerates a trailing slash rather than producing an empty class", () => {
-		expect(selfExcludingPattern("/srv/open-mcc/")).toBe("/srv/[o]pen-mcc")
+		expect(selfExcludingPattern(".local/share/open-mcc/")).toBe(".local/share/[o]pen-mcc")
 	})
 
-	it("uses the guarded pattern in the commands it runs", async () => {
+	it("quotes the guarded pattern, so the shell cannot expand the class against the real directory", async () => {
 		const transport = await connected(CLEAN)
 
-		await tearDownHost(transport, systemProfile(), [])
+		await tearDownHost(transport)
 
-		expect(transport.commands.some((c) => c.includes("[o]pen-mcc"))).toBe(true)
-		expect(transport.commands.some((c) => c.startsWith("pkill -f '/srv/open-mcc'"))).toBe(false)
+		expect(transport.commands.some((c) => c.includes("'.local/share/[o]pen-mcc'"))).toBe(true)
+		expect(transport.commands.some((c) => c.includes("[o]pen-mcc") && !c.includes("'"))).toBe(false)
 	})
 })

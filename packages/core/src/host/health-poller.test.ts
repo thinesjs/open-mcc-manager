@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest"
 import { OS_RELEASE_COMMAND } from "./facts"
 import { failedUnitsCommand } from "./health"
 import { isPollable, runHealthPoll } from "./health-poller"
-import { systemProfile } from "./profile"
 
 const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	id: "host-1",
@@ -12,11 +11,8 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
-	username: "root",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	sandboxed: true,
+	username: "mcc",
+	networkStack: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -47,7 +43,7 @@ const connectedTransport =
 	(failed: string, os = "debian\nDebian GNU/Linux 12") =>
 	async () => {
 		const transport = createFakeTransport({
-			[failedUnitsCommand(systemProfile())]: { stdout: failed, stderr: "", exitCode: 0 },
+			[failedUnitsCommand()]: { stdout: failed, stderr: "", exitCode: 0 },
 			[OS_RELEASE_COMMAND]: { stdout: os, stderr: "", exitCode: 0 },
 		})
 		await transport.connect({
@@ -217,7 +213,7 @@ describe("keeping the panel's view of each host current", () => {
 		expect(isPollable(host())).toBe(true)
 		expect(isPollable(host({ status: "pending" }))).toBe(false)
 		expect(isPollable(host({ status: "provisioning" }))).toBe(false)
-		expect(isPollable(host({ instancesRoot: null }))).toBe(false)
+		expect(isPollable(host({ status: "error" }))).toBe(false)
 	})
 
 	it("closes every connection it opens, including on failure", async () => {

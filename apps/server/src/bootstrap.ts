@@ -31,7 +31,6 @@ import {
 	hostList,
 	type Logger,
 	lockLostHandler,
-	profileFrom,
 	readBuildInfo,
 	readConnectionChanges,
 	reconcileQueues,
@@ -296,22 +295,14 @@ export const startServer = async (
 				{ hostId: host.id, hostName: host.name, reached },
 			),
 		observeInstances: async (host, transport) => {
-			if (!host.instancesRoot || !host.unitDir) return
 			const scope = { organizationId: host.organizationId }
-			const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 			const onHost = (await createInstanceRepository(db).list(scope)).filter(
 				(instance) => instance.hostId === host.id && instance.status !== "needs_auth",
 			)
 			for (const instance of onHost) {
 				const cursor = await statusController.connectionCursor(scope, instance.id)
 				const current = await statusController.currentConnection(scope, instance.id)
-				const reading = await readConnectionChanges(
-					transport,
-					profile,
-					instance.id,
-					current,
-					cursor,
-				)
+				const reading = await readConnectionChanges(transport, instance.id, current, cursor)
 				await statusController.recordInstanceConnection(
 					scope,
 					{ id: instance.id, name: instance.name },

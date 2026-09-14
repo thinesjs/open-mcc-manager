@@ -215,10 +215,10 @@ the simpler choice unless you need names.
 ## Security
 
 The control plane holds the SSH credentials for every host it manages, so a
-compromise of the control plane is a compromise of the entire fleet. Each host
-chooses at enrolment whether the manager works without root — inside one
-account's home directory, under its systemd user manager — or with root, which
-buys isolation between instances at the cost of root-equivalent access. See
+compromise of the control plane is a compromise of the entire fleet. On every
+host the manager works as the one account enrolled for it, inside that
+account's home directory and under its systemd user manager, and never asks for
+root. See
 [SECURITY.md](./SECURITY.md) for the full trust boundary,
 supported deployment model, current controls, and known limitations, and for
 how to report a vulnerability.

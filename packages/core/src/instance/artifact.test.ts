@@ -6,7 +6,6 @@ import {
 import type { InstanceRow } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { rootlessProfile } from "../host/profile"
 import {
 	artifactNamesFor,
 	type CollectedArtifact,
@@ -29,9 +28,7 @@ import { instanceDir } from "./unit"
 
 type FakeScript = NonNullable<Parameters<typeof createFakeTransport>[0]>
 
-const profile = rootlessProfile("/home/mcc")
-
-const DIRECTORY = instanceDir(profile.instancesRoot, "afk")
+const DIRECTORY = instanceDir("afk")
 
 const instance: InstanceRow = {
 	id: "afk",
@@ -55,18 +52,18 @@ const MCC_BACKUP_INTERVAL_DEFAULT_MINUTES = 300 / 60
 
 const encoded = (text: string) => Buffer.from(text).toString("base64")
 
-const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' 2>/dev/null | base64 | tr -d '\\n'`
+const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} ${DIRECTORY}/'${PLAYER_LIST_FILE_DEFAULT}' 2>/dev/null | base64 | tr -d '\\n'`
 
 const REPLAY_DIR = `${DIRECTORY}/replay_recordings`
 
-const replayList = `find '${REPLAY_DIR}' -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`
+const replayList = `find ${REPLAY_DIR} -maxdepth 1 -type f -name '*.mcpr' -mmin +${REPLAY_SETTLE_MINUTES} 2>/dev/null || true`
 
-const replayPrune = `find '${REPLAY_DIR}' -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`
+const replayPrune = `find ${REPLAY_DIR} -maxdepth 1 -type f -name '*.mcpr' -mtime +${REPLAY_KEEP_DAYS} -delete -print 2>/dev/null | wc -l`
 
-const cachePrune = `find '${DIRECTORY}/recording_cache' -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find '${DIRECTORY}/recording_cache' -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`
+const cachePrune = `find ${DIRECTORY}/recording_cache -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${DIRECTORY}/recording_cache -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`
 
 const replayRead = (name: string) =>
-	`head -c ${MAX_ARTIFACT_BYTES + 1} '${DIRECTORY}/replay_recordings/${name}' 2>/dev/null | base64 | tr -d '\\n'`
+	`head -c ${MAX_ARTIFACT_BYTES + 1} ${DIRECTORY}/replay_recordings/'${name}' 2>/dev/null | base64 | tr -d '\\n'`
 
 const sweepWith = async (script: FakeScript, keep?: (kept: CollectedArtifact[]) => void) => {
 	const transport = createFakeTransport(script)
@@ -81,7 +78,6 @@ const sweepWith = async (script: FakeScript, keep?: (kept: CollectedArtifact[]) 
 	const kept: CollectedArtifact[] = []
 	const sweeps = await sweepHostArtifacts(
 		transport,
-		profile,
 		[instance],
 		new Map(),
 		async (_instanceId, artifact) => {
@@ -225,7 +221,7 @@ describe("draining the player list log", () => {
 		expect(sweep.collected).toBe(1)
 		expect(kept[0]?.content.toString()).toBe(text)
 		expect(commands).toContain(
-			`tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/player-list.collecting' && mv -f '${DIRECTORY}/player-list.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/player-list.collecting'; exit 1; }`,
+			`tail -c +${Buffer.byteLength(text) + 1} ${DIRECTORY}/'${PLAYER_LIST_FILE_DEFAULT}' > ${DIRECTORY}/'player-list.collecting' && mv -f ${DIRECTORY}/'player-list.collecting' ${DIRECTORY}/'${PLAYER_LIST_FILE_DEFAULT}' || { rm -f ${DIRECTORY}/'player-list.collecting'; exit 1; }`,
 		)
 	})
 
@@ -234,15 +230,15 @@ describe("draining the player list log", () => {
 			[playerLogRead]: { stdout: encoded("alice\n"), stderr: "", exitCode: 0 },
 		})
 		const drain = commands.find((command) => command.startsWith("tail -c")) ?? ""
-		const temporary = / > '([^']+)'/.exec(drain)?.[1] ?? ""
+		const temporary = / > (\S+)\/'([^']+)' /.exec(drain)
 
-		expect(temporary.startsWith(`${DIRECTORY}/`)).toBe(true)
-		expect(isReservedFileName(temporary.slice(DIRECTORY.length + 1))).toBe(true)
+		expect(temporary?.[1]).toBe(DIRECTORY)
+		expect(isReservedFileName(temporary?.[2] ?? "")).toBe(true)
 	})
 
 	it("★ drains a name as long as the host allows through a temporary that still fits beside it", async () => {
 		const name = `${"x".repeat(251)}.txt`
-		const read = `head -c ${MAX_ARTIFACT_BYTES} '${DIRECTORY}/${name}' 2>/dev/null | base64 | tr -d '\\n'`
+		const read = `head -c ${MAX_ARTIFACT_BYTES} ${DIRECTORY}/'${name}' 2>/dev/null | base64 | tr -d '\\n'`
 		const transport = createFakeTransport({
 			[read]: { stdout: encoded("alice\n"), stderr: "", exitCode: 0 },
 		})
@@ -255,13 +251,7 @@ describe("draining the player list log", () => {
 			timeoutMs: 1,
 		})
 		const documents = new Map([["afk", `[ChatBot.PlayerListLogger]\nFile = "${name}"\n`]])
-		const sweeps = await sweepHostArtifacts(
-			transport,
-			profile,
-			[instance],
-			documents,
-			async () => undefined,
-		)
+		const sweeps = await sweepHostArtifacts(transport, [instance], documents, async () => undefined)
 		const drain = transport.commands.find((command) => command.startsWith("tail -c")) ?? ""
 		const temporary = / > '([^']+)'/.exec(drain)?.[1] ?? ""
 
@@ -284,7 +274,7 @@ describe("draining the player list log", () => {
 			expectedFingerprint: "f",
 			timeoutMs: 1,
 		})
-		const sweeps = await sweepHostArtifacts(transport, profile, [instance], new Map(), async () => {
+		const sweeps = await sweepHostArtifacts(transport, [instance], new Map(), async () => {
 			throw new Error("the database refused the write")
 		})
 
@@ -295,7 +285,7 @@ describe("draining the player list log", () => {
 
 	it("does not count a drain the host refused as collected", async () => {
 		const text = "roster\n"
-		const drain = `tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/player-list.collecting' && mv -f '${DIRECTORY}/player-list.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/player-list.collecting'; exit 1; }`
+		const drain = `tail -c +${Buffer.byteLength(text) + 1} ${DIRECTORY}/'${PLAYER_LIST_FILE_DEFAULT}' > ${DIRECTORY}/'player-list.collecting' && mv -f ${DIRECTORY}/'player-list.collecting' ${DIRECTORY}/'${PLAYER_LIST_FILE_DEFAULT}' || { rm -f ${DIRECTORY}/'player-list.collecting'; exit 1; }`
 		const { sweep } = await sweepWith({
 			[playerLogRead]: { stdout: encoded(text), stderr: "", exitCode: 0 },
 			[drain]: { stdout: "", stderr: "", exitCode: 1 },
@@ -316,13 +306,7 @@ describe("draining the player list log", () => {
 			timeoutMs: 1,
 		})
 		const documents = new Map([["afk", '[ChatBot.PlayerListLogger]\nFile = "%username%.txt"\n']])
-		const sweeps = await sweepHostArtifacts(
-			transport,
-			profile,
-			[instance],
-			documents,
-			async () => undefined,
-		)
+		const sweeps = await sweepHostArtifacts(transport, [instance], documents, async () => undefined)
 
 		expect(sweeps[0]?.refused).toBeGreaterThan(0)
 		expect(transport.commands.some((command) => command.startsWith("find "))).toBe(true)
@@ -340,13 +324,7 @@ describe("draining the player list log", () => {
 			timeoutMs: 1,
 		})
 		const documents = new Map([["afk", '[ChatBot.PlayerListLogger]\nFile = "env"\n']])
-		const sweeps = await sweepHostArtifacts(
-			transport,
-			profile,
-			[instance],
-			documents,
-			async () => undefined,
-		)
+		const sweeps = await sweepHostArtifacts(transport, [instance], documents, async () => undefined)
 
 		expect(sweeps[0]?.refused).toBeGreaterThan(0)
 		expect(transport.commands.some((command) => command.includes(`${DIRECTORY}/env`))).toBe(false)
@@ -364,7 +342,7 @@ describe("collecting finished replays", () => {
 
 		expect(sweep.collected).toBe(1)
 		expect(kept[0]?.kind).toBe("replay")
-		expect(commands).toContain(`rm -f '${DIRECTORY}/replay_recordings/${name}'`)
+		expect(commands).toContain(`rm -f ${DIRECTORY}/replay_recordings/'${name}'`)
 	})
 
 	it("leaves an archive too large to carry where it is, and says so", async () => {
@@ -379,7 +357,7 @@ describe("collecting finished replays", () => {
 
 		expect(sweep.oversize).toBe(1)
 		expect(sweep.collected).toBe(0)
-		expect(commands).not.toContain(`rm -f '${DIRECTORY}/replay_recordings/${name}'`)
+		expect(commands).not.toContain(`rm -f ${DIRECTORY}/replay_recordings/'${name}'`)
 	})
 
 	it("ignores anything in the directory that is not a replay the client named", async () => {
@@ -408,7 +386,7 @@ describe("collecting finished replays", () => {
 			},
 		})
 
-		expect(commands.filter((command) => command.includes("replay_recordings/2026"))).toHaveLength(
+		expect(commands.filter((command) => command.includes("replay_recordings/'2026"))).toHaveLength(
 			REPLAYS_PER_SWEEP,
 		)
 	})
@@ -434,7 +412,7 @@ describe("collecting finished replays", () => {
 		const { sweep } = await sweepWith({
 			[replayList]: { stdout: `${REPLAY_DIR}/${name}\n`, stderr: "", exitCode: 0 },
 			[replayRead(name)]: { stdout: encoded("PKreplay"), stderr: "", exitCode: 0 },
-			[`rm -f '${REPLAY_DIR}/${name}'`]: { stdout: "", stderr: "", exitCode: 1 },
+			[`rm -f ${REPLAY_DIR}/'${name}'`]: { stdout: "", stderr: "", exitCode: 1 },
 		})
 
 		expect(sweep.collected).toBe(0)
@@ -466,7 +444,7 @@ describe("counting what was pruned", () => {
 
 describe("what the sweep never fetches", () => {
 	it("measures the Mailer files without ever reading them", async () => {
-		const measure = `printf '%s %s' "$(wc -c < '${DIRECTORY}/${MAILER_DATABASE_DEFAULT}' 2>/dev/null || printf 0)" "$(wc -c < '${DIRECTORY}/${MAILER_IGNORE_LIST_DEFAULT}' 2>/dev/null || printf 0)"`
+		const measure = `printf '%s %s' "$(wc -c < ${DIRECTORY}/'${MAILER_DATABASE_DEFAULT}' 2>/dev/null || printf 0)" "$(wc -c < ${DIRECTORY}/'${MAILER_IGNORE_LIST_DEFAULT}' 2>/dev/null || printf 0)"`
 		const { sweep, commands } = await sweepWith({
 			[measure]: { stdout: "8192 120", stderr: "", exitCode: 0 },
 		})
@@ -477,7 +455,7 @@ describe("what the sweep never fetches", () => {
 				(command) => command.includes("base64") && command.includes(MAILER_DATABASE_DEFAULT),
 			),
 		).toBe(false)
-		expect(commands.some((command) => command.includes(`rm -f '${DIRECTORY}/Mailer`))).toBe(false)
+		expect(commands.some((command) => command.includes(`rm -f ${DIRECTORY}/'Mailer`))).toBe(false)
 		expect(
 			commands.some((command) => command.startsWith("tail -c") && command.includes("Mailer")),
 		).toBe(false)
@@ -507,13 +485,7 @@ describe("what the sweep never fetches", () => {
 			expectedFingerprint: "f",
 			timeoutMs: 1,
 		})
-		const sweeps = await sweepHostArtifacts(
-			transport,
-			profile,
-			[instance],
-			new Map(),
-			async () => undefined,
-		)
+		const sweeps = await sweepHostArtifacts(transport, [instance], new Map(), async () => undefined)
 
 		expect(sweeps[0]?.failed).toBe(1)
 		expect(sweeps[0]?.cacheDirectoriesPruned).toBe(0)

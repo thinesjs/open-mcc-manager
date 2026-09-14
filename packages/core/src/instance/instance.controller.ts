@@ -44,7 +44,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
+import { systemctl, UNIT_DIR } from "../host/profile"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
@@ -87,7 +87,6 @@ import {
 } from "./reconcile"
 import {
 	processesGoneCommand,
-	removeAccountCommand,
 	removeDirectoryCommand,
 	stopUnitCommands,
 	UNIT_STOP_TIMEOUT_MS,
@@ -101,7 +100,7 @@ import {
 } from "./schedule"
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
-import { instanceDir, instanceUser, renderEnvironmentFile, unitName } from "./unit"
+import { instanceDir, renderEnvironmentFile, unitName } from "./unit"
 
 export type ActorContext = {
 	organizationId: string
@@ -178,10 +177,6 @@ export const scheduledRunFailure = (error: Error | string): string => {
 	return "The command could not be sent"
 }
 
-type HostConnection = {
-	transport: HostTransport
-	profile: HostProfile
-}
 export class InstanceAuthInProgressError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
@@ -204,19 +199,16 @@ const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
 
-	const connectToHost = async (scope: OrgScope, hostId: string): Promise<HostConnection> => {
+	const connectToHost = async (scope: OrgScope, hostId: string): Promise<HostTransport> => {
 		const host = await deps.hosts.findById(scope, hostId)
 		if (!host) throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 		if (!host.sshKeyId) throw new InstanceHostNotFoundError(`Host ${hostId} has no ssh key`)
 		if (!host.hostKeyFingerprint) {
 			throw new InstanceHostNotFoundError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
-		if (!host.instancesRoot || !host.unitDir) {
-			throw new InstanceHostNotProvisionedError(
-				`Host ${hostId} has not finished provisioning, so its layout is unknown`,
-			)
+		if (host.osRelease === null) {
+			throw new InstanceHostNotProvisionedError(`Host ${hostId} has never finished provisioning`)
 		}
-		const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
 
@@ -236,7 +228,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 			)
 		}
-		return { transport, profile }
+		return transport
 	}
 
 	const rotateLiveControlToken = async (
@@ -245,15 +237,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<InstanceRow> => {
 		const token = randomUUID().replaceAll("-", "")
 		const sealed = deps.secrets.seal(token)
-		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
-			const dir = instanceDir(profile.instancesRoot, instance.id)
-			const owner = instanceUser(instance.id)
-			const claim = usesPerInstanceUsers(profile)
-				? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(`${dir}/env`)}`
-				: ""
 			const result = await transport.exec(
-				`(umask 077; cat > ${shellQuote(`${dir}/env`)})${claim}`,
+				`(umask 077; cat > ${instanceDir(instance.id)}/env)`,
 				INSTANCE_STEP_TIMEOUT_MS,
 				renderEnvironmentFile({ liveControlToken: token }),
 			)
@@ -360,15 +347,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<void> => {
 		if (document === undefined) return
 
-		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
-			const configPath = `${instanceDir(profile.instancesRoot, instance.id)}/MinecraftClient.ini`
-			const owner = instanceUser(instance.id)
-			const claim = usesPerInstanceUsers(profile)
-				? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(configPath)}`
-				: ""
+			const configPath = `${instanceDir(instance.id)}/MinecraftClient.ini`
 			const result = await transport.exec(
-				`(umask 077; cat > ${shellQuote(configPath)})${claim}`,
+				`(umask 077; cat > ${configPath})`,
 				INSTANCE_STEP_TIMEOUT_MS,
 				document,
 			)
@@ -395,7 +378,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instance.liveControlTokenEncrypted,
 			instance.liveControlTokenKeyId,
 		)
-		const { transport } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		return {
 			target: {
 				transport,
@@ -456,11 +439,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		window: SleepWindowInput,
 	): Promise<void> => {
 		const timers = renderSleepTimers(window)
-		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			for (const [name, unit] of Object.entries(timers)) {
 				const write = await transport.exec(
-					`cat > ${shellQuote(`${profile.unitDir}/${name}`)}`,
+					`cat > ${UNIT_DIR}/${shellQuote(name)}`,
 					INSTANCE_STEP_TIMEOUT_MS,
 					unit,
 				)
@@ -468,10 +451,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					throw new HostMisconfiguredError(`Failed to write ${name}: ${write.stderr.trim()}`)
 				}
 			}
-			await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
+			await transport.exec(systemctl("daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
 			for (const name of Object.keys(timers)) {
 				const enable = await transport.exec(
-					systemctl(profile, `enable --now ${shellQuote(name)}`),
+					systemctl(`enable --now ${shellQuote(name)}`),
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
 				if (enable.exitCode !== 0) {
@@ -485,19 +468,16 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 	const removeSleepTimers = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
 		const names = [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]
-		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			for (const name of names) {
 				await transport.exec(
-					`${systemctl(profile, `disable --now ${shellQuote(name)}`)} || true`,
+					`${systemctl(`disable --now ${shellQuote(name)}`)} || true`,
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
-				await transport.exec(
-					`rm -f ${shellQuote(`${profile.unitDir}/${name}`)}`,
-					INSTANCE_STEP_TIMEOUT_MS,
-				)
+				await transport.exec(`rm -f ${UNIT_DIR}/${shellQuote(name)}`, INSTANCE_STEP_TIMEOUT_MS)
 			}
-			await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
+			await transport.exec(systemctl("daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
 		} finally {
 			await transport.close().catch(() => undefined)
 		}
@@ -508,10 +488,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		instance: InstanceRow,
 		verb: "start" | "stop",
 	): Promise<void> => {
-		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			const result = await transport.exec(
-				systemctl(profile, `${verb} ${shellQuote(unitName(instance.id))}`),
+				systemctl(`${verb} ${shellQuote(unitName(instance.id))}`),
 				verb === "stop" ? UNIT_STOP_TIMEOUT_MS : INSTANCE_STEP_TIMEOUT_MS,
 			)
 			if (result.exitCode !== 0) {
@@ -538,12 +518,15 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const input = createInstanceInput.parse(given)
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
+			if (host.status !== "ready") {
+				throw new InstanceHostNotProvisionedError(`Host ${input.hostId} is not ready for a new bot`)
+			}
 
 			const onHost = (await deps.instances.list(scopeOf(ctx))).filter(
 				(instance) => instance.hostId === input.hostId,
 			)
 			const takenPorts = onHost.map((instance) => instance.liveControlPort)
-			const { transport, profile } = await connectToHost(scopeOf(ctx), input.hostId)
+			const transport = await connectToHost(scopeOf(ctx), input.hostId)
 			let created: InstanceRow
 			try {
 				const liveControlToken = randomUUID().replaceAll("-", "")
@@ -592,50 +575,25 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					})
 				})
 
-				const dir = instanceDir(profile.instancesRoot, created.id)
-				const owner = instanceUser(created.id)
-				const isolated = usesPerInstanceUsers(profile)
-				const own = (path: string): string =>
-					isolated ? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(path)}` : ""
-				const steps: Array<[string, string, string | undefined]> = []
-				if (isolated) {
-					steps.push([
-						`useradd -r -U -d ${shellQuote(dir)} -s /usr/sbin/nologin ${shellQuote(owner)} || true`,
-						"Failed to create the instance user",
+				const dir = instanceDir(created.id)
+				const steps: Array<[string, string, string | undefined]> = [
+					[`install -d -m 0700 ${dir}`, "Failed to create the instance directory", undefined],
+					[
+						`test -p ${dir}/control || mkfifo -m 0600 ${dir}/control`,
+						"Failed to create the control fifo",
 						undefined,
-					])
-				}
-				steps.push([
-					isolated
-						? `install -d -m 0700 -o ${shellQuote(owner)} -g ${shellQuote(owner)} ${shellQuote(dir)}`
-						: `install -d -m 0700 ${shellQuote(dir)}`,
-					"Failed to create the instance directory",
-					undefined,
-				])
-				steps.push([
-					`test -p ${shellQuote(`${dir}/control`)} || mkfifo -m 0600 ${shellQuote(`${dir}/control`)}`,
-					"Failed to create the control fifo",
-					undefined,
-				])
-				if (isolated) {
-					steps.push([
-						`chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(`${dir}/control`)}`,
-						"Failed to own the control fifo",
-						undefined,
-					])
-				}
-				steps.push([
-					`(umask 077; cat > ${shellQuote(`${dir}/env`)})${own(`${dir}/env`)}`,
-					"Failed to write the instance environment",
-					renderEnvironmentFile({ liveControlToken }),
-				])
-				steps.push([
-					`(umask 077; cat > ${shellQuote(`${dir}/MinecraftClient.ini`)})${own(
-						`${dir}/MinecraftClient.ini`,
-					)}`,
-					"Failed to write the instance config",
-					renderInstanceConfig(initialConfig),
-				])
+					],
+					[
+						`(umask 077; cat > ${dir}/env)`,
+						"Failed to write the instance environment",
+						renderEnvironmentFile({ liveControlToken }),
+					],
+					[
+						`(umask 077; cat > ${dir}/MinecraftClient.ini)`,
+						"Failed to write the instance config",
+						renderInstanceConfig(initialConfig),
+					],
+				]
 				for (const [command, failure, stdin] of steps) {
 					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS, stdin)
 					if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
@@ -751,9 +709,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
-				await sendCommand(transport, instance.id, command, profile.instancesRoot)
+				await sendCommand(transport, instance.id, command)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
@@ -774,9 +732,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
-				return await readConsole(transport, instance.id, lines, profile)
+				return await readConsole(transport, instance.id, lines)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
@@ -1024,18 +982,14 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const checked = instanceConfigInput.parse(config)
 			const instance = await requireInstance(ctx, instanceId)
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			const settled = { ...checked, liveControlPort: instance.liveControlPort }
 			const document = renderInstanceConfig(settled)
 
 			try {
-				const configPath = `${instanceDir(profile.instancesRoot, instance.id)}/MinecraftClient.ini`
-				const owner = instanceUser(instance.id)
-				const claim = usesPerInstanceUsers(profile)
-					? ` && chown ${shellQuote(`${owner}:${owner}`)} ${shellQuote(configPath)}`
-					: ""
+				const configPath = `${instanceDir(instance.id)}/MinecraftClient.ini`
 				const result = await transport.exec(
-					`(umask 077; cat > ${shellQuote(configPath)})${claim}`,
+					`(umask 077; cat > ${configPath})`,
 					INSTANCE_STEP_TIMEOUT_MS,
 					document,
 				)
@@ -1090,9 +1044,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const { transport, profile } = await connectToHost(scopeOf(ctx), hostId)
+			const transport = await connectToHost(scopeOf(ctx), hostId)
 			try {
-				return await readHostMetrics(transport, profile.instancesRoot)
+				return await readHostMetrics(transport)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
@@ -1108,16 +1062,15 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const schedules = (await deps.schedules.list(scope)).filter((schedule) =>
 				instances.some((instance) => instance.id === schedule.instanceId),
 			)
-			let connection: HostConnection
+			let transport: HostTransport
 			try {
-				connection = await connectToHost(scopeOf(ctx), hostId)
+				transport = await connectToHost(scopeOf(ctx), hostId)
 			} catch (error) {
 				const reason = error instanceof Error ? reasonFor(error) : "failed"
 				return { hostId, reachable: false, reason }
 			}
 
-			const { transport, profile } = connection
-			const expected = expectedUnits(profile, instances, schedules, renderScheduleUnits)
+			const expected = expectedUnits(instances, schedules, renderScheduleUnits)
 
 			try {
 				const expectedConfigs = new Map<string, string>()
@@ -1136,7 +1089,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				try {
 					observed = await reconcileHostOverTransport(
 						transport,
-						profile,
 						hostId,
 						instances,
 						expected,
@@ -1247,9 +1199,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const { transport, profile } = await connectToHost(scope, instance.hostId)
+			const transport = await connectToHost(scope, instance.hostId)
 			try {
-				await sendCommand(transport, instance.id, row.command, profile.instancesRoot)
+				await sendCommand(transport, instance.id, row.command)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
@@ -1373,21 +1325,18 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 			try {
 				for (const name of [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]) {
 					await transport.exec(
-						`${systemctl(profile, `disable --now ${shellQuote(name)}`)} || true`,
+						`${systemctl(`disable --now ${shellQuote(name)}`)} || true`,
 						INSTANCE_STEP_TIMEOUT_MS,
 					)
-					await transport.exec(
-						`rm -f ${shellQuote(`${profile.unitDir}/${name}`)}`,
-						INSTANCE_STEP_TIMEOUT_MS,
-					)
+					await transport.exec(`rm -f ${UNIT_DIR}/${shellQuote(name)}`, INSTANCE_STEP_TIMEOUT_MS)
 				}
-				await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
+				await transport.exec(systemctl("daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
 				const stopUnits = async () => {
-					for (const command of stopUnitCommands(profile, instance.id)) {
+					for (const command of stopUnitCommands(instance.id)) {
 						await transport.exec(command, UNIT_STOP_TIMEOUT_MS)
 					}
 				}
@@ -1398,7 +1347,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 				await stopUnits()
 				const quiet = await transport.exec(
-					processesGoneCommand(profile, instance.id),
+					processesGoneCommand(instance.id),
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
 				if (quiet.exitCode !== 0) {
@@ -1406,19 +1355,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				}
 
 				const directory = await transport.exec(
-					removeDirectoryCommand(profile, instance.id),
+					removeDirectoryCommand(instance.id),
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
 				if (directory.exitCode !== 0) throw unfinished()
 
 				await stopUnits()
-				if (usesPerInstanceUsers(profile)) {
-					const account = await transport.exec(
-						removeAccountCommand(instance.id),
-						INSTANCE_STEP_TIMEOUT_MS,
-					)
-					if (account.exitCode !== 0) throw unfinished()
-				}
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

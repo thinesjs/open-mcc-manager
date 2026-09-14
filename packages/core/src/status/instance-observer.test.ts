@@ -1,19 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import type { HostProfile } from "../host/profile"
 import { UNOBSERVED_CONNECTION } from "./connection"
 import { journalCommand, journalSince, readConnectionChanges } from "./instance-observer"
-
-const rootless: HostProfile = {
-	mode: "rootless",
-	instancesRoot: "/home/pi/.local/share/open-mcc/instances",
-	unitDir: "/home/pi/.config/systemd/user",
-}
-
-const system: HostProfile = {
-	mode: "system",
-	instancesRoot: "/var/lib/open-mcc/instances",
-	unitDir: "/etc/systemd/system",
-}
 
 const REAL_OUTPUT = [
 	"2026-09-06T14:15:38+0800 tjsx100 sh[1689967]: §8[MCC] Disconnected by Server :",
@@ -26,9 +13,8 @@ const transportReturning = (stdout: string, exitCode = 0) => ({
 })
 
 describe("asking the host what the client logged", () => {
-	it("reads the user journal on a rootless host and the system journal otherwise", () => {
-		expect(journalCommand(rootless, "abc123", null)).toContain("journalctl --user")
-		expect(journalCommand(system, "abc123", null)).not.toContain("--user")
+	it("reads the user journal, which is where the client's unit logs", () => {
+		expect(journalCommand("abc123", null)).toContain("journalctl --user")
 	})
 
 	it("looks back further on a first read, then resumes from where it left off", () => {
@@ -42,7 +28,7 @@ describe("asking the host what the client logged", () => {
 	})
 
 	it("reads the journal in UTC so the cursor and the output agree", () => {
-		expect(journalCommand(rootless, "abc123", "2026-09-06T06:16:10.000Z")).toContain("--utc")
+		expect(journalCommand("abc123", "2026-09-06T06:16:10.000Z")).toContain("--utc")
 	})
 
 	it("falls back to the seed window if the stored cursor is unusable", () => {
@@ -50,7 +36,7 @@ describe("asking the host what the client logged", () => {
 	})
 
 	it("names the right unit", () => {
-		expect(journalCommand(rootless, "abc123", null)).toContain("open-mcc@abc123")
+		expect(journalCommand("abc123", null)).toContain("open-mcc@abc123")
 	})
 })
 
@@ -63,7 +49,6 @@ describe("the very first read of a bot that was already connected", () => {
 
 		const reading = await readConnectionChanges(
 			transportReturning(raw),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
@@ -82,7 +67,6 @@ describe("the very first read of a bot that was already connected", () => {
 
 		const reading = await readConnectionChanges(
 			transportReturning(raw),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
@@ -97,7 +81,6 @@ describe("the very first read of a bot that was already connected", () => {
 
 		const reading = await readConnectionChanges(
 			transportReturning(raw),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
@@ -113,7 +96,6 @@ describe("turning a journal read into connection changes", () => {
 
 		const reading = await readConnectionChanges(
 			transport,
-			rootless,
 			"abc123",
 			{ state: "joined", since: new Date("2026-09-06T06:00:00Z"), pid: "1689967" },
 			"2026-09-06T06:00:00.000Z",
@@ -128,7 +110,6 @@ describe("turning a journal read into connection changes", () => {
 	it("advances the cursor to the last line it read, so the next read does not repeat it", async () => {
 		const reading = await readConnectionChanges(
 			transportReturning(REAL_OUTPUT),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
@@ -140,7 +121,6 @@ describe("turning a journal read into connection changes", () => {
 	it("keeps the old cursor when the journal read fails, rather than skipping history", async () => {
 		const reading = await readConnectionChanges(
 			transportReturning("", 1),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			"2026-09-06T05:00:00.000Z",
@@ -153,7 +133,6 @@ describe("turning a journal read into connection changes", () => {
 	it("keeps the old cursor when the journal had nothing new", async () => {
 		const reading = await readConnectionChanges(
 			transportReturning(""),
-			rootless,
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			"2026-09-06T05:00:00.000Z",

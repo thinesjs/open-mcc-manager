@@ -1,7 +1,6 @@
 import type { HostRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { HEALTH_POLL_MS, type HostObservationResult, observeHost } from "./health"
-import { profileFrom } from "./profile"
 
 export type HealthPollerDeps = {
 	pollableHosts: () => Promise<HostRow[]>
@@ -19,20 +18,17 @@ export type HealthPollRun = {
 	unreachable: string[]
 }
 
-export const isPollable = (host: HostRow): boolean =>
-	host.status === "ready" && host.instancesRoot !== null && host.unitDir !== null
+export const isPollable = (host: HostRow): boolean => host.status === "ready"
 
 export const runHealthPoll = async (deps: HealthPollerDeps): Promise<HealthPollRun> => {
 	const hosts = (await deps.pollableHosts()).filter(isPollable)
 	const run: HealthPollRun = { polled: hosts.length, reached: [], unreachable: [] }
 
 	for (const host of hosts) {
-		if (!host.instancesRoot || !host.unitDir) continue
 		let transport: HostTransport | undefined
 		try {
-			const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 			transport = await deps.connect(host)
-			const observed = await observeHost(transport, profile)
+			const observed = await observeHost(transport)
 			await deps.recordSeen(host, deps.now(), observed)
 			run.reached.push(host.id)
 			await deps.recordReachability?.(host, true)

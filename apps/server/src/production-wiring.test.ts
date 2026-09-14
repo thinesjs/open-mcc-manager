@@ -137,7 +137,6 @@ const INSTALLED_SELF_HOST: Partial<Env> = {
 	SELF_HOST_HOSTNAME: "host.docker.internal",
 	SELF_HOST_PORT: "22",
 	SELF_HOST_USERNAME: "mcc",
-	SELF_HOST_MODE: "rootless",
 	SELF_HOST_FINGERPRINT: "SHA256:5t0oGkKIrpBGw7Z4LrnOdxM6wJzJPuK+aQ8N9sVhP1c",
 	SELF_HOST_PUBLIC_KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA open-mcc:this-machine",
 	SELF_HOST_PRIVATE_KEY_SEALED: "Xj+9/abcDEF==ghi+/jkl",

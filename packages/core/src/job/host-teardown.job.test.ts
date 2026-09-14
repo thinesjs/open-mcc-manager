@@ -9,12 +9,12 @@ const payload = {
 	username: "mcc",
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:x",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	instanceIds: "",
 	organizationId: "org-1",
 }
+
+const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
+
+const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
 
 describe("what a failed host clean-up records for the dashboard", () => {
 	it("records why it could not reach the host without the address the error named", async () => {
@@ -50,25 +50,62 @@ const connectedTo = async (transport: HostTransport): Promise<HostTransport> => 
 const cleaningWith = (transport: HostTransport) => {
 	const onFailed = vi.fn(async (_hostId: string, _organizationId: string, _reason: string) => {})
 	const onError = vi.fn((_message: string, _error: Error | string) => {})
+	const onCleaned = vi.fn(
+		async (_hostId: string, _organizationId: string, _summary: Record<string, string>) => {},
+	)
 	const handler = createHostTeardownHandler({
 		openKey: async () => ({ privateKey: "PRIVATE KEY" }),
 		connect: async () => await connectedTo(transport),
-		onCleaned: async () => {},
+		onCleaned,
 		onFailed,
 		onError,
 	})
-	return { handler, onFailed, onError }
+	return { handler, onFailed, onError, onCleaned }
 }
+
+describe("what a clean-up needs to know about the host", () => {
+	it("cleans a host from a payload that names only how to reach it", async () => {
+		const transport = createFakeTransport({
+			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
+		})
+		const { handler, onCleaned, onFailed } = cleaningWith(transport)
+
+		await handler(payload)
+
+		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(onCleaned).toHaveBeenCalledTimes(1)
+		expect(onFailed).not.toHaveBeenCalled()
+	})
+
+	it("cleans the account's own home, never a path an old queued payload still names", async () => {
+		const transport = createFakeTransport({
+			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
+		})
+		const { handler, onCleaned, onFailed } = cleaningWith(transport)
+
+		await handler({
+			...payload,
+			mode: "system",
+			instancesRoot: "/srv/open-mcc",
+			unitDir: "/etc/systemd/system",
+		})
+
+		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(
+			transport.commands.filter((command) =>
+				/\/srv\/open-mcc|\/etc\/systemd\/system/.test(command),
+			),
+		).toEqual([])
+		expect(onCleaned).toHaveBeenCalledTimes(1)
+		expect(onFailed).not.toHaveBeenCalled()
+	})
+})
 
 describe("★ what a clean-up that got onto the host records for the dashboard", () => {
 	it("records only its own words when something is left behind, and gives the details to the log", async () => {
 		const { handler, onFailed, onError } = cleaningWith(
 			createFakeTransport({
-				"test -e '/srv/open-mcc' && printf present || printf gone": {
-					stdout: "present",
-					stderr: "",
-					exitCode: 0,
-				},
+				[INSTANCES_LEFT]: { stdout: "present", stderr: "", exitCode: 0 },
 			}),
 		)
 
@@ -77,7 +114,7 @@ describe("★ what a clean-up that got onto the host records for the dashboard",
 			"Some of what was installed is still on the host.",
 		])
 		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
-			expect.stringContaining("/srv/open-mcc"),
+			expect.stringContaining(".local/share/open-mcc"),
 		])
 	})
 
@@ -87,9 +124,7 @@ describe("★ what a clean-up that got onto the host records for the dashboard",
 				{},
 				{
 					exec: {
-						"ls -1 '/etc/systemd/system' 2>/dev/null || true": new Error(
-							"read ECONNRESET 203.0.113.9:2222",
-						),
+						[LIST_UNITS]: new Error("read ECONNRESET 203.0.113.9:2222"),
 					},
 				},
 			),

@@ -23,11 +23,6 @@ import { mayUseHostControl } from "~/lib/host-actions"
 import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
 import { useTRPC } from "~/lib/trpc"
 
-export const confinementLabel = (sandboxed: boolean | null): string => {
-	if (sandboxed === null) return "Unknown until provisioned"
-	return sandboxed ? "Enforced" : "Not available on this server"
-}
-
 export const Route = createFileRoute("/_authenticated/hosts/$hostId")({
 	component: HostDetailPage,
 })
@@ -157,16 +152,6 @@ function HostDetailPage() {
 							<HostHealthBadge host={host} />
 						</p>
 					</div>
-					<div>
-						<p className="text-muted-foreground">Privilege</p>
-						<p className="text-foreground">
-							{host.mode === "rootless" ? "Without root" : "With root"}
-						</p>
-					</div>
-					<div>
-						<p className="text-muted-foreground">Bot isolation</p>
-						<p className="text-foreground">{confinementLabel(host.sandboxed)}</p>
-					</div>
 					<div className="col-span-2">
 						<div className="flex items-center justify-between gap-2">
 							<p className="text-muted-foreground">Verified server fingerprint</p>
@@ -235,7 +220,6 @@ function HostDetailPage() {
 							failure={host.provisioningError}
 							running={host.status === "provisioning"}
 							complete={justProvisioned}
-							mode={host.mode}
 						/>
 					</CardContent>
 				</Card>

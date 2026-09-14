@@ -7,22 +7,22 @@ export type HostStatus = "pending" | "provisioning" | "ready" | "unreachable" | 
 
 type _HostStatusRefinesGeneratedColumn = RefinementOf<HostStatus, SelectType<DB["host"]["status"]>>
 
-export type HostMode = "rootless" | "system"
+export type NetworkStack = "slirp4netns" | "pasta"
 
-type _HostModeRefinesGeneratedColumn = RefinementOf<HostMode, SelectType<DB["host"]["mode"]>>
+type _NetworkStackRefinesGeneratedColumn = RefinementOf<
+	NetworkStack | null,
+	SelectType<DB["host"]["networkStack"]>
+>
 
 export type HostTable = Omit<
 	DB["host"],
 	| "status"
-	| "mode"
-	| "instancesRoot"
+	| "networkStack"
 	| "osId"
 	| "failedUnits"
 	| "teardownError"
 	| "teardownRequestedAt"
 	| "osName"
-	| "sandboxed"
-	| "unitDir"
 	| "sshKeyId"
 	| "hostKeyAlgorithm"
 	| "hostKeyFingerprint"
@@ -36,15 +36,12 @@ export type HostTable = Omit<
 	| "provisioningClaimedAt"
 > & {
 	status: Generated<HostStatus>
-	mode: Generated<HostMode>
-	instancesRoot: Generated<DB["host"]["instancesRoot"]>
+	networkStack: Generated<NetworkStack | null>
 	osId: Generated<DB["host"]["osId"]>
 	failedUnits: Generated<DB["host"]["failedUnits"]>
 	teardownError: Generated<DB["host"]["teardownError"]>
 	teardownRequestedAt: Generated<DB["host"]["teardownRequestedAt"]>
 	osName: Generated<DB["host"]["osName"]>
-	sandboxed: Generated<DB["host"]["sandboxed"]>
-	unitDir: Generated<DB["host"]["unitDir"]>
 	sshKeyId: Generated<DB["host"]["sshKeyId"]>
 	hostKeyAlgorithm: Generated<DB["host"]["hostKeyAlgorithm"]>
 	hostKeyFingerprint: Generated<DB["host"]["hostKeyFingerprint"]>

@@ -5,6 +5,8 @@ export type SessionProbe = {
 
 export type GuardDecision = "allow" | "redirect"
 
+export const SIGNED_IN_LANDING = "/hosts"
+
 export const decideFromSession = (probe: SessionProbe): GuardDecision => {
 	if (probe.error) return "allow"
 	if (probe.data?.session) return "allow"

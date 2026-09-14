@@ -323,6 +323,12 @@ export {
 	createProcessIdentityRepository,
 	startHeartbeat,
 } from "./system/process-identity.repository"
+export type { ParsedReleaseNotes } from "./system/release-notes"
+export {
+	parseReleaseNotes,
+	RELEASE_NOTE_MAX_BLOCK_CHARS,
+	RELEASE_NOTE_MAX_BLOCKS,
+} from "./system/release-notes"
 export type {
 	UpdateCheckDeps,
 	UpdateCheckJob,

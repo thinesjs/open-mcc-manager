@@ -36,6 +36,30 @@ export type UpdateCheckOutcome = z.infer<typeof updateCheckOutcomeSchema>
 
 export const releaseVersionSchema = z.string().regex(RELEASE_VERSION_PATTERN)
 
+export const releaseNoteSpanSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("text"), text: z.string() }),
+	z.object({ kind: z.literal("bold"), text: z.string() }),
+	z.object({ kind: z.literal("italic"), text: z.string() }),
+	z.object({ kind: z.literal("code"), text: z.string() }),
+	z.object({ kind: z.literal("link"), label: z.string(), url: z.string() }),
+])
+
+export type ReleaseNoteSpan = z.infer<typeof releaseNoteSpanSchema>
+
+export const releaseNoteBlockSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("heading"), spans: z.array(releaseNoteSpanSchema) }),
+	z.object({ kind: z.literal("paragraph"), spans: z.array(releaseNoteSpanSchema) }),
+	z.object({ kind: z.literal("bullet"), spans: z.array(releaseNoteSpanSchema) }),
+	z.object({
+		kind: z.literal("numbered"),
+		number: z.string(),
+		spans: z.array(releaseNoteSpanSchema),
+	}),
+	z.object({ kind: z.literal("code"), text: z.string() }),
+])
+
+export type ReleaseNoteBlock = z.infer<typeof releaseNoteBlockSchema>
+
 type VersionParts = readonly [bigint, bigint, bigint]
 
 const partsOf = (version: string): VersionParts | undefined => {

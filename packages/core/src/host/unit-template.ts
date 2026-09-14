@@ -8,6 +8,8 @@ export const SLEEP_START_UNIT_NAME = "open-mcc-sleep-start@.service"
 
 export const AUTH_UNIT_NAME = "open-mcc-auth@.service"
 
+export const QUIT_WRITE_TIMEOUT_SECONDS = 5
+
 export const SLEEP_UNIT_NAMES = [SLEEP_STOP_UNIT_NAME, SLEEP_START_UNIT_NAME] as const
 
 export const SUPPORTING_UNIT_NAMES = [
@@ -47,10 +49,10 @@ Type=simple
 ${identity(profile)}WorkingDirectory=${dir}
 EnvironmentFile=${dir}/env
 ExecStart=/bin/sh -c 'exec 3<>"${dir}/control"; exec "${profile.instancesRoot}/bin/MinecraftClient" BasicIO <&3'
-ExecStop=/bin/sh -c 'printf "/quit\\n" > ${dir}/control'
+ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout ${QUIT_WRITE_TIMEOUT_SECONDS} sh -c "echo /quit > ${dir}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'
 StandardOutput=journal
 StandardError=journal
-TimeoutStopSec=30
+TimeoutStopSec=20
 Restart=on-failure
 RestartPreventExitStatus=4
 RestartSec=30

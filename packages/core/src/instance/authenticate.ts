@@ -16,6 +16,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
+import { UNIT_STOP_TIMEOUT_MS } from "./removal"
 import { authUnitName, instanceDir, stopAuthCommand, unitName } from "./unit"
 
 const connectForSignIn = async (
@@ -144,7 +145,7 @@ export const beginAuthentication = async (
 
 		await transport.exec(
 			`${systemctl(profile, `stop ${shellQuote(unitName(instance.id))}`)} || true`,
-			AUTH_SESSION_TIMEOUT_MS,
+			UNIT_STOP_TIMEOUT_MS,
 		)
 
 		const dir = instanceDir(profile.instancesRoot, instance.id)

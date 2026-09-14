@@ -499,7 +499,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		try {
 			const result = await transport.exec(
 				systemctl(profile, `${verb} ${shellQuote(unitName(instance.id))}`),
-				INSTANCE_STEP_TIMEOUT_MS,
+				verb === "stop" ? UNIT_STOP_TIMEOUT_MS : INSTANCE_STEP_TIMEOUT_MS,
 			)
 			if (result.exitCode !== 0) {
 				throw new Error(`Failed to ${verb} instance ${instance.id}: ${result.stderr.trim()}`)

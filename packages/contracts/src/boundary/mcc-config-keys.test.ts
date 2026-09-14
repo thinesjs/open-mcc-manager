@@ -398,6 +398,18 @@ describe("★ a variable in a bot file name", () => {
 	)
 })
 
+describe("★ how long a bot file name may be", () => {
+	it("accepts a name as long as a host file system holds, counted in bytes", () => {
+		expect(fileKeysSaying("x".repeat(255), "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying(`${"é".repeat(127)}x`, "")).toEqual(FILE_KEYS)
+	})
+
+	it("refuses one byte more, in one plain message", () => {
+		expect(fileKeysSaying("x".repeat(256), "Too long for a file name")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("é".repeat(128), "Too long for a file name")).toEqual(FILE_KEYS)
+	})
+})
+
 const sharedFileIssues = (config: Readonly<Record<string, string>>) => {
 	const result = botConfigSchema.safeParse(config)
 	return result.success

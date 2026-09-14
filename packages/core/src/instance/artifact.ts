@@ -4,7 +4,7 @@ import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
 	CLIENT_DEFAULT_FILES,
-	isReservedFileName,
+	isOperatorFileName,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
@@ -47,11 +47,9 @@ export const MAILER_IGNORE_LIST_KEY = "ChatBot.Mailer.IgnoreListFile"
 
 const COLLECTED_KEYS = [PLAYER_LIST_FILE_KEY, MAILER_DATABASE_KEY, MAILER_IGNORE_LIST_KEY] as const
 
-const DRAIN_SUFFIX = ".collecting"
+const DRAIN_TEMPORARY = "player-list.collecting"
 
 const BASE64_ONLY = /^[A-Za-z0-9+/]*={0,2}$/
-
-const COLLECTABLE_NAME = /^[A-Za-z0-9._-]{1,128}$/
 
 const REPLAY_NAME = /^[A-Za-z0-9_]{1,128}\.mcpr$/
 
@@ -61,8 +59,7 @@ const TWO_SIZES = /^\s*(\d{1,12})\s+(\d{1,12})\s*$/
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
-export const isCollectableName = (value: string): boolean =>
-	value !== "." && value !== ".." && COLLECTABLE_NAME.test(value) && !isReservedFileName(value)
+export const isCollectableName = (value: string): boolean => isOperatorFileName(value)
 
 export const isReplayName = (value: string): boolean => REPLAY_NAME.test(value)
 
@@ -194,11 +191,12 @@ const readBase64 = async (
 
 const drainHead = async (
 	transport: HostTransport,
-	path: string,
+	directory: string,
+	name: string,
 	bytes: number,
 ): Promise<boolean> => {
-	const part = shellQuote(`${path}${DRAIN_SUFFIX}`)
-	const target = shellQuote(path)
+	const part = shellQuote(`${directory}/${DRAIN_TEMPORARY}`)
+	const target = shellQuote(`${directory}/${name}`)
 	try {
 		const result = await transport.exec(
 			`tail -c +${bytes + 1} ${target} > ${part} && mv -f ${part} ${target} || { rm -f ${part}; exit 1; }`,
@@ -250,7 +248,7 @@ const collectPlayerList = async (
 		tally.failed += 1
 		return
 	}
-	if (!(await drainHead(transport, path, decoded.content.length))) {
+	if (!(await drainHead(transport, directory, name, decoded.content.length))) {
 		tally.failed += 1
 		return
 	}

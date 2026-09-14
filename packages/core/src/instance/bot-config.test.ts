@@ -347,8 +347,8 @@ describe("every registered key at once, which is the only way a table clash show
 })
 
 describe("sizes the client itself does not limit", () => {
-	it("accepts a file name far longer than any cap this manager once invented", () => {
-		expect(refusalFor("ChatBot.Mailer.DatabaseFile", `${"a".repeat(300)}.txt`)).toEqual([])
+	it("accepts a file name as long as a host file system holds, far past any cap this manager once invented", () => {
+		expect(refusalFor("ChatBot.Mailer.DatabaseFile", `${"a".repeat(251)}.txt`)).toEqual([])
 	})
 
 	it("accepts an alert phrase far longer than any cap this manager once invented", () => {

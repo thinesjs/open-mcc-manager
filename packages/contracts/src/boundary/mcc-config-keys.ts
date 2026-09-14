@@ -69,12 +69,33 @@ export const isReservedFileName = (value: string): boolean =>
 
 const NOT_RESERVED = { message: "The client already uses that file name" }
 
+const FILE_NAME_MAX_BYTES = 255
+
+const utf8Bytes = (value: string): number => {
+	let bytes = 0
+	for (const character of value) {
+		const code = character.codePointAt(0) ?? 0
+		bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+	}
+	return bytes
+}
+
+const fileNameIssue = (value: string): string | undefined => {
+	if (!PATH_SHAPE.test(value) || value === "." || value === ".." || !isPlainText(value)) {
+		return A_FILE_NAME
+	}
+	return utf8Bytes(value) > FILE_NAME_MAX_BYTES ? "Too long for a file name" : undefined
+}
+
+export const isOperatorFileName = (value: string): boolean =>
+	fileNameIssue(value) === undefined && !isReservedFileName(value)
+
 const fileNameSchema = z
 	.string()
 	.min(1)
-	.regex(PATH_SHAPE, A_FILE_NAME)
-	.refine((value) => value !== "." && value !== ".." && isPlainText(value), {
-		message: A_FILE_NAME,
+	.superRefine((value, ctx) => {
+		const issue = fileNameIssue(value)
+		if (issue !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue })
 	})
 
 const expandedFileNameSchema = z

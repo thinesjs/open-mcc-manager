@@ -1,8 +1,12 @@
 import { CONDITION_HEADLINE, type SystemStatus } from "@open-mcc/contracts"
 import { useQuery } from "@tanstack/react-query"
-import { TriangleAlert } from "lucide-react"
+import { CircleArrowUp, TriangleAlert } from "lucide-react"
+import { useState } from "react"
 import { Alert } from "~/components/ui/alert"
+import { Tooltip } from "~/components/ui/tooltip"
+import { UpdateModal } from "~/components/update-modal"
 import { useTRPC } from "~/lib/trpc"
+import { DEVELOPMENT_BUILD_TOOLTIP } from "~/lib/update-status"
 
 export const EXPLANATION: Record<SystemStatus["condition"], string> = {
 	healthy: "",
@@ -34,12 +38,50 @@ export const ControlPlaneStatus = () => {
 export const BuildBadge = () => {
 	const trpc = useTRPC()
 	const query = useQuery({ ...trpc.system.status.queryOptions(), retry: false })
+	const update = useQuery({
+		...trpc.system.updateStatus.queryOptions(),
+		refetchInterval: 60_000,
+		retry: false,
+	})
+	const [open, setOpen] = useState(false)
 	const server = query.data?.server
 	if (!server) return null
 
+	const label =
+		server.commit === "unknown" ? server.version : `${server.version} · ${server.commit}`
+	const status = update.data
+
+	if (!status || status.kind === "development") {
+		return (
+			<p className="flex items-center gap-1.5 px-5 py-2 text-xs text-muted-foreground">
+				<span>{label}</span>
+				{status?.kind === "development" ? (
+					<Tooltip content={DEVELOPMENT_BUILD_TOOLTIP}>
+						<span className="text-muted-foreground/70">dev</span>
+					</Tooltip>
+				) : null}
+			</p>
+		)
+	}
+
+	const available = status.kind === "checked" && status.available
+
 	return (
-		<p className="px-5 py-2 text-xs text-muted-foreground">
-			{server.commit === "unknown" ? server.version : `${server.version} · ${server.commit}`}
-		</p>
+		<>
+			<button
+				type="button"
+				onClick={() => setOpen(true)}
+				className="flex items-center gap-1.5 px-5 py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+			>
+				<span>{label}</span>
+				{available ? (
+					<>
+						<CircleArrowUp aria-hidden="true" className="size-3.5 text-foreground" />
+						<span className="sr-only">Update available</span>
+					</>
+				) : null}
+			</button>
+			<UpdateModal open={open} onClose={() => setOpen(false)} status={status} />
+		</>
 	)
 }

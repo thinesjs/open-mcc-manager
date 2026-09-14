@@ -9,6 +9,7 @@ import type {
 	SelfHostController,
 	SshKeyController,
 	StatusController,
+	UpdateStateRepository,
 } from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import type { Auth } from "./auth"
@@ -35,5 +36,6 @@ export type RequestContext = {
 	selfHostController: SelfHostController
 	destinationController: DestinationController
 	memberController: MemberController
+	updateStates: UpdateStateRepository
 	db: Db
 }

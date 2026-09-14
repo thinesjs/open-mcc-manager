@@ -60,6 +60,35 @@ export const releaseNoteBlockSchema = z.discriminatedUnion("kind", [
 
 export type ReleaseNoteBlock = z.infer<typeof releaseNoteBlockSchema>
 
+export const updateStatusSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("development") }),
+	z.object({ kind: z.literal("unchecked"), running: z.string() }),
+	z.object({
+		kind: z.literal("checked"),
+		running: z.string(),
+		latest: releaseVersionSchema.nullable(),
+		available: z.boolean(),
+		checkedAt: z.string(),
+		outcome: updateCheckOutcomeSchema,
+		rateLimitedUntil: z.string().nullable(),
+		source: updateSourceSchema.nullable(),
+	}),
+])
+
+export type UpdateStatus = z.infer<typeof updateStatusSchema>
+
+export const releaseNotesViewSchema = z.object({
+	version: releaseVersionSchema,
+	source: updateSourceSchema,
+	blocks: z.array(releaseNoteBlockSchema),
+	truncated: z.boolean(),
+})
+
+export type ReleaseNotesView = z.infer<typeof releaseNotesViewSchema>
+
+export const releasePageUrl = (source: UpdateSource, version: string): string =>
+	`https://github.com/${source.owner}/${source.repo}/releases/tag/v${version}`
+
 type VersionParts = readonly [bigint, bigint, bigint]
 
 const partsOf = (version: string): VersionParts | undefined => {

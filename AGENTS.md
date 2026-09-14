@@ -888,6 +888,18 @@ reaches GitHub; it reads that row.
   the schedule-only artifact queue is not. A restart loop sends nothing once one
   check has landed, but boots that crash before any check completes can still
   queue several; `warningQueueSize` reports that rather than letting it pass.
+- **Release notes never become HTML.** `parseReleaseNotes` reads them into a
+  closed set of blocks — heading, paragraph, bullet, numbered item, code — and
+  the dashboard renders those as React elements, so text is escaped by
+  construction. Anything outside that set stays literal text, `<script>`
+  included. A link keeps its label and address as text and never gains an
+  `href`: the one live link is the release page, built from the validated source
+  and version, never from anything GitHub sent. The model stops at 500 blocks
+  and 2,000 characters a block, and the page shows 12 before **Show all**, so a
+  long note cannot freeze the browser.
+- **The badge polls a small answer; the notes come only when asked.**
+  `system.updateStatus` carries versions, times and the outcome, and is read
+  every minute. `system.releaseNotes` is read only while the update is open.
 - **`/releases/latest` reads GitHub Releases, not tags.** `release.yml` publishes
   images for a `v*.*.*` tag but creates no Release, so the check records
   `not-found` until a Release is published for that tag.

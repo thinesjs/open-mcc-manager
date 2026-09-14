@@ -349,3 +349,4 @@ export type {
 	UpdateStateRepository,
 } from "./system/update-state.repository"
 export { createUpdateStateRepository } from "./system/update-state.repository"
+export { releaseNotesFor, updateStatusFor } from "./system/update-status"

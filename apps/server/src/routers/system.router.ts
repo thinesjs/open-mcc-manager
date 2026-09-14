@@ -1,5 +1,5 @@
-import { conditionFor } from "@open-mcc/core"
-import { protectedProcedure, router } from "../trpc"
+import { conditionFor, releaseNotesFor, updateStatusFor } from "@open-mcc/core"
+import { protectedProcedure, requireCapability, router } from "../trpc"
 
 export const systemRouter = router({
 	status: protectedProcedure.query(async ({ ctx }) => {
@@ -28,5 +28,15 @@ export const systemRouter = router({
 					}
 				: null,
 		}
+	}),
+
+	updateStatus: protectedProcedure.query(async ({ ctx }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return updateStatusFor(ctx.build, await ctx.updateStates.find())
+	}),
+
+	releaseNotes: protectedProcedure.query(async ({ ctx }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return releaseNotesFor(ctx.build, await ctx.updateStates.find())
 	}),
 })

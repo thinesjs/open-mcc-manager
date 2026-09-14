@@ -3,6 +3,7 @@ import {
 	compareVersions,
 	isNewerThan,
 	PROJECT_SOURCE,
+	releasePageUrl,
 	releaseVersionSchema,
 	sourceOwnerSchema,
 	sourceRepoSchema,
@@ -156,6 +157,14 @@ describe("comparing two release versions", () => {
 	it("gives no answer when either side is not a release version", () => {
 		expect(compareVersions("0.0.0-dev", "1.0.0")).toBeUndefined()
 		expect(compareVersions("1.0.0", "1.0")).toBeUndefined()
+	})
+})
+
+describe("the one link the dashboard builds", () => {
+	it("points at the release page for the version, built from the source", () => {
+		expect(releasePageUrl({ owner: "thinesjs", repo: "open-mcc-manager" }, "1.5.0")).toBe(
+			"https://github.com/thinesjs/open-mcc-manager/releases/tag/v1.5.0",
+		)
 	})
 })
 

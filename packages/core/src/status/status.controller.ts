@@ -4,7 +4,6 @@ import {
 	EMPTY_AVAILABILITY,
 	FLAPPING_WINDOW_MS,
 	INSTANCE_INTERRUPTED_TO_DOWN_MS,
-	isFlapping,
 	RANGE_SECONDS,
 	rangeWithinRetention,
 	type StatusEventView,

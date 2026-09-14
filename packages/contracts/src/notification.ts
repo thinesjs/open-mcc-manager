@@ -264,8 +264,8 @@ export const destinationViewSchema = z.object({
 	enabled: z.boolean(),
 	target: z.string(),
 	subscribedTo: z.array(subscriptionKindSchema).readonly(),
-	lastSucceededAt: z.date().nullable(),
-	lastFailedAt: z.date().nullable(),
+	lastSucceededAt: z.string().datetime().nullable(),
+	lastFailedAt: z.string().datetime().nullable(),
 	lastFailureReason: z.string().nullable(),
 	signingKeyHint: z.string().nullable(),
 	targetFingerprint: z.string().nullable(),
@@ -288,7 +288,7 @@ export const deliveryFailureViewSchema = z.object({
 	title: z.string(),
 	reason: z.string().nullable(),
 	attempts: z.number().int(),
-	settledAt: z.date().nullable(),
+	settledAt: z.string().datetime().nullable(),
 })
 
 export type DeliveryFailureView = z.infer<typeof deliveryFailureViewSchema>

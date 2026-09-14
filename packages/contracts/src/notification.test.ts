@@ -5,6 +5,8 @@ import {
 	createDestinationInput,
 	DESTINATION_KINDS,
 	DESTINATION_LABELS,
+	deliveryFailureViewSchema,
+	destinationViewSchema,
 	editDestinationInput,
 	NOTIFICATION_KINDS,
 	ntfyConfigInput,
@@ -393,5 +395,65 @@ describe("tracking which signing key a destination is using", () => {
 
 	it("does not fall apart on a short value", () => {
 		expect(signingSecretHint("ab")).toBe("…")
+	})
+})
+
+const PUBLIC_DESTINATION = {
+	id: "dst-1",
+	name: "My webhook",
+	kind: "webhook",
+	kindLabel: DESTINATION_LABELS.webhook,
+	enabled: true,
+	target: "https://hooks.example.com",
+	subscribedTo: [],
+	lastFailureReason: null,
+	signingKeyHint: null,
+	targetFingerprint: null,
+}
+
+describe("when a destination last succeeded or failed, as the wire sends it", () => {
+	it.each(["lastSucceededAt", "lastFailedAt"] as const)(
+		"requires %s as the ISO string a JSON response carries, not a Date object",
+		(field) => {
+			expect(
+				destinationViewSchema.safeParse({
+					...PUBLIC_DESTINATION,
+					lastSucceededAt: null,
+					lastFailedAt: null,
+					[field]: new Date(),
+				}).success,
+			).toBe(false)
+			expect(
+				destinationViewSchema.safeParse({
+					...PUBLIC_DESTINATION,
+					lastSucceededAt: null,
+					lastFailedAt: null,
+					[field]: "2026-09-06T00:00:00.000Z",
+				}).success,
+			).toBe(true)
+		},
+	)
+})
+
+const PUBLIC_FAILURE = {
+	deliveryId: "del-1",
+	destinationId: "dst-1",
+	destinationName: "My webhook",
+	title: "basement-box is not responding",
+	reason: null,
+	attempts: 1,
+}
+
+describe("when a delivery failure settled, as the wire sends it", () => {
+	it("requires the ISO string a JSON response carries, not a Date object", () => {
+		expect(
+			deliveryFailureViewSchema.safeParse({ ...PUBLIC_FAILURE, settledAt: new Date() }).success,
+		).toBe(false)
+		expect(
+			deliveryFailureViewSchema.safeParse({
+				...PUBLIC_FAILURE,
+				settledAt: "2026-09-06T00:00:00.000Z",
+			}).success,
+		).toBe(true)
 	})
 })

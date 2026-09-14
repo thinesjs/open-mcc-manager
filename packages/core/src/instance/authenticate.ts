@@ -4,8 +4,9 @@ import {
 	type DeviceCodeChallenge,
 	needsInteractiveSignIn,
 } from "@open-mcc/contracts"
+import type { HostRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, profileFrom, systemctl } from "../host/profile"
+import { systemctl } from "../host/profile"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
 	type ActorContext,
@@ -66,31 +67,19 @@ export type AuthPolling = {
 	intervalMs: number
 }
 
-export const startAuthCommand = (profile: HostProfile, instanceId: string): string => {
-	const log = `${instanceDir(profile.instancesRoot, instanceId)}/auth.log`
+export const startAuthCommand = (instanceId: string): string => {
 	const unit = shellQuote(authUnitName(instanceId))
-	return `rm -f ${shellQuote(log)} && ${systemctl(profile, `start ${unit}`)}`
+	return `rm -f ${instanceDir(instanceId)}/auth.log && ${systemctl(`start ${unit}`)}`
 }
 
-const requireProfile = (host: {
-	mode: HostProfile["mode"]
-	instancesRoot: string | null
-	unitDir: string | null
-}): HostProfile => {
-	if (!host.instancesRoot || !host.unitDir) {
-		throw new InstanceHostNotFoundError(
-			"Host has not finished provisioning, so its layout is unknown",
-		)
+const requireReady = (host: Pick<HostRow, "status">): void => {
+	if (host.status !== "ready") {
+		throw new InstanceHostNotFoundError("Host has not finished provisioning")
 	}
-	return profileFrom(host.mode, host.instancesRoot, host.unitDir)
 }
 
-const stopAuthSession = async (
-	transport: HostTransport,
-	profile: HostProfile,
-	instanceId: string,
-): Promise<void> => {
-	await transport.exec(stopAuthCommand(profile, instanceId), AUTH_SESSION_TIMEOUT_MS)
+const stopAuthSession = async (transport: HostTransport, instanceId: string): Promise<void> => {
+	await transport.exec(stopAuthCommand(instanceId), AUTH_SESSION_TIMEOUT_MS)
 }
 
 export const beginAuthentication = async (
@@ -131,7 +120,7 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 	}
 
-	const profile = requireProfile(host)
+	requireReady(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -144,22 +133,18 @@ export const beginAuthentication = async (
 		})
 
 		await transport.exec(
-			`${systemctl(profile, `stop ${shellQuote(unitName(instance.id))}`)} || true`,
+			`${systemctl(`stop ${shellQuote(unitName(instance.id))}`)} || true`,
 			UNIT_STOP_TIMEOUT_MS,
 		)
 
-		const dir = instanceDir(profile.instancesRoot, instance.id)
-		const log = `${dir}/auth.log`
+		const log = `${instanceDir(instance.id)}/auth.log`
 
-		await stopAuthSession(transport, profile, instance.id)
+		await stopAuthSession(transport, instance.id)
 
-		await transport.exec(startAuthCommand(profile, instance.id), AUTH_SESSION_TIMEOUT_MS)
+		await transport.exec(startAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
-			const read = await transport.exec(
-				`cat ${shellQuote(log)} 2>/dev/null || true`,
-				AUTH_SESSION_TIMEOUT_MS,
-			)
+			const read = await transport.exec(`cat ${log} 2>/dev/null || true`, AUTH_SESSION_TIMEOUT_MS)
 			const challenge = extractChallenge(read.stdout)
 			if (challenge) {
 				await deps.withTransaction(async (repos) => {
@@ -184,7 +169,7 @@ export const beginAuthentication = async (
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {
-		await stopAuthSession(transport, profile, instance.id).catch(() => undefined)
+		await stopAuthSession(transport, instance.id).catch(() => undefined)
 		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
 		throw error
 	} finally {
@@ -212,8 +197,8 @@ export const completeAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	const profile = requireProfile(host)
-	const dir = instanceDir(profile.instancesRoot, instance.id)
+	requireReady(host)
+	const dir = instanceDir(instance.id)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -226,13 +211,13 @@ export const completeAuthentication = async (
 		})
 
 		const probe = await transport.exec(
-			SESSION_CACHE_FILES.map((name) => `test -s ${shellQuote(`${dir}/${name}`)}`).join(" || "),
+			SESSION_CACHE_FILES.map((name) => `test -s ${dir}/${name}`).join(" || "),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
 		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
 
-		await stopAuthSession(transport, profile, instance.id)
-		await transport.exec(`rm -f ${shellQuote(`${dir}/auth.log`)}`, AUTH_SESSION_TIMEOUT_MS)
+		await stopAuthSession(transport, instance.id)
+		await transport.exec(`rm -f ${dir}/auth.log`, AUTH_SESSION_TIMEOUT_MS)
 	} finally {
 		await transport.close().catch(() => undefined)
 	}
@@ -278,7 +263,7 @@ export const cancelAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	const profile = requireProfile(host)
+	requireReady(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -289,11 +274,8 @@ export const cancelAuthentication = async (
 			expectedFingerprint: host.hostKeyFingerprint,
 			timeoutMs: AUTH_SESSION_TIMEOUT_MS,
 		})
-		await stopAuthSession(transport, profile, instance.id)
-		await transport.exec(
-			`rm -f ${shellQuote(`${instanceDir(profile.instancesRoot, instance.id)}/auth.log`)}`,
-			AUTH_SESSION_TIMEOUT_MS,
-		)
+		await stopAuthSession(transport, instance.id)
+		await transport.exec(`rm -f ${instanceDir(instance.id)}/auth.log`, AUTH_SESSION_TIMEOUT_MS)
 	} finally {
 		await transport.close().catch(() => undefined)
 	}

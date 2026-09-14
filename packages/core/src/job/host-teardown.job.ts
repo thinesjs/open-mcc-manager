@@ -1,6 +1,5 @@
 import type { Json } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { profileFrom } from "../host/profile"
 import { tearDownHost } from "../host/teardown"
 import { connectFailureReason } from "../host/unreachable"
 import type { RuntimeErrorReporter } from "../log/reporters"
@@ -18,10 +17,6 @@ export type TeardownPayload = {
 	username: string
 	sshKeyId: string
 	hostKeyFingerprint: string
-	mode: string
-	instancesRoot: string
-	unitDir: string
-	instanceIds: string
 	organizationId: string
 }
 
@@ -35,9 +30,6 @@ export const readPayload = (payload: object): TeardownPayload | undefined => {
 		"username",
 		"sshKeyId",
 		"hostKeyFingerprint",
-		"mode",
-		"instancesRoot",
-		"unitDir",
 		"organizationId",
 	] as const
 	for (const key of required) {
@@ -47,7 +39,6 @@ export const readPayload = (payload: object): TeardownPayload | undefined => {
 		const found = record[key]
 		return typeof found === "string" ? found : ""
 	}
-	if (value("mode") !== "rootless" && value("mode") !== "system") return undefined
 	return {
 		hostId: value("hostId"),
 		hostname: value("hostname"),
@@ -55,19 +46,9 @@ export const readPayload = (payload: object): TeardownPayload | undefined => {
 		username: value("username"),
 		sshKeyId: value("sshKeyId"),
 		hostKeyFingerprint: value("hostKeyFingerprint"),
-		mode: value("mode"),
-		instancesRoot: value("instancesRoot"),
-		unitDir: value("unitDir"),
-		instanceIds: value("instanceIds"),
 		organizationId: value("organizationId"),
 	}
 }
-
-export const instanceIdsFrom = (value: string): string[] =>
-	value
-		.split(",")
-		.map((each) => each.trim())
-		.filter((each) => each.length > 0)
 
 export type TeardownJobDeps = {
 	openKey: (organizationId: string, sshKeyId: string) => Promise<{ privateKey: string } | undefined>
@@ -103,12 +84,6 @@ export const createHostTeardownHandler =
 			throw new Error(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
 		}
 
-		const profile = profileFrom(
-			payload.mode === "system" ? "system" : "rootless",
-			payload.instancesRoot,
-			payload.unitDir,
-		)
-
 		let transport: HostTransport | undefined
 		let recorded = false
 		try {
@@ -119,7 +94,7 @@ export const createHostTeardownHandler =
 				privateKey: key.privateKey,
 				expectedFingerprint: payload.hostKeyFingerprint,
 			})
-			const report = await tearDownHost(transport, profile, instanceIdsFrom(payload.instanceIds))
+			const report = await tearDownHost(transport)
 			if (report.remaining.length > 0) {
 				deps.onError?.(`Host ${payload.hostId} was not fully cleaned`, report.remaining.join("; "))
 				await deps.onFailed(payload.hostId, payload.organizationId, NOT_FULLY_CLEANED)
@@ -128,7 +103,6 @@ export const createHostTeardownHandler =
 			}
 			await deps.onCleaned(payload.hostId, payload.organizationId, {
 				unitsRemoved: String(report.unitsRemoved.length),
-				accountsRemoved: String(report.accountsRemoved.length),
 				directoryRemoved: String(report.directoryRemoved),
 				lingeringLeft: String(report.lingeringLeft),
 			})

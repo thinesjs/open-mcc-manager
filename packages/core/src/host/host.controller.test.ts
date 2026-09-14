@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { LINGER_COMMAND } from "./check"
 import {
 	CONNECT_TIMEOUT_MS,
 	createHostController,
@@ -26,12 +27,14 @@ import type {
 	OrgScope,
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
-import { provisionHost } from "./provision"
+import { HOME_COMMAND, provisionHost } from "./provision"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
-const CLIENT_PROBE_OK = {
-	"'/srv/open-mcc/bin/MinecraftClient' --help < /dev/null 2>&1": {
+const PROVISIONABLE = {
+	[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
+	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
+	'"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1': {
 		stdout: "Minecraft Console Client v26.2",
 		stderr: "",
 		exitCode: 0,
@@ -61,10 +64,7 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	sandboxed: true,
+	networkStack: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -218,7 +218,7 @@ const deps = (
 		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
 		createTransport: vi.fn(() =>
 			createFakeTransport({
-				...CLIENT_PROBE_OK,
+				...PROVISIONABLE,
 				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
@@ -241,7 +241,6 @@ describe("host controller enrollment", () => {
 					hostname: "10.0.0.1",
 					port: 22,
 					username: "mcc",
-					mode: "system",
 					sshKeyId: "key-1",
 					expectedFingerprint: "SHA256:x",
 				},
@@ -260,7 +259,6 @@ describe("host controller enrollment", () => {
 				hostname: "10.0.0.1",
 				port: 22,
 				username: "mcc",
-				mode: "system",
 				sshKeyId: "key-1",
 				expectedFingerprint: "SHA256:wrong",
 			}),
@@ -280,7 +278,6 @@ describe("host controller enrollment", () => {
 				hostname: "10.0.0.1",
 				port: 22,
 				username: "mcc",
-				mode: "system",
 				sshKeyId: "key-1",
 				expectedFingerprint: "SHA256:wrong",
 			})
@@ -310,7 +307,6 @@ describe("host controller enrollment", () => {
 			hostname: "10.0.0.1",
 			port: 22,
 			username: "mcc",
-			mode: "system",
 			sshKeyId: "key-1",
 			expectedFingerprint: expected,
 		})
@@ -329,7 +325,6 @@ describe("host controller enrollment", () => {
 			hostname: "10.0.0.1",
 			port: 22,
 			username: "mcc",
-			mode: "system",
 			sshKeyId: "key-1",
 			expectedFingerprint: expected,
 		})
@@ -367,7 +362,6 @@ describe("host controller enrollment", () => {
 			hostname: "10.0.0.1",
 			port: 22,
 			username: "mcc",
-			mode: "system",
 			sshKeyId: "key-1",
 			expectedFingerprint: expected,
 		})
@@ -388,7 +382,6 @@ describe("what the dashboard hears when a host cannot be reached", () => {
 		hostname: "vps.example.net",
 		port: 2222,
 		username: "mcc",
-		mode: "system",
 		sshKeyId: "key-1",
 		expectedFingerprint: "SHA256:x",
 	} as const
@@ -716,7 +709,7 @@ describe("host controller provisioning", () => {
 
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"': {
 				stdout: "debian\nDebian GNU/Linux 12 (bookworm)",
 				stderr: "",
@@ -732,7 +725,7 @@ describe("host controller provisioning", () => {
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
 		expect(transport.commands).toContain("systemctl --version | head -n 1")
 		expect(transport.commands).toContain(
-			"install -d -m 0711 -o root -g root '/srv/open-mcc/instances'",
+			'install -d -m 0711 "$HOME"/.local/share/open-mcc/instances',
 		)
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.osRelease).toBe("systemd 252")
@@ -750,9 +743,6 @@ describe("host controller provisioning", () => {
 			{
 				status: "ready",
 				osRelease: "systemd 252",
-				instancesRoot: "/srv/open-mcc",
-				unitDir: "/etc/systemd/system",
-				sandboxed: true,
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 			},
@@ -770,7 +760,7 @@ describe("host controller provisioning", () => {
 
 	it("transitions status to error and rethrows the original error when systemd is missing, without auditing or leaking the private key", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
@@ -937,7 +927,7 @@ const provisionConnectOptions = {
 describe("provisionHost", () => {
 	it("records the systemd version and creates a setgid instances directory", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			"systemctl --version | head -n 1": {
 				stdout: "systemd 252 (252.22-1~deb12u1)",
 				stderr: "",
@@ -945,56 +935,56 @@ describe("provisionHost", () => {
 			},
 		})
 		await transport.connect(provisionConnectOptions)
-		const result = await provisionHost(transport, { mode: "system" })
+		const result = await provisionHost(transport)
 		expect(result.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
 		expect(transport.commands).toContain(
-			"install -d -m 0711 -o root -g root '/srv/open-mcc/instances'",
+			'install -d -m 0711 "$HOME"/.local/share/open-mcc/instances',
 		)
 	})
 
 	it("fails when systemd is absent", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		await transport.connect(provisionConnectOptions)
-		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/systemd/i)
+		await expect(provisionHost(transport)).rejects.toThrow(/systemd/i)
 	})
 
 	it("propagates when exec() rejects mid-command rather than resolving as if disconnected", async () => {
 		const transport = createRejectingTransport("exec")
-		await expect(provisionHost(transport, { mode: "system" })).rejects.toThrow(/connection reset/i)
+		await expect(provisionHost(transport)).rejects.toThrow(/connection reset/i)
 	})
 
 	it("refuses a home directory carrying a shell metacharacter, so a hostile host cannot smuggle a command into every later path", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			'printf %s "$HOME"': { stdout: "/home/$(id -u)", stderr: "", exitCode: 0 },
+			[HOME_COMMAND]: { stdout: "/home/$(id -u)\n/home/$(id -u)", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
 
-		await expect(provisionHost(transport, { mode: "rootless" })).rejects.toThrow(/absolute path/i)
+		await expect(provisionHost(transport)).rejects.toThrow(/absolute path/i)
 		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 		expect(transport.commands.some((command) => command.includes("install -d"))).toBe(false)
 	})
 
 	it("refuses a relative home directory rather than resolving it against an unknown working directory", async () => {
 		const transport = createFakeTransport({
-			...CLIENT_PROBE_OK,
+			...PROVISIONABLE,
 			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			'printf %s "$HOME"': { stdout: "home/mccuser", stderr: "", exitCode: 0 },
+			[HOME_COMMAND]: { stdout: "home/mccuser\nhome/mccuser", stderr: "", exitCode: 0 },
 		})
 		await transport.connect(provisionConnectOptions)
 
-		await expect(provisionHost(transport, { mode: "rootless" })).rejects.toThrow(/absolute path/i)
+		await expect(provisionHost(transport)).rejects.toThrow(/absolute path/i)
 		expect(transport.commands.some((command) => command.includes("curl"))).toBe(false)
 	})
 
 	it("finishes its worst-case remote work inside the provisioning lease, counting every step it actually runs", async () => {
-		const transport = createFakeTransport(CLIENT_PROBE_OK)
+		const transport = createFakeTransport(PROVISIONABLE)
 		await transport.connect(provisionConnectOptions)
-		await provisionHost(transport, { mode: "system" })
+		await provisionHost(transport)
 
 		const remoteBudgetMs = transport.timeouts.reduce((total, each) => total + each, 0)
 		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs
@@ -1112,10 +1102,9 @@ describe("what provisioning tells the operator when it fails", () => {
 
 	it("★ keeps to its own words when the connection fails part way, whatever the host said", async () => {
 		const { controller, hosts } = provisioningHosts(
-			createFakeTransport(
-				{},
-				{ exec: { "uname -m": new Error("Command timed out: uname -m on 203.0.113.9:2222") } },
-			),
+			createFakeTransport(PROVISIONABLE, {
+				exec: { "uname -m": new Error("Command timed out: uname -m on 203.0.113.9:2222") },
+			}),
 		)
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
@@ -1157,19 +1146,38 @@ describe("removing a host that is still in use", () => {
 		await expect(controller.remove(ctx, "host-1")).rejects.toThrow(/1 instance/)
 	})
 
-	it("marks a provisioned host for teardown instead of deleting its record", async () => {
+	it("marks a host that finished provisioning for teardown, sending only how to reach it, instead of deleting its record", async () => {
+		const jobs = jobsDouble()
 		const d = deps({ instanceIdsOnHost: vi.fn(async () => []) })
-		const controller = createHostController(d)
+		d.hosts.findById = vi.fn(async () =>
+			makeHostRow({ hostKeyFingerprint: "SHA256:trusted", osRelease: "systemd 252" }),
+		)
+		const controller = createHostController({
+			...d,
+			withTransaction: async (fn) => fn({ hosts: d.hosts, audit: d.audit, jobs }),
+		})
 
 		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)
 
 		expect(d.hosts.beginTeardown).toHaveBeenCalled()
 		expect(d.hosts.delete).not.toHaveBeenCalled()
+		expect(jobs.enqueue).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ hostId: "host-1", username: "mcc", sshKeyId: "key-1" }),
+		)
+		for (const gone of ["mode", "instancesRoot", "unitDir", "instanceIds"]) {
+			expect(jobs.enqueue).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ [gone]: expect.anything() }),
+			)
+		}
 	})
 
 	it("deletes outright when nothing was ever installed, since there is nothing to clean", async () => {
 		const d = deps({ instanceIdsOnHost: vi.fn(async () => []) })
-		d.hosts.findById = vi.fn(async () => makeHostRow({ instancesRoot: null, unitDir: null }))
+		d.hosts.findById = vi.fn(async () =>
+			makeHostRow({ hostKeyFingerprint: "SHA256:trusted", osRelease: null }),
+		)
 		const controller = createHostController(d)
 
 		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)

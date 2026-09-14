@@ -18,9 +18,6 @@ const MUTABLE_HOST_COLUMNS = [
 	"cpuCount",
 	"memoryMb",
 	"lastSeenAt",
-	"instancesRoot",
-	"unitDir",
-	"sandboxed",
 	"osId",
 	"osName",
 	"failedUnits",
@@ -94,9 +91,6 @@ const whitelistHostUpdate = (patch: HostUpdateValues): HostUpdateValues => ({
 	...(patch.cpuCount !== undefined && { cpuCount: patch.cpuCount }),
 	...(patch.memoryMb !== undefined && { memoryMb: patch.memoryMb }),
 	...(patch.lastSeenAt !== undefined && { lastSeenAt: patch.lastSeenAt }),
-	...(patch.instancesRoot !== undefined && { instancesRoot: patch.instancesRoot }),
-	...(patch.unitDir !== undefined && { unitDir: patch.unitDir }),
-	...(patch.sandboxed !== undefined && { sandboxed: patch.sandboxed }),
 	...(patch.osId !== undefined && { osId: patch.osId }),
 	...(patch.osName !== undefined && { osName: patch.osName }),
 	...(patch.failedUnits !== undefined && { failedUnits: patch.failedUnits }),
@@ -287,10 +281,7 @@ export const createHostRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		attemptId: string,
-		patch: Pick<
-			HostUpdateValues,
-			"status" | "osRelease" | "instancesRoot" | "unitDir" | "sandboxed" | "osId" | "osName"
-		>,
+		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName">,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")

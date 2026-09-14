@@ -1,5 +1,6 @@
 import type { HostMetrics } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
+import { INSTANCES_ROOT } from "../host/profile"
 
 export const HOST_METRICS_TIMEOUT_MS = 15_000
 
@@ -33,18 +34,14 @@ export const parseHostMetrics = (stdout: string, diskStdout: string): HostMetric
 	}
 }
 
-const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
-export const readHostMetrics = async (
-	transport: HostTransport,
-	instancesRoot: string,
-): Promise<HostMetrics> => {
+export const readHostMetrics = async (transport: HostTransport): Promise<HostMetrics> => {
 	const general = await transport.exec(HOST_METRICS_COMMAND, HOST_METRICS_TIMEOUT_MS)
 	if (general.exitCode !== 0) {
 		throw new Error(`Could not read host metrics: ${general.stderr.trim()}`)
 	}
 	const disk = await transport.exec(
-		`df -Pk ${shellQuote(instancesRoot)} 2>/dev/null | tail -n 1`,
+		`df -Pk ${INSTANCES_ROOT} 2>/dev/null | tail -n 1`,
 		HOST_METRICS_TIMEOUT_MS,
 	)
 	return parseHostMetrics(general.stdout, disk.stdout)

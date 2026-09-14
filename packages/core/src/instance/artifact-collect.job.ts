@@ -3,7 +3,6 @@ import type { HostRow, InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { isPollable } from "../host/health-poller"
 import type { OrgScope } from "../host/host.repository"
-import { profileFrom } from "../host/profile"
 import type { Logger } from "../log/logger"
 import { cutoffFor } from "../notification/retention"
 import {
@@ -77,9 +76,7 @@ export const createArtifactCollector =
 		for (const organizationId of await deps.organizationIds()) {
 			const scope = { organizationId }
 			for (const host of (await deps.hosts(scope)).filter(isPollable)) {
-				if (host.instancesRoot === null || host.unitDir === null) continue
 				hosts += 1
-				const profile = profileFrom(host.mode, host.instancesRoot, host.unitDir)
 				const instances = await deps.instancesOn(scope, host.id)
 				const documents = await documentsFor(deps, scope, instances)
 
@@ -89,7 +86,6 @@ export const createArtifactCollector =
 					transport = await deps.connect(host)
 					sweeps = await sweepHostArtifacts(
 						transport,
-						profile,
 						instances,
 						documents,
 						async (instanceId, artifact) => {

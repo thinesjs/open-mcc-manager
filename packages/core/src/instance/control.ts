@@ -1,13 +1,12 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, journalctl } from "../host/profile"
+import { journalctl } from "../host/profile"
 import { instanceDir, unitName, validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
-const controlPath = (instancesRoot: string, instanceId: string): string =>
-	`${instanceDir(instancesRoot, instanceId)}/control`
+const controlPath = (instanceId: string): string => `${instanceDir(instanceId)}/control`
 
 export const INTERNAL_COMMANDS = [
 	"achievement",
@@ -85,18 +84,13 @@ export const sendCommand = async (
 	transport: HostTransport,
 	instanceId: string,
 	command: string,
-	instancesRoot: string,
 ): Promise<void> => {
 	const id = validateInstanceId(instanceId)
 	if (hasControlCharacter(command)) {
 		throw new Error("Instance commands must not contain a control character")
 	}
 	const line = controlLine(command)
-	const result = await transport.exec(
-		`cat > ${shellQuote(controlPath(instancesRoot, id))}`,
-		CONTROL_TIMEOUT_MS,
-		`${line}\n`,
-	)
+	const result = await transport.exec(`cat > ${controlPath(id)}`, CONTROL_TIMEOUT_MS, `${line}\n`)
 	if (result.exitCode !== 0) {
 		throw new Error(`Failed to send command to instance ${id}: ${result.stderr.trim()}`)
 	}
@@ -106,7 +100,6 @@ export const readConsole = async (
 	transport: HostTransport,
 	instanceId: string,
 	lines: number,
-	profile: HostProfile,
 ): Promise<string> => {
 	const id = validateInstanceId(instanceId)
 	if (!Number.isInteger(lines) || lines < 1 || lines > 1000) {
@@ -114,7 +107,6 @@ export const readConsole = async (
 	}
 	const result = await transport.exec(
 		journalctl(
-			profile,
 			`-u ${shellQuote(`${unitName(id)}.service`)} --lines ${lines} --no-pager --output cat`,
 		),
 		CONTROL_TIMEOUT_MS,

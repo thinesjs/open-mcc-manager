@@ -10,7 +10,6 @@ import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { systemProfile } from "../host/profile"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
@@ -74,11 +73,8 @@ const hostRow: HostRow = {
 	name: "vps",
 	hostname: "10.0.0.1",
 	port: 22,
-	username: "root",
-	mode: "system",
-	instancesRoot: "/srv/open-mcc",
-	unitDir: "/etc/systemd/system",
-	sandboxed: true,
+	username: "mcc",
+	networkStack: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -313,7 +309,7 @@ describe("beginAuthentication", () => {
 			"abc123",
 			claimedWith,
 		)
-		expect(transport.commands.some((each) => each.includes("systemctl stop"))).toBe(true)
+		expect(transport.commands.some((each) => each.includes("systemctl --user stop"))).toBe(true)
 	})
 
 	it("holds the claim on success, because the operator needs minutes to finish the login", async () => {
@@ -365,7 +361,7 @@ describe("completeAuthentication", () => {
 		)
 		expect(
 			transport.commands.some((each) =>
-				each.includes("rm -f '/srv/open-mcc/instances/abc123/auth.log'"),
+				each.includes('rm -f "$HOME"/.local/share/open-mcc/instances/abc123/auth.log'),
 			),
 		).toBe(true)
 	})
@@ -381,7 +377,7 @@ describe("completeAuthentication", () => {
 			transport.commands.some(
 				(each) =>
 					each ===
-					"test -s '/srv/open-mcc/instances/abc123/SessionCache.db' || test -s '/srv/open-mcc/instances/abc123/SessionCache.ini'",
+					'test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.db || test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.ini',
 			),
 		).toBe(true)
 	})
@@ -525,9 +521,7 @@ describe("stopping the instance before a sign-in", () => {
 	it("gives the stop longer than the unit can wait before killing the client", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(
-				renderUnitTemplates(systemProfile())[INSTANCE_UNIT_NAME] ?? "",
-			)?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
 		)
 
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)

@@ -1,81 +1,44 @@
 import { describe, expect, it } from "vitest"
-import {
-	installTarget,
-	journalctl,
-	profileFrom,
-	rootlessProfile,
-	systemctl,
-	systemProfile,
-	usesPerInstanceUsers,
-} from "./profile"
+import { instanceDir } from "../instance/unit"
+import { INSTANCES_ROOT, isUsableHome, journalctl, systemctl, UNIT_DIR } from "./profile"
 
-describe("choosing where a host keeps its files", () => {
-	it("puts everything under the connecting user's home when the manager has no root", () => {
-		const profile = rootlessProfile("/home/mccuser")
+describe("where every host keeps its files", () => {
+	it("roots every path at the connecting account's home, as a shell word", () => {
+		expect(INSTANCES_ROOT).toBe('"$HOME"/.local/share/open-mcc')
+		expect(UNIT_DIR).toBe('"$HOME"/.config/systemd/user')
 
-		expect(profile.instancesRoot).toBe("/home/mccuser/.local/share/open-mcc")
-		expect(profile.unitDir).toBe("/home/mccuser/.config/systemd/user")
-	})
-
-	it("tolerates a home directory reported with a trailing slash", () => {
-		expect(rootlessProfile("/home/mccuser/").instancesRoot).toBe(
-			"/home/mccuser/.local/share/open-mcc",
-		)
-	})
-
-	it("rejects a home directory that could smuggle shell metacharacters into a path", () => {
-		expect(() => rootlessProfile("/home/$(id -u)")).toThrow(/absolute path/)
-		expect(() => rootlessProfile("/home/a;rm -rf /")).toThrow(/absolute path/)
-	})
-
-	it("uses system locations when the manager has root", () => {
-		const profile = systemProfile()
-
-		expect(profile.instancesRoot).toBe("/srv/open-mcc")
-		expect(profile.unitDir).toBe("/etc/systemd/system")
+		for (const path of [INSTANCES_ROOT, UNIT_DIR, instanceDir("abc123")]) {
+			expect(path.startsWith('"$HOME"/')).toBe(true)
+		}
 	})
 })
 
-describe("addressing systemd for a host", () => {
-	it("talks to the user manager and supplies a runtime directory over a non-login connection", () => {
-		const command = systemctl(rootlessProfile("/home/mccuser"), "start open-mcc@abc.service")
-
-		expect(command).toContain("--user")
-		expect(command).toContain("XDG_RUNTIME_DIR=/run/user/$(id -u)")
+describe("the home directory those paths are rooted at", () => {
+	it("is usable when it is a plain absolute path and matches the account's own entry", () => {
+		expect(isUsableHome("/home/mcc", "/home/mcc")).toBe(true)
+		expect(isUsableHome("/home/mcc/", "/home/mcc")).toBe(true)
 	})
 
-	it("talks to the system manager when running as root", () => {
-		const command = systemctl(systemProfile(), "start open-mcc@abc.service")
-
-		expect(command).toBe("systemctl start open-mcc@abc.service")
-		expect(command).not.toContain("--user")
+	it("is refused when it could smuggle shell metacharacters into a unit", () => {
+		expect(isUsableHome("/home/$(id -u)", "/home/$(id -u)")).toBe(false)
+		expect(isUsableHome("/home/a;rm -rf /", "/home/a;rm -rf /")).toBe(false)
+		expect(isUsableHome("home/mcc", "home/mcc")).toBe(false)
 	})
 
-	it("reads the matching journal in each mode", () => {
-		expect(journalctl(rootlessProfile("/home/u"), "-u x")).toContain("journalctl --user")
-		expect(journalctl(systemProfile(), "-u x")).toBe("journalctl -u x")
+	it("is refused when the session's HOME is not the home systemd will expand %h to", () => {
+		expect(isUsableHome("/srv/elsewhere", "/home/mcc")).toBe(false)
+		expect(isUsableHome("/home/mcc", "")).toBe(false)
 	})
 })
 
-describe("what each mode implies", () => {
-	it("only creates a user per instance when it has the privilege to do so", () => {
-		expect(usesPerInstanceUsers(systemProfile())).toBe(true)
-		expect(usesPerInstanceUsers(rootlessProfile("/home/u"))).toBe(false)
-	})
-
-	it("enables units against the target that exists in each manager", () => {
-		expect(installTarget(systemProfile())).toBe("multi-user.target")
-		expect(installTarget(rootlessProfile("/home/u"))).toBe("default.target")
-	})
-
-	it("rebuilds a stored profile without re-deriving it from a home directory", () => {
-		const profile = profileFrom(
-			"rootless",
-			"/home/u/.local/share/open-mcc",
-			"/home/u/.config/systemd/user",
+describe("addressing systemd on a host", () => {
+	it("always talks to the user manager, with a runtime directory over a non-login connection", () => {
+		expect(systemctl("start open-mcc@abc.service")).toBe(
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start open-mcc@abc.service",
 		)
+	})
 
-		expect(profile.mode).toBe("rootless")
-		expect(systemctl(profile, "daemon-reload")).toContain("--user")
+	it("always reads the user journal", () => {
+		expect(journalctl("-u x")).toBe("XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u x")
 	})
 })

@@ -715,21 +715,30 @@ describe("the host table after the single host model (real Postgres)", () => {
 		expect(columns).toContain("networkStack")
 	})
 
-	it.each([null, "slirp4netns", "pasta"] as const)("accepts %s as a network stack", async (stack) => {
-		const created = await repo.insert(
-			{ organizationId: orgA },
-			{ name: `stack-${stack}`, hostname: "10.0.0.40", port: 22, username: "mcc", sshKeyId: null },
-		)
-		trackHostId(created.id)
+	it.each([null, "slirp4netns", "pasta"] as const)(
+		"accepts %s as a network stack",
+		async (stack) => {
+			const created = await repo.insert(
+				{ organizationId: orgA },
+				{
+					name: `stack-${stack}`,
+					hostname: "10.0.0.40",
+					port: 22,
+					username: "mcc",
+					sshKeyId: null,
+				},
+			)
+			trackHostId(created.id)
 
-		await testDb()
-			.updateTable("host")
-			.set({ networkStack: stack })
-			.where("id", "=", created.id)
-			.execute()
+			await testDb()
+				.updateTable("host")
+				.set({ networkStack: stack })
+				.where("id", "=", created.id)
+				.execute()
 
-		expect((await repo.findById({ organizationId: orgA }, created.id))?.networkStack).toBe(stack)
-	})
+			expect((await repo.findById({ organizationId: orgA }, created.id))?.networkStack).toBe(stack)
+		},
+	)
 
 	it("refuses a network stack it does not know", async () => {
 		const created = await repo.insert(

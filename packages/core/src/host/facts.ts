@@ -1,5 +1,4 @@
 import type { HostTransport } from "@open-mcc/transport"
-import type { HostProfile } from "./profile"
 
 export const FACT_TIMEOUT_MS = 15_000
 
@@ -10,20 +9,6 @@ export const MEMORY_TOTAL_COMMAND =
 
 export const OS_RELEASE_COMMAND =
 	'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"'
-
-export const SANDBOX_PROBE_MARKER = "/tmp/.open-mcc-sandbox-probe"
-
-export const SANDBOX_PROBE_UNIT = "open-mcc-sandbox-probe"
-
-const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
-
-export const sandboxProbeCommand = (marker: string = SANDBOX_PROBE_MARKER): string => {
-	const quoted = shellQuote(marker)
-	const run = `systemd-run --user --wait --collect --quiet --unit=${SANDBOX_PROBE_UNIT} --property=PrivateTmp=yes /bin/sh -c ${shellQuote(`touch ${marker}`)}`
-	return `rm -f ${quoted}; ${run} >/dev/null 2>&1; if [ -e ${quoted} ]; then rm -f ${quoted}; printf ignored; else printf enforced; fi`
-}
-
-export const readsAsEnforced = (output: string): boolean => output.trim() === "enforced"
 
 export const UNKNOWN_HOST_FACT = "Unknown"
 
@@ -54,34 +39,19 @@ export type HostFacts = {
 	osRelease: string | null
 	osId: string | null
 	osName: string | null
-	sandboxed: boolean
 	cpuCount: number | null
 	memoryMb: number | null
 }
 
-export const readSandboxing = async (
-	transport: HostTransport,
-	profile: HostProfile,
-): Promise<boolean> => {
-	if (profile.mode !== "rootless") return true
-	const probe = await transport.exec(sandboxProbeCommand(), FACT_TIMEOUT_MS)
-	return readsAsEnforced(probe.stdout)
-}
-
-export const readHostFacts = async (
-	transport: HostTransport,
-	profile: HostProfile,
-): Promise<HostFacts> => {
+export const readHostFacts = async (transport: HostTransport): Promise<HostFacts> => {
 	const version = await transport.exec("systemctl --version | head -n 1", FACT_TIMEOUT_MS)
 	const os = await transport.exec(OS_RELEASE_COMMAND, FACT_TIMEOUT_MS)
-	const sandboxed = await readSandboxing(transport, profile)
 	const cpu = await transport.exec(CPU_COUNT_COMMAND, FACT_TIMEOUT_MS)
 	const memory = await transport.exec(MEMORY_TOTAL_COMMAND, FACT_TIMEOUT_MS)
 
 	return {
 		osRelease: hostFact(version.stdout),
 		...parseOsRelease(os.stdout),
-		sandboxed,
 		cpuCount: parseCount(cpu.stdout),
 		memoryMb: parseMemoryMb(memory.stdout),
 	}

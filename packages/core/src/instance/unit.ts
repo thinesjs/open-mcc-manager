@@ -1,5 +1,5 @@
 import { INSTANCE_ID_PATTERN } from "@open-mcc/contracts"
-import { type HostProfile, systemctl } from "../host/profile"
+import { INSTANCES_ROOT, systemctl } from "../host/profile"
 
 export type EnvironmentValues = {
 	liveControlToken: string
@@ -32,15 +32,10 @@ export const unitName = (instanceId: string): string => `open-mcc@${validateInst
 export const authUnitName = (instanceId: string): string =>
 	`open-mcc-auth@${validateInstanceId(instanceId)}.service`
 
-export const stopAuthCommand = (profile: HostProfile, instanceId: string): string => {
+export const stopAuthCommand = (instanceId: string): string => {
 	const unit = shellQuote(authUnitName(instanceId))
-	return `${systemctl(profile, `stop ${unit}`)} || true; ${systemctl(
-		profile,
-		`reset-failed ${unit}`,
-	)} || true`
+	return `${systemctl(`stop ${unit}`)} || true; ${systemctl(`reset-failed ${unit}`)} || true`
 }
 
-export const instanceDir = (instancesRoot: string, instanceId: string): string =>
-	`${instancesRoot}/instances/${validateInstanceId(instanceId)}`
-
-export const instanceUser = (instanceId: string): string => `mcc-${validateInstanceId(instanceId)}`
+export const instanceDir = (instanceId: string): string =>
+	`${INSTANCES_ROOT}/instances/${validateInstanceId(instanceId)}`

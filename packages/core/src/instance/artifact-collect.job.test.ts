@@ -25,9 +25,7 @@ const host: HostRow = {
 	port: 22,
 	username: "mcc",
 	status: "ready",
-	mode: "rootless",
-	instancesRoot: "/home/mcc/.local/share/open-mcc",
-	unitDir: "/home/mcc/.config/systemd/user",
+	networkStack: null,
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:abc",
 	hostKeyAlgorithm: "ssh-ed25519",
@@ -42,7 +40,6 @@ const host: HostRow = {
 	osName: null,
 	osRelease: null,
 	failedUnits: null,
-	sandboxed: null,
 	provisioningAttemptId: null,
 	provisioningClaimedAt: null,
 	provisioningError: null,
@@ -71,9 +68,9 @@ const instance: InstanceRow = {
 	createdAt: NOW,
 }
 
-const DIRECTORY = instanceDir("/home/mcc/.local/share/open-mcc", "afk")
+const DIRECTORY = instanceDir("afk")
 
-const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} '${DIRECTORY}/playerlog.txt' 2>/dev/null | base64 | tr -d '\\n'`
+const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} ${DIRECTORY}/'playerlog.txt' 2>/dev/null | base64 | tr -d '\\n'`
 
 type Recorder = {
 	stored: ArtifactValues[]

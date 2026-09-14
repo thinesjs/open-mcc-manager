@@ -48,13 +48,13 @@ describe("names built from an instance id validate it by construction", () => {
 	})
 
 	it("refuses to build a directory path for an id carrying a path separator", () => {
-		expect(() => instanceDir("/srv/open-mcc", "../../etc")).toThrow()
+		expect(() => instanceDir("../../etc")).toThrow()
 	})
 
 	it("builds both for an ordinary id", () => {
 		expect(unitName("V1StGXR8Z5jdHi6B")).toBe("open-mcc@V1StGXR8Z5jdHi6B")
-		expect(instanceDir("/srv/open-mcc", "V1StGXR8Z5jdHi6B")).toBe(
-			"/srv/open-mcc/instances/V1StGXR8Z5jdHi6B",
+		expect(instanceDir("V1StGXR8Z5jdHi6B")).toBe(
+			'"$HOME"/.local/share/open-mcc/instances/V1StGXR8Z5jdHi6B',
 		)
 	})
 })

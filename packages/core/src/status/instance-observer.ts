@@ -1,6 +1,6 @@
 import { connectionSignals, parseJournal } from "@open-mcc/contracts/boundary/journal"
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, journalctl } from "../host/profile"
+import { journalctl } from "../host/profile"
 import { unitName } from "../instance/unit"
 import { type ConnectionChange, type ConnectionCurrent, changesFromSignals } from "./connection"
 
@@ -19,13 +19,8 @@ export const journalTimestamp = (iso: string): string => {
 export const journalSince = (cursor: string | null): string =>
 	cursor === null ? SEED_WINDOW : journalTimestamp(cursor)
 
-export const journalCommand = (
-	profile: HostProfile,
-	instanceId: string,
-	cursor: string | null,
-): string =>
+export const journalCommand = (instanceId: string, cursor: string | null): string =>
 	journalctl(
-		profile,
 		`-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager -n ${JOURNAL_MAX_LINES}`,
 	)
 
@@ -36,15 +31,11 @@ export type InstanceReading = {
 
 export const readConnectionChanges = async (
 	transport: Pick<HostTransport, "exec">,
-	profile: HostProfile,
 	instanceId: string,
 	current: ConnectionCurrent,
 	cursor: string | null,
 ): Promise<InstanceReading> => {
-	const result = await transport.exec(
-		journalCommand(profile, instanceId, cursor),
-		JOURNAL_READ_TIMEOUT_MS,
-	)
+	const result = await transport.exec(journalCommand(instanceId, cursor), JOURNAL_READ_TIMEOUT_MS)
 	if (result.exitCode !== 0) return { changes: [], cursor }
 
 	const lines = parseJournal(result.stdout)

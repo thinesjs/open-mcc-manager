@@ -9,7 +9,7 @@ import type {
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { type HostProfile, journalctl, systemctl } from "../host/profile"
+import { journalctl, systemctl, UNIT_DIR } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
 import {
@@ -93,20 +93,19 @@ const MISSING_MARKER = "__open_mcc_missing__"
 
 const readFile = async (transport: HostTransport, path: string): Promise<string | undefined> => {
 	const result = await transport.exec(
-		`cat ${shellQuote(path)} 2>/dev/null || printf '%s' ${shellQuote(MISSING_MARKER)}`,
+		`cat ${path} 2>/dev/null || printf '%s' ${shellQuote(MISSING_MARKER)}`,
 		RECONCILE_STEP_TIMEOUT_MS,
 	)
 	return result.stdout === MISSING_MARKER ? undefined : result.stdout
 }
 
 export const expectedUnits = (
-	profile: HostProfile,
 	instances: readonly InstanceRow[],
 	schedules: readonly InstanceScheduleRow[],
 	renderWindow: (schedule: InstanceScheduleRow) => Record<string, string>,
 ): Map<string, string> => {
 	const expected = new Map<string, string>()
-	for (const [name, contents] of Object.entries(renderUnitTemplates(profile))) {
+	for (const [name, contents] of Object.entries(renderUnitTemplates())) {
 		expected.set(name, contents)
 	}
 	const known = new Set(instances.map((instance) => instance.id))
@@ -124,16 +123,10 @@ export const MANAGED_UNIT_PATTERN =
 
 export const isManagedUnit = (name: string): boolean => MANAGED_UNIT_PATTERN.test(name)
 
-const listManagedUnits = async (
-	transport: HostTransport,
-	profile: HostProfile,
-): Promise<string[]> => {
-	const result = await transport.exec(
-		`ls -1 ${shellQuote(profile.unitDir)}`,
-		RECONCILE_STEP_TIMEOUT_MS,
-	)
+const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
+	const result = await transport.exec(`ls -1 ${UNIT_DIR}`, RECONCILE_STEP_TIMEOUT_MS)
 	if (result.exitCode !== 0) {
-		throw new Error(`Could not list ${profile.unitDir}: ${result.stderr.trim()}`)
+		throw new Error(`Could not list the unit directory: ${result.stderr.trim()}`)
 	}
 	return result.stdout
 		.split("\n")
@@ -148,14 +141,10 @@ export type HostObservation = {
 
 const readInstanceConfig = async (
 	transport: HostTransport,
-	profile: HostProfile,
 	instanceId: string,
 ): Promise<string | undefined> => {
-	const path = `${instanceDir(profile.instancesRoot, instanceId)}/${CONFIG_PATH_NAME}`
-	const result = await transport.exec(
-		`cat ${shellQuote(path)} 2>/dev/null || true`,
-		RECONCILE_STEP_TIMEOUT_MS,
-	)
+	const path = `${instanceDir(instanceId)}/${CONFIG_PATH_NAME}`
+	const result = await transport.exec(`cat ${path} 2>/dev/null || true`, RECONCILE_STEP_TIMEOUT_MS)
 	const text = result.stdout
 	return text.trim().length === 0 ? undefined : text
 }
@@ -204,7 +193,6 @@ const toPublicDrift = (instanceId: string, entry: ConfigDrift): ConfigDriftPubli
 
 const configDriftFor = async (
 	transport: HostTransport,
-	profile: HostProfile,
 	instances: readonly InstanceRow[],
 	expectedConfigs: ReadonlyMap<string, string>,
 ): Promise<ConfigDriftPublic[]> => {
@@ -212,7 +200,7 @@ const configDriftFor = async (
 	for (const instance of instances) {
 		const want = expectedConfigs.get(instance.id)
 		if (want === undefined) continue
-		const actual = await readInstanceConfig(transport, profile, instance.id)
+		const actual = await readInstanceConfig(transport, instance.id)
 		if (actual === undefined) {
 			drift.push({
 				instanceId: instance.id,
@@ -275,7 +263,6 @@ const silentLiveControl = async (
 
 export const reconcileHostOverTransport = async (
 	transport: HostTransport,
-	profile: HostProfile,
 	hostId: string,
 	instances: readonly InstanceRow[],
 	expected: Map<string, string>,
@@ -283,12 +270,12 @@ export const reconcileHostOverTransport = async (
 ): Promise<HostObservation> => {
 	const unitDrift: UnitDrift[] = []
 	for (const [name, contents] of expected) {
-		const actual = await readFile(transport, `${profile.unitDir}/${name}`)
+		const actual = await readFile(transport, `${UNIT_DIR}/${shellQuote(name)}`)
 		if (actual === undefined) unitDrift.push({ kind: "missing", unit: name })
 		else if (actual !== contents) unitDrift.push({ kind: "differs", unit: name })
 	}
 
-	for (const name of await listManagedUnits(transport, profile)) {
+	for (const name of await listManagedUnits(transport)) {
 		if (!expected.has(name)) unitDrift.push({ kind: "unexpected", unit: name })
 	}
 
@@ -297,13 +284,13 @@ export const reconcileHostOverTransport = async (
 	const seenPlayers = new Map<string, string>()
 	for (const instance of instances) {
 		const result = await transport.exec(
-			`${systemctl(profile, `is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
+			`${systemctl(`is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
 			RECONCILE_STEP_TIMEOUT_MS,
 		)
 		let observed = parseObservedState(result.stdout)
 		if (observed === "active" && instance.status === "running") {
 			const journal = await transport.exec(
-				`${journalctl(profile, `-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`,
+				`${journalctl(`-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`,
 				RECONCILE_STEP_TIMEOUT_MS,
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"
@@ -316,7 +303,7 @@ export const reconcileHostOverTransport = async (
 		}
 	}
 
-	const configDrift = await configDriftFor(transport, profile, instances, expectedConfigs)
+	const configDrift = await configDriftFor(transport, instances, expectedConfigs)
 	configDrift.push(...(await silentLiveControl(transport, instances, expectedConfigs, joined)))
 
 	return {

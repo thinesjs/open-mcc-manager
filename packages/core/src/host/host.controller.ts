@@ -90,7 +90,6 @@ const toHostPublic = (row: HostRow): HostPublic => ({
 	hostname: row.hostname,
 	port: row.port,
 	username: row.username,
-	mode: row.mode,
 	status: row.status,
 	hostKeyFingerprint: row.hostKeyFingerprint,
 	hostKeyAlgorithm: row.hostKeyAlgorithm,
@@ -99,7 +98,6 @@ const toHostPublic = (row: HostRow): HostPublic => ({
 	osId: row.osId,
 	osName: row.osName,
 	osRelease: row.osRelease,
-	sandboxed: row.sandboxed,
 	lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
 	failedUnits: row.failedUnits,
 	provisioningStep: row.provisioningStep,
@@ -110,15 +108,13 @@ const toHostPublic = (row: HostRow): HostPublic => ({
 	teardownRequestedAt: row.teardownRequestedAt?.toISOString() ?? null,
 })
 
+const finishedProvisioning = (host: HostRow): boolean => host.osRelease !== null
+
 export const createHostController = (deps: HostControllerDeps) => {
-	const teardownPayloadFor = async (host: HostRow): Promise<Record<string, string> | undefined> => {
-		if (!host.sshKeyId || !host.hostKeyFingerprint || !host.instancesRoot || !host.unitDir) {
+	const teardownPayloadFor = (host: HostRow): Record<string, string> | undefined => {
+		if (!host.sshKeyId || !host.hostKeyFingerprint || !finishedProvisioning(host)) {
 			return undefined
 		}
-		const instanceIds = await deps.instanceIdsOnHost(
-			{ organizationId: host.organizationId },
-			host.id,
-		)
 		return {
 			hostId: host.id,
 			hostname: host.hostname,
@@ -126,10 +122,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 			username: host.username,
 			sshKeyId: host.sshKeyId,
 			hostKeyFingerprint: host.hostKeyFingerprint,
-			mode: host.mode,
-			instancesRoot: host.instancesRoot,
-			unitDir: host.unitDir,
-			instanceIds: instanceIds.join(","),
 		}
 	}
 
@@ -159,7 +151,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			}
 
 			try {
-				return await checkHostOverTransport(transport, input.mode)
+				return await checkHostOverTransport(transport)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
@@ -189,7 +181,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 					hostname: input.hostname,
 					port: input.port,
 					username: input.username,
-					mode: input.mode,
 					sshKeyId: input.sshKeyId,
 					hostKeyAlgorithm: algorithm,
 					hostKeyFingerprint: verification.fingerprint,
@@ -208,7 +199,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 					detail: {
 						hostname: input.hostname,
 						fingerprint: verification.fingerprint,
-						mode: input.mode,
 					},
 				})
 
@@ -316,7 +306,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 						)
 					}
 					return await provisionHost(transport, {
-						mode: claimed.mode,
 						onProgress: (progress) => {
 							reached = progress.step
 							void deps.hosts
@@ -364,9 +353,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 				const updated = await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, {
 					status: "ready",
 					osRelease: result.osRelease,
-					instancesRoot: result.profile.instancesRoot,
-					unitDir: result.profile.unitDir,
-					sandboxed: result.sandboxed,
 					osId: result.osId,
 					osName: result.osName,
 				})
@@ -382,7 +368,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					action: "host.provision",
 					subjectType: "host",
 					subjectId: hostId,
-					detail: { osRelease: result.osRelease, mode: result.profile.mode },
+					detail: { osRelease: result.osRelease },
 				})
 
 				return toHostPublic(updated)
@@ -464,7 +450,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 				)
 			}
 
-			const teardownPayload = await teardownPayloadFor(target)
+			const teardownPayload = teardownPayloadFor(target)
 
 			return deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)

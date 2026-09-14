@@ -2,7 +2,6 @@ import {
 	CLIENT_RUNS_STEP_LABEL,
 	LINGER_STEP_LABEL,
 	type ProvisionStepLabel,
-	SANDBOX_STEP_LABEL,
 } from "@open-mcc/contracts"
 
 const FAILURES: Readonly<Record<ProvisionStepLabel, string>> = {
@@ -16,7 +15,6 @@ const FAILURES: Readonly<Record<ProvisionStepLabel, string>> = {
 	"Verifying the download": "The download did not match its checksum, so it was not installed.",
 	"Installing the client": "The client could not be installed.",
 	[CLIENT_RUNS_STEP_LABEL]: "The client did not start. Check that libicu is installed.",
-	[SANDBOX_STEP_LABEL]: "Could not check how bots are confined on this host.",
 	"Installing the instance unit": "The bot service could not be installed.",
 	"Installing the sleep units": "The sleep services could not be installed.",
 	"Reloading systemd": "systemd could not reload its services.",

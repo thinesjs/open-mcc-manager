@@ -1,7 +1,6 @@
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
-import { systemProfile } from "../host/profile"
 import { renderUnitTemplates } from "../host/unit-template"
 import { renderInstanceConfig } from "./config"
 import {
@@ -16,8 +15,6 @@ import {
 	STUCK_MARKERS,
 	WITHHELD_VALUE,
 } from "./reconcile"
-
-const PROFILE = systemProfile()
 
 const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
@@ -67,13 +64,13 @@ const connected = async (
 }
 
 const listingOf = (names: string[]) => ({
-	"ls -1 '/etc/systemd/system'": { stdout: names.join("\n"), stderr: "", exitCode: 0 },
+	'ls -1 "$HOME"/.config/systemd/user': { stdout: names.join("\n"), stderr: "", exitCode: 0 },
 })
 
 const fileReplies = (units: Map<string, string>) =>
 	Object.fromEntries(
 		[...units].map(([name, contents]) => [
-			`cat '/etc/systemd/system/${name}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`,
+			`cat "$HOME"/.config/systemd/user/'${name}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`,
 			{ stdout: contents, stderr: "", exitCode: 0 },
 		]),
 	)
@@ -103,19 +100,18 @@ describe("observed state", () => {
 
 describe("expected units", () => {
 	it("expects every shipped template even when no schedule exists", () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
-		for (const name of Object.keys(renderUnitTemplates(PROFILE)))
-			expect(expected.has(name)).toBe(true)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		for (const name of Object.keys(renderUnitTemplates())) expect(expected.has(name)).toBe(true)
 	})
 
 	it("expects a schedule's timers only for an instance that still exists", () => {
 		const orphan = schedule({ instanceId: "gone" })
-		const expected = expectedUnits(PROFILE, [instance()], [orphan], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [orphan], renderScheduleUnits)
 		expect([...expected.keys()].some((name) => name.includes("gone"))).toBe(false)
 	})
 
 	it("expects both timers for a scheduled instance", () => {
-		const expected = expectedUnits(PROFILE, [instance()], [schedule()], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [schedule()], renderScheduleUnits)
 		expect(expected.has("open-mcc-sleep-stop@abc123.timer")).toBe(true)
 		expect(expected.has("open-mcc-sleep-start@abc123.timer")).toBe(true)
 	})
@@ -123,19 +119,19 @@ describe("expected units", () => {
 
 describe("reconciling a host", () => {
 	it("reports no drift when every unit matches and the state agrees", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -151,30 +147,30 @@ describe("reconciling a host", () => {
 	})
 
 	it("distinguishes a unit that is absent from one whose content has changed", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const replies = fileReplies(expected)
 		const names = [...expected.keys()]
 		const missing = names[0] ?? ""
 		const changed = names[1] ?? ""
 		replies[
-			`cat '/etc/systemd/system/${missing}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`
+			`cat "$HOME"/.config/systemd/user/'${missing}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`
 		] = { stdout: "__open_mcc_missing__", stderr: "", exitCode: 0 }
 		replies[
-			`cat '/etc/systemd/system/${changed}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`
+			`cat "$HOME"/.config/systemd/user/'${changed}' 2>/dev/null || printf '%s' '__open_mcc_missing__'`
 		] = { stdout: "edited by hand", stderr: "", exitCode: 0 }
 
 		const transport = await connected({
 			...replies,
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -186,19 +182,19 @@ describe("reconciling a host", () => {
 	})
 
 	it("reports an instance the manager believes is running but the host has stopped", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "inactive",
-				stderr: "",
-				exitCode: 3,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "inactive",
+					stderr: "",
+					exitCode: 3,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -213,7 +209,7 @@ describe("reconciling a host", () => {
 
 describe("units the manager does not define", () => {
 	const listing = (names: string[]) => ({
-		"ls -1 '/etc/systemd/system'": {
+		'ls -1 "$HOME"/.config/systemd/user': {
 			stdout: names.join("\n"),
 			stderr: "",
 			exitCode: 0,
@@ -240,20 +236,20 @@ describe("units the manager does not define", () => {
 	})
 
 	it("reports a timer left behind for an instance that no longer exists", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@deleted1.timer"]),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -266,20 +262,20 @@ describe("units the manager does not define", () => {
 	})
 
 	it("leaves unrelated units on the host alone, which are none of its business", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "nginx.service", "ssh.service", "cron.service"]),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -290,20 +286,20 @@ describe("units the manager does not define", () => {
 	})
 
 	it("reports another organization's timer on a shared host, which the trust model allows", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@otherorg1.timer"]),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -316,21 +312,25 @@ describe("units the manager does not define", () => {
 	})
 
 	it("treats a failed listing as unknown rather than as a host with nothing extra", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
-			"ls -1 '/etc/systemd/system'": { stdout: "", stderr: "Permission denied", exitCode: 2 },
+			'ls -1 "$HOME"/.config/systemd/user': {
+				stdout: "",
+				stderr: "Permission denied",
+				exitCode: 2,
+			},
 		})
 
 		await expect(
-			reconcileHostOverTransport(transport, PROFILE, "host-1", [instance()], expected),
+			reconcileHostOverTransport(transport, "host-1", [instance()], expected),
 		).rejects.toThrow(/Permission denied/)
 	})
 })
 
 describe("a client that is running but not doing anything", () => {
 	const journalFor = (text: string) => ({
-		"journalctl -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true":
+		"XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true":
 			{ stdout: text, stderr: "", exitCode: 0 },
 	})
 
@@ -353,21 +353,21 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("reports drift for a unit systemd calls active whose client is wedged", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 			...journalFor('Failed to parse the settings file, enter "/new" to generate'),
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -380,21 +380,21 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("leaves a genuinely healthy instance alone", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 			...journalFor("[MCC] Server was successfully joined."),
 		})
 
 		const { reconciliation: result } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -479,7 +479,7 @@ describe("recognising a client that is stuck", () => {
 
 describe("comparing a host's client config", () => {
 	it("reads each instance's config off the host and names a key that drifted", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -500,21 +500,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document.replace('Host = "play.example.net"', 'Host = "elsewhere.example"'),
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document.replace('Host = "play.example.net"', 'Host = "elsewhere.example"'),
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -534,7 +535,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("shows an operator both bounds of a drifted delay, never the object itself", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -555,21 +556,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document.replace("{ min = 5.0, max = 20.0 }", "{ min = 7.0, max = 30.0 }"),
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document.replace("{ min = 5.0, max = 20.0 }", "{ min = 7.0, max = 30.0 }"),
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -589,19 +591,19 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("says the config is missing rather than reporting every key as drifted", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -614,7 +616,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("★ withholds the host's own value even when the drift is a SAFETY one on an operator key", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -638,21 +640,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document.replace('File = "playerlist.txt"', 'File = "players-%serverip%.txt"'),
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document.replace('File = "playerlist.txt"', 'File = "players-%serverip%.txt"'),
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -669,7 +672,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("★ never puts a password the host holds into the browser", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -690,21 +693,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document.replace('Password = "-"', 'Password = "hunter2"'),
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document.replace('Password = "-"', 'Password = "hunter2"'),
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -720,7 +724,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("withholds the host's own value when a key the operator saved has drifted", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
@@ -741,21 +745,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document.replace('Mode = "single"', 'Mode = "10.0.0.7:25565 hunter2"'),
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document.replace('Mode = "single"', 'Mode = "10.0.0.7:25565 hunter2"'),
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -779,7 +784,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("reports a live control endpoint that never claimed its port", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -800,23 +805,24 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			[`journalctl -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
 				{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document,
-				stderr: "",
-				exitCode: 0,
-			},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document,
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,
@@ -836,7 +842,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("says nothing about live control before the client has joined a server", async () => {
-		const expected = expectedUnits(PROFILE, [instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -857,21 +863,22 @@ describe("comparing a host's client config", () => {
 		})
 		const transport = await connected({
 			...fileReplies(expected),
-			"systemctl is-active 'open-mcc@abc123.service' || true": {
-				stdout: "active",
-				stderr: "",
-				exitCode: 0,
-			},
-			"cat '/srv/open-mcc/instances/abc123/MinecraftClient.ini' 2>/dev/null || true": {
-				stdout: document,
-				stderr: "",
-				exitCode: 0,
-			},
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+				{
+					stdout: "active",
+					stderr: "",
+					exitCode: 0,
+				},
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				{
+					stdout: document,
+					stderr: "",
+					exitCode: 0,
+				},
 		})
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
-			PROFILE,
 			"host-1",
 			[instance()],
 			expected,

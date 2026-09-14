@@ -8,7 +8,7 @@ export {
 	usesKnownInsecureKey,
 } from "./crypto/sealed-box"
 export type { HostFacts } from "./host/facts"
-export { readHostFacts, readSandboxing } from "./host/facts"
+export { readHostFacts } from "./host/facts"
 export type { HealthInput, HostHealth } from "./host/health"
 export { failedUnitsCommand, HOST_HEALTH, healthFor, observeHost } from "./host/health"
 export type { HealthPollerDeps, HealthPollerHandle, HealthPollRun } from "./host/health-poller"
@@ -47,13 +47,11 @@ export {
 	isProvisioningClaimStale,
 	PROVISIONING_LEASE_MS,
 } from "./host/host.repository"
-export { profileFrom } from "./host/profile"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
-	validateInstancesRoot,
 } from "./host/provision"
 export type {
 	ArtifactRepository,

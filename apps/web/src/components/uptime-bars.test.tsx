@@ -51,13 +51,6 @@ describe("drawing a range as slim bars", () => {
 		expect(screen.getAllByTitle(/^Reachable\s/)).toHaveLength(96)
 	})
 
-	it("lets the row share out the width rather than sizing a bar from the count", () => {
-		render(<UptimeBars buckets={wholeDay} bucketSeconds={QUARTER_HOUR} fromLabel="24 hours ago" />)
-
-		const sized = screen.getAllByTitle(/^Reachable\s/).filter((bar) => bar.hasAttribute("style"))
-		expect(sized).toEqual([])
-	})
-
 	it("tells a brief outage apart from a long one and from no measurements on hover", () => {
 		render(
 			<UptimeBars

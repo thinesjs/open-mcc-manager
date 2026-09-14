@@ -4,9 +4,8 @@ import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { EnrollHostSteps } from "~/components/enroll-host-steps"
+import { HostBadge } from "~/components/host-badge"
 import { HostContextMenu } from "~/components/host-context-menu"
-import { HostHealthBadge } from "~/components/host-health-badge"
-import { HostStatusBadge } from "~/components/host-status-badge"
 import { OsIcon } from "~/components/os-icon"
 import { SelfHostCard, shouldOfferSelfHost } from "~/components/self-host-card"
 import { Alert } from "~/components/ui/alert"
@@ -101,7 +100,7 @@ function HostListPage() {
 											/>
 											<p className="truncate font-medium text-foreground">{host.name}</p>
 										</div>
-										<HostStatusBadge status={host.status} />
+										<HostBadge host={host} />
 									</div>
 									<p className="truncate text-sm text-muted-foreground">
 										{host.username}@{host.hostname}:{host.port}
@@ -110,9 +109,7 @@ function HostListPage() {
 										<p className="truncate text-xs text-muted-foreground">
 											{host.teardownError ? "Could not be cleaned" : "Cleaning the host…"}
 										</p>
-									) : (
-										<HostHealthBadge host={host} />
-									)}
+									) : null}
 									{host.osName ? (
 										<p className="truncate text-xs text-muted-foreground">{host.osName}</p>
 									) : null}
@@ -144,8 +141,7 @@ function HostListPage() {
 										</div>
 									</div>
 									<div className="flex shrink-0 items-center gap-3">
-										<HostHealthBadge host={host} />
-										<HostStatusBadge status={host.status} />
+										<HostBadge host={host} />
 										<ChevronRight className="size-4 text-muted-foreground" />
 									</div>
 								</Link>

@@ -522,7 +522,7 @@ describe("signing in through a host that cannot be reached", () => {
 })
 
 describe("stopping the instance before a sign-in", () => {
-	it("gives the stop longer than the unit waits for the client to quit", async () => {
+	it("gives the stop longer than the unit can wait before killing the client", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 		const stopSeconds = Number(
 			/^TimeoutStopSec=(\d+)$/m.exec(
@@ -535,6 +535,6 @@ describe("stopping the instance before a sign-in", () => {
 		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
-		expect(transport.timeouts[stopAt]).toBeGreaterThan(stopSeconds * 1000)
+		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
 	})
 })

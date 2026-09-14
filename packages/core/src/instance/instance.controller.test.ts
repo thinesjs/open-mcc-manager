@@ -972,7 +972,7 @@ describe("removing an instance", () => {
 
 		expect(stopSeconds(INSTANCE_UNIT_NAME)).toBeGreaterThan(0)
 		expect(stopSeconds(AUTH_UNIT_NAME)).toBeGreaterThan(0)
-		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(stopSeconds(INSTANCE_UNIT_NAME) * 1000)
+		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000)
 		expect(timeoutFor(system.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
 	})
 
@@ -1818,7 +1818,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 })
 
 describe("stopping an instance", () => {
-	it("gives the stop longer than the unit waits for the client to quit", async () => {
+	it("gives the stop longer than the unit can wait before killing the client", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 		const stopSeconds = Number(
@@ -1832,6 +1832,6 @@ describe("stopping an instance", () => {
 		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
-		expect(transport.timeouts[stopAt]).toBeGreaterThan(stopSeconds * 1000)
+		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
 	})
 })

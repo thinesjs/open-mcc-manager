@@ -38,6 +38,7 @@ const CLIENTS = {
 	].join("\n"),
 	ignoresQuit: "#!/bin/sh\n: > started\nexec cat > /dev/null\n",
 	neverReads: "#!/bin/sh\n: > started\nexec sleep infinity\n",
+	exitsByItself: "#!/bin/sh\n: > started\nexit 0\n",
 } as const
 
 type Client = keyof typeof CLIENTS
@@ -66,8 +67,10 @@ const FILL_CONTROL = 'timeout 2 sh -c \'cat /dev/zero > "$1"\' sh "$1" || [ $? -
 const unitOf = (profile: HostProfile): string =>
 	renderUnitTemplates(profile)[INSTANCE_UNIT_NAME] ?? ""
 
-const stopTimeoutMs = (profile: HostProfile): number =>
-	Number(/^TimeoutStopSec=(\d+)$/m.exec(unitOf(profile))?.[1]) * 1000
+const unitSeconds = (profile: HostProfile, setting: string): number =>
+	Number(new RegExp(`^${setting}=(\\d+)$`, "m").exec(unitOf(profile))?.[1])
+
+const stopTimeoutMs = (profile: HostProfile): number => unitSeconds(profile, "TimeoutStopSec") * 1000
 
 const machineFor = async (host: string, mode: HostProfile["mode"]): Promise<Machine> => {
 	if (mode === "system") return { as: ROOT, profile: systemProfile(), manager: "systemctl" }
@@ -127,6 +130,17 @@ const running = async (host: string, machine: Machine, client: Client): Promise<
 	return { id, dir }
 }
 
+const propertiesOf = (shown: string): ReadonlyMap<string, string> =>
+	new Map(
+		shown
+			.split("\n")
+			.filter((line) => line.includes("="))
+			.map((line): [string, string] => [
+				line.slice(0, line.indexOf("=")),
+				line.slice(line.indexOf("=") + 1),
+			]),
+	)
+
 const stopped = async (
 	host: string,
 	machine: Machine,
@@ -147,15 +161,7 @@ const stopped = async (
 		),
 		"stopping the instance",
 	)
-	return new Map(
-		shown
-			.split("\n")
-			.filter((line) => line.includes("="))
-			.map((line): [string, string] => [
-				line.slice(0, line.indexOf("=")),
-				line.slice(line.indexOf("=") + 1),
-			]),
-	)
+	return propertiesOf(shown)
 }
 
 const exists = async (host: string, path: string): Promise<boolean> =>
@@ -217,6 +223,27 @@ describe.each([{ mode: "system" }, { mode: "rootless" }] as const)(
 			expect(Number(stop.get("Elapsed"))).toBeLessThan(stopTimeoutMs(ready().profile) / 2)
 			expect(stop.get("Result")).toBe("exit-code")
 			expect(stop.get("MainPID")).toBe("0")
+		})
+
+		it("leaves a client that exited cleanly by itself stopped, and does not restart it", async () => {
+			const instance = await running(host, ready(), "exitsByItself")
+
+			const unit = propertiesOf(
+				succeeded(
+					await shell(
+						host,
+						ready().as,
+						`sleep "$2" && ${ready().manager} show -p Result -p ActiveState -p NRestarts "$1"`,
+						`open-mcc@${instance.id}.service`,
+						String(unitSeconds(ready().profile, "RestartSec") + 10),
+					),
+					"reading the unit once a restart would have happened",
+				),
+			)
+
+			expect(unit.get("Result")).toBe("success")
+			expect(unit.get("NRestarts")).toBe("0")
+			expect(unit.get("ActiveState")).toBe("inactive")
 		})
 	},
 )

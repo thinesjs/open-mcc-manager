@@ -180,12 +180,12 @@ describe("stopping an instance", () => {
 			dir: "/home/mccuser/.local/share/open-mcc/instances/%i",
 		},
 	])(
-		"asks the client to quit within five seconds, then waits for it to exit, in $mode mode",
+		"asks a running client to quit within five seconds, then waits for it to exit, in $mode mode",
 		({ units, dir }) => {
 			const stop = /^ExecStop=.*$/m.exec(units[INSTANCE_UNIT_NAME] ?? "")?.[0]
 
 			expect(stop).toBe(
-				`ExecStop=/bin/sh -c 'timeout 5 sh -c "echo /quit > ${dir}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done'`,
+				`ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout 5 sh -c "echo /quit > ${dir}/control" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'`,
 			)
 		},
 	)

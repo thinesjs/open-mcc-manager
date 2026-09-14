@@ -64,7 +64,7 @@ describe("drift summary", () => {
 		const missing = describeUnitDrift({ kind: "missing", unit: "u" })
 		const differs = describeUnitDrift({ kind: "differs", unit: "u" })
 		expect(missing).not.toBe(differs)
-		expect(differs).toContain("Modified outside the control plane")
+		expect(differs).toBe("Doesn't match what this version installs. Repair setup to update it.")
 	})
 
 	it("says a wedged client is wedged, not that systemd disagrees", () => {

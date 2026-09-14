@@ -30,8 +30,22 @@ describe("the time zone a schedule runs in", () => {
 		)
 	})
 
-	it("accepts real zones, including one nested two levels deep", () => {
-		for (const timezone of ["UTC", "Asia/Kuala_Lumpur", "America/Argentina/Buenos_Aires"]) {
+	it("refuses a real zone typed in the wrong letter case, which a host would not find", () => {
+		expect(sleepWindowInput.safeParse({ ...window, timezone: "asia/kuala_lumpur" }).success).toBe(
+			false,
+		)
+		expect(
+			scheduledCommandInput.safeParse({ ...command, timezone: "asia/kuala_lumpur" }).success,
+		).toBe(false)
+	})
+
+	it("accepts real zones, including one nested two levels deep and one the engine renames", () => {
+		for (const timezone of [
+			"UTC",
+			"Etc/UTC",
+			"Asia/Kuala_Lumpur",
+			"America/Argentina/Buenos_Aires",
+		]) {
 			expect(sleepWindowInput.safeParse({ ...window, timezone }).success, timezone).toBe(true)
 			expect(scheduledCommandInput.safeParse({ ...command, timezone }).success, timezone).toBe(true)
 		}

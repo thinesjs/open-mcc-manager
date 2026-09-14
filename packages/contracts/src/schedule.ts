@@ -19,8 +19,8 @@ const UNKNOWN_TIMEZONE = "That time zone does not exist. Use a name like Europe/
 
 const isKnownTimezone = (value: string): boolean => {
 	try {
-		Intl.DateTimeFormat("en-US", { timeZone: value })
-		return true
+		const resolved = Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone
+		return resolved === value || resolved.toLowerCase() !== value.toLowerCase()
 	} catch {
 		return false
 	}

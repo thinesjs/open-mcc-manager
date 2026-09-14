@@ -364,10 +364,14 @@ function InstanceDetailPage() {
 										<Spinner label="Reading live state" />
 									) : liveStatusQuery.data ? (
 										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-											<div className="flex justify-between gap-4">
-												<dt className="text-sm text-muted-foreground">Signed in as</dt>
-												<dd className="text-sm text-foreground">{liveStatusQuery.data.username}</dd>
-											</div>
+											{liveStatusQuery.data.username ? (
+												<div className="flex justify-between gap-4">
+													<dt className="text-sm text-muted-foreground">Signed in as</dt>
+													<dd className="text-sm text-foreground">
+														{liveStatusQuery.data.username}
+													</dd>
+												</div>
+											) : null}
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Connected to</dt>
 												<dd className="text-sm text-foreground">

@@ -69,16 +69,16 @@ describe("opening an invitation while signed in", () => {
 })
 
 describe("opening an incomplete invitation link", () => {
-	it.each([
-		"/accept-invitation",
-		"/accept-invitation?invitation=",
-	])("says %s is incomplete rather than offering a form that can only fail", async (href) => {
-		getSession.mockResolvedValue(SIGNED_OUT)
-		await open(href)
+	it.each(["/accept-invitation", "/accept-invitation?invitation="])(
+		"says %s is incomplete rather than offering a form that can only fail",
+		async (href) => {
+			getSession.mockResolvedValue(SIGNED_OUT)
+			await open(href)
 
-		expect(await screen.findByText("This invitation link is incomplete.")).toBeDefined()
-		expect(screen.queryByRole("button", { name: "Create account" })).toBeNull()
-	})
+			expect(await screen.findByText("This invitation link is incomplete.")).toBeDefined()
+			expect(screen.queryByRole("button", { name: "Create account" })).toBeNull()
+		},
+	)
 })
 
 describe("accepting an invitation while signed out", () => {

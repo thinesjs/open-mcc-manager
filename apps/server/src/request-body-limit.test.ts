@@ -57,7 +57,10 @@ describe("where that bound sits in the running server", () => {
 	})
 
 	it.each([
-		{ named: "the sign-in endpoints, which need no session at all", after: '"/api/auth/*"' },
+		{
+			named: "the sign-in endpoints, which need no session at all",
+			after: "mountDashboardAuth(app",
+		},
 		{ named: "the router every mutation arrives through", after: "trpcServer({" },
 	])("is applied before $named", ({ after }) => {
 		expect(bootstrap.indexOf("applyRequestLimits(app)")).toBeLessThan(bootstrap.indexOf(after))

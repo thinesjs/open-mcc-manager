@@ -50,6 +50,7 @@ import { createSshTransport, probeHostKey } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { PgBoss } from "pg-boss"
 import { createAuth } from "./auth"
+import { mountDashboardAuth } from "./auth-routes"
 import { avatarHandler, defaultAvatarFetch, requireSession } from "./avatar"
 import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
@@ -221,7 +222,7 @@ export const startServer = async (
 	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
 	app.get("/api/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
 	app.get("/api/item-icons/:slug", requireSession(auth), itemIconHandler(defaultIconFetch))
-	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+	mountDashboardAuth(app, auth)
 	app.use(
 		"/trpc/*",
 		trpcServer({

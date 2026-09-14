@@ -158,6 +158,13 @@ depth, not a substitute for one.
   host after its key changes follows the same rule: the operator supplies the
   new fingerprint, the control plane reads the key the host presents, refuses
   one that does not match, and stores the key type the host presented.
+- **Trust changes reach shared read connections at once.** The server reuses one
+  SSH connection per host for reads (AGENTS.md, "Reusing SSH connections for
+  reads"). A connection is checked against the trusted fingerprint only when it
+  opens, so re-trusting or removing a host evicts every connection for it as soon
+  as the change commits, and refuses any connection still opening. Every read
+  also re-reads the host row after it takes its lease and before it runs
+  anything. Writes never use a shared connection.
 - **Sealed secrets with rotation.** Private keys and other secrets are sealed
   with `libsodium` public-key sealed boxes, addressed by `keyId`. Exactly one
   key pair is active for sealing new secrets at a time (`SecretStore.activeKeyId`);
@@ -257,6 +264,13 @@ depth, not a substitute for one.
 
 ## Known limitations
 
+- **A revocation made on the host itself takes up to 2 minutes to reach a shared
+  read connection.** Removing the manager's key from `authorized_keys`, or
+  locking its account, does not end an SSH connection that has already
+  authenticated. While an instance page is open, reads keep working on that
+  connection until it reaches its 2-minute hard age. A trust change made in the
+  dashboard acts at once. To cut access immediately, also remove the host in the
+  dashboard.
 - **A managed host holds the Minecraft refresh token for the account running on
   it.** The client persists its own session cache beside its working directory —
   which is the instance's own `0700` directory, so the cache is per-instance

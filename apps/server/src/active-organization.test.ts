@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto"
 import { createDb, type Db } from "@open-mcc/db"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { type Auth, createAuth } from "./auth"
 
 const ORIGIN = "http://localhost:5173"
 const PASSWORD = "correct horse battery staple 7"
-const EMAIL = `active-${randomUUID().slice(0, 8)}@example.com`
 
 let db: Db
 let auth: Auth
 let organizationId = ""
+let seededEmails: string[] = []
 
 beforeAll(async () => {
 	db = createDb(process.env.TEST_DATABASE_URL ?? "")
@@ -32,8 +32,23 @@ beforeAll(async () => {
 		.execute()
 })
 
-afterAll(async () => {
+afterEach(async () => {
+	const emails = seededEmails
+	seededEmails = []
 	await db.deleteFrom("member").where("organizationId", "=", organizationId).execute()
+	if (emails.length === 0) return
+	await db
+		.deleteFrom("session")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db
+		.deleteFrom("account")
+		.where("userId", "in", (qb) => qb.selectFrom("user").select("id").where("email", "in", emails))
+		.execute()
+	await db.deleteFrom("user").where("email", "in", emails).execute()
+})
+
+afterAll(async () => {
 	await db.deleteFrom("organization").where("id", "=", organizationId).execute()
 	await db.destroy()
 })
@@ -47,16 +62,21 @@ const post = async (path: string, body: Record<string, string>) =>
 		}),
 	)
 
+const seededEmail = (): string => {
+	const email = `active-${randomUUID().slice(0, 8)}@example.com`
+	seededEmails.push(email)
+	return email
+}
+
 describe("a session knows which organization it belongs to", () => {
 	it("sets the active organization on sign-in, without which the dashboard bounces to sign-in", async () => {
-		expect(
-			(await post("sign-up/email", { email: EMAIL, password: PASSWORD, name: "A" })).status,
-		).toBe(200)
+		const email = seededEmail()
+		expect((await post("sign-up/email", { email, password: PASSWORD, name: "A" })).status).toBe(200)
 
 		const user = await db
 			.selectFrom("user")
 			.select("id")
-			.where("email", "=", EMAIL)
+			.where("email", "=", email)
 			.executeTakeFirstOrThrow()
 
 		await db
@@ -70,7 +90,7 @@ describe("a session knows which organization it belongs to", () => {
 			})
 			.execute()
 
-		expect((await post("sign-in/email", { email: EMAIL, password: PASSWORD })).status).toBe(200)
+		expect((await post("sign-in/email", { email, password: PASSWORD })).status).toBe(200)
 
 		const session = await db
 			.selectFrom("session")
@@ -80,5 +100,14 @@ describe("a session knows which organization it belongs to", () => {
 			.executeTakeFirstOrThrow()
 
 		expect(session.activeOrganizationId).toBe(organizationId)
+	})
+
+	it("leaves no session behind for a later test to inherit", async () => {
+		const leftover = await db
+			.selectFrom("session")
+			.select("id")
+			.where("activeOrganizationId", "=", organizationId)
+			.execute()
+		expect(leftover).toHaveLength(0)
 	})
 })

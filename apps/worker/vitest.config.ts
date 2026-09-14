@@ -4,5 +4,6 @@ export default defineConfig({
 	test: {
 		fileParallelism: false,
 		setupFiles: ["@open-mcc/config/load-env.mjs"],
+		globalSetup: ["./src/test/global-setup.ts"],
 	},
 })

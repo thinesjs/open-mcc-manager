@@ -4,6 +4,7 @@ import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
 	CLIENT_DEFAULT_FILES,
+	DRAIN_TEMPORARY,
 	isOperatorFileName,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
@@ -46,8 +47,6 @@ export const MAILER_DATABASE_KEY = "ChatBot.Mailer.DatabaseFile"
 export const MAILER_IGNORE_LIST_KEY = "ChatBot.Mailer.IgnoreListFile"
 
 const COLLECTED_KEYS = [PLAYER_LIST_FILE_KEY, MAILER_DATABASE_KEY, MAILER_IGNORE_LIST_KEY] as const
-
-const DRAIN_TEMPORARY = "player-list.collecting"
 
 const BASE64_ONLY = /^[A-Za-z0-9+/]*={0,2}$/
 

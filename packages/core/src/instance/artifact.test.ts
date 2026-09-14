@@ -121,7 +121,8 @@ describe("naming what the client writes", () => {
 	})
 
 	it("★ refuses a name the client or this manager already keeps there, so a drain never truncates it", () => {
-		expect(isCollectableName("playerlog.txt.collecting")).toBe(false)
+		expect(isCollectableName("player-list.collecting")).toBe(false)
+		expect(isCollectableName("daily.collecting")).toBe(true)
 		expect(RESERVED_FILE_NAMES.filter(isCollectableName)).toEqual([])
 	})
 
@@ -159,6 +160,7 @@ describe("★ the file names the collector takes", () => {
 			"玩家名单.txt",
 			"x".repeat(129),
 			"x".repeat(255),
+			"roster.txt.collecting",
 		])
 	})
 

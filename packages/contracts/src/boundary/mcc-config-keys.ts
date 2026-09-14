@@ -62,10 +62,10 @@ export const RESERVED_FILE_NAMES: readonly string[] = [
 	"lang",
 ]
 
-const DRAIN_SUFFIX = ".collecting"
+export const DRAIN_TEMPORARY = "player-list.collecting"
 
 export const isReservedFileName = (value: string): boolean =>
-	RESERVED_FILE_NAMES.includes(value) || value.endsWith(DRAIN_SUFFIX)
+	RESERVED_FILE_NAMES.includes(value) || value === DRAIN_TEMPORARY
 
 const NOT_RESERVED = { message: "The client already uses that file name" }
 

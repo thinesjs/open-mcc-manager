@@ -369,12 +369,14 @@ describe("★ a bot file name the client or this manager already keeps in the in
 		expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
 	})
 
-	it.each(["playerlog.txt.collecting", "MailerDatabase.ini.collecting"])(
-		"refuses %s, which is the temporary the collector drains a file through",
-		(value) => {
-			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
-		},
-	)
+	it("refuses player-list.collecting, the one temporary the collector drains through", () => {
+		expect(fileKeysSaying("player-list.collecting", CLIENT_FILE)).toEqual(FILE_KEYS)
+	})
+
+	it("★ saves any other name ending in .collecting, which nothing on the host uses", () => {
+		expect(fileKeysSaying("daily.collecting", "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("playerlog.txt.collecting", "")).toEqual(FILE_KEYS)
+	})
 
 	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {
 		expect(fileKeysSaying("env", CLIENT_FILE)).toEqual(FILE_KEYS)

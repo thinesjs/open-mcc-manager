@@ -90,7 +90,7 @@ export const storageStepCommand = (): string =>
 	].join("\n")
 
 const fact = (key: string, command: string): string =>
-	`printf '${key}=%s\\n' "$(${command} 2>/dev/null | head -n 1 | cut -c 1-256 | tr -c '[:print:]\\n' ' ')"`
+	`printf '${key}=%s\\n' "$( ${command} 2>/dev/null | head -n 1 | cut -c 1-256 | tr -c '[:print:]\\n' ' ')"`
 
 const subordinateLines = (key: string, file: string): string =>
 	`awk -F: -v u="$(id -un 2>/dev/null)" -v i="$(id -u 2>/dev/null)" 'NF == 3 && $1 != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print "${key}=" (($1 == u || $1 == i) ? "own" : "other") " " $2 " " $3 }' ${file} 2>/dev/null | head -n 256`

@@ -310,6 +310,18 @@ describe("the storage step", () => {
 	})
 })
 
+describe("commands that must parse in dash, the /bin/sh of Debian and Ubuntu", () => {
+	it.each([
+		{ name: "the host facts", command: HOST_FACTS_COMMAND },
+		{ name: "the storage step", command: storageStepCommand() },
+	])(
+		"never opens a command substitution in $name with a parenthesis, which dash reads as arithmetic",
+		({ command }) => {
+			expect(command).not.toContain("$((")
+		},
+	)
+})
+
 describe("parsing the host facts", () => {
 	const FACTS = [
 		"uid=1001",

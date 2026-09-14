@@ -6,6 +6,8 @@ export const SCRIPT_HEREDOC = "OPENMCC_SETUP"
 
 export const KEY_HEREDOC = "OPENMCC_KEY"
 
+export const SCAN_HEREDOC = "OPENMCC_AUTHKEY_SCAN"
+
 export const fingerprintCommand = (): string =>
 	"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}'"
 
@@ -52,8 +54,53 @@ chmod 700 "$home/.ssh"
 touch "$home/.ssh/authorized_keys"
 chmod 600 "$home/.ssh/authorized_keys"
 material=$(printf "%s" "$key" | awk "{print \\$2}")
-if [ -n "$material" ] && grep -qF -- "$material" "$home/.ssh/authorized_keys"; then
+scan=$(mktemp)
+cat <<"${SCAN_HEREDOC}" > "$scan"
+function is_keytype(s) { return s ~ /^(ssh-|ecdsa-sha2-|sk-)/ }
+function options_end(line,    i, n, inquote, c) {
+	n = length(line)
+	inquote = 0
+	for (i = 1; i <= n; i++) {
+		c = substr(line, i, 1)
+		if (c == "\\\\" && inquote) { i++; continue }
+		if (c == "\\"") { inquote = !inquote; continue }
+		if ((c == " " || c == "\\t") && !inquote) return i
+	}
+	return n + 1
+}
+BEGIN { if (blob == "") exit }
+/^[ \\t]*#/ { next }
+/^[ \\t]*$/ { next }
+{
+	line = $0
+	sub(/^[ \\t]+/, "", line)
+	first = line
+	sub(/[ \\t].*$/, "", first)
+	opts = ""
+	rest = line
+	if (first != "" && !is_keytype(first)) {
+		e = options_end(line)
+		opts = substr(line, 1, e - 1)
+		rest = substr(line, e)
+		sub(/^[ \\t]+/, "", rest)
+	}
+	split(rest, f, /[ \\t]+/)
+	if (f[2] == blob) {
+		present = 1
+		if (opts !~ /(^|,)(command=|from=|restrict|no-pty|no-agent-forwarding|no-port-forwarding|no-X11-forwarding|no-user-rc)/) clean = 1
+	}
+}
+END { printf "%d %d", present + 0, clean + 0 }
+${SCAN_HEREDOC}
+info=$(awk -v blob="$material" -f "$scan" "$home/.ssh/authorized_keys")
+rm -f "$scan"
+present=\${info%% *}
+clean=\${info##* }
+if [ "$present" = "1" ] && [ "$clean" = "1" ]; then
   echo "  key already present, left alone"
+elif [ "$present" = "1" ]; then
+  echo "This account already has that key in authorized_keys, but only under options (command=, from=, restrict, no-pty or similar) that would stop the control plane running commands. Fix or remove that line by hand, then run this again." >&2
+  exit 1
 else
   if [ -s "$home/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$home/.ssh/authorized_keys")" ]; then
     printf "\\n" >> "$home/.ssh/authorized_keys"

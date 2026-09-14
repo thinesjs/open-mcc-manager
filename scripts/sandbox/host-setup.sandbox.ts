@@ -150,6 +150,37 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 			expect(asKey.stdout.trim()).toBe(account)
 		})
 
+		it("adds the key when the only existing record for it is commented out", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			const blob = key.publicKey.split(" ")[1] ?? ""
+			await seedAuthorizedKeys(host, account, `# revoked ${key.publicKey}\n`)
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			const lines = (await read(host, authorizedKeysOf(account))).split("\n")
+			expect(lines[0]).toBe(`# revoked ${key.publicKey}`)
+			expect(lines[1]).toBe(key.publicKey)
+			expect(await holdersOf(host, key.publicKey)).toEqual([authorizedKeysOf(account)])
+			const holderLines = (await read(host, authorizedKeysOf(account))).split("\n")
+			expect(holderLines.filter((line) => line.includes(blob)).length).toBe(2)
+		})
+
+		it("refuses rather than treating a restricted match as ready, and changes nothing", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			const restricted = `command="/bin/echo hi there" ${key.publicKey}\n`
+			await seedAuthorizedKeys(host, account, restricted)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status).not.toBe(0)
+			expect(ran.stderr).toContain("Could not authorise the key")
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
 		it("refuses an account that does not exist, having changed nothing", async () => {
 			const key = await mintKey(host)
 			const watched = ["/home", "/root", "/.ssh", "/var/lib/systemd/linger"]

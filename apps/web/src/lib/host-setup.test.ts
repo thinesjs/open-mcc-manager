@@ -31,8 +31,23 @@ describe("the command an operator pastes onto a new host", () => {
 	it("adds the key only when it is missing, so running it twice leaves one copy", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 
-		expect(script).toContain('grep -qF -- "$material"')
+		expect(script).toContain('awk -v blob="$material" -f "$scan"')
 		expect(script).toContain('>> "$home/.ssh/authorized_keys"')
+	})
+
+	it("skips comment lines when checking whether the key is already there", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain("/^[ \\t]*#/ { next }")
+	})
+
+	it("stops rather than silently accepting a match that carries a restriction provisioning cannot use", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain(
+			"command=|from=|restrict|no-pty|no-agent-forwarding|no-port-forwarding|no-X11-forwarding|no-user-rc",
+		)
+		expect(script).toContain("Fix or remove that line by hand")
 	})
 
 	it("writes the account's ssh files as that account, so a link it planted cannot aim root at another file", () => {

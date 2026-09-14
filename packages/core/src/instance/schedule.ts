@@ -54,7 +54,10 @@ export const renderOnCalendar = (
 	return `${calendarWeekdayPrefix(days)}*-*-* ${pad(hour)}:${pad(minute)}:00 ${validateTimezone(timezone)}`
 }
 
-export type RenderableSleepWindow = Omit<SleepWindowPublic, "daysOfWeek"> & {
+export type RenderableSleepWindow = Pick<
+	SleepWindowPublic,
+	"instanceId" | "stopAt" | "startAt" | "timezone"
+> & {
 	daysOfWeek: readonly DayOfWeek[]
 }
 

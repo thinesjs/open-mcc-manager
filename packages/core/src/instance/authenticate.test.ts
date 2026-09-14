@@ -13,6 +13,7 @@ import type { HostRepository, OrgScope } from "../host/host.repository"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	beginAuthentication,
+	cancelAuthentication,
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
 	SESSION_CACHE_FILES,
@@ -21,6 +22,8 @@ import {
 import type { CommandRepository } from "./command.repository"
 import {
 	type ActorContext,
+	HostUnreachableError,
+	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
 } from "./instance.controller"
@@ -438,5 +441,80 @@ describe("orphaned authentication clients", () => {
 				each.includes("reset-failed 'open-mcc-auth@abc123.service'"),
 			),
 		).toBe(true)
+	})
+})
+
+describe("cancelAuthentication", () => {
+	it("refuses an account that never signs in with a code, before reaching the host or the audit log", async () => {
+		const { deps, transport, instances, audit } = makeDeps("")
+		vi.mocked(instances.findById).mockResolvedValue(
+			instanceRow({ accountType: "offline", minecraftAccount: "Steve", status: "stopped" }),
+		)
+		const connect = vi.spyOn(transport, "connect")
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceAccountNotInteractiveError,
+		)
+		expect(connect).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("still stops a microsoft sign-in and records that it was cancelled", async () => {
+		const { deps, transport, audit } = makeDeps("")
+
+		await expect(cancelAuthentication(deps, owner, "abc123")).resolves.toEqual({
+			authenticated: false,
+			status: "needs_auth",
+		})
+		expect(
+			transport.commands.some((each) => each.includes("stop 'open-mcc-auth@abc123.service'")),
+		).toBe(true)
+		expect(audit.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ detail: expect.objectContaining({ phase: "cancelled" }) }),
+		)
+	})
+})
+
+describe("signing in through a host that cannot be reached", () => {
+	const refused = () =>
+		createFakeTransport(
+			{},
+			{
+				connect: Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:2222"), {
+					code: "ECONNREFUSED",
+				}),
+			},
+		)
+
+	it("reports starting a sign-in as unreachable and lets the claim go", async () => {
+		const { deps, instances } = makeDeps("", { createTransport: refused })
+
+		const outcome = beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+		expect(instances.releaseAuthClaim).toHaveBeenCalled()
+	})
+
+	it("reports finishing a sign-in as unreachable", async () => {
+		const { deps } = makeDeps("", { createTransport: refused })
+
+		const outcome = completeAuthentication(deps, owner, "abc123")
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+	})
+
+	it("reports cancelling a sign-in as unreachable, writing no audit row", async () => {
+		const { deps, audit } = makeDeps("", { createTransport: refused })
+
+		const outcome = cancelAuthentication(deps, owner, "abc123")
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 })

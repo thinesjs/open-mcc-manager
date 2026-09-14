@@ -42,9 +42,10 @@ import {
 import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import { HostUnreachableError } from "../host/host.controller"
+import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
+import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
@@ -219,7 +220,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		} catch (error) {
 			await transport.close().catch(() => undefined)
 			throw new HostUnreachableError(
-				error instanceof Error ? error.message : `Could not reach ${host.hostname}`,
+				error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 			)
 		}
 		return { transport, profile }
@@ -439,7 +440,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const applySleepTimers = async (
 		ctx: ActorContext,
 		instance: InstanceRow,
-		window: SleepWindowPublic,
+		window: SleepWindowInput,
 	): Promise<void> => {
 		const timers = renderSleepTimers(window)
 		const { transport, profile } = await connectToHost(scopeOf(ctx), instance.hostId)
@@ -451,7 +452,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					unit,
 				)
 				if (write.exitCode !== 0) {
-					throw new Error(`Failed to write ${name}: ${write.stderr.trim()}`)
+					throw new HostMisconfiguredError(`Failed to write ${name}: ${write.stderr.trim()}`)
 				}
 			}
 			await transport.exec(systemctl(profile, "daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
@@ -461,7 +462,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					INSTANCE_STEP_TIMEOUT_MS,
 				)
 				if (enable.exitCode !== 0) {
-					throw new Error(`Failed to enable ${name}: ${enable.stderr.trim()}`)
+					throw new HostMisconfiguredError(`Failed to enable ${name}: ${enable.stderr.trim()}`)
 				}
 			}
 		} finally {
@@ -1269,6 +1270,22 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, input.instanceId)
 
+			try {
+				await applySleepTimers(ctx, instance, input)
+			} catch (error) {
+				if (!(error instanceof HostUnreachableError)) {
+					await deps.schedules
+						.findByInstance(scopeOf(ctx), input.instanceId)
+						.then((current) =>
+							current
+								? applySleepTimers(ctx, instance, toSleepWindowPublic(current))
+								: removeSleepTimers(ctx, instance),
+						)
+						.catch(() => undefined)
+				}
+				throw error
+			}
+
 			const stored = await deps.withTransaction(async (repos) => {
 				const row = await repos.schedules.upsert(scopeOf(ctx), {
 					instanceId: input.instanceId,
@@ -1294,14 +1311,14 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return row
 			})
 
-			const window = toSleepWindowPublic(stored)
-			await applySleepTimers(ctx, instance, window)
-			return window
+			return toSleepWindowPublic(stored)
 		},
 
 		clearSleepWindow: async (ctx: ActorContext, instanceId: string): Promise<void> => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)
+
+			await removeSleepTimers(ctx, instance)
 
 			await deps.withTransaction(async (repos) => {
 				await repos.schedules.delete(scopeOf(ctx), instanceId)
@@ -1314,8 +1331,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: { cleared: "true" },
 				})
 			})
-
-			await removeSleepTimers(ctx, instance)
 		},
 
 		authenticate: async (ctx: ActorContext, instanceId: string) => {

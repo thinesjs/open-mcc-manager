@@ -1,5 +1,10 @@
 import { isErrorCode } from "@open-mcc/contracts"
-import { McpProtocolError } from "@open-mcc/contracts/boundary/mcp"
+import {
+	MCC_REFUSALS,
+	type MccRefusal,
+	McpProtocolError,
+	McpRefusalError,
+} from "@open-mcc/contracts/boundary/mcp"
 import * as core from "@open-mcc/core"
 import {
 	FingerprintMismatchError,
@@ -12,6 +17,8 @@ import {
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
+import * as transport from "@open-mcc/transport"
+import { LiveChannelUnavailableError } from "@open-mcc/transport"
 import { DatabaseError } from "pg"
 import { describe, expect, it } from "vitest"
 import * as serverErrors from "./errors"
@@ -63,6 +70,38 @@ describe("mapKnownError", () => {
 		expect(mapped?.code).toBe("BAD_REQUEST")
 		expect(mapped?.message).not.toContain(secretFingerprint)
 		expect(mapped?.message).not.toContain("SHA256:")
+	})
+
+	it("never reports a refusal the client sent on purpose as a reply it could not read", () => {
+		for (const refusal of MCC_REFUSALS) {
+			const mapped = mapKnownError(new McpRefusalError(refusal))
+			expect(mapped, refusal).not.toBeNull()
+			expect(mapped?.errorCode, refusal).not.toBe("INSTANCE_LIVE_CONTROL_UNREADABLE")
+		}
+	})
+
+	it("gives each kind of refusal its own code, so the dashboard can say what happened", () => {
+		const codeFor = (refusal: MccRefusal) => mapKnownError(new McpRefusalError(refusal))?.errorCode
+
+		expect(codeFor("capability_disabled")).toBe("INSTANCE_LIVE_TURNED_OFF")
+		expect(codeFor("feature_disabled")).toBe("INSTANCE_LIVE_TURNED_OFF")
+		expect(codeFor("disconnected")).toBe("INSTANCE_LIVE_NOT_JOINED")
+		expect(codeFor("invalid_args")).toBe("INSTANCE_LIVE_UNKNOWN_ITEM")
+		expect(codeFor("invalid_state")).toBe("INSTANCE_LIVE_ITEM_MISSING")
+		expect(codeFor("action_failed")).toBe("INSTANCE_LIVE_ACTION_FAILED")
+	})
+
+	it("treats a refused item as a conflict with the bot's state, not a server fault", () => {
+		expect(mapKnownError(new McpRefusalError("invalid_state"))).toMatchObject({
+			code: "CONFLICT",
+			httpStatus: 409,
+		})
+	})
+
+	it("still reports a reply it truly could not read as unreadable", () => {
+		expect(mapKnownError(new McpProtocolError("malformed"))?.errorCode).toBe(
+			"INSTANCE_LIVE_CONTROL_UNREADABLE",
+		)
 	})
 
 	it("maps McpProtocolError to CONFLICT without echoing the address the client named", () => {
@@ -196,10 +235,33 @@ describe("mapKnownError coverage of the error classes it is given", () => {
 	const wireErrorConstructors = [
 		...exportedErrorConstructors(core),
 		...exportedErrorConstructors(serverErrors),
+		...exportedErrorConstructors(transport),
 	]
 
 	it("finds error classes to check, so the coverage assertion below cannot pass vacuously", () => {
 		expect(wireErrorConstructors.length).toBeGreaterThan(0)
+	})
+
+	it("answers a drop or hold with no live channel as a conflict the dashboard can explain", () => {
+		expect(
+			mapKnownError(new LiveChannelUnavailableError("Live view is not open for this instance")),
+		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_LIVE_UNAVAILABLE", httpStatus: 409 })
+	})
+
+	it("answers a command the host cut off as a conflict, in words that name no command", () => {
+		const interrupted = {
+			code: "CONFLICT",
+			errorCode: "HOST_COMMAND_INTERRUPTED",
+			httpStatus: 409,
+			message: "A command on the host stopped before it finished",
+		}
+
+		expect(
+			mapKnownError(new transport.CommandAbortedError("systemctl start 'unit'", "SIGKILL")),
+		).toMatchObject(interrupted)
+		expect(
+			mapKnownError(new transport.StreamOverflowError("stdout", 1024, "tail of the output")),
+		).toMatchObject(interrupted)
 	})
 
 	it("maps every error class the domain packages export, so a new one cannot become a silent 500", () => {

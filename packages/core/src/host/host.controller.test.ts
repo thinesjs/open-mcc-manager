@@ -350,6 +350,51 @@ describe("host controller enrollment", () => {
 	})
 })
 
+const REFUSED_AT_AN_ADDRESS = Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:2222"), {
+	code: "ECONNREFUSED",
+})
+
+describe("what the dashboard hears when a host cannot be reached", () => {
+	const target = {
+		hostname: "vps.example.net",
+		port: 2222,
+		username: "mcc",
+		mode: "system",
+		sshKeyId: "key-1",
+		expectedFingerprint: "SHA256:x",
+	} as const
+
+	it("reports enrolment against a host that does not answer as unreachable, writing nothing", async () => {
+		const d = deps({
+			probeHostKey: vi.fn(async () => {
+				throw new Error("Timed out reading host key from 203.0.113.9:2222")
+			}),
+		})
+		const controller = createHostController(d)
+
+		await expect(controller.enroll(ctx, { name: "vps", ...target })).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+		await expect(controller.enroll(ctx, { name: "vps", ...target })).rejects.not.toThrow(
+			/203\.0\.113\.9|2222/,
+		)
+		expect(d.hosts.insert).not.toHaveBeenCalled()
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	it("says why a host check could not connect without repeating an address the operator never typed", async () => {
+		const d = deps({
+			createTransport: vi.fn(() => createFakeTransport({}, { connect: REFUSED_AT_AN_ADDRESS })),
+		})
+
+		const report = await createHostController(d).checkHost(ctx, target)
+		const reachable = report.checks.find((check) => check.name === "reachable")
+
+		expect(reachable?.outcome).toBe("fail")
+		expect(reachable?.detail).toBe("The server refused the connection")
+	})
+})
+
 describe("host controller provisioning", () => {
 	it("rejects a role without host.enroll", async () => {
 		const d = deps()
@@ -647,7 +692,7 @@ describe("host controller provisioning", () => {
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
 
-		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(/connection refused/i)
+		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(HostUnreachableError)
 
 		expect(transport.wasClosed()).toBe(true)
 		expect(d.hosts.finalizeProvisioning).toHaveBeenCalledWith(
@@ -892,6 +937,20 @@ describe("what provisioning tells the operator when it fails", () => {
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
 			HostProvisioningFailedError,
+		)
+	})
+
+	it("records why it could not connect without the address the error named", async () => {
+		const { controller, hosts } = provisioningHosts(
+			createFakeTransport({}, { connect: REFUSED_AT_AN_ADDRESS }),
+		)
+
+		await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(HostUnreachableError)
+		expect(hosts.recordProvisioningFailure).toHaveBeenCalledWith(
+			expect.anything(),
+			"host-1",
+			"attempt-1",
+			"The server refused the connection",
 		)
 	})
 

@@ -58,6 +58,27 @@ describe("getErrorMessage", () => {
 		expect(message).toBe("Network request failed")
 	})
 
+	it("never shows a list of validation issues as if it were a sentence", () => {
+		const message = getErrorMessage({
+			message:
+				'[ { "validation": "url", "code": "invalid_string", "message": "Invalid url", "path": [ "url" ] } ]',
+			data: { errorCode: "BAD_REQUEST" },
+		})
+		expect(message).toBe("Something went wrong. Please try again.")
+	})
+
+	it("answers a refused drop without a hint that only fits holding an item", () => {
+		expect(
+			getErrorMessage({ message: "refused", data: { errorCode: "INSTANCE_LIVE_ITEM_MISSING" } }),
+		).toBe("The bot does not have that item where it needs it.")
+	})
+
+	it("says the live view is not available rather than calling it a server fault", () => {
+		expect(
+			getErrorMessage({ message: "gone", data: { errorCode: "INSTANCE_LIVE_UNAVAILABLE" } }),
+		).toBe("The bot's live view is not available right now. Try again in a moment.")
+	})
+
 	it("falls back to a generic message when nothing usable is present", () => {
 		const message = getErrorMessage({ message: "" })
 		expect(message).toBe("Something went wrong. Please try again.")

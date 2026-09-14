@@ -47,6 +47,7 @@ vi.mock("./live-control", async (importOriginal) => {
 })
 
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
+import { HostMisconfiguredError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { systemProfile } from "../host/profile"
 import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
@@ -517,6 +518,87 @@ describe("sleep windows", () => {
 		).toBe(true)
 	})
 
+	it("records nothing when the host will not take the timers, and says so as a host problem", async () => {
+		const refusing = createFakeTransport({
+			"cat > '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'": {
+				stdout: "",
+				stderr: "Permission denied",
+				exitCode: 1,
+			},
+		})
+		const { deps, audit } = makeDeps({ createTransport: () => refusing })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostMisconfiguredError,
+		)
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("records nothing when the host cannot be reached to write the timers", async () => {
+		const unreachable = createFakeTransport({}, { connect: new Error("connect ETIMEDOUT") })
+		const { deps, audit } = makeDeps({ createTransport: () => unreachable })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	const START_TIMER_ENABLE = "systemctl enable --now 'open-mcc-sleep-start@abc123.timer'"
+
+	const refusingStart = () =>
+		createFakeTransport({
+			[START_TIMER_ENABLE]: { stdout: "", stderr: "Failed to enable unit", exitCode: 1 },
+		})
+
+	it("takes a new window's timers back off the host when one of them will not enable", async () => {
+		const refusing = refusingStart()
+		const { deps } = makeDeps({ createTransport: () => refusing })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.setSleepWindow(owner, window)).rejects.toBeInstanceOf(
+			HostMisconfiguredError,
+		)
+
+		const afterFailure = refusing.commands.slice(refusing.commands.indexOf(START_TIMER_ENABLE) + 1)
+		expect(afterFailure).toContain(
+			"systemctl disable --now 'open-mcc-sleep-stop@abc123.timer' || true",
+		)
+		expect(afterFailure).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+	})
+
+	it("puts the stored window's timers back when a changed window will not enable", async () => {
+		const refusing = refusingStart()
+		const { deps } = makeDeps({ createTransport: () => refusing })
+		vi.mocked(deps.schedules.findByInstance).mockResolvedValue(scheduleRow())
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setSleepWindow(owner, { ...window, timezone: "UTC" }),
+		).rejects.toBeInstanceOf(HostMisconfiguredError)
+
+		expect(refusing.stdins.at(-2)).toContain("Asia/Kuala_Lumpur")
+		expect(refusing.stdins.at(-1)).toContain("Asia/Kuala_Lumpur")
+		expect(deps.schedules.upsert).not.toHaveBeenCalled()
+	})
+
+	it("keeps the window when the host cannot be reached to remove its timers", async () => {
+		const unreachable = createFakeTransport({}, { connect: new Error("connect ETIMEDOUT") })
+		const { deps, audit } = makeDeps({ createTransport: () => unreachable })
+		const controller = createInstanceController(deps)
+
+		await expect(controller.clearSleepWindow(owner, "abc123")).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+		expect(deps.schedules.delete).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
 	it("disables and removes both timers when the window is cleared", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
@@ -527,6 +609,26 @@ describe("sleep windows", () => {
 		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-stop@abc123.timer'")
 		expect(joined).toContain("systemctl disable --now 'open-mcc-sleep-start@abc123.timer'")
 		expect(joined).toContain("rm -f '/etc/systemd/system/open-mcc-sleep-stop@abc123.timer'")
+	})
+})
+
+describe("what a scheduled command's failure records", () => {
+	it("says the host refused the connection without the address the error named", async () => {
+		const refusing = createFakeTransport(
+			{},
+			{
+				connect: Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:2222"), {
+					code: "ECONNREFUSED",
+				}),
+			},
+		)
+		const { deps, instances } = makeDeps({ createTransport: () => refusing })
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.runScheduledCommand(commandRow())).rejects.toThrow(
+			/^The server refused the connection$/,
+		)
 	})
 })
 

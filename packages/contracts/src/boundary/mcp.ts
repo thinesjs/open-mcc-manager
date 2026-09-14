@@ -108,10 +108,34 @@ const mccEnvelope = z.object({
 	errorCode: z.string().optional(),
 })
 
+export const MCC_REFUSALS = [
+	"capability_disabled",
+	"feature_disabled",
+	"disconnected",
+	"invalid_args",
+	"invalid_state",
+	"action_failed",
+] as const
+
+export const mccRefusalSchema = z.enum(MCC_REFUSALS)
+
+export type MccRefusal = z.infer<typeof mccRefusalSchema>
+
+export class McpRefusalError extends Error {
+	readonly refusal: MccRefusal
+
+	constructor(refusal: MccRefusal) {
+		super(`The client refused the call: ${refusal}`)
+		this.refusal = refusal
+	}
+}
+
 const unwrapEnvelope = (value: unknown): unknown => {
 	const parsed = mccEnvelope.safeParse(value)
 	if (!parsed.success) return value
 	if (!parsed.data.success) {
+		const refusal = mccRefusalSchema.safeParse(parsed.data.errorCode)
+		if (refusal.success) throw new McpRefusalError(refusal.data)
 		throw new McpProtocolError(
 			parsed.data.errorCode ?? parsed.data.error ?? "The client refused the call",
 		)
@@ -131,12 +155,13 @@ export const toolResultOf = (response: JsonRpcResponse): unknown => {
 	}
 	const text = parsed.data.content?.find((part) => part.text !== undefined)?.text
 	if (text === undefined) return parsed.data
+	let json: unknown
 	try {
-		return unwrapEnvelope(JSON.parse(text))
-	} catch (error) {
-		if (error instanceof McpProtocolError) throw error
+		json = JSON.parse(text)
+	} catch {
 		return text
 	}
+	return unwrapEnvelope(json)
 }
 
 export const mcpSessionStatusSchema = z.object({

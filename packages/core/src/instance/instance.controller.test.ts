@@ -972,7 +972,9 @@ describe("removing an instance", () => {
 
 		expect(stopSeconds(INSTANCE_UNIT_NAME)).toBeGreaterThan(0)
 		expect(stopSeconds(AUTH_UNIT_NAME)).toBeGreaterThan(0)
-		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000)
+		expect(timeoutFor(system.stopInstance)).toBeGreaterThan(
+			2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000,
+		)
 		expect(timeoutFor(system.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
 	})
 

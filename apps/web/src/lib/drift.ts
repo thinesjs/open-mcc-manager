@@ -48,7 +48,8 @@ export const summariseDrift = (reconciliation: HostReconciliation): DriftSummary
 
 export const describeUnitDrift = (drift: UnitDrift): string => {
 	if (drift.kind === "missing") return "Not installed."
-	if (drift.kind === "differs") return "Doesn't match what this version installs. Repair setup to update it."
+	if (drift.kind === "differs")
+		return "Doesn't match what this version installs. Repair setup to update it."
 	return "Present on host, not defined by the control plane."
 }
 

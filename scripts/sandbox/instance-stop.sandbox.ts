@@ -70,7 +70,8 @@ const unitOf = (profile: HostProfile): string =>
 const unitSeconds = (profile: HostProfile, setting: string): number =>
 	Number(new RegExp(`^${setting}=(\\d+)$`, "m").exec(unitOf(profile))?.[1])
 
-const stopTimeoutMs = (profile: HostProfile): number => unitSeconds(profile, "TimeoutStopSec") * 1000
+const stopTimeoutMs = (profile: HostProfile): number =>
+	unitSeconds(profile, "TimeoutStopSec") * 1000
 
 const machineFor = async (host: string, mode: HostProfile["mode"]): Promise<Machine> => {
 	if (mode === "system") return { as: ROOT, profile: systemProfile(), manager: "systemctl" }

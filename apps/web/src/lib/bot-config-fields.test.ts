@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
+	CLIENT_DEFAULT_FILES,
 	SETTING_ENUM_SHAPE,
 	SETTING_NAMES,
 	SETTING_SHAPE,
@@ -410,6 +411,18 @@ describe("★ the client defaults the table claims", () => {
 		)
 
 		expect(refused).toEqual([])
+	})
+
+	it("★ claims the same default file names the collector and the shared-file rule use", () => {
+		const files = new Map(Object.entries(CLIENT_DEFAULT_FILES))
+		const claimed = new Map(
+			SETTING_NAMES.filter((name) => files.has(name)).map(
+				(name) => [name, BOT_CONFIG_FIELDS[name].clientDefault] as const,
+			),
+		)
+
+		expect(files.size).toBe(3)
+		expect(claimed).toEqual(files)
 	})
 
 	it("★ names every registered setting, so none reaches the editor without copy", () => {

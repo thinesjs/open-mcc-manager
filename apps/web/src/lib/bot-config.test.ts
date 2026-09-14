@@ -139,6 +139,23 @@ describe("what the operator is told is wrong", () => {
 			"ChatBot.AutoEat.Threshold": "Between 0 and 20",
 		})
 	})
+
+	it("★ flags a saved bot file the client already uses, so the operator sees it on opening the form", () => {
+		const draft = draftFrom({
+			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+			advancedKeys: {},
+		})
+
+		expect(validateBotConfig(draft)).toEqual({
+			"ChatBot.PlayerListLogger.File": "The client already uses that file name",
+		})
+	})
+
+	it("★ flags a file another setting already names, even one left on its default", () => {
+		expect(validateBotConfig({ "ChatBot.Mailer.DatabaseFile": "playerlog.txt" })).toEqual({
+			"ChatBot.Mailer.DatabaseFile": "Another setting already uses that file name",
+		})
+	})
 })
 
 describe("★ the attack cooldown, which the client swaps rather than clamps", () => {

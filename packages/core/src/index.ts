@@ -99,6 +99,7 @@ export {
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
+	InstanceBotConfigUnusableError,
 	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,

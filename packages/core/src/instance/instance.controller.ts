@@ -6,6 +6,7 @@ import {
 	type InstanceBotsInput,
 	type InstanceConfigInput,
 	type InstanceSettingsInput,
+	instanceBotsInput,
 	instanceConfigInput,
 	instanceConfigStored,
 	minuteOfDay,
@@ -157,6 +158,8 @@ export class InstanceNotRunningError extends Error {}
 export { HostUnreachableError }
 
 export class InstanceConfigUnusableError extends Error {}
+
+export class InstanceBotConfigUnusableError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceHostNotProvisionedError extends Error {}
 
@@ -279,20 +282,48 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		)
 	}
 
+	const storedConfigFor = async (
+		scope: OrgScope,
+		instance: InstanceRow,
+	): Promise<InstanceConfigInput | undefined> => {
+		const saved = await deps.instances.latestConfig(scope, instance.id)
+		if (!saved) return undefined
+		const parsed = instanceConfigStored.safeParse(saved.document)
+		if (!parsed.success) {
+			throw new InstanceConfigUnusableError(
+				`Saved settings for instance ${instance.id} are unusable`,
+			)
+		}
+		return { ...parsed.data, liveControlPort: instance.liveControlPort }
+	}
+
+	const usableBots = (instanceId: string, stored: InstanceBotsInput): InstanceBotsInput => {
+		const bots = instanceBotsInput.safeParse({
+			botConfig: stored.botConfig,
+			advancedKeys: stored.advancedKeys,
+		})
+		if (!bots.success) {
+			throw new InstanceBotConfigUnusableError(
+				`Saved bot settings for instance ${instanceId} are unusable`,
+			)
+		}
+		return bots.data
+	}
+
 	const expectedDocumentFor = async (
 		scope: OrgScope,
 		instance: InstanceRow,
 	): Promise<string | undefined> => {
-		const saved = await deps.instances.latestConfig(scope, instance.id)
-		if (!saved) return undefined
-		const parsed = instanceConfigStored.safeParse(saved.document)
-		const usable = parsed.success ? instanceConfigInput.safeParse(parsed.data) : parsed
+		const stored = await storedConfigFor(scope, instance)
+		if (stored === undefined) return undefined
+		usableBots(instance.id, stored)
+		const usable = instanceConfigInput.safeParse(stored)
 		if (!usable.success) {
 			throw new InstanceConfigUnusableError(
 				`Saved settings for instance ${instance.id} are unusable`,
 			)
 		}
-		return renderInstanceConfig({ ...usable.data, liveControlPort: instance.liveControlPort })
+		return renderInstanceConfig(usable.data)
 	}
 
 	const savedBots = async (ctx: ActorContext, instanceId: string): Promise<InstanceBotsInput> => {
@@ -304,7 +335,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				`Saved settings for instance ${instanceId} are unusable`,
 			)
 		}
-		return { botConfig: parsed.data.botConfig, advancedKeys: parsed.data.advancedKeys }
+		return usableBots(instanceId, parsed.data)
 	}
 
 	const writeConfigDocument = async (
@@ -1064,8 +1095,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				const unusable: string[] = []
 				for (const instance of instances) {
 					try {
-						const document = await expectedDocumentFor(scope, instance)
-						if (document !== undefined) expectedConfigs.set(instance.id, document)
+						const stored = await storedConfigFor(scope, instance)
+						if (stored !== undefined) expectedConfigs.set(instance.id, renderInstanceConfig(stored))
 					} catch (error) {
 						if (!(error instanceof InstanceConfigUnusableError)) throw error
 						unusable.push(instance.id)

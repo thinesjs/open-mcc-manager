@@ -52,12 +52,14 @@ import { systemProfile } from "../host/profile"
 import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
+import { renderInstanceConfig } from "./config"
 import {
 	type ActorContext,
 	createInstanceController,
 	ForbiddenError,
 	HostUnreachableError,
 	InstanceAuthInProgressError,
+	InstanceBotConfigUnusableError,
 	InstanceConfigUnusableError,
 	type InstanceControllerDeps,
 	InstanceNotFoundError,
@@ -1498,6 +1500,71 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		return made
 	}
 
+	const withReservedBotFile = () => {
+		const made = makeDeps()
+		vi.mocked(made.instances.latestConfig).mockResolvedValue(
+			configRow({
+				document: {
+					...JSON.parse(JSON.stringify(SAVED)),
+					botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+				},
+			}),
+		)
+		return made
+	}
+
+	it("★ refuses to START on a saved bot file the client already uses as a Bots fault, yet hands it back to fix", async () => {
+		const { deps, transport, instances } = withReservedBotFile()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "stopped" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceBotConfigUnusableError,
+		)
+		expect(transport.stdins.find((each) => each.includes("[Main.General]"))).toBeUndefined()
+		expect((await controller.getConfig(owner, "abc123"))?.botConfig).toEqual({
+			"ChatBot.PlayerListLogger.File": "env",
+		})
+	})
+
+	it("★ refuses a Settings save while a saved bot file is refused as a Bots fault, not a Settings one", async () => {
+		const { deps, instances } = withReservedBotFile()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
+
+		await expect(controller.updateSettings(owner, "abc123", settings)).rejects.toBeInstanceOf(
+			InstanceBotConfigUnusableError,
+		)
+		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("★ still reports a safety edit on the host while a saved bot file name is refused", async () => {
+		const { deps, transport } = withReservedBotFile()
+		const onHost = renderInstanceConfig({
+			...SAVED,
+			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+			liveControlPort: instanceRow().liveControlPort,
+		}).replace("RequireAuthToken = true", "RequireAuthToken = false")
+		const exec = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) =>
+			command.startsWith("cat ") && command.includes("MinecraftClient.ini")
+				? { stdout: onHost, stderr: "", exitCode: 0 }
+				: await exec(command, timeoutMs, stdin)
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		if (!result.reachable) throw new Error("expected a reachable host")
+		expect(result.configDrift.filter((entry) => entry.kind === "unreadable")).toEqual([])
+		expect(result.configDrift).toContainEqual(
+			expect.objectContaining({
+				kind: "fixed",
+				key: "ChatBot.McpServer.Transport.RequireAuthToken",
+				actual: "false",
+			}),
+		)
+	})
+
 	it("★ refuses a create the contract would not accept, before it touches the host or the database", async () => {
 		const { deps, transport, instances } = makeDeps()
 		const controller = createInstanceController(deps)
@@ -1543,8 +1610,9 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		expect(transport.commands.filter((each) => each.includes("stop"))).toEqual([])
 	})
 
-	it("★ reports an unusable saved document as drift on THAT instance, not as a failed host", async () => {
-		const { deps } = withUnusableSavedConfig()
+	it("★ reports a saved document it cannot read as drift on THAT instance, not as a failed host", async () => {
+		const { deps, instances } = makeDeps()
+		vi.mocked(instances.latestConfig).mockResolvedValue(configRow({ document: { nonsense: true } }))
 		const controller = createInstanceController(deps)
 
 		const result = await controller.reconcileHost(owner, "host-1")

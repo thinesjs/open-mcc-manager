@@ -1,3 +1,4 @@
+import { instanceConfigStored } from "@open-mcc/contracts"
 import {
 	adminFor,
 	artifactCollectJob,
@@ -35,6 +36,7 @@ import {
 	type QueueName,
 	readBuildInfo,
 	reconcileQueues,
+	renderInstanceConfig,
 	retentionSweepJob,
 	retentionSweepReporter,
 	runtimeErrorReporter,
@@ -221,7 +223,8 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 			(await instances.list(scope)).filter((row) => row.hostId === hostId),
 		savedDocument: async (scope, instanceId) => {
 			const saved = await instances.latestConfig(scope, instanceId)
-			return typeof saved?.document === "string" ? saved.document : undefined
+			const stored = instanceConfigStored.safeParse(saved?.document)
+			return stored.success ? renderInstanceConfig(stored.data) : undefined
 		},
 		connect: async (host) => {
 			if (!host.sshKeyId || !host.hostKeyFingerprint) {

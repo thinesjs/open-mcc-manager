@@ -162,7 +162,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Ten rules stated further down this document are enforced too, and are listed
+Thirteen rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -179,6 +179,8 @@ have:
 | The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 | Registration closed to every authentication method once a user exists | `apps/server/src/registration-gate.test.ts` — the gate is driven with a `create-user` source for each method better-auth can report as well as over HTTP, so unwiring it from `createAuth` or making it always admit both fail it |
+| No sandbox container is given a host path, home directory, `~/.ssh` or the Docker socket | `scripts/sandbox/sandbox.test.ts` — every `docker` call the sandbox suite makes goes through one guard, which refuses, among the arguments of a `run` or `create` up to a `--` (a bind mount can only come from a docker-level flag before the image, never from the command run inside a container; every harness `run` builder passes `--` right before its image, and a call without `--` is scanned to its end, so a `v`-flag after the image is refused there too), any argument that is a short-flag group containing `v`, `--volume`, `--mount` or `--volumes-from`; refuses any argument naming `docker.sock` anywhere; and refuses every `docker cp` or `docker container cp` in either direction. So an in-container `grep -v` or `tar -xvf` under `docker exec` is allowed, while `run -dv /host:/c img` is not. Files reach a container on `docker exec` stdin. A direct `spawn("docker", ...)` would go around it |
+| No sandbox container is killed or force-removed | `scripts/sandbox/sandbox.test.ts` — the same guard refuses `kill` and `restart`, an `rm` or `remove` carrying `--force`, `--force=…` or a short-flag group containing `f`, and any `stop` that is not `stop --timeout -1` or that carries `--signal` or `-s`, each with or without the `container` prefix, and the harness's own stop arguments are checked against it. A direct `spawn("docker", ...)` would go around it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -1057,3 +1059,49 @@ Failure-mode suites (wrong role, expired or
 already-used invitation, a terminated connection, a concurrent claim) are
 mandatory, not optional — a control with no test proving its failure path
 is not a verified control.
+
+### The script sandbox
+
+Three scripts change a real machine: `scripts/install.sh`, `scripts/self-host.sh`,
+and the setup script `apps/web/src/lib/host-setup.ts` generates for an operator
+to paste. `pnpm test:sandbox` runs each of them for real and asserts on what
+they did to the machine, never on their text.
+
+The host is `docker/sandbox/`: Debian with systemd as PID 1, sshd with host keys
+minted at boot, and a sudo-capable `tester` account. It starts `--privileged
+--cgroupns=private` with tmpfs on `/run`. The installer runs inside `docker:dind`
+on a copy of the checkout, never the checkout itself, because it writes `.env`.
+
+No sandbox container is given a host path, home directory, `~/.ssh` or the
+Docker socket. Every `docker` call goes through the guard in
+`scripts/sandbox/sandbox.ts`, and files reach a container on `docker exec` stdin.
+A host is privileged, so this is not isolation from the kernel or its devices.
+The image masks `systemd-sysctl`, `systemd-binfmt` and `systemd-modules-load`,
+which would otherwise apply the image's kernel settings to the machine running
+the suite at every boot, and `scripts/sandbox/host.sandbox.ts` fails if any of
+them is not masked. Every container carries the
+`open-mcc.sandbox` label and a label for its run. It is stopped with
+`--timeout -1`, which lets systemd shut down and never escalates to a kill, and
+then removed with its volumes. The global teardown removes whatever its run left
+even when a test failed. Nothing in the suite force-removes or kills a container,
+and the guard refuses both: a forced removal of a systemd sandbox once blocked
+the shared Docker engine for 87 minutes. A container that does not shut down
+fails the run and is named, for a person to remove.
+
+It is not part of `pnpm test`. It needs a Docker engine that allows privileged
+containers, and it takes minutes. CI runs it as its own `sandbox` job. Without
+Docker its global setup fails loudly; it never skips.
+
+A green run does not prove what a container cannot reproduce. systemd there has
+no real boot or login session, and linger is observed through logind alone.
+`self-host.sh`'s probe needs Docker, which the sandbox does not have, so the
+tests that need a finished run put a stand-in `docker` on `PATH`. Real
+reachability from a container to the host is exercised by nothing here. Only
+Debian's `apt` path for libicu runs; `dnf` and `apk` do not.
+
+The installer test is a full run: it builds the images, starts the stack with
+its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,
+which has no systemd, `loginctl` or `sudo`. `scripts/sandbox/install-as-root.sandbox.ts`
+runs the real installer as root on a systemd host instead, with a stand-in
+`docker`, and proves it offers nothing and leaves lingering alone there. Neither
+test exercises the offered path, or lingering for an account that is not root.

@@ -22,6 +22,16 @@ export const setupSummary = (mode: HostMode, username: string): readonly string[
 export const requiresRootAccount = (mode: HostMode, username: string): boolean =>
 	mode === "system" && username !== "root"
 
+const rootCheck = (mode: HostMode): string =>
+	mode === "system"
+		? `
+if [ "$account" != "root" ]; then
+  echo "This host was set up to use root, but $account is not root. Enroll it without root instead." >&2
+  exit 1
+fi
+`
+		: ""
+
 const lingerSection = (mode: HostMode): string =>
 	mode === "rootless"
 		? `
@@ -31,12 +41,26 @@ if ! loginctl enable-linger "$account"; then
 fi
 echo "  lingering enabled, so instances keep running after logout"
 `
-		: `
-if [ "$account" != "root" ]; then
-  echo "This host was set up to use root, but $account is not root. Enroll it without root instead." >&2
-  exit 1
-fi
-`
+		: ""
+
+const AUTHORISE = `set -eu
+umask 077
+key=$(cat)
+home=$(getent passwd "$(id -un)" | cut -d: -f6)
+mkdir -p "$home/.ssh"
+chmod 700 "$home/.ssh"
+touch "$home/.ssh/authorized_keys"
+chmod 600 "$home/.ssh/authorized_keys"
+material=$(printf "%s" "$key" | awk "{print \\$2}")
+if [ -n "$material" ] && grep -qF -- "$material" "$home/.ssh/authorized_keys"; then
+  echo "  key already present, left alone"
+else
+  if [ -s "$home/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$home/.ssh/authorized_keys")" ]; then
+    printf "\\n" >> "$home/.ssh/authorized_keys"
+  fi
+  printf "%s\\n" "$key" >> "$home/.ssh/authorized_keys"
+  echo "  key added to $home/.ssh/authorized_keys"
+fi`
 
 export const hostSetupScript = (
 	mode: HostMode,
@@ -57,19 +81,14 @@ if [ -z "$home" ]; then
   echo "There is no account called $account on this host." >&2
   exit 1
 fi
-
-install -d -m 700 "$home/.ssh"
-chown "$account:" "$home/.ssh"
-touch "$home/.ssh/authorized_keys"
-material=$(printf '%s' "$key" | awk '{print $2}')
-if [ -n "$material" ] && grep -qF "$material" "$home/.ssh/authorized_keys"; then
-  echo "  key already present, left alone"
-else
-  printf '%s\\n' "$key" >> "$home/.ssh/authorized_keys"
-  echo "  key added to $home/.ssh/authorized_keys"
+${rootCheck(mode)}
+authorise='${AUTHORISE}'
+if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
+  printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2
+  echo "Could not authorise the key for $account." >&2
+  exit 1
 fi
-chown "$account:" "$home/.ssh/authorized_keys"
-chmod 600 "$home/.ssh/authorized_keys"
+printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177'
 ${lingerSection(mode)}
 machine=$(uname -m)
 case "$machine" in

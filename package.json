@@ -8,6 +8,7 @@
 	"scripts": {
 		"build": "turbo run build",
 		"test": "turbo run test",
+		"test:sandbox": "vitest run --config scripts/sandbox/vitest.config.ts",
 		"typecheck": "turbo run typecheck",
 		"check": "biome check --write .",
 		"check:types-policy": "node scripts/check-type-policy.mjs",

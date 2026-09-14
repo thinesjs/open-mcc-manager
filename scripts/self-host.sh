@@ -11,15 +11,16 @@ set -eu
 # container, and the address that works differs by container runtime. Guessing
 # it wrong shows up as a network fault rather than a configuration one.
 #
-# Nothing here needs root. Instances run under the invoking user's own systemd,
-# so what this key can reach is that one account.
+# Nothing here needs root, and it will not run as root. Instances run under the
+# invoking user's own systemd, so what this key can reach is that one account.
 #
 #   sh scripts/self-host.sh                      mint a key and install it
 #   sh scripts/self-host.sh --public-key key.pub install a key the control plane made
 #   sh scripts/self-host.sh --port 2222          sshd is not on 22
 #
 # Running it twice changes nothing. It never overwrites a key or an existing
-# authorized_keys line.
+# authorized_keys line. It either finishes, or exits non-zero having taken back
+# everything it wrote.
 
 SSH_PORT="${OPEN_MCC_SSH_PORT:-22}"
 KEY_PATH="${OPEN_MCC_SELF_HOST_KEY:-${HOME:-}/.ssh/open-mcc-self-host}"
@@ -58,6 +59,10 @@ case "$SSH_PORT" in
 	'' | *[!0-9]*) die "port must be a number, got '$SSH_PORT'" ;;
 esac
 
+# Run as root, the key would land in root's authorized_keys behind a command that
+# runs whatever the control plane sends, while everything here calls it rootless.
+[ "$(id -u)" != "0" ] || die "run this as the account instances should run under, not as root"
+
 need ssh
 need ssh-keygen
 need ssh-keyscan
@@ -72,9 +77,59 @@ MACHINE="$(uname -n 2>/dev/null | cut -d. -f1 | cut -c1-64)"
 [ -n "$MACHINE" ] || MACHINE="this machine"
 SSH_DIR="$HOME/.ssh"
 AUTHORIZED="$SSH_DIR/authorized_keys"
+AUTHORIZED_BEFORE="$SSH_DIR/.authorized_keys.before-open-mcc"
+AUTHORIZED_AFTER="$SSH_DIR/.authorized_keys.after-open-mcc"
 WRAPPER="$SSH_DIR/open-mcc-self-host-command"
 
 umask 077
+
+# Everything this run writes is recorded as it is written, and taken back if the
+# run stops before the end. authorized_keys is only put back whole when nothing
+# else changed it meanwhile; otherwise only this run's own entry comes out.
+
+WROTE_SSH_DIR="no"
+WROTE_KEY="no"
+WROTE_WRAPPER="no"
+WROTE_AUTHORIZED="no"
+KEPT_AUTHORIZED="no"
+FINISHED="no"
+
+take_back() {
+	trap '' HUP INT TERM
+	[ "$FINISHED" = "no" ] || return 0
+	if [ "$KEPT_AUTHORIZED" = "yes" ] || [ "$WROTE_AUTHORIZED" = "yes" ]; then
+		if [ ! -f "$AUTHORIZED_AFTER" ] || cmp -s "$AUTHORIZED" "$AUTHORIZED_AFTER"; then
+			if [ "$KEPT_AUTHORIZED" = "yes" ]; then
+				cat "$AUTHORIZED_BEFORE" > "$AUTHORIZED"
+			else
+				rm -f "$AUTHORIZED"
+			fi
+		else
+			FILTERED=0
+			grep -vxF -- "$ENTRY" "$AUTHORIZED" > "$AUTHORIZED_AFTER" || FILTERED=$?
+			if [ "$FILTERED" -le 1 ]; then
+				cat "$AUTHORIZED_AFTER" > "$AUTHORIZED"
+				warn "authorized_keys changed while this ran, so only the entry this run added was taken out of it"
+			else
+				warn "authorized_keys changed while this ran and could not be read back. Remove this line from it by hand:
+         $ENTRY"
+			fi
+		fi
+		rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
+	fi
+	if [ "$WROTE_WRAPPER" = "yes" ]; then rm -f "$WRAPPER"; fi
+	if [ "$WROTE_KEY" = "yes" ]; then rm -f "$KEY_PATH" "$KEY_PATH.pub"; fi
+	if [ "$WROTE_SSH_DIR" = "yes" ]; then rmdir "$SSH_DIR" 2>/dev/null || true; fi
+}
+
+trap take_back EXIT
+trap 'exit 1' HUP INT TERM
+
+make_ssh_dir() {
+	[ ! -d "$SSH_DIR" ] || return 0
+	mkdir -p "$SSH_DIR"
+	WROTE_SSH_DIR="yes"
+}
 
 # 1. Does anything answer ssh on this machine, and what does it call itself?
 
@@ -114,8 +169,13 @@ elif [ -f "$KEY_PATH" ]; then
 	PUBLIC_KEY="$(cat "$KEY_PATH.pub")"
 	PRIVATE_KEY_PATH="$KEY_PATH"
 	say "Reusing the self-host key already at $KEY_PATH"
+elif [ -e "$KEY_PATH.pub" ]; then
+	die "$KEY_PATH.pub exists but $KEY_PATH does not.
+       Refusing to overwrite it. Move it aside, or point OPEN_MCC_SELF_HOST_KEY at a
+       path that is free."
 else
-	mkdir -p "$SSH_DIR"
+	make_ssh_dir
+	WROTE_KEY="yes"
 	ssh-keygen -q -t ed25519 -N '' -C "$KEY_COMMENT" -f "$KEY_PATH" </dev/null ||
 		die "could not create a key at $KEY_PATH"
 	PUBLIC_KEY="$(cat "$KEY_PATH.pub")"
@@ -123,16 +183,46 @@ else
 	say "Minted a new ed25519 key at $KEY_PATH"
 fi
 
+# One key, on one line. ssh-keygen reads every key it is given, but only the
+# first would carry the restrictions below; any other would be appended as a key
+# of its own, with none.
+
+KEY_LINES="$(printf '%s\n' "$PUBLIC_KEY" | awk 'NF' | wc -l | tr -d ' ')"
+[ "$KEY_LINES" = "1" ] || die "that holds $KEY_LINES keys. Pass exactly one public key, on one line."
+PUBLIC_KEY="$(printf '%s\n' "$PUBLIC_KEY" | awk 'NF')"
+
 KEY_BLOB="$(printf '%s\n' "$PUBLIC_KEY" | awk 'NF { print $2; exit }')"
 [ -n "$KEY_BLOB" ] || die "could not read the key material out of the public key"
 
-# 3. The forced command. It pins this key to one job and to /bin/sh, and denies
+# 3. What authorized_keys already says about this key. Listed under any other
+#    options, it is not an entry this script can vouch for, so it stops rather
+#    than report restrictions that are not there. A commented-out line is not an
+#    entry, and a check that could not finish is not a clean one.
+
+OPTIONS="restrict,port-forwarding,permitopen=\"127.0.0.1:*\",command=\"'$WRAPPER'\""
+ENTRY="$OPTIONS $PUBLIC_KEY"
+LISTED="no"
+
+if [ -f "$AUTHORIZED" ]; then
+	COUNTS="$(awk -v blob="$KEY_BLOB" -v prefix="$OPTIONS " '
+		/^[ \t]*#/ { next }
+		index($0, blob) { if (index($0, prefix) == 1) restricted++; else unrestricted++ }
+		END { printf "%d %d\n", restricted, unrestricted }
+	' "$AUTHORIZED")" || die "could not check what $AUTHORIZED already says about this key, so nothing was changed"
+	[ "${COUNTS#* }" = "0" ] || die "authorized_keys already carries this key without these restrictions, so nothing was changed.
+       To use them, replace every line carrying it by hand with:
+       $ENTRY"
+	[ "${COUNTS% *}" = "0" ] || LISTED="yes"
+fi
+
+# 4. The forced command. It pins this key to one job and to /bin/sh, and denies
 #    it an interactive session. It cannot bound *which* commands run: the
 #    control plane composes shell pipelines at runtime, so there is no closed
 #    set to allow. See the note this writes into the file.
 
 if [ ! -f "$WRAPPER" ]; then
-	mkdir -p "$SSH_DIR"
+	make_ssh_dir
+	WROTE_WRAPPER="yes"
 	cat > "$WRAPPER" <<'WRAPPER_EOF'
 #!/usr/bin/env sh
 # Forced command for the open-mcc-manager self-host key. Written by
@@ -154,37 +244,33 @@ WRAPPER_EOF
 	say "Wrote the forced command to $WRAPPER"
 fi
 
-# 4. The authorized_keys entry. Append only, and only when this exact key is
-#    not already listed.
+# 5. The authorized_keys entry. Append only, and only when this exact key is
+#    not already listed. What was there, and what this run made of it, are kept
+#    aside until the run finishes.
 
-OPTIONS="restrict,port-forwarding,permitopen=\"127.0.0.1:*\",command=\"'$WRAPPER'\""
-ENTRY="$OPTIONS $PUBLIC_KEY"
+make_ssh_dir
 
-mkdir -p "$SSH_DIR"
-[ -f "$AUTHORIZED" ] || : > "$AUTHORIZED"
-
-if grep -qsF -- "$KEY_BLOB" "$AUTHORIZED"; then
-	EXISTING="$(grep -F -- "$KEY_BLOB" "$AUTHORIZED" | head -1)"
-	case "$EXISTING" in
-		"$OPTIONS "*) say "authorized_keys already carries this key with these restrictions" ;;
-		*)
-			warn "authorized_keys already carries this key, but with different options.
-         Left untouched. To use the restrictions this script recommends, replace
-         that line by hand with:
-         $ENTRY"
-			;;
-	esac
+if [ "$LISTED" = "yes" ]; then
+	say "authorized_keys already carries this key with these restrictions"
 else
+	if [ -f "$AUTHORIZED" ]; then
+		cp "$AUTHORIZED" "$AUTHORIZED_BEFORE"
+		KEPT_AUTHORIZED="yes"
+	else
+		WROTE_AUTHORIZED="yes"
+		: > "$AUTHORIZED"
+	fi
 	# A file whose last line has no newline would otherwise swallow our entry
 	# into somebody else's.
 	if [ -s "$AUTHORIZED" ] && [ -n "$(tail -c 1 "$AUTHORIZED")" ]; then
 		printf '\n' >> "$AUTHORIZED"
 	fi
 	printf '%s\n' "$ENTRY" >> "$AUTHORIZED"
+	cp "$AUTHORIZED" "$AUTHORIZED_AFTER"
 	say "Added a restricted entry to $AUTHORIZED"
 fi
 
-# 5. Prove the entry works from this machine before believing anything about it.
+# 6. Prove the entry works from this machine before believing anything about it.
 
 VERIFY_OPTIONS="-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
 VERIFY_OPTIONS="$VERIFY_OPTIONS -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
@@ -197,14 +283,15 @@ if [ -n "$PRIVATE_KEY_PATH" ]; then
        or its config may forbid this account or public keys. Check the sshd log."
 	# shellcheck disable=SC2086
 	if ssh -i "$PRIVATE_KEY_PATH" -p "$SSH_PORT" $VERIFY_OPTIONS "$ACCOUNT@127.0.0.1" </dev/null >/dev/null 2>&1; then
-		warn "the key opened a session without naming a command; the forced command is not taking effect"
+		die "the key opened a session without naming a command, so the forced command at $WRAPPER is not taking effect.
+       Nothing this run wrote was kept. Restore that file, or delete it so this can write it again."
 	fi
 	say "The key authenticates as $ACCOUNT and gets no interactive shell"
 else
 	say "Skipping the local check: the private half of a supplied key stays in the control plane"
 fi
 
-# 6. The two things about this machine an operator has to act on, reported
+# 7. The two things about this machine an operator has to act on, reported
 #    rather than re-checked — provisioning already blocks on both.
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -223,7 +310,7 @@ if [ "$LINGER" != "yes" ] && [ "$SYSTEMD" = "yes" ]; then
          Run 'sudo loginctl enable-linger $ACCOUNT'. It is the one step here that needs root."
 fi
 
-# 7. Which address reaches this machine from inside the control plane's
+# 8. Which address reaches this machine from inside the control plane's
 #    container. Every candidate is tried, and one is only accepted when the host
 #    key it presents is one of this machine's own — otherwise a neighbouring
 #    sshd (a container runtime's own VM, say) would be enrolled as "this
@@ -433,13 +520,20 @@ else
 	fi
 fi
 
+# Materials with no address describe a machine the control plane cannot enroll,
+# and install.sh would tell the operator it had been offered. Stop instead, and
+# take back the entry.
+
+[ -n "$ADDRESS" ] || die "this machine was not offered: no address the control plane can reach it on was proven.
+       Nothing was left behind. Deal with the warning above, then run this again."
+
 if [ -z "$FINGERPRINT" ]; then
 	FINGERPRINT="$(printf '%s\n' "$HOST_KEYS" | grep ' ssh-ed25519 ' | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | head -1 || true)"
 	[ -n "$FINGERPRINT" ] || FINGERPRINT="$(printf '%s\n' "$FINGERPRINTS" | head -1)"
 	ALGORITHM="${ALGORITHM:-unproven}"
 fi
 
-# 8. The materials. Names match the fields host enrollment asks for, and the
+# 9. The materials. Names match the fields host enrollment asks for, and the
 #    file is shaped to be appended to .env, because that is the only channel the
 #    control-plane container reads from: it mounts nothing. No secret is written
 #    here or printed above; the private key stays where it was made.
@@ -462,6 +556,9 @@ SELF_HOST_SOURCE_ADDRESS=$SOURCE
 SELF_HOST_SYSTEMD=$SYSTEMD
 SELF_HOST_LINGER=$LINGER
 MATERIALS_EOF
+
+FINISHED="yes"
+rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
 
 say ""
 say "Wrote $MATERIALS, mode 600"

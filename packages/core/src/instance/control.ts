@@ -3,8 +3,6 @@ import { instanceDir, validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
 
-const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
-
 const controlPath = (instanceId: string): string => `${instanceDir(instanceId)}/control`
 
 export const INTERNAL_COMMANDS = [

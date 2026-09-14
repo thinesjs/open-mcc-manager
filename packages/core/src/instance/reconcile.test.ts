@@ -811,23 +811,26 @@ describe("comparing a host's client config", () => {
 			advancedKeys: {},
 			botConfig: {},
 		})
-		const transport = await connected({
-			...fileReplies(expected),
-			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
-				{
-					stdout: "active",
-					stderr: "",
-					exitCode: 0,
-				},
-			[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
-				{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
-				{
-					stdout: document,
-					stderr: "",
-					exitCode: 0,
-				},
-		}, { refusePorts: [33401] })
+		const transport = await connected(
+			{
+				...fileReplies(expected),
+				"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+					{
+						stdout: "active",
+						stderr: "",
+						exitCode: 0,
+					},
+				[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
+					{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
+				'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+					{
+						stdout: document,
+						stderr: "",
+						exitCode: 0,
+					},
+			},
+			{ refusePorts: [33401] },
+		)
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,

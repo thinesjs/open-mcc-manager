@@ -959,9 +959,7 @@ describe("dropping a host's shared connections once a trust change commits", () 
 	it("C4: evicts after removing a host that had nothing installed", async () => {
 		const d = deps()
 		const events = recorded(d)
-		vi.mocked(d.hosts.findById).mockResolvedValue(
-			makeHostRow({ status: "pending" }),
-		)
+		vi.mocked(d.hosts.findById).mockResolvedValue(makeHostRow({ status: "pending" }))
 
 		await expect(createHostController(d).remove(ctx, "host-1")).resolves.toBe(true)
 

@@ -287,12 +287,16 @@ export const reconcileHostOverTransport = async (
 	const seenPlayers = new Map<string, string>()
 	for (const instance of instances) {
 		const result = await reader.exec(
-			asReadCommand(`${systemctl(`is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`),
+			asReadCommand(
+				`${systemctl(`is-active ${shellQuote(`${unitName(instance.id)}.service`)}`)} || true`,
+			),
 		)
 		let observed = parseObservedState(result.stdout)
 		if (observed === "active" && instance.status === "running") {
 			const journal = await reader.exec(
-				asReadCommand(`${journalctl(`-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`),
+				asReadCommand(
+					`${journalctl(`-u ${shellQuote(`${unitName(instance.id)}.service`)} --lines ${STUCK_SCAN_LINES} --no-pager --output cat`)} 2>/dev/null || true`,
+				),
 			)
 			if (looksStuck(journal.stdout)) observed = "stuck"
 			if (journal.stdout.includes(JOINED_MARKER)) joined.add(instance.id)

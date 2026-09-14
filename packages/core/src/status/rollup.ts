@@ -8,8 +8,6 @@ import {
 	type StatusState,
 } from "@open-mcc/contracts"
 
-export const SECONDS_PER_DAY = 24 * 60 * 60
-
 export type RollableInterval = {
 	state: StatusState
 	startedAt: Date
@@ -39,12 +37,6 @@ const BUCKET_BY_STATE: Record<StatusState, AvailabilityBucket> = {
 
 export const bucketOf = (state: StatusState): AvailabilityBucket => BUCKET_BY_STATE[state]
 
-export const startOfUtcDay = (moment: Date): Date =>
-	new Date(Date.UTC(moment.getUTCFullYear(), moment.getUTCMonth(), moment.getUTCDate(), 0, 0, 0, 0))
-
-export const addDays = (day: Date, count: number): Date =>
-	new Date(day.getTime() + count * SECONDS_PER_DAY * 1000)
-
 export const overlapSeconds = (
 	interval: RollableInterval,
 	dayStart: Date,
@@ -68,9 +60,6 @@ export const rollUpWindow = (
 		return { ...totals, [bucket]: totals[bucket] + seconds }
 	}, EMPTY_AVAILABILITY)
 
-export const rollUpDay = (intervals: readonly RollableInterval[], dayStart: Date): Availability =>
-	rollUpWindow(intervals, dayStart, addDays(dayStart, 1))
-
 export const bucketStartsFor = (range: StatusRange, now: Date): Date[] => {
 	const step = BUCKET_SECONDS[range] * 1000
 	const count = RANGE_SECONDS[range] / BUCKET_SECONDS[range]
@@ -87,14 +76,3 @@ export const rollUpBuckets = (
 		start: start.toISOString(),
 		availability: rollUpWindow(intervals, start, new Date(start.getTime() + bucketSeconds * 1000)),
 	}))
-
-export const daysBetween = (from: Date, until: Date): Date[] => {
-	const days: Date[] = []
-	let cursor = startOfUtcDay(from)
-	const last = startOfUtcDay(until)
-	while (cursor.getTime() < last.getTime()) {
-		days.push(cursor)
-		cursor = addDays(cursor, 1)
-	}
-	return days
-}

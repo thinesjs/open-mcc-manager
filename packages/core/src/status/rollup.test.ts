@@ -1,18 +1,9 @@
 import { BUCKET_SECONDS, STATUS_RANGES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
-import {
-	addDays,
-	bucketOf,
-	bucketStartsFor,
-	daysBetween,
-	overlapSeconds,
-	rollUpBuckets,
-	rollUpDay,
-	SECONDS_PER_DAY,
-	startOfUtcDay,
-} from "./rollup"
+import { bucketOf, bucketStartsFor, overlapSeconds, rollUpBuckets, rollUpWindow } from "./rollup"
 
 const day = new Date(Date.UTC(2026, 8, 6, 0, 0, 0))
+const dayEnd = new Date(Date.UTC(2026, 8, 7))
 const at = (hour: number, minute = 0): Date => new Date(Date.UTC(2026, 8, 6, hour, minute, 0))
 
 describe("which bucket a state falls in", () => {
@@ -36,8 +27,6 @@ describe("which bucket a state falls in", () => {
 })
 
 describe("clipping an interval to one day", () => {
-	const dayEnd = addDays(day, 1)
-
 	it("measures an interval that sits inside the day", () => {
 		expect(overlapSeconds({ state: "up", startedAt: at(1), endedAt: at(2) }, day, dayEnd)).toBe(
 			3_600,
@@ -63,7 +52,7 @@ describe("clipping an interval to one day", () => {
 		const after = new Date(Date.UTC(2026, 8, 9))
 
 		expect(overlapSeconds({ state: "up", startedAt: before, endedAt: after }, day, dayEnd)).toBe(
-			SECONDS_PER_DAY,
+			86_400,
 		)
 	})
 
@@ -83,14 +72,15 @@ describe("clipping an interval to one day", () => {
 
 describe("rolling a day up", () => {
 	it("sums each bucket separately", () => {
-		const totals = rollUpDay(
+		const totals = rollUpWindow(
 			[
 				{ state: "up", startedAt: at(0), endedAt: at(20) },
 				{ state: "down", startedAt: at(20), endedAt: at(22) },
 				{ state: "suspect", startedAt: at(22), endedAt: at(23) },
-				{ state: "excluded", startedAt: at(23), endedAt: addDays(day, 1) },
+				{ state: "excluded", startedAt: at(23), endedAt: dayEnd },
 			],
 			day,
+			dayEnd,
 		)
 
 		expect(totals.goodSeconds).toBe(20 * 3_600)
@@ -100,7 +90,7 @@ describe("rolling a day up", () => {
 	})
 
 	it("returns an empty day when nothing was recorded, rather than inventing good time", () => {
-		expect(rollUpDay([], day)).toEqual({
+		expect(rollUpWindow([], day, dayEnd)).toEqual({
 			goodSeconds: 0,
 			badSeconds: 0,
 			degradedSeconds: 0,
@@ -113,30 +103,9 @@ describe("rolling a day up", () => {
 		const other = new Date(Date.UTC(2026, 8, 1, 5, 0, 0))
 		const otherEnd = new Date(Date.UTC(2026, 8, 1, 6, 0, 0))
 
-		expect(rollUpDay([{ state: "up", startedAt: other, endedAt: otherEnd }], day).goodSeconds).toBe(
-			0,
-		)
-	})
-})
-
-describe("choosing which days to roll", () => {
-	it("lists whole days between two moments and excludes the day still in progress", () => {
-		const from = new Date(Date.UTC(2026, 8, 1, 13, 0, 0))
-		const until = new Date(Date.UTC(2026, 8, 4, 9, 0, 0))
-
-		expect(daysBetween(from, until).map((d) => d.toISOString())).toEqual([
-			"2026-09-01T00:00:00.000Z",
-			"2026-09-02T00:00:00.000Z",
-			"2026-09-03T00:00:00.000Z",
-		])
-	})
-
-	it("lists nothing when both moments fall on the same day", () => {
-		expect(daysBetween(at(1), at(23))).toEqual([])
-	})
-
-	it("normalises any moment to the start of its UTC day", () => {
-		expect(startOfUtcDay(at(17, 45)).toISOString()).toBe("2026-09-06T00:00:00.000Z")
+		expect(
+			rollUpWindow([{ state: "up", startedAt: other, endedAt: otherEnd }], day, dayEnd).goodSeconds,
+		).toBe(0)
 	})
 })
 

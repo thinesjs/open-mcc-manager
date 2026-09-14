@@ -9,9 +9,9 @@ const invitation = {
 
 describe("when a pending invitation expires, as the wire sends it", () => {
 	it("requires the ISO string a JSON response carries, not a Date object", () => {
-		expect(pendingInvitationSchema.safeParse({ ...invitation, expiresAt: new Date() }).success).toBe(
-			false,
-		)
+		expect(
+			pendingInvitationSchema.safeParse({ ...invitation, expiresAt: new Date() }).success,
+		).toBe(false)
 		expect(
 			pendingInvitationSchema.safeParse({
 				...invitation,

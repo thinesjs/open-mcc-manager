@@ -77,9 +77,9 @@ const PUBLIC_COMMAND = {
 
 describe("when a scheduled command last ran, as the wire sends it", () => {
 	it("requires the ISO string a JSON response carries, not a Date object", () => {
-		expect(scheduledCommandPublic.safeParse({ ...PUBLIC_COMMAND, lastRunAt: new Date() }).success).toBe(
-			false,
-		)
+		expect(
+			scheduledCommandPublic.safeParse({ ...PUBLIC_COMMAND, lastRunAt: new Date() }).success,
+		).toBe(false)
 		expect(
 			scheduledCommandPublic.safeParse({
 				...PUBLIC_COMMAND,

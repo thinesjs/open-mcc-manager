@@ -8,7 +8,9 @@ import {
 	webhookTarget,
 } from "./destination.view"
 
-const destinationRow = (overrides: Partial<NotificationDestinationRow> = {}): NotificationDestinationRow => ({
+const destinationRow = (
+	overrides: Partial<NotificationDestinationRow> = {},
+): NotificationDestinationRow => ({
 	id: "dst-1",
 	organizationId: "org-1",
 	name: "My webhook",

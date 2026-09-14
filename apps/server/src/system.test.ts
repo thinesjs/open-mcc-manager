@@ -54,7 +54,9 @@ const workerRow = (patch: Partial<ProcessIdentityRow> = {}): ProcessIdentityRow 
 	...patch,
 })
 
-const processIdentitiesReporting = (row: ProcessIdentityRow | undefined): ProcessIdentityRepository => ({
+const processIdentitiesReporting = (
+	row: ProcessIdentityRow | undefined,
+): ProcessIdentityRepository => ({
 	announce: async () => undefined,
 	heartbeat: async () => undefined,
 	find: async () => row,

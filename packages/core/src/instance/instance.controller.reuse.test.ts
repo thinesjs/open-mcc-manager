@@ -304,21 +304,36 @@ describe("which calls share a host's connection", () => {
 
 	it("C2: opens a fresh connection for every write, sign-in and removal, and never takes a shared lease", async () => {
 		const { controller, createTransport, readFactory, lease, instances } = build()
-		const writes: Array<[string, () => Promise<unknown>]> = [
+		const writes: Array<[string, () => Promise<void>]> = [
 			["drop an item", () => controller.dropInventoryItem(owner, "abc123", "minecraft:dirt", 1)],
 			["hold an item", () => controller.selectHeldItem(owner, "abc123", "minecraft:dirt")],
 			["run a scheduled command", () => controller.runScheduledCommand(commandRow())],
-			["begin sign-in", () => controller.authenticate(owner, "abc123")],
 			[
-				"complete sign-in",
-				() => {
-					vi.mocked(instances.findById).mockResolvedValueOnce(instanceRow({ status: "needs_auth" }))
-					return controller.completeAuthentication(owner, "abc123")
+				"begin sign-in",
+				async () => {
+					await controller.authenticate(owner, "abc123")
 				},
 			],
-			["cancel sign-in", () => controller.cancelAuthentication(owner, "abc123")],
+			[
+				"complete sign-in",
+				async () => {
+					vi.mocked(instances.findById).mockResolvedValueOnce(instanceRow({ status: "needs_auth" }))
+					await controller.completeAuthentication(owner, "abc123")
+				},
+			],
+			[
+				"cancel sign-in",
+				async () => {
+					await controller.cancelAuthentication(owner, "abc123")
+				},
+			],
 			["remove", () => controller.remove(owner, "abc123")],
-			["start", () => controller.start(owner, "abc123")],
+			[
+				"start",
+				async () => {
+					await controller.start(owner, "abc123")
+				},
+			],
 		]
 
 		for (const [write, run] of writes) {

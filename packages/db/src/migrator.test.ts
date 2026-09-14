@@ -45,10 +45,29 @@ afterEach(async () => {
 	await client.end()
 })
 
+const SESSIONS_GONE_TIMEOUT_MS = 10_000
+
+const openSessions = async (admin: Client): Promise<number> => {
+	const result = await admin.query<{ open: number }>(
+		"select count(*)::int as open from pg_stat_activity where datname = $1",
+		[DATABASE_NAME],
+	)
+	return result.rows[0]?.open ?? 0
+}
+
+const untilSessionsGone = async (admin: Client): Promise<void> => {
+	const deadline = Date.now() + SESSIONS_GONE_TIMEOUT_MS
+	while ((await openSessions(admin)) > 0) {
+		if (Date.now() > deadline) throw new Error(`sessions still open on ${DATABASE_NAME}`)
+		await new Promise((resolve) => setTimeout(resolve, 50))
+	}
+}
+
 afterAll(async () => {
 	const admin = new Client({ connectionString: ADMIN_URL })
 	await admin.connect()
-	await admin.query(`drop database "${DATABASE_NAME}" with (force)`)
+	await untilSessionsGone(admin)
+	await admin.query(`drop database "${DATABASE_NAME}"`)
 	await admin.end()
 })
 

@@ -145,7 +145,9 @@ describe("a bot that needs something the instance has not turned on", () => {
 		const card = cardFor("Follow a player")
 
 		expect(
-			within(card).getByText("Does nothing until World and position and Nearby entities is on."),
+			within(card).getByText(
+				"Does nothing until these are on: World and position, Nearby entities.",
+			),
 		).toBeDefined()
 	})
 
@@ -160,6 +162,25 @@ describe("a bot that needs something the instance has not turned on", () => {
 		)
 
 		expect(within(cardFor("Follow a player")).queryByText(/Does nothing until/)).toBeNull()
+	})
+})
+
+describe("a requirement the whole bot shares", () => {
+	it("is said once on the card, not again under every setting", () => {
+		mount({ "ChatBot.AutoFishing.Enabled": "true" })
+
+		expect(
+			within(cardFor("Fishing")).getAllByText("Does nothing until Nearby entities is on."),
+		).toHaveLength(1)
+	})
+
+	it("still names a setting's own extra requirement under it", () => {
+		mount({ "ChatBot.AutoFishing.Enabled": "true" })
+		const rods = fieldFor(BOT_CONFIG_FIELDS["ChatBot.AutoFishing.Durability_Limit"].label)
+
+		expect(
+			within(rods).getByText("Does nothing until these are on: Inventory, Nearby entities."),
+		).toBeDefined()
 	})
 })
 
@@ -230,7 +251,7 @@ describe("★ the eight bots that had no page of their own", () => {
 
 		expect(
 			within(cardFor("Farming")).getByText(
-				"Does nothing until World and position and Inventory is on.",
+				"Does nothing until these are on: World and position, Inventory.",
 			),
 		).toBeDefined()
 	})
@@ -240,7 +261,9 @@ describe("★ the eight bots that had no page of their own", () => {
 		const move = fieldFor(BOT_CONFIG_FIELDS["ChatBot.AutoFishing.Enable_Move"].label)
 
 		expect(
-			within(move).getByText("Does nothing until World and position and Nearby entities is on."),
+			within(move).getByText(
+				"Does nothing until these are on: World and position, Nearby entities.",
+			),
 		).toBeDefined()
 	})
 

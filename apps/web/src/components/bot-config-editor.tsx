@@ -7,6 +7,7 @@ import {
 	type BotConfigDraft,
 	type BotConfigIssues,
 	clearValue,
+	describeUnmetDependency,
 	effectiveValue,
 	isStored,
 	storeValue,
@@ -53,11 +54,15 @@ const BotField = ({
 	issues,
 	instance,
 	onChange,
-}: { name: SettingName } & Omit<BotConfigEditorProps, "draft"> & { draft: BotConfigDraft }) => {
+	sectionHint,
+}: { name: SettingName; sectionHint: string | undefined } & Omit<BotConfigEditorProps, "draft"> & {
+		draft: BotConfigDraft
+	}) => {
 	const field = BOT_CONFIG_FIELDS[name]
 	const value = effectiveValue(draft, name)
 	const issue = issues[name]
 	const blocked = unmetDependency(draft, instance, name)
+	const hint = blocked === undefined ? undefined : describeUnmetDependency(blocked)
 	const members = ENUM_OPTIONS[name]
 	const set = (next: string | readonly string[]) => onChange(storeValue(draft, name, next))
 
@@ -99,10 +104,8 @@ const BotField = ({
 			{field.description === undefined ? null : (
 				<p className="text-xs text-muted-foreground">{field.description}</p>
 			)}
-			{blocked === undefined ? null : (
-				<p className="text-xs text-muted-foreground">
-					Does nothing until {blocked.requires} is on.
-				</p>
+			{hint === undefined || hint === sectionHint ? null : (
+				<p className="text-xs text-muted-foreground">{hint}</p>
 			)}
 			{issue === undefined || BOT_CONFIG_LIST_NAMES.includes(name) ? null : (
 				<p className="text-sm text-destructive">{issue}</p>
@@ -119,6 +122,7 @@ export const BotConfigEditor = ({ draft, issues, instance, onChange }: BotConfig
 			const on = effectiveValue(draft, toggle) === "true"
 			const rest = section.keys.slice(1)
 			const needs = unmetDependency(draft, instance, toggle)
+			const sectionHint = needs === undefined ? undefined : describeUnmetDependency(needs)
 			const hidden = on ? [] : rest.filter((name) => issues[name] !== undefined)
 			return (
 				<section
@@ -133,10 +137,8 @@ export const BotConfigEditor = ({ draft, issues, instance, onChange }: BotConfig
 							<p className="text-xs text-muted-foreground">
 								{BOT_CONFIG_SECTION_PURPOSE[section.name]}
 							</p>
-							{needs === undefined ? null : (
-								<p className="text-xs text-muted-foreground">
-									Does nothing until {needs.requires} is on.
-								</p>
+							{sectionHint === undefined ? null : (
+								<p className="text-xs text-muted-foreground">{sectionHint}</p>
 							)}
 							{hidden.length === 0 ? null : (
 								<p className="text-xs text-destructive">
@@ -164,6 +166,7 @@ export const BotConfigEditor = ({ draft, issues, instance, onChange }: BotConfig
 									issues={issues}
 									instance={instance}
 									onChange={onChange}
+									sectionHint={sectionHint}
 								/>
 							))}
 						</div>

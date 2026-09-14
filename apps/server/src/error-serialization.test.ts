@@ -169,10 +169,24 @@ describe("HTTP error serialization of a fingerprint mismatch", () => {
 })
 
 describe("HTTP error serialization regression coverage", () => {
-	it("gives a generic message for a thrown non-Error value", async () => {
-		probeHostKeyMock.mockRejectedValueOnce({ reason: "unexpected shape", code: "WEIRD" })
+	it("names a host it could not reach during enrolment as unreachable, without its address", async () => {
+		probeHostKeyMock.mockRejectedValueOnce(
+			new Error("Timed out reading host key from 203.0.113.9:2222"),
+		)
 
 		const res = await postEnroll(enrollBody())
+		const body = await res.text()
+
+		expect(res.status).toBe(400)
+		expect(body).toContain("HOST_UNREACHABLE")
+		expect(body).not.toContain("203.0.113.9")
+		expect(body).not.toContain("2222")
+	})
+
+	it("gives a generic message for a thrown non-Error value", async () => {
+		vi.mocked(hosts.insert).mockRejectedValueOnce({ reason: "unexpected shape", code: "WEIRD" })
+
+		const res = await postEnroll(enrollBody(PRESENTED_FINGERPRINT))
 		const body = await res.text()
 
 		expect(res.status).toBe(500)
@@ -193,9 +207,9 @@ describe("HTTP error serialization regression coverage", () => {
 
 	it("never leaks a fake secret carried on an unexpected exception message", async () => {
 		const fakeSecret = "sealbox-private-key-DO-NOT-LEAK-9f8e7d6c"
-		probeHostKeyMock.mockRejectedValueOnce(new Error(`connection failed: key=${fakeSecret}`))
+		vi.mocked(hosts.insert).mockRejectedValueOnce(new Error(`insert failed: key=${fakeSecret}`))
 
-		const res = await postEnroll(enrollBody())
+		const res = await postEnroll(enrollBody(PRESENTED_FINGERPRINT))
 		const body = await res.text()
 
 		expect(res.status).toBe(500)

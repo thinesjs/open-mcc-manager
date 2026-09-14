@@ -2,6 +2,7 @@ import type { Json } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { profileFrom } from "../host/profile"
 import { tearDownHost } from "../host/teardown"
+import { connectFailureReason } from "../host/unreachable"
 
 export type TeardownPayload = {
 	hostId: string
@@ -122,11 +123,11 @@ export const createHostTeardownHandler =
 				lingeringLeft: String(report.lingeringLeft),
 			})
 		} catch (error) {
-			await deps.onFailed(
-				payload.hostId,
-				payload.organizationId,
-				error instanceof Error ? error.message : "Could not reach the host to clean it",
-			)
+			let reason = "Could not reach the host to clean it"
+			if (error instanceof Error) {
+				reason = transport === undefined ? connectFailureReason(error) : error.message
+			}
+			await deps.onFailed(payload.hostId, payload.organizationId, reason)
 			throw error
 		} finally {
 			await transport?.close().catch(() => undefined)

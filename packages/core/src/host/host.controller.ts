@@ -22,6 +22,7 @@ import {
 	isProvisioningClaimStale,
 } from "./host.repository"
 import { type ProvisionResult, provisionHost } from "./provision"
+import { COULD_NOT_CONNECT, connectFailureReason } from "./unreachable"
 
 export type ActorContext = {
 	organizationId: string
@@ -150,7 +151,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			} catch (error) {
 				await transport.close().catch(() => undefined)
 				return unreachableReport(
-					error instanceof Error ? error.message : `Could not reach ${input.hostname}`,
+					error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 				)
 			}
 
@@ -164,7 +165,14 @@ export const createHostController = (deps: HostControllerDeps) => {
 		enroll: async (ctx: ActorContext, input: CreateHostInput) => {
 			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
 
-			const presented = await deps.probeHostKey(input.hostname, input.port, PROBE_TIMEOUT_MS)
+			let presented: Buffer
+			try {
+				presented = await deps.probeHostKey(input.hostname, input.port, PROBE_TIMEOUT_MS)
+			} catch (error) {
+				throw new HostUnreachableError(
+					error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
+				)
+			}
 			const verification = verifyHostKey(presented, input.expectedFingerprint)
 			if (!verification.ok) {
 				throw new FingerprintMismatchError(`Host key fingerprint mismatch for ${input.hostname}`)
@@ -299,7 +307,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 						})
 					} catch (error) {
 						throw new HostUnreachableError(
-							error instanceof Error ? error.message : `Could not reach ${claimed.hostname}`,
+							error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 						)
 					}
 					return await provisionHost(transport, {

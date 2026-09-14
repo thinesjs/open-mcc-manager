@@ -45,6 +45,7 @@ import type { SecretStore } from "../crypto/sealed-box"
 import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { type HostProfile, profileFrom, systemctl, usesPerInstanceUsers } from "../host/profile"
+import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
@@ -219,7 +220,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		} catch (error) {
 			await transport.close().catch(() => undefined)
 			throw new HostUnreachableError(
-				error instanceof Error ? error.message : `Could not reach ${host.hostname}`,
+				error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 			)
 		}
 		return { transport, profile }

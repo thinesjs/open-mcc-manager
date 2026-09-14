@@ -573,6 +573,26 @@ describe("sleep windows", () => {
 	})
 })
 
+describe("what a scheduled command's failure records", () => {
+	it("says the host refused the connection without the address the error named", async () => {
+		const refusing = createFakeTransport(
+			{},
+			{
+				connect: Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:2222"), {
+					code: "ECONNREFUSED",
+				}),
+			},
+		)
+		const { deps, instances } = makeDeps({ createTransport: () => refusing })
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.runScheduledCommand(commandRow())).rejects.toThrow(
+			/^The server refused the connection$/,
+		)
+	})
+})
+
 describe("reconciliation", () => {
 	it("reports an unreachable host as unknown, never as drift", async () => {
 		const { deps } = makeDeps()

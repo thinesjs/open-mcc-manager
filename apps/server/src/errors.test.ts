@@ -248,6 +248,22 @@ describe("mapKnownError coverage of the error classes it is given", () => {
 		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_LIVE_UNAVAILABLE", httpStatus: 409 })
 	})
 
+	it("answers a command the host cut off as a conflict, in words that name no command", () => {
+		const interrupted = {
+			code: "CONFLICT",
+			errorCode: "HOST_COMMAND_INTERRUPTED",
+			httpStatus: 409,
+			message: "A command on the host stopped before it finished",
+		}
+
+		expect(
+			mapKnownError(new transport.CommandAbortedError("systemctl start 'unit'", "SIGKILL")),
+		).toMatchObject(interrupted)
+		expect(
+			mapKnownError(new transport.StreamOverflowError("stdout", 1024, "tail of the output")),
+		).toMatchObject(interrupted)
+	})
+
 	it("maps every error class the domain packages export, so a new one cannot become a silent 500", () => {
 		for (const [name, ErrorClass] of wireErrorConstructors) {
 			const mapped = mapKnownError(new ErrorClass(`${name} raised for the coverage check`))

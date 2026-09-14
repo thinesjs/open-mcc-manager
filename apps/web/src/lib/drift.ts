@@ -106,7 +106,9 @@ export const groupConfigDrift = (entries: readonly ConfigDriftPublic[]): ConfigD
 	return [...groups.values()]
 }
 
-export const remedyForGroup = (group: ConfigDriftGroup): string =>
-	group.neverAnswered
+export const remedyForGroup = (group: ConfigDriftGroup, running: boolean): string => {
+	if (!running) return "Fixed the next time it starts."
+	return group.neverAnswered
 		? "Restart this instance, or turn live control off if you do not need it."
 		: "Restarting this instance rewrites its config from what the manager holds."
+}

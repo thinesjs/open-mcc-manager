@@ -22,6 +22,7 @@ import {
 import type { CommandRepository } from "./command.repository"
 import {
 	type ActorContext,
+	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
@@ -474,5 +475,46 @@ describe("cancelAuthentication", () => {
 			expect.anything(),
 			expect.objectContaining({ detail: expect.objectContaining({ phase: "cancelled" }) }),
 		)
+	})
+})
+
+describe("signing in through a host that cannot be reached", () => {
+	const refused = () =>
+		createFakeTransport(
+			{},
+			{
+				connect: Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:2222"), {
+					code: "ECONNREFUSED",
+				}),
+			},
+		)
+
+	it("reports starting a sign-in as unreachable and lets the claim go", async () => {
+		const { deps, instances } = makeDeps("", { createTransport: refused })
+
+		const outcome = beginAuthentication(deps, owner, "abc123", FAST_POLL)
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+		expect(instances.releaseAuthClaim).toHaveBeenCalled()
+	})
+
+	it("reports finishing a sign-in as unreachable", async () => {
+		const { deps } = makeDeps("", { createTransport: refused })
+
+		const outcome = completeAuthentication(deps, owner, "abc123")
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+	})
+
+	it("reports cancelling a sign-in as unreachable, writing no audit row", async () => {
+		const { deps, audit } = makeDeps("", { createTransport: refused })
+
+		const outcome = cancelAuthentication(deps, owner, "abc123")
+
+		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
+		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 })

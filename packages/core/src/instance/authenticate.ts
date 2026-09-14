@@ -6,8 +6,10 @@ import {
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
 import { type HostProfile, profileFrom, systemctl } from "../host/profile"
+import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
 	type ActorContext,
+	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	type InstanceControllerDeps,
@@ -15,6 +17,19 @@ import {
 	InstanceNotFoundError,
 } from "./instance.controller"
 import { authUnitName, instanceDir, stopAuthCommand, unitName } from "./unit"
+
+const connectForSignIn = async (
+	transport: HostTransport,
+	options: Parameters<HostTransport["connect"]>[0],
+): Promise<void> => {
+	try {
+		await transport.connect(options)
+	} catch (error) {
+		throw new HostUnreachableError(
+			error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
+		)
+	}
+}
 
 export const DEVICE_CODE_PATTERN = /enter the code:?\s*([A-Z0-9]{4,6}-?[A-Z0-9]{4,6})\b/i
 
@@ -118,7 +133,7 @@ export const beginAuthentication = async (
 	const profile = requireProfile(host)
 	const transport = deps.createTransport()
 	try {
-		await transport.connect({
+		await connectForSignIn(transport, {
 			hostname: host.hostname,
 			port: host.port,
 			username: host.username,
@@ -200,7 +215,7 @@ export const completeAuthentication = async (
 	const dir = instanceDir(profile.instancesRoot, instance.id)
 	const transport = deps.createTransport()
 	try {
-		await transport.connect({
+		await connectForSignIn(transport, {
 			hostname: host.hostname,
 			port: host.port,
 			username: host.username,
@@ -265,7 +280,7 @@ export const cancelAuthentication = async (
 	const profile = requireProfile(host)
 	const transport = deps.createTransport()
 	try {
-		await transport.connect({
+		await connectForSignIn(transport, {
 			hostname: host.hostname,
 			port: host.port,
 			username: host.username,

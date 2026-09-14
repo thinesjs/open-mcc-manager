@@ -6,7 +6,9 @@ import {
 	INSTANCE_ID_PATTERN,
 	instanceConfigInput,
 	instanceConfigStored,
+	instancePublic,
 	isOfflineAccount,
+	managerMetricsSchema,
 	needsInteractiveSignIn,
 } from "./instance"
 
@@ -108,6 +110,50 @@ describe("account types", () => {
 		for (const accountType of ACCOUNT_TYPES) {
 			expect(ACCOUNT_TYPE_LABELS[accountType].length).toBeGreaterThan(0)
 		}
+	})
+})
+
+const PUBLIC_INSTANCE = {
+	id: "abc123",
+	hostId: "host-1",
+	name: "afk-1",
+	accountType: "offline",
+	minecraftAccount: "AfkBot",
+	minecraftUsername: null,
+	status: "stopped",
+	lastExitCode: null,
+}
+
+describe("when an instance was created, as the wire sends it", () => {
+	it("requires the ISO string a JSON response carries, not a Date object", () => {
+		expect(instancePublic.safeParse({ ...PUBLIC_INSTANCE, createdAt: new Date() }).success).toBe(
+			false,
+		)
+		expect(
+			instancePublic.safeParse({ ...PUBLIC_INSTANCE, createdAt: "2026-09-01T00:00:00.000Z" })
+				.success,
+		).toBe(true)
+	})
+})
+
+const PUBLIC_METRICS = {
+	rssBytes: 1,
+	heapUsedBytes: 1,
+	heapTotalBytes: 1,
+	externalBytes: 1,
+	arrayBuffersBytes: 1,
+	uptimeSeconds: 1,
+}
+
+describe("when a manager metrics sample was taken, as the wire sends it", () => {
+	it("requires the ISO string a JSON response carries, not a Date object", () => {
+		expect(
+			managerMetricsSchema.safeParse({ ...PUBLIC_METRICS, sampledAt: new Date() }).success,
+		).toBe(false)
+		expect(
+			managerMetricsSchema.safeParse({ ...PUBLIC_METRICS, sampledAt: "2026-09-05T00:00:00.000Z" })
+				.success,
+		).toBe(true)
 	})
 })
 

@@ -424,7 +424,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		minecraftUsername: row.minecraftUsername,
 		status: row.status,
 		lastExitCode: row.lastExitCode,
-		createdAt: row.createdAt,
+		createdAt: row.createdAt.toISOString(),
 	})
 
 	const toScheduledCommandPublic = (row: InstanceCommandRow): ScheduledCommandPublic => ({

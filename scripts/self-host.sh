@@ -78,12 +78,14 @@ MACHINE="$(uname -n 2>/dev/null | cut -d. -f1 | cut -c1-64)"
 SSH_DIR="$HOME/.ssh"
 AUTHORIZED="$SSH_DIR/authorized_keys"
 AUTHORIZED_BEFORE="$SSH_DIR/.authorized_keys.before-open-mcc"
+AUTHORIZED_AFTER="$SSH_DIR/.authorized_keys.after-open-mcc"
 WRAPPER="$SSH_DIR/open-mcc-self-host-command"
 
 umask 077
 
 # Everything this run writes is recorded as it is written, and taken back if the
-# run stops before the end.
+# run stops before the end. authorized_keys is only put back whole when nothing
+# else changed it meanwhile; otherwise only this run's own entry comes out.
 
 WROTE_SSH_DIR="no"
 WROTE_KEY="no"
@@ -93,12 +95,28 @@ KEPT_AUTHORIZED="no"
 FINISHED="no"
 
 take_back() {
+	trap '' HUP INT TERM
 	[ "$FINISHED" = "no" ] || return 0
-	if [ "$KEPT_AUTHORIZED" = "yes" ]; then
-		cat "$AUTHORIZED_BEFORE" > "$AUTHORIZED"
-		rm -f "$AUTHORIZED_BEFORE"
+	if [ "$KEPT_AUTHORIZED" = "yes" ] || [ "$WROTE_AUTHORIZED" = "yes" ]; then
+		if [ ! -f "$AUTHORIZED_AFTER" ] || cmp -s "$AUTHORIZED" "$AUTHORIZED_AFTER"; then
+			if [ "$KEPT_AUTHORIZED" = "yes" ]; then
+				cat "$AUTHORIZED_BEFORE" > "$AUTHORIZED"
+			else
+				rm -f "$AUTHORIZED"
+			fi
+		else
+			FILTERED=0
+			grep -vxF -- "$ENTRY" "$AUTHORIZED" > "$AUTHORIZED_AFTER" || FILTERED=$?
+			if [ "$FILTERED" -le 1 ]; then
+				cat "$AUTHORIZED_AFTER" > "$AUTHORIZED"
+				warn "authorized_keys changed while this ran, so only the entry this run added was taken out of it"
+			else
+				warn "authorized_keys changed while this ran and could not be read back. Remove this line from it by hand:
+         $ENTRY"
+			fi
+		fi
+		rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
 	fi
-	if [ "$WROTE_AUTHORIZED" = "yes" ]; then rm -f "$AUTHORIZED"; fi
 	if [ "$WROTE_WRAPPER" = "yes" ]; then rm -f "$WRAPPER"; fi
 	if [ "$WROTE_KEY" = "yes" ]; then rm -f "$KEY_PATH" "$KEY_PATH.pub"; fi
 	if [ "$WROTE_SSH_DIR" = "yes" ]; then rmdir "$SSH_DIR" 2>/dev/null || true; fi
@@ -151,11 +169,15 @@ elif [ -f "$KEY_PATH" ]; then
 	PUBLIC_KEY="$(cat "$KEY_PATH.pub")"
 	PRIVATE_KEY_PATH="$KEY_PATH"
 	say "Reusing the self-host key already at $KEY_PATH"
+elif [ -e "$KEY_PATH.pub" ]; then
+	die "$KEY_PATH.pub exists but $KEY_PATH does not.
+       Refusing to overwrite it. Move it aside, or point OPEN_MCC_SELF_HOST_KEY at a
+       path that is free."
 else
 	make_ssh_dir
+	WROTE_KEY="yes"
 	ssh-keygen -q -t ed25519 -N '' -C "$KEY_COMMENT" -f "$KEY_PATH" </dev/null ||
 		die "could not create a key at $KEY_PATH"
-	WROTE_KEY="yes"
 	PUBLIC_KEY="$(cat "$KEY_PATH.pub")"
 	PRIVATE_KEY_PATH="$KEY_PATH"
 	say "Minted a new ed25519 key at $KEY_PATH"
@@ -174,20 +196,23 @@ KEY_BLOB="$(printf '%s\n' "$PUBLIC_KEY" | awk 'NF { print $2; exit }')"
 
 # 3. What authorized_keys already says about this key. Listed under any other
 #    options, it is not an entry this script can vouch for, so it stops rather
-#    than report restrictions that are not there.
+#    than report restrictions that are not there. A commented-out line is not an
+#    entry, and a check that could not finish is not a clean one.
 
 OPTIONS="restrict,port-forwarding,permitopen=\"127.0.0.1:*\",command=\"'$WRAPPER'\""
 ENTRY="$OPTIONS $PUBLIC_KEY"
 LISTED="no"
 
-if [ -f "$AUTHORIZED" ] && grep -qsF -- "$KEY_BLOB" "$AUTHORIZED"; then
-	if awk -v blob="$KEY_BLOB" -v prefix="$OPTIONS " \
-		'index($0, blob) && index($0, prefix) != 1 { found = 1 } END { exit !found }' "$AUTHORIZED"; then
-		die "authorized_keys already carries this key without these restrictions, so nothing was changed.
+if [ -f "$AUTHORIZED" ]; then
+	COUNTS="$(awk -v blob="$KEY_BLOB" -v prefix="$OPTIONS " '
+		/^[ \t]*#/ { next }
+		index($0, blob) { if (index($0, prefix) == 1) restricted++; else unrestricted++ }
+		END { printf "%d %d\n", restricted, unrestricted }
+	' "$AUTHORIZED")" || die "could not check what $AUTHORIZED already says about this key, so nothing was changed"
+	[ "${COUNTS#* }" = "0" ] || die "authorized_keys already carries this key without these restrictions, so nothing was changed.
        To use them, replace every line carrying it by hand with:
        $ENTRY"
-	fi
-	LISTED="yes"
+	[ "${COUNTS% *}" = "0" ] || LISTED="yes"
 fi
 
 # 4. The forced command. It pins this key to one job and to /bin/sh, and denies
@@ -220,7 +245,8 @@ WRAPPER_EOF
 fi
 
 # 5. The authorized_keys entry. Append only, and only when this exact key is
-#    not already listed. What was there is kept aside until the run finishes.
+#    not already listed. What was there, and what this run made of it, are kept
+#    aside until the run finishes.
 
 make_ssh_dir
 
@@ -240,6 +266,7 @@ else
 		printf '\n' >> "$AUTHORIZED"
 	fi
 	printf '%s\n' "$ENTRY" >> "$AUTHORIZED"
+	cp "$AUTHORIZED" "$AUTHORIZED_AFTER"
 	say "Added a restricted entry to $AUTHORIZED"
 fi
 
@@ -256,7 +283,8 @@ if [ -n "$PRIVATE_KEY_PATH" ]; then
        or its config may forbid this account or public keys. Check the sshd log."
 	# shellcheck disable=SC2086
 	if ssh -i "$PRIVATE_KEY_PATH" -p "$SSH_PORT" $VERIFY_OPTIONS "$ACCOUNT@127.0.0.1" </dev/null >/dev/null 2>&1; then
-		warn "the key opened a session without naming a command; the forced command is not taking effect"
+		die "the key opened a session without naming a command, so the forced command at $WRAPPER is not taking effect.
+       Nothing this run wrote was kept. Restore that file, or delete it so this can write it again."
 	fi
 	say "The key authenticates as $ACCOUNT and gets no interactive shell"
 else
@@ -530,7 +558,7 @@ SELF_HOST_LINGER=$LINGER
 MATERIALS_EOF
 
 FINISHED="yes"
-if [ "$KEPT_AUTHORIZED" = "yes" ]; then rm -f "$AUTHORIZED_BEFORE"; fi
+rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
 
 say ""
 say "Wrote $MATERIALS, mode 600"

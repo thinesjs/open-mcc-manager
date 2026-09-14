@@ -1,5 +1,6 @@
 import type { BucketAvailability, StatusSummary } from "@open-mcc/contracts"
 import { uptimeRatio } from "@open-mcc/contracts"
+import { Tooltip } from "~/components/ui/tooltip"
 import { formatPercent } from "~/lib/uptime"
 import { cn } from "~/lib/utils"
 
@@ -47,6 +48,9 @@ const sinceLabel = (seconds: number): string =>
 		? `${Math.round(seconds / (24 * HOUR_SECONDS))} days ago`
 		: `${Math.round(seconds / HOUR_SECONDS)} hours ago`
 
+const BAR_CLASS =
+	"min-w-0 flex-1 rounded-[2px] transition-opacity hover:opacity-70 focus-visible:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+
 export const UptimeBars = ({
 	buckets,
 	bucketSeconds,
@@ -68,14 +72,25 @@ export const UptimeBars = ({
 					const ratio = uptimeRatio(entry.availability)
 					const percent =
 						ratio === undefined || verdict === "good" ? "" : ` · ${formatPercent(ratio)}`
+					const summary = `${label[verdict]}${percent}`
+					const span = spanOf(entry.start, bucketSeconds)
 					return (
-						<div
+						<Tooltip
 							key={entry.start}
-							title={`${label[verdict]}${percent}\n${spanOf(entry.start, bucketSeconds)}`}
-							className={cn(
-								"min-w-0 flex-1 rounded-[2px] transition-opacity hover:opacity-70",
-								TONE[verdict],
-							)}
+							content={
+								<>
+									{summary}
+									<br />
+									{span}
+								</>
+							}
+							render={
+								<button
+									type="button"
+									aria-label={`${summary}, ${span}`}
+									className={cn(BAR_CLASS, TONE[verdict])}
+								/>
+							}
 						/>
 					)
 				})}

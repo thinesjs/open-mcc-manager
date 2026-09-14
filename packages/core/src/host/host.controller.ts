@@ -4,6 +4,7 @@ import {
 	can,
 	type HostCheckReport,
 	type HostPublic,
+	type ProvisionStepLabel,
 	type Role,
 } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
@@ -12,6 +13,7 @@ import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { createJobQueue, HOST_TEARDOWN_QUEUE, type JobQueue, type SendJob } from "../job/job.queue"
+import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { checkHostOverTransport, unreachableReport } from "./check"
@@ -22,6 +24,7 @@ import {
 	isProvisioningClaimStale,
 } from "./host.repository"
 import { type ProvisionResult, provisionHost } from "./provision"
+import { provisioningFailureFor } from "./provision-failure"
 import { COULD_NOT_CONNECT, connectFailureReason } from "./unreachable"
 
 export type ActorContext = {
@@ -64,6 +67,7 @@ export type HostControllerDeps = {
 	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
 	now: () => Date
 	withTransaction: WithTransaction
+	onError?: RuntimeErrorReporter
 }
 
 const PROBE_TIMEOUT_MS = 10_000
@@ -288,6 +292,8 @@ export const createHostController = (deps: HostControllerDeps) => {
 				}
 			}
 
+			let reached: ProvisionStepLabel | undefined
+
 			const runProvision = async (): Promise<ProvisionResult> => {
 				const transport = deps.createTransport()
 				try {
@@ -312,6 +318,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					return await provisionHost(transport, {
 						mode: claimed.mode,
 						onProgress: (progress) => {
+							reached = progress.step
 							void deps.hosts
 								.recordProvisioningProgress(scope, hostId, attemptId, progress)
 								.catch(() => undefined)
@@ -326,13 +333,14 @@ export const createHostController = (deps: HostControllerDeps) => {
 				try {
 					return await runProvision()
 				} catch (error) {
+					const failure =
+						error instanceof HostUnreachableError ? error.message : provisioningFailureFor(reached)
+					deps.onError?.(
+						`Provisioning host ${hostId} did not finish`,
+						error instanceof Error ? error : String(error),
+					)
 					try {
-						await deps.hosts.recordProvisioningFailure(
-							scope,
-							hostId,
-							attemptId,
-							error instanceof Error ? error.message : "Provisioning failed",
-						)
+						await deps.hosts.recordProvisioningFailure(scope, hostId, attemptId, failure)
 						await deps.withTransaction(async (repos) => {
 							await repos.hosts.lockHost(scope, hostId)
 							await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })
@@ -344,9 +352,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 						)
 					}
 					if (error instanceof HostUnreachableError) throw error
-					throw new HostProvisioningFailedError(
-						error instanceof Error ? error.message : "Provisioning failed",
-					)
+					throw new HostProvisioningFailedError(failure)
 				}
 			}
 

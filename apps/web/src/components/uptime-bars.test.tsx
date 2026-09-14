@@ -1,6 +1,6 @@
 import { EMPTY_AVAILABILITY } from "@open-mcc/contracts"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { UptimeBars, verdictFor } from "./uptime-bars"
 
 afterEach(cleanup)
@@ -228,5 +228,58 @@ describe("a roving tab stop across the row, not one per bar", () => {
 			(button) => button.getAttribute("tabindex") !== "-1",
 		)
 		expect(tabbable).toHaveLength(1)
+	})
+})
+
+const SPAN = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+})
+
+describe("★ the span a bar's tooltip names", () => {
+	const now = new Date("2026-09-13T10:07:30Z")
+	const aligned = Date.UTC(2026, 8, 12, 10, 30)
+	const dayOfBars = [
+		{
+			start: "2026-09-12T10:07:30.000Z",
+			availability: { ...EMPTY_AVAILABILITY, goodSeconds: 1350 },
+		},
+		...Array.from({ length: 95 }, (_, index) => ({
+			start: new Date(aligned + index * QUARTER_HOUR * 1000).toISOString(),
+			availability: { ...EMPTY_AVAILABILITY, goodSeconds: QUARTER_HOUR },
+		})),
+	]
+
+	const tooltipOf = async (pick: (bars: HTMLElement[]) => HTMLElement | undefined) => {
+		vi.useFakeTimers({ toFake: ["Date"] })
+		vi.setSystemTime(now)
+		try {
+			render(<UptimeBars buckets={dayOfBars} bucketSeconds={QUARTER_HOUR} />)
+			const bar = pick(screen.getAllByLabelText(/^Reachable,/))
+			if (bar === undefined) throw new Error("no bar to focus")
+			fireEvent.focus(bar)
+			let shown = ""
+			await waitFor(() => {
+				shown = popupText()
+				expect(shown).toMatch(/^Reachable/)
+			})
+			return shown
+		} finally {
+			vi.useRealTimers()
+		}
+	}
+
+	it("ends the first bar where the second bar begins", async () => {
+		expect(await tooltipOf((bars) => bars[0])).toBe(
+			`Reachable${SPAN.formatRange(new Date("2026-09-12T10:07:30Z"), new Date("2026-09-12T10:30:00Z"))}`,
+		)
+	})
+
+	it("ends the newest bar at now", async () => {
+		expect(await tooltipOf((bars) => bars.at(-1))).toBe(
+			`Reachable${SPAN.formatRange(new Date("2026-09-13T10:00:00Z"), now)}`,
+		)
 	})
 })

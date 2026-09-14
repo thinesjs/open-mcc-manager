@@ -165,6 +165,19 @@ export class InstanceBotConfigUnusableError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
 export class InstanceHostNotProvisionedError extends Error {}
 
+export const scheduledRunFailure = (error: Error | string): string => {
+	if (error instanceof HostUnreachableError) return error.message
+	if (error instanceof InstanceNotRunningError) return "The bot was not running"
+	if (error instanceof InstanceNotFoundError) return "The bot no longer exists"
+	if (
+		error instanceof InstanceHostNotFoundError ||
+		error instanceof InstanceHostNotProvisionedError
+	) {
+		return "Its host is not set up to run bots"
+	}
+	return "The command could not be sent"
+}
+
 type HostConnection = {
 	transport: HostTransport
 	profile: HostProfile

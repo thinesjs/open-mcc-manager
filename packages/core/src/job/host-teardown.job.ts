@@ -3,6 +3,13 @@ import type { HostTransport } from "@open-mcc/transport"
 import { profileFrom } from "../host/profile"
 import { tearDownHost } from "../host/teardown"
 import { connectFailureReason } from "../host/unreachable"
+import type { RuntimeErrorReporter } from "../log/reporters"
+
+const NOT_FULLY_CLEANED = "Some of what was installed is still on the host."
+
+const CLEANING_STOPPED = "Cleaning stopped before it finished."
+
+const COULD_NOT_REACH = "Could not reach the host to clean it"
 
 export type TeardownPayload = {
 	hostId: string
@@ -77,6 +84,7 @@ export type TeardownJobDeps = {
 		summary: Record<string, string>,
 	) => Promise<void>
 	onFailed: (hostId: string, organizationId: string, reason: string) => Promise<void>
+	onError?: RuntimeErrorReporter
 }
 
 export const createHostTeardownHandler =
@@ -102,6 +110,7 @@ export const createHostTeardownHandler =
 		)
 
 		let transport: HostTransport | undefined
+		let recorded = false
 		try {
 			transport = await deps.connect({
 				hostname: payload.hostname,
@@ -112,9 +121,10 @@ export const createHostTeardownHandler =
 			})
 			const report = await tearDownHost(transport, profile, instanceIdsFrom(payload.instanceIds))
 			if (report.remaining.length > 0) {
-				const reason = `Not fully cleaned: ${report.remaining.join("; ")}`
-				await deps.onFailed(payload.hostId, payload.organizationId, reason)
-				throw new Error(reason)
+				deps.onError?.(`Host ${payload.hostId} was not fully cleaned`, report.remaining.join("; "))
+				await deps.onFailed(payload.hostId, payload.organizationId, NOT_FULLY_CLEANED)
+				recorded = true
+				throw new Error(NOT_FULLY_CLEANED)
 			}
 			await deps.onCleaned(payload.hostId, payload.organizationId, {
 				unitsRemoved: String(report.unitsRemoved.length),
@@ -123,11 +133,17 @@ export const createHostTeardownHandler =
 				lingeringLeft: String(report.lingeringLeft),
 			})
 		} catch (error) {
-			let reason = "Could not reach the host to clean it"
-			if (error instanceof Error) {
-				reason = transport === undefined ? connectFailureReason(error) : error.message
+			if (!recorded) {
+				deps.onError?.(
+					`Host ${payload.hostId} could not be cleaned`,
+					error instanceof Error ? error : String(error),
+				)
+				let reason = CLEANING_STOPPED
+				if (transport === undefined) {
+					reason = error instanceof Error ? connectFailureReason(error) : COULD_NOT_REACH
+				}
+				await deps.onFailed(payload.hostId, payload.organizationId, reason)
 			}
-			await deps.onFailed(payload.hostId, payload.organizationId, reason)
 			throw error
 		} finally {
 			await transport?.close().catch(() => undefined)

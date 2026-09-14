@@ -1,4 +1,5 @@
 import {
+	BOT_CONFIG_PATH_SHAPE,
 	isReservedFileName,
 	RESERVED_FILE_NAMES,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
@@ -120,7 +121,8 @@ describe("naming what the client writes", () => {
 	})
 
 	it("★ refuses a name the client or this manager already keeps there, so a drain never truncates it", () => {
-		expect(isCollectableName("playerlog.txt.collecting")).toBe(false)
+		expect(isCollectableName("player-list.collecting")).toBe(false)
+		expect(isCollectableName("daily.collecting")).toBe(true)
 		expect(RESERVED_FILE_NAMES.filter(isCollectableName)).toEqual([])
 	})
 
@@ -128,6 +130,47 @@ describe("naming what the client writes", () => {
 		const document = '[ChatBot.Mailer]\nDatabaseFile = "playerlog.txt"\n'
 
 		expect(artifactNamesFor(document).playerList).toBeUndefined()
+	})
+})
+
+describe("★ the file names the collector takes", () => {
+	const names = [
+		"playerlog.txt",
+		"daily roster.txt",
+		"joueurs-été.txt",
+		"玩家名单.txt",
+		"x".repeat(129),
+		"x".repeat(255),
+		"x".repeat(256),
+		"é".repeat(128),
+		"%username%",
+		"a/b.txt",
+		"..",
+		"env",
+		"roster.txt.collecting",
+		"tab\there",
+		"",
+	]
+
+	it("takes a name an operator can save, spaces, other scripts and long names included", () => {
+		expect(names.filter(isCollectableName)).toEqual([
+			"playerlog.txt",
+			"daily roster.txt",
+			"joueurs-été.txt",
+			"玩家名单.txt",
+			"x".repeat(129),
+			"x".repeat(255),
+			"roster.txt.collecting",
+		])
+	})
+
+	it("agrees with every bot file setting on every name, so nothing saved is then refused", () => {
+		for (const [key, schema] of Object.entries(BOT_CONFIG_PATH_SHAPE)) {
+			expect({ key, collected: names.filter(isCollectableName) }).toEqual({
+				key,
+				collected: names.filter((name) => schema.safeParse(name).success),
+			})
+		}
 	})
 })
 
@@ -182,7 +225,7 @@ describe("draining the player list log", () => {
 		expect(sweep.collected).toBe(1)
 		expect(kept[0]?.content.toString()).toBe(text)
 		expect(commands).toContain(
-			`tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' && mv -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting'; exit 1; }`,
+			`tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/player-list.collecting' && mv -f '${DIRECTORY}/player-list.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/player-list.collecting'; exit 1; }`,
 		)
 	})
 
@@ -195,6 +238,37 @@ describe("draining the player list log", () => {
 
 		expect(temporary.startsWith(`${DIRECTORY}/`)).toBe(true)
 		expect(isReservedFileName(temporary.slice(DIRECTORY.length + 1))).toBe(true)
+	})
+
+	it("★ drains a name as long as the host allows through a temporary that still fits beside it", async () => {
+		const name = `${"x".repeat(251)}.txt`
+		const read = `head -c ${MAX_ARTIFACT_BYTES} '${DIRECTORY}/${name}' 2>/dev/null | base64 | tr -d '\\n'`
+		const transport = createFakeTransport({
+			[read]: { stdout: encoded("alice\n"), stderr: "", exitCode: 0 },
+		})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "u",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1,
+		})
+		const documents = new Map([["afk", `[ChatBot.PlayerListLogger]\nFile = "${name}"\n`]])
+		const sweeps = await sweepHostArtifacts(
+			transport,
+			profile,
+			[instance],
+			documents,
+			async () => undefined,
+		)
+		const drain = transport.commands.find((command) => command.startsWith("tail -c")) ?? ""
+		const temporary = / > '([^']+)'/.exec(drain)?.[1] ?? ""
+
+		expect(sweeps[0]?.collected).toBe(1)
+		expect(Buffer.byteLength(temporary.slice(temporary.lastIndexOf("/") + 1))).toBeLessThanOrEqual(
+			255,
+		)
 	})
 
 	it("leaves the host untouched when the control plane could not keep what it read", async () => {
@@ -221,7 +295,7 @@ describe("draining the player list log", () => {
 
 	it("does not count a drain the host refused as collected", async () => {
 		const text = "roster\n"
-		const drain = `tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' && mv -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}.collecting'; exit 1; }`
+		const drain = `tail -c +${Buffer.byteLength(text) + 1} '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' > '${DIRECTORY}/player-list.collecting' && mv -f '${DIRECTORY}/player-list.collecting' '${DIRECTORY}/${PLAYER_LIST_FILE_DEFAULT}' || { rm -f '${DIRECTORY}/player-list.collecting'; exit 1; }`
 		const { sweep } = await sweepWith({
 			[playerLogRead]: { stdout: encoded(text), stderr: "", exitCode: 0 },
 			[drain]: { stdout: "", stderr: "", exitCode: 1 },

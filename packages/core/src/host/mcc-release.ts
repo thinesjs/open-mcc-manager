@@ -1,3 +1,4 @@
+import { hostFact, UNKNOWN_HOST_FACT } from "./facts"
 export const MCC_VERSION = "20260829-511"
 
 export const MCC_ARCHITECTURES = ["x64", "arm64"] as const
@@ -31,7 +32,7 @@ export const architectureForMachine = (machine: string): MccArchitecture => {
 	const architecture = ARCHITECTURE_BY_MACHINE[machine.trim().toLowerCase()]
 	if (!architecture) {
 		throw new UnsupportedArchitectureError(
-			`No Minecraft Console Client build for machine architecture '${machine.trim()}'; supported: ${Object.keys(ARCHITECTURE_BY_MACHINE).join(", ")}`,
+			`No Minecraft Console Client build for machine architecture '${hostFact(machine) ?? UNKNOWN_HOST_FACT}'; supported: ${Object.keys(ARCHITECTURE_BY_MACHINE).join(", ")}`,
 		)
 	}
 	return architecture

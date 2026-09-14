@@ -39,9 +39,18 @@ const SPAN = new Intl.DateTimeFormat(undefined, {
 	minute: "2-digit",
 })
 
-const spanOf = (start: string, bucketSeconds: number): string => {
-	const from = new Date(start)
-	return SPAN.formatRange(from, new Date(from.getTime() + bucketSeconds * 1000))
+const spanOf = (
+	start: string,
+	next: string | undefined,
+	bucketSeconds: number,
+	now: number,
+): string => {
+	const from = Date.parse(start)
+	const until =
+		next === undefined
+			? Math.max(from, Math.min(from + bucketSeconds * 1000, now))
+			: Date.parse(next)
+	return SPAN.formatRange(new Date(from), new Date(until))
 }
 
 const HOUR_SECONDS = 60 * 60
@@ -68,6 +77,7 @@ export const UptimeBars = ({
 		bad: badLabel,
 		none: "No measurements",
 	}
+	const now = Date.now()
 	const barRefs = useRef<Array<HTMLButtonElement | null>>([])
 	const [activeIndex, setActiveIndex] = useState(buckets.length - 1)
 	const rovingIndex = Math.min(activeIndex, buckets.length - 1)
@@ -113,7 +123,7 @@ export const UptimeBars = ({
 					const percent =
 						ratio === undefined || verdict === "good" ? "" : ` · ${formatPercent(ratio)}`
 					const summary = `${label[verdict]}${percent}`
-					const span = spanOf(entry.start, bucketSeconds)
+					const span = spanOf(entry.start, buckets[index + 1]?.start, bucketSeconds, now)
 					return (
 						<Tooltip
 							key={entry.start}

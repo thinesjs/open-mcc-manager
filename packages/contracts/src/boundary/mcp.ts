@@ -164,10 +164,16 @@ export const toolResultOf = (response: JsonRpcResponse): unknown => {
 	return unwrapEnvelope(json)
 }
 
+const MINECRAFT_NAME_SHAPE = /^[A-Za-z0-9_]{1,16}$/
+
 export const mcpSessionStatusSchema = z.object({
 	host: z.string(),
 	port: z.number(),
-	username: z.string(),
+	username: z
+		.unknown()
+		.transform((value) =>
+			typeof value === "string" && MINECRAFT_NAME_SHAPE.test(value) ? value : undefined,
+		),
 	protocolVersion: z.number(),
 	terrainEnabled: z.boolean(),
 	inventoryEnabled: z.boolean(),

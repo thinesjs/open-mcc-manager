@@ -226,6 +226,37 @@ describe("mcp wire format", () => {
 		})
 	})
 
+	it.each([
+		["a terminal escape", "Live\u001b[31mBot"],
+		["a space", "Live Bot"],
+		["more characters than a Minecraft name holds", "a".repeat(17)],
+		["nothing at all", ""],
+		["no text at all", 42],
+	])("★ treats a username with %s as absent, and still reads the rest", (_label, username) => {
+		const data = {
+			host: "100.101.102.103",
+			port: 25566,
+			username,
+			protocolVersion: 760,
+			terrainEnabled: false,
+			inventoryEnabled: false,
+			entityEnabled: false,
+		}
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					content: [{ type: "text", text: JSON.stringify({ success: true, data }) }],
+				},
+			}),
+		)
+		const status = sessionStatusFrom(response)
+
+		expect(status.username).toBeUndefined()
+		expect(status.port).toBe(25566)
+	})
+
 	it("raises the reason when the client reports the call unsuccessful", () => {
 		const response = responseFrom(
 			JSON.stringify({

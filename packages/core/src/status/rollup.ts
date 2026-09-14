@@ -64,7 +64,11 @@ export const bucketStartsFor = (range: StatusRange, now: Date): Date[] => {
 	const step = BUCKET_SECONDS[range] * 1000
 	const count = RANGE_SECONDS[range] / BUCKET_SECONDS[range]
 	const current = Math.floor(now.getTime() / step) * step
-	return Array.from({ length: count }, (_, index) => new Date(current - (count - 1 - index) * step))
+	const since = now.getTime() - RANGE_SECONDS[range] * 1000
+	return Array.from(
+		{ length: count },
+		(_, index) => new Date(index === 0 ? since : current - (count - 1 - index) * step),
+	)
 }
 
 export const rollUpBuckets = (
@@ -72,7 +76,11 @@ export const rollUpBuckets = (
 	starts: readonly Date[],
 	bucketSeconds: number,
 ): BucketAvailability[] =>
-	starts.map((start) => ({
+	starts.map((start, index) => ({
 		start: start.toISOString(),
-		availability: rollUpWindow(intervals, start, new Date(start.getTime() + bucketSeconds * 1000)),
+		availability: rollUpWindow(
+			intervals,
+			start,
+			starts[index + 1] ?? new Date(start.getTime() + bucketSeconds * 1000),
+		),
 	}))

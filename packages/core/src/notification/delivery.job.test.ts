@@ -80,6 +80,7 @@ const build = (
 
 	const send = vi.fn(typeof outcome === "function" ? outcome : async () => outcome)
 	const sendJob = vi.fn(async () => "job_1")
+	const onError = vi.fn((_message: string, _error: Error | string) => {})
 
 	const handle = createDeliveryHandler({
 		store,
@@ -89,10 +90,11 @@ const build = (
 		queue: NOTIFICATION_HTTP_QUEUE,
 		policy: PUBLIC_ONLY,
 		now: () => new Date("2026-09-07T12:00:00Z"),
+		onError,
 		...(extra.retryLimit === undefined ? {} : { retryLimit: extra.retryLimit }),
 	})
 
-	return { handle, send, sendJob, settle, attempt, disable, marked, findDestination }
+	return { handle, send, sendJob, settle, attempt, disable, marked, findDestination, onError }
 }
 
 describe("reading the job", () => {
@@ -233,6 +235,41 @@ describe("a delivery that fails for good", () => {
 		await handle(payload)
 		expect(JSON.stringify(attempt.mock.calls)).not.toContain("whsec_MfKQ")
 		expect(attempt).toHaveBeenCalled()
+	})
+})
+
+describe("★ what a refused or broken delivery records", () => {
+	it("stores only its own words for a provider's refusal, and gives the provider's words to the log", async () => {
+		const { handle, attempt, settle, marked, onError } = build({
+			kind: "terminal",
+			statusCode: 400,
+			reason: "Telegram refused the message; check the chat ID",
+			stopSending: false,
+			detail: "Bad Request: chat 203.0.113.9:8443 not found",
+		})
+
+		await handle(payload)
+		const stored = JSON.stringify([attempt.mock.calls, settle.mock.calls, marked.mock.calls])
+
+		expect(stored).toContain("Telegram refused the message; check the chat ID")
+		expect(stored).not.toContain("203.0.113.9")
+		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
+			expect.stringContaining("203.0.113.9:8443"),
+		])
+	})
+
+	it("stores only its own words when sending throws, and gives the error to the log", async () => {
+		const { handle, attempt, onError } = build(async () => {
+			throw new Error("socket hang up at 203.0.113.9:443")
+		})
+
+		await handle(payload)
+
+		expect(JSON.stringify(attempt.mock.calls)).not.toContain("203.0.113.9")
+		expect(JSON.stringify(attempt.mock.calls)).toContain("the delivery did not go through")
+		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
+			expect.stringContaining("203.0.113.9:443"),
+		])
 	})
 })
 

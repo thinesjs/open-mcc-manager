@@ -21,6 +21,7 @@ export type SchedulerDeps = {
 	recordRun: (id: string, ranAt: Date, error: string | null) => Promise<void>
 	now: () => Date
 	onError?: (message: string, error: Error | string) => void
+	describeFailure: (error: Error | string) => string
 }
 
 export const candidateFor = (row: InstanceCommandRow) => ({
@@ -81,9 +82,10 @@ export const runSchedulerTick = async (deps: SchedulerDeps): Promise<SchedulerRu
 			await deps.send(row)
 			run.fired.push(row.id)
 		} catch (error) {
-			const reason = error instanceof Error ? error.message : UNKNOWN_FAILURE
+			const failure = error instanceof Error ? error : UNKNOWN_FAILURE
+			const reason = deps.describeFailure(failure)
 			run.failed.push({ id: row.id, reason })
-			deps.onError?.(`Scheduled command ${row.id} failed`, error instanceof Error ? error : reason)
+			deps.onError?.(`Scheduled command ${row.id} failed`, failure)
 			await deps.recordRun(row.id, at, reason).catch(() => undefined)
 		}
 	}

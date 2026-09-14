@@ -107,6 +107,7 @@ export {
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
 	InstanceStillInUseError,
+	scheduledRunFailure,
 } from "./instance/instance.controller"
 export type {
 	InstanceCreateValues,

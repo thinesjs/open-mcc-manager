@@ -126,4 +126,39 @@ describe("a recovery, taken through the real controller and database", () => {
 		expect(events[2]?.incidentId).not.toBe(events[0]?.incidentId)
 		expect(events[2]?.incidentId).not.toBeNull()
 	})
+
+	it("★ stores none of the words a server kicked the bot with, in the event or the condition", async () => {
+		await controller.recordInstanceConnection(
+			{ organizationId },
+			{ id: instanceId, name: "LiveBot" },
+			[
+				{
+					state: "interrupted",
+					at: new Date("2026-09-07T12:03:00Z"),
+					pid: "1",
+					event: "instance.kicked",
+					reason: "Kicked: rejoin at 203.0.113.9:25565 with token hunter2",
+				},
+			],
+		)
+
+		const kicked = await testDb()
+			.selectFrom("statusEvent")
+			.select(["detail"])
+			.where("organizationId", "=", organizationId)
+			.where("instanceId", "=", instanceId)
+			.where("kind", "=", "instance.kicked")
+			.executeTakeFirstOrThrow()
+		const condition = await testDb()
+			.selectFrom("statusCondition")
+			.select(["detail"])
+			.where("organizationId", "=", organizationId)
+			.where("instanceId", "=", instanceId)
+			.where("dimension", "=", "instance.connection")
+			.executeTakeFirstOrThrow()
+		const stored = JSON.stringify([kicked.detail, condition.detail])
+
+		expect(stored).not.toContain("203.0.113.9")
+		expect(stored).not.toContain("hunter2")
+	})
 })

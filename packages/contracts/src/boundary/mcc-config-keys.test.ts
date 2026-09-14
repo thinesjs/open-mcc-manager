@@ -369,17 +369,46 @@ describe("★ a bot file name the client or this manager already keeps in the in
 		expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
 	})
 
-	it.each(["playerlog.txt.collecting", "MailerDatabase.ini.collecting"])(
-		"refuses %s, which is the temporary the collector drains a file through",
-		(value) => {
-			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
-		},
-	)
+	it("refuses player-list.collecting, the one temporary the collector drains through", () => {
+		expect(fileKeysSaying("player-list.collecting", CLIENT_FILE)).toEqual(FILE_KEYS)
+	})
+
+	it("★ saves any other name ending in .collecting, which nothing on the host uses", () => {
+		expect(fileKeysSaying("daily.collecting", "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("playerlog.txt.collecting", "")).toEqual(FILE_KEYS)
+	})
 
 	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {
 		expect(fileKeysSaying("env", CLIENT_FILE)).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("Env", "")).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("sessioncache.db", "")).toEqual(FILE_KEYS)
+	})
+})
+
+describe("★ a variable in a bot file name", () => {
+	it.each([
+		"%username%",
+		"%USERNAME%.log",
+		"%login%",
+		"MinecraftClient%serverport%.ini",
+		"log-%date%.txt",
+	])(
+		"refuses %s on every bot file key, because the client could fill it in as a name it already keeps",
+		(value) => {
+			expect(fileKeysSaying(value, "A file name, not a path")).toEqual(FILE_KEYS)
+		},
+	)
+})
+
+describe("★ how long a bot file name may be", () => {
+	it("accepts a name as long as a host file system holds, counted in bytes", () => {
+		expect(fileKeysSaying("x".repeat(255), "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying(`${"é".repeat(127)}x`, "")).toEqual(FILE_KEYS)
+	})
+
+	it("refuses one byte more, in one plain message", () => {
+		expect(fileKeysSaying("x".repeat(256), "Too long for a file name")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("é".repeat(128), "Too long for a file name")).toEqual(FILE_KEYS)
 	})
 })
 

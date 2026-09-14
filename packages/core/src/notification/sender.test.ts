@@ -248,7 +248,9 @@ describe("Telegram, which hides its failures inside a 200", () => {
 		})
 
 		expect(outcome.kind).toBe("terminal")
-		expect(outcome.kind === "terminal" && outcome.reason).toBe("chat not found")
+		expect(outcome.kind === "terminal" && outcome.reason).toBe(
+			"Telegram refused the message; check the chat ID",
+		)
 	})
 
 	it("waits as long as Telegram asks when it is rate limited", async () => {

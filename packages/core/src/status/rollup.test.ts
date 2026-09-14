@@ -1,4 +1,4 @@
-import { BUCKET_SECONDS, STATUS_RANGES } from "@open-mcc/contracts"
+import { BUCKET_SECONDS, RANGE_SECONDS, STATUS_RANGES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { bucketOf, bucketStartsFor, overlapSeconds, rollUpBuckets, rollUpWindow } from "./rollup"
 
@@ -112,38 +112,79 @@ describe("rolling a day up", () => {
 describe("cutting a range into bars", () => {
 	const now = new Date("2026-09-13T10:07:30Z")
 
+	const instants = [now, new Date("2026-09-13T08:00:00Z")]
+
 	it("gives every range about ninety bars, not one per hour or per day", () => {
 		expect(bucketStartsFor("24h", now)).toHaveLength(96)
 		expect(bucketStartsFor("7d", now)).toHaveLength(84)
 		expect(bucketStartsFor("30d", now)).toHaveLength(90)
 	})
 
-	it("lays the bars end to end on clock boundaries, with the last one holding now", () => {
-		for (const range of STATUS_RANGES) {
-			const step = BUCKET_SECONDS[range] * 1000
-			const starts = bucketStartsFor(range, now).map((start) => start.getTime())
-			const gaps = starts.slice(1).map((start, index) => start - (starts[index] ?? 0))
-			const last = starts.at(-1) ?? 0
+	it("starts the first bar exactly at the start of the range and every later one on a clock boundary, the last holding now", () => {
+		for (const instant of instants) {
+			for (const range of STATUS_RANGES) {
+				const step = BUCKET_SECONDS[range] * 1000
+				const starts = bucketStartsFor(range, instant).map((start) => start.getTime())
+				const first = starts[0] ?? 0
+				const later = starts.slice(1)
+				const gaps = later.slice(1).map((start, index) => start - (later[index] ?? 0))
+				const last = starts.at(-1) ?? 0
 
-			expect(starts.filter((start) => start % step !== 0)).toEqual([])
-			expect(gaps.filter((gap) => gap !== step)).toEqual([])
-			expect(last).toBeLessThanOrEqual(now.getTime())
-			expect(now.getTime()).toBeLessThan(last + step)
+				expect(first).toBe(instant.getTime() - RANGE_SECONDS[range] * 1000)
+				expect((later[0] ?? 0) - first).toBeGreaterThan(step)
+				expect((later[0] ?? 0) - first).toBeLessThanOrEqual(2 * step)
+				expect(later.filter((start) => start % step !== 0)).toEqual([])
+				expect(gaps.filter((gap) => gap !== step)).toEqual([])
+				expect(last).toBeLessThanOrEqual(instant.getTime())
+				expect(instant.getTime()).toBeLessThan(last + step)
+			}
 		}
 	})
 
-	it("counts every second from the first bar up to now exactly once", () => {
+	it("★ keeps every bar edge still across two refreshes a minute apart", () => {
 		for (const range of STATUS_RANGES) {
-			const starts = bucketStartsFor(range, now)
-			const since = starts[0] ?? now
-			const buckets = rollUpBuckets(
-				[{ state: "up", startedAt: new Date("2026-01-01T00:00:00Z"), endedAt: now }],
-				starts,
-				BUCKET_SECONDS[range],
-			)
-			const counted = buckets.reduce((total, bucket) => total + bucket.availability.goodSeconds, 0)
+			const edgesAt = (refreshedAt: Date) =>
+				bucketStartsFor(range, refreshedAt)
+					.slice(1)
+					.map((start) => start.getTime())
 
-			expect(counted).toBe((now.getTime() - since.getTime()) / 1000)
+			expect(edgesAt(new Date("2026-09-13T10:08:30Z"))).toEqual(edgesAt(now))
+		}
+	})
+
+	it("counts every second of the range exactly once", () => {
+		for (const instant of instants) {
+			for (const range of STATUS_RANGES) {
+				const buckets = rollUpBuckets(
+					[{ state: "up", startedAt: new Date("2026-01-01T00:00:00Z"), endedAt: instant }],
+					bucketStartsFor(range, instant),
+					BUCKET_SECONDS[range],
+				)
+				const counted = buckets.reduce(
+					(total, bucket) => total + bucket.availability.goodSeconds,
+					0,
+				)
+
+				expect(counted).toBe(RANGE_SECONDS[range])
+			}
+		}
+	})
+
+	it("★ keeps an outage in the leading partial stretch of the range, inside the first bar", () => {
+		for (const instant of instants) {
+			for (const range of STATUS_RANGES) {
+				const since = instant.getTime() - RANGE_SECONDS[range] * 1000
+				const buckets = rollUpBuckets(
+					[{ state: "down", startedAt: new Date(since), endedAt: new Date(since + 300_000) }],
+					bucketStartsFor(range, instant),
+					BUCKET_SECONDS[range],
+				)
+
+				expect(buckets.map((bucket) => bucket.availability.badSeconds)).toEqual([
+					300,
+					...Array.from({ length: buckets.length - 1 }, () => 0),
+				])
+			}
 		}
 	})
 })

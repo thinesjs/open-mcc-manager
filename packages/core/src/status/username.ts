@@ -30,8 +30,7 @@ export const resolveMinecraftName = async (
 			route: LIVE_CONTROL_ROUTE,
 			token: deps.openToken(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId),
 		})
-		const name = status.username.trim()
-		return name.length === 0 ? undefined : name
+		return status.username
 	} catch {
 		return undefined
 	}

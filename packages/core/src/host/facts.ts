@@ -25,13 +25,19 @@ export const sandboxProbeCommand = (marker: string = SANDBOX_PROBE_MARKER): stri
 
 export const readsAsEnforced = (output: string): boolean => output.trim() === "enforced"
 
+export const UNKNOWN_HOST_FACT = "Unknown"
+
+const HOST_FACT_SHAPE = /^[ -~]{1,128}$/
+
+export const hostFact = (output: string): string | null => {
+	const value = output.trim().replace(/^"|"$/g, "")
+	if (value.length === 0) return null
+	return HOST_FACT_SHAPE.test(value) ? value : UNKNOWN_HOST_FACT
+}
+
 export const parseOsRelease = (output: string): { osId: string | null; osName: string | null } => {
 	const [id = "", name = ""] = output.split("\n")
-	const clean = (value: string): string | null => {
-		const trimmed = value.trim().replace(/^"|"$/g, "")
-		return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null
-	}
-	return { osId: clean(id), osName: clean(name) }
+	return { osId: hostFact(id), osName: hostFact(name) }
 }
 
 export const parseCount = (output: string): number | null => {
@@ -71,10 +77,9 @@ export const readHostFacts = async (
 	const sandboxed = await readSandboxing(transport, profile)
 	const cpu = await transport.exec(CPU_COUNT_COMMAND, FACT_TIMEOUT_MS)
 	const memory = await transport.exec(MEMORY_TOTAL_COMMAND, FACT_TIMEOUT_MS)
-	const release = version.stdout.trim()
 
 	return {
-		osRelease: release.length > 0 ? release : null,
+		osRelease: hostFact(version.stdout),
 		...parseOsRelease(os.stdout),
 		sandboxed,
 		cpuCount: parseCount(cpu.stdout),

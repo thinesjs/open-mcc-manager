@@ -67,6 +67,7 @@ import {
 	InstanceNotRunningError,
 	InstanceRemovalFailedError,
 	InstanceStillInUseError,
+	scheduledRunFailure,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
@@ -628,6 +629,43 @@ describe("what a scheduled command's failure records", () => {
 
 		await expect(controller.runScheduledCommand(commandRow())).rejects.toThrow(
 			/^The server refused the connection$/,
+		)
+	})
+})
+
+describe("★ what a scheduled command's failure is recorded as", () => {
+	it("says the command could not be sent when the host refused it, never what the host said", async () => {
+		const { deps, instances, transport } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		transport.exec = async () => ({
+			stdout: "",
+			stderr: "cat: 203.0.113.9:2222: token hunter2",
+			exitCode: 1,
+		})
+		const failure = await createInstanceController(deps)
+			.runScheduledCommand(commandRow())
+			.catch((error: Error) => error)
+
+		expect(failure).toBeInstanceOf(Error)
+		expect(failure instanceof Error ? scheduledRunFailure(failure) : undefined).toBe(
+			"The command could not be sent",
+		)
+	})
+
+	it("says the bot was not running, in its own words", async () => {
+		const { deps } = makeDeps()
+		const failure = await createInstanceController(deps)
+			.runScheduledCommand(commandRow())
+			.catch((error: Error) => error)
+
+		expect(failure instanceof Error ? scheduledRunFailure(failure) : undefined).toBe(
+			"The bot was not running",
+		)
+	})
+
+	it("keeps the fixed reason a connection failure already carries", () => {
+		expect(scheduledRunFailure(new HostUnreachableError("The server refused the connection"))).toBe(
+			"The server refused the connection",
 		)
 	})
 })

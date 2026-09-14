@@ -36,7 +36,6 @@ const floatWhere = (accepts: (value: number) => boolean, message: string) =>
 
 const PATH_SHAPE = /^[^/\\%]+$/
 const EXPANDED_PATH_SHAPE = /^[^/\\]+$/
-const EXPANDED_TOKENS = /%(username|login|serverport|datetime|date)%/gi
 
 const isPlainText = (value: string): boolean => {
 	for (const character of value) {
@@ -63,19 +62,40 @@ export const RESERVED_FILE_NAMES: readonly string[] = [
 	"lang",
 ]
 
-const DRAIN_SUFFIX = ".collecting"
+export const DRAIN_TEMPORARY = "player-list.collecting"
 
 export const isReservedFileName = (value: string): boolean =>
-	RESERVED_FILE_NAMES.includes(value) || value.endsWith(DRAIN_SUFFIX)
+	RESERVED_FILE_NAMES.includes(value) || value === DRAIN_TEMPORARY
 
 const NOT_RESERVED = { message: "The client already uses that file name" }
+
+const FILE_NAME_MAX_BYTES = 255
+
+const utf8Bytes = (value: string): number => {
+	let bytes = 0
+	for (const character of value) {
+		const code = character.codePointAt(0) ?? 0
+		bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+	}
+	return bytes
+}
+
+const fileNameIssue = (value: string): string | undefined => {
+	if (!PATH_SHAPE.test(value) || value === "." || value === ".." || !isPlainText(value)) {
+		return A_FILE_NAME
+	}
+	return utf8Bytes(value) > FILE_NAME_MAX_BYTES ? "Too long for a file name" : undefined
+}
+
+export const isOperatorFileName = (value: string): boolean =>
+	fileNameIssue(value) === undefined && !isReservedFileName(value)
 
 const fileNameSchema = z
 	.string()
 	.min(1)
-	.regex(PATH_SHAPE, A_FILE_NAME)
-	.refine((value) => value !== "." && value !== ".." && isPlainText(value), {
-		message: A_FILE_NAME,
+	.superRefine((value, ctx) => {
+		const issue = fileNameIssue(value)
+		if (issue !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue })
 	})
 
 const expandedFileNameSchema = z
@@ -87,12 +107,6 @@ const expandedFileNameSchema = z
 	})
 
 const pathSchema = fileNameSchema.refine((value) => !isReservedFileName(value), NOT_RESERVED)
-
-const expandedPathSchema = expandedFileNameSchema
-	.refine((value) => !value.replace(EXPANDED_TOKENS, "").includes("%"), {
-		message: "The client fills in %username%, %login%, %serverport%, %datetime% and %date%",
-	})
-	.refine((value) => !isReservedFileName(value), NOT_RESERVED)
 
 const alertWordsSchema = z.array(
 	z.string().min(1).refine(isPlainText, { message: "One line per entry" }),
@@ -203,7 +217,7 @@ export const ADVANCED_BOOLEAN_NAMES: readonly string[] = z
 export const BOT_CONFIG_PATH_SHAPE = {
 	"ChatBot.Mailer.DatabaseFile": pathSchema,
 	"ChatBot.Mailer.IgnoreListFile": pathSchema,
-	"ChatBot.PlayerListLogger.File": expandedPathSchema,
+	"ChatBot.PlayerListLogger.File": pathSchema,
 }
 
 export const BOT_CONFIG_ENUM_SHAPE = {}

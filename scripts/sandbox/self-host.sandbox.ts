@@ -25,6 +25,7 @@ const SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bi
 
 const PROVING = "/opt/stand-in"
 const MEDDLING = "/opt/stand-in-meddling"
+const RACE = "/opt/stand-in-race"
 const FAILING_AWK = "/opt/stand-in-awk"
 const HALF_MINTING = "/opt/stand-in-keygen"
 
@@ -57,6 +58,19 @@ case "$1" in
 		;;
 	*) exit 1 ;;
 esac
+`,
+	],
+	[
+		`${RACE}/tail`,
+		`#!/bin/sh
+for each in "$@"; do
+	file="$each"
+done
+if [ -f "${RACE}/added" ] && [ -n "$file" ] && [ -f "$file" ]; then
+	added="$(cat "${RACE}/added")"
+	grep -qxF -- "$added" "$file" 2>/dev/null || printf '%s\\n' "$added" >> "$file"
+fi
+exec /usr/bin/tail "$@"
 `,
 	],
 	[
@@ -536,6 +550,35 @@ describe("self-host.sh, when authorized_keys changes while it runs", () => {
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain("changed while")
+		expect(await read(host, authorizedKeysOf(account))).toBe(
+			`${kept.publicKey}\n${added.publicKey}\n`,
+		)
+		const left = await exec(host, ROOT, ["ls", "-A", `${homeOf(account)}/.ssh`])
+		expect(left.stdout.trim().split("\n")).toEqual(["authorized_keys"])
+	})
+})
+
+describe("self-host.sh, when a key arrives while it is still writing its own entry", () => {
+	it("keeps that key on rollback instead of restoring the file from before this ran", async () => {
+		const account = await newAccount(host)
+		const kept = await mintKey(host)
+		const added = await mintKey(host)
+		await seedAuthorizedKeys(host, account, `${kept.publicKey}\n`)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				'printf "%s\\n" "$2" > "$1/added" && chmod 644 "$1/added"',
+				RACE,
+				added.publicKey,
+			),
+			"telling the stand-in what to add",
+		)
+
+		const ran = await selfHost(account, { standIns: [RACE] })
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("docker was not found")
 		expect(await read(host, authorizedKeysOf(account))).toBe(
 			`${kept.publicKey}\n${added.publicKey}\n`,
 		)

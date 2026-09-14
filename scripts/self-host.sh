@@ -77,45 +77,59 @@ MACHINE="$(uname -n 2>/dev/null | cut -d. -f1 | cut -c1-64)"
 [ -n "$MACHINE" ] || MACHINE="this machine"
 SSH_DIR="$HOME/.ssh"
 AUTHORIZED="$SSH_DIR/authorized_keys"
-AUTHORIZED_BEFORE="$SSH_DIR/.authorized_keys.before-open-mcc"
-AUTHORIZED_AFTER="$SSH_DIR/.authorized_keys.after-open-mcc"
+ROLLBACK_TMP="$SSH_DIR/.authorized_keys.open-mcc-rollback.$$"
 WRAPPER="$SSH_DIR/open-mcc-self-host-command"
 
 umask 077
-
-# Everything this run writes is recorded as it is written, and taken back if the
-# run stops before the end. authorized_keys is only put back whole when nothing
-# else changed it meanwhile; otherwise only this run's own entry comes out.
 
 WROTE_SSH_DIR="no"
 WROTE_KEY="no"
 WROTE_WRAPPER="no"
 WROTE_AUTHORIZED="no"
-KEPT_AUTHORIZED="no"
+WROTE_ENTRY="no"
+NEEDS_NEWLINE="no"
+APPENDED_LEN="0"
 FINISHED="no"
 
 take_back() {
 	trap '' HUP INT TERM
 	[ "$FINISHED" = "no" ] || return 0
-	if [ "$KEPT_AUTHORIZED" = "yes" ] || [ "$WROTE_AUTHORIZED" = "yes" ]; then
-		if [ ! -f "$AUTHORIZED_AFTER" ] || cmp -s "$AUTHORIZED" "$AUTHORIZED_AFTER"; then
-			if [ "$KEPT_AUTHORIZED" = "yes" ]; then
-				cat "$AUTHORIZED_BEFORE" > "$AUTHORIZED"
+	if [ "$WROTE_ENTRY" = "yes" ] && [ -f "$AUTHORIZED" ]; then
+		if [ "$NEEDS_NEWLINE" = "yes" ]; then
+			EXPECTED_TAIL="$(printf '\n%s' "$ENTRY")"
+		else
+			EXPECTED_TAIL="$(printf '%s' "$ENTRY")"
+		fi
+		ACTUAL_TAIL="$(tail -c "$APPENDED_LEN" "$AUTHORIZED" 2>/dev/null || true)"
+		FILTERED=0
+		if [ "$ACTUAL_TAIL" = "$EXPECTED_TAIL" ]; then
+			if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
+				CURRENT_LEN="$(wc -c < "$AUTHORIZED" | tr -d ' ')"
+				head -c "$((CURRENT_LEN - APPENDED_LEN))" "$AUTHORIZED" > "$ROLLBACK_TMP"
 			else
-				rm -f "$AUTHORIZED"
+				FILTERED=2
 			fi
 		else
-			FILTERED=0
-			grep -vxF -- "$ENTRY" "$AUTHORIZED" > "$AUTHORIZED_AFTER" || FILTERED=$?
-			if [ "$FILTERED" -le 1 ]; then
-				cat "$AUTHORIZED_AFTER" > "$AUTHORIZED"
-				warn "authorized_keys changed while this ran, so only the entry this run added was taken out of it"
+			if cp -p "$AUTHORIZED" "$ROLLBACK_TMP" 2>/dev/null; then
+				grep -vxF -- "$ENTRY" "$AUTHORIZED" > "$ROLLBACK_TMP" || FILTERED=$?
 			else
-				warn "authorized_keys changed while this ran and could not be read back. Remove this line from it by hand:
-         $ENTRY"
+				FILTERED=2
 			fi
 		fi
-		rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
+		if [ "$FILTERED" -le 1 ]; then
+			if [ "$WROTE_AUTHORIZED" = "yes" ] && [ ! -s "$ROLLBACK_TMP" ]; then
+				rm -f "$AUTHORIZED" "$ROLLBACK_TMP"
+			else
+				mv -f "$ROLLBACK_TMP" "$AUTHORIZED"
+			fi
+			if [ "$ACTUAL_TAIL" != "$EXPECTED_TAIL" ]; then
+				warn "authorized_keys changed while this ran, so only the entry this run added was taken out of it"
+			fi
+		else
+			rm -f "$ROLLBACK_TMP"
+			warn "authorized_keys changed while this ran and could not be read back. Remove this line from it by hand:
+         $ENTRY"
+		fi
 	fi
 	if [ "$WROTE_WRAPPER" = "yes" ]; then rm -f "$WRAPPER"; fi
 	if [ "$WROTE_KEY" = "yes" ]; then rm -f "$KEY_PATH" "$KEY_PATH.pub"; fi
@@ -245,28 +259,31 @@ WRAPPER_EOF
 fi
 
 # 5. The authorized_keys entry. Append only, and only when this exact key is
-#    not already listed. What was there, and what this run made of it, are kept
-#    aside until the run finishes.
+#    not already listed. Taking it back never restores a whole earlier copy of
+#    the file: it removes exactly the bytes appended here, verified still
+#    present at the tail, so a key some other process adds concurrently is
+#    never at risk.
 
 make_ssh_dir
 
 if [ "$LISTED" = "yes" ]; then
 	say "authorized_keys already carries this key with these restrictions"
 else
-	if [ -f "$AUTHORIZED" ]; then
-		cp "$AUTHORIZED" "$AUTHORIZED_BEFORE"
-		KEPT_AUTHORIZED="yes"
-	else
+	if [ ! -f "$AUTHORIZED" ]; then
 		WROTE_AUTHORIZED="yes"
 		: > "$AUTHORIZED"
+	elif [ -s "$AUTHORIZED" ] && [ -n "$(tail -c 1 "$AUTHORIZED")" ]; then
+		NEEDS_NEWLINE="yes"
 	fi
-	# A file whose last line has no newline would otherwise swallow our entry
-	# into somebody else's.
-	if [ -s "$AUTHORIZED" ] && [ -n "$(tail -c 1 "$AUTHORIZED")" ]; then
+	if [ "$NEEDS_NEWLINE" = "yes" ]; then
 		printf '\n' >> "$AUTHORIZED"
 	fi
 	printf '%s\n' "$ENTRY" >> "$AUTHORIZED"
-	cp "$AUTHORIZED" "$AUTHORIZED_AFTER"
+	APPENDED_LEN="$(printf '%s\n' "$ENTRY" | wc -c | tr -d ' ')"
+	if [ "$NEEDS_NEWLINE" = "yes" ]; then
+		APPENDED_LEN=$((APPENDED_LEN + 1))
+	fi
+	WROTE_ENTRY="yes"
 	say "Added a restricted entry to $AUTHORIZED"
 fi
 
@@ -558,7 +575,6 @@ SELF_HOST_LINGER=$LINGER
 MATERIALS_EOF
 
 FINISHED="yes"
-rm -f "$AUTHORIZED_BEFORE" "$AUTHORIZED_AFTER"
 
 say ""
 say "Wrote $MATERIALS, mode 600"

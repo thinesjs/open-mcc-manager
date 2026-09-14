@@ -7,7 +7,13 @@ import {
 	ROOTLESS_PROVISION_STEP_LABELS,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { OS_RELEASE_COMMAND, parseOsRelease, readSandboxing } from "./facts"
+import {
+	hostFact,
+	OS_RELEASE_COMMAND,
+	parseOsRelease,
+	readSandboxing,
+	UNKNOWN_HOST_FACT,
+} from "./facts"
 import { mccReleaseForMachine } from "./mcc-release"
 import {
 	type HostProfile,
@@ -121,11 +127,14 @@ export const provisionHost = async (
 	}
 
 	advance()
-	const osRelease = await step(
-		transport,
-		"systemctl --version | head -n 1",
-		"systemd is not available on this host",
-	)
+	const osRelease =
+		hostFact(
+			await step(
+				transport,
+				"systemctl --version | head -n 1",
+				"systemd is not available on this host",
+			),
+		) ?? UNKNOWN_HOST_FACT
 
 	const osRead = await transport.exec(OS_RELEASE_COMMAND, PROVISION_STEP_TIMEOUT_MS)
 	const { osId, osName } = parseOsRelease(osRead.stdout)

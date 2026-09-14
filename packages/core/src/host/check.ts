@@ -5,7 +5,7 @@ import {
 	reportFrom,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { readsAsEnforced, sandboxProbeCommand } from "./facts"
+import { hostFact, readsAsEnforced, sandboxProbeCommand } from "./facts"
 import { architectureForMachine } from "./mcc-release"
 import { explainClientFailure } from "./provision"
 
@@ -60,9 +60,9 @@ export const checkHostOverTransport = async (
 	const checks: HostCheckResult[] = [pass("reachable", "Connected and the host key matched")]
 
 	const version = await transport.exec("systemctl --version | head -n 1", CHECK_TIMEOUT_MS)
-	const release = version.stdout.trim()
+	const release = hostFact(version.stdout)
 	checks.push(
-		release.length > 0
+		release !== null
 			? pass("systemd", release)
 			: fail("systemd", "This host does not appear to run systemd"),
 	)

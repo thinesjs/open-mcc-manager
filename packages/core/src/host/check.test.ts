@@ -78,6 +78,36 @@ describe("checking a host before committing to enrol it", () => {
 		expect(outcomeOf(report, "architecture")).toBe("fail")
 	})
 
+	it("★ shows our own Unknown rather than a systemd line it cannot trust", async () => {
+		const report = await checkHostOverTransport(
+			await connected({
+				...READY,
+				"systemctl --version | head -n 1": {
+					stdout: `systemd 255 \u001b]8;;https://203.0.113.9:8443\u0007${"x".repeat(200)}`,
+					stderr: "",
+					exitCode: 0,
+				},
+			}),
+			"rootless",
+		)
+
+		expect(report.checks.find((check) => check.name === "systemd")?.detail).toBe("Unknown")
+	})
+
+	it("★ repeats no untrusted host output when the architecture has no build", async () => {
+		const report = await checkHostOverTransport(
+			await connected({
+				...READY,
+				"uname -m": { stdout: "\u001b[2Jriscv64 203.0.113.9:2222", stderr: "", exitCode: 0 },
+			}),
+			"rootless",
+		)
+		const detail = report.checks.find((check) => check.name === "architecture")?.detail ?? ""
+
+		expect(detail).not.toContain("203.0.113.9")
+		expect(detail).toContain("'Unknown'")
+	})
+
 	it("warns rather than blocks when confinement will not be enforced, since instances still run", async () => {
 		const report = await checkHostOverTransport(
 			await connected({

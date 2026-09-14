@@ -121,6 +121,27 @@ describe("provisionHost", () => {
 		expect(installAt).toBeGreaterThan(verifyAt)
 	})
 
+	it("★ records our own Unknown for a systemd line it cannot trust", async () => {
+		const transport = createFakeTransport({
+			...CLIENT_PROBE_OK,
+			"systemctl --version | head -n 1": {
+				stdout: `systemd 252 \u001b[31m${"x".repeat(200)}`,
+				stderr: "",
+				exitCode: 0,
+			},
+		})
+		await transport.connect({
+			hostname: "h",
+			port: 22,
+			username: "root",
+			privateKey: "k",
+			expectedFingerprint: "f",
+			timeoutMs: 1000,
+		})
+
+		expect((await provisionHost(transport, { mode: "system" })).osRelease).toBe("Unknown")
+	})
+
 	it("reports every step it is about to take, in order", async () => {
 		const transport = createFakeTransport(CLIENT_PROBE_OK)
 		await transport.connect({

@@ -13,6 +13,7 @@ import { createDb } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
 import { appRouter } from "./routers/index"
@@ -201,5 +202,62 @@ describe("HTTP error serialization regression coverage", () => {
 		expect(body).toContain("Internal server error")
 		expect(body).not.toContain(fakeSecret)
 		expect(body.toLowerCase()).not.toContain("stack")
+	})
+})
+
+const errorBody = z.object({
+	error: z.object({
+		message: z.string(),
+		data: z.object({
+			httpStatus: z.number(),
+			fields: z.array(z.string()).optional(),
+		}),
+	}),
+})
+
+const readError = async (res: Response) => {
+	const raw = await res.text()
+	return { raw, body: errorBody.parse(JSON.parse(raw)) }
+}
+
+describe("what a rejected input tells the dashboard", () => {
+	it("sends the contract's own sentence rather than the list of issues behind it", async () => {
+		const { raw, body } = await readError(await postEnroll(enrollBody("not-a-fingerprint")))
+
+		expect(body.error.data.httpStatus).toBe(400)
+		expect(body.error.message).toBe("Expected an OpenSSH SHA256 fingerprint")
+		expect(raw).not.toContain("invalid_string")
+		expect(raw).not.toContain('"validation"')
+		expect(raw).not.toMatch(/"path":\s*\[/)
+	})
+
+	it("names the field that was wrong, so a form can point at it", async () => {
+		const { body } = await readError(await postEnroll(enrollBody("not-a-fingerprint")))
+
+		expect(body.error.data.fields).toEqual(["expectedFingerprint"])
+	})
+
+	it("puts plain words in place of a message the schema library wrote", async () => {
+		const input = { ...JSON.parse(enrollBody()), name: "", port: "twenty-two" }
+		const { raw, body } = await readError(await postEnroll(JSON.stringify(input)))
+
+		expect(body.error.data.httpStatus).toBe(400)
+		expect(body.error.message).toBe("Check what you entered and try again.")
+		expect(body.error.data.fields).toEqual(["name", "port"])
+		expect(raw).not.toContain("String must contain")
+		expect(raw).not.toContain("Expected number")
+	})
+
+	it("sends nothing of an issue list raised inside the server, which is a fault and not the input", async () => {
+		const inner = z.object({ secretColumn: z.string() }).safeParse({ secretColumn: 7 })
+		vi.mocked(hosts.insert).mockRejectedValueOnce(inner.error)
+
+		const res = await postEnroll(enrollBody(PRESENTED_FINGERPRINT))
+		const raw = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(raw).toContain("Internal server error")
+		expect(raw).not.toContain("secretColumn")
+		expect(raw).not.toContain("invalid_type")
 	})
 })

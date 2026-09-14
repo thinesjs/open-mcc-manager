@@ -58,6 +58,15 @@ describe("getErrorMessage", () => {
 		expect(message).toBe("Network request failed")
 	})
 
+	it("never shows a list of validation issues as if it were a sentence", () => {
+		const message = getErrorMessage({
+			message:
+				'[ { "validation": "url", "code": "invalid_string", "message": "Invalid url", "path": [ "url" ] } ]',
+			data: { errorCode: "BAD_REQUEST" },
+		})
+		expect(message).toBe("Something went wrong. Please try again.")
+	})
+
 	it("falls back to a generic message when nothing usable is present", () => {
 		const message = getErrorMessage({ message: "" })
 		expect(message).toBe("Something went wrong. Please try again.")

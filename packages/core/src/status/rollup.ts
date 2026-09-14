@@ -63,8 +63,8 @@ export const rollUpWindow = (
 export const bucketStartsFor = (range: StatusRange, now: Date): Date[] => {
 	const step = BUCKET_SECONDS[range] * 1000
 	const count = RANGE_SECONDS[range] / BUCKET_SECONDS[range]
-	const current = Math.floor(now.getTime() / step) * step
-	return Array.from({ length: count }, (_, index) => new Date(current - (count - 1 - index) * step))
+	const since = now.getTime() - RANGE_SECONDS[range] * 1000
+	return Array.from({ length: count }, (_, index) => new Date(since + index * step))
 }
 
 export const rollUpBuckets = (

@@ -1,6 +1,12 @@
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import { createFakeTransport, type FakeFailures, readerOver } from "@open-mcc/transport"
+import {
+	createFakeTransport,
+	type FakeFailures,
+	READ_CONNECTION_HARD_AGE_MS,
+	readerOver,
+} from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
+import { CONNECT_TIMEOUT_MS } from "../host/host.controller"
 import { renderUnitTemplates } from "../host/unit-template"
 import { renderInstanceConfig } from "./config"
 import {
@@ -10,6 +16,7 @@ import {
 	looksStuck,
 	parseObservedState,
 	playerNameFrom,
+	RECONCILE_DEADLINE_MS,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 	STUCK_MARKERS,
@@ -888,5 +895,11 @@ describe("comparing a host's client config", () => {
 
 		if (!reconciliation.reachable) throw new Error("expected a reachable host")
 		expect(reconciliation.configDrift).toEqual([])
+	})
+})
+
+describe("how long a setup check may run on a shared connection", () => {
+	it("ends before the connection's hard age even after a full connect, so a check can always fit", () => {
+		expect(RECONCILE_DEADLINE_MS).toBeLessThan(READ_CONNECTION_HARD_AGE_MS - CONNECT_TIMEOUT_MS)
 	})
 })

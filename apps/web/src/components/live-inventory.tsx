@@ -1,4 +1,5 @@
 import {
+	canHoldFromSlot,
 	inventoryItemTotal,
 	itemSlug,
 	type McpInventorySlot,
@@ -113,14 +114,18 @@ const Slot = ({ item, onDrop, onHold }: SlotProps) => {
 		</div>
 	)
 
-	if (onDrop === undefined || onHold === undefined) return face
+	if (onDrop === undefined) return face
 
 	return (
 		<ContextMenu
 			items={
 				<>
-					<ContextMenuItem onClick={() => onHold(item)}>Hold this</ContextMenuItem>
-					<ContextMenuSeparator />
+					{onHold === undefined ? null : (
+						<>
+							<ContextMenuItem onClick={() => onHold(item)}>Hold this</ContextMenuItem>
+							<ContextMenuSeparator />
+						</>
+					)}
 					<ContextMenuItem destructive onClick={() => onDrop(item, 1)}>
 						Drop one
 					</ContextMenuItem>
@@ -188,14 +193,17 @@ export const LiveInventory = ({ inventory, instanceId, canInteract }: LiveInvent
 									<Slot
 										key={slot}
 										item={byNumber.get(slot)}
-										{...(canInteract
-											? {
-													onDrop: (item, count) =>
-														dropMutation.mutate({ instanceId, itemType: item.type, count }),
-													onHold: (item) =>
-														holdMutation.mutate({ instanceId, itemType: item.type }),
-												}
-											: {})}
+										onDrop={
+											canInteract
+												? (item, count) =>
+														dropMutation.mutate({ instanceId, itemType: item.type, count })
+												: undefined
+										}
+										onHold={
+											canInteract && canHoldFromSlot(inventory, slot)
+												? (item) => holdMutation.mutate({ instanceId, itemType: item.type })
+												: undefined
+										}
 									/>
 								))}
 							</div>

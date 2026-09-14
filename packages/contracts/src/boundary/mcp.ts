@@ -489,13 +489,18 @@ export type McpInventoryRegion = {
 const slotRange = (from: number, to: number): number[] =>
 	Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
+const HOTBAR_SLOTS: readonly number[] = slotRange(36, 44)
+
 export const PLAYER_INVENTORY_REGIONS: McpInventoryRegion[] = [
 	{ name: "Armour", slots: slotRange(5, 8), columns: 4 },
 	{ name: "Offhand", slots: [45], columns: 1 },
 	{ name: "Crafting", slots: slotRange(1, 4), columns: 2 },
 	{ name: "Inventory", slots: slotRange(9, 35), columns: 9 },
-	{ name: "Hotbar", slots: slotRange(36, 44), columns: 9 },
+	{ name: "Hotbar", slots: [...HOTBAR_SLOTS], columns: 9 },
 ]
+
+export const canHoldFromSlot = (inventory: { id: number }, slot: number): boolean =>
+	inventory.id === PLAYER_INVENTORY_ID && HOTBAR_SLOTS.includes(slot)
 
 export const regionsFor = (inventory: { id: number; slotCount: number }): McpInventoryRegion[] =>
 	inventory.id === PLAYER_INVENTORY_ID

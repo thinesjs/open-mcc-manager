@@ -56,6 +56,13 @@ describe("the command an operator pastes onto a new host", () => {
 		expect(script).toContain("if (ok && (!has_restrict || has_portfwd)) is_clean = 1")
 	})
 
+	it("decides present, clean and the stop line from the first matching record alone", () => {
+		const script = hostSetupScript("rootless", "pi", KEY)
+
+		expect(script).toContain("decided { next }")
+		expect(script).toContain("decided = 1")
+	})
+
 	it("names the offending line number, never the key material, when it stops", () => {
 		const script = hostSetupScript("rootless", "pi", KEY)
 		const stopLine = script

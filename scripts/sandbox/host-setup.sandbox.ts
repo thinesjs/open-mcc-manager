@@ -236,6 +236,31 @@ describe.each([{ mode: "rootless" }, { mode: "system" }] as const)(
 			expect(lines[1]).toBe(key.publicKey)
 		})
 
+		it("refuses when the first matching record is restricted, even if a later one is clean", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, `restrict ${key.publicKey}\n${key.publicKey}\n`)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status).not.toBe(0)
+			expect(ran.stderr).toContain("Could not authorise the key")
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
+		it("accepts when the first matching record is clean, even if a later one is restricted", async () => {
+			const account = await accountFor(host, mode)
+			const key = await mintKey(host)
+			await seedAuthorizedKeys(host, account, `${key.publicKey}\nrestrict ${key.publicKey}\n`)
+			const before = await read(host, authorizedKeysOf(account))
+
+			const ran = await setUp(host, mode, account, key.publicKey)
+
+			expect(ran.status, ran.stderr).toBe(0)
+			expect(await read(host, authorizedKeysOf(account))).toBe(before)
+		})
+
 		it("refuses an account that does not exist, having changed nothing", async () => {
 			const key = await mintKey(host)
 			const watched = ["/home", "/root", "/.ssh", "/var/lib/systemd/linger"]

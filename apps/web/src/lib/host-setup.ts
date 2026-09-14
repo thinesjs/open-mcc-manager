@@ -60,6 +60,7 @@ function is_keytype(s) { return s ~ /^(ssh-|ecdsa-|sk-)/ }
 BEGIN { if (blob == "") exit }
 /^[ \\t]*#/ { next }
 /^[ \\t]*$/ { next }
+decided { next }
 {
 	n = split($0, f, /[ \\t]+/)
 	k = 0
@@ -67,6 +68,7 @@ BEGIN { if (blob == "") exit }
 		if (is_keytype(f[i])) { k = i; break }
 	}
 	if (k == 0 || f[k + 1] != blob) next
+	decided = 1
 	present = 1
 	dangerous = 0
 	for (i = 1; i < k; i++) {
@@ -92,7 +94,7 @@ BEGIN { if (blob == "") exit }
 		if (ok && (!has_restrict || has_portfwd)) is_clean = 1
 	}
 	if (is_clean) clean = 1
-	else if (badline == 0) badline = NR
+	else badline = NR
 }
 END { printf "%d %d %d", present + 0, clean + 0, badline + 0 }
 ${SCAN_HEREDOC}

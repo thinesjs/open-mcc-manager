@@ -97,7 +97,7 @@ const subordinateLines = (key: string, file: string): string =>
 
 export const HOST_FACTS_COMMAND = [
 	fact("uid", "id -u"),
-	`printf 'home=%s\\n' "$(printf '%s' "$HOME" | cut -c 1-256 | tr -c '[:print:]' ' ')"`,
+	`printf 'home=%s\\n' "$(printf '%s' "$HOME" | tr -c '[:print:]' ' ' | cut -c 1-256)"`,
 	fact("passwd-home", 'getent passwd "$(id -un)" | cut -d: -f6'),
 	fact("os", `(. /etc/os-release; printf '%s %s\\n' "\${ID:-}" "\${VERSION_ID:-}")`),
 	fact("podman", "podman --version"),

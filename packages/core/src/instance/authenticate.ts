@@ -249,6 +249,11 @@ export const cancelAuthentication = async (
 
 	const instance = await deps.instances.findById(scope, instanceId)
 	if (!instance) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+	if (!needsInteractiveSignIn(instance.accountType)) {
+		throw new InstanceAccountNotInteractiveError(
+			`Instance ${instanceId} uses a ${instance.accountType} account, which has no sign-in to cancel`,
+		)
+	}
 
 	const host = await deps.hosts.findById(scope, instance.hostId)
 	if (!host?.sshKeyId || !host.hostKeyFingerprint) {

@@ -42,6 +42,10 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 	const summary = query.data ? summariseDrift(query.data) : undefined
 	const nameFor = (instanceId: string): string =>
 		instancesQuery.data?.find((instance) => instance.id === instanceId)?.name ?? instanceId
+	const isRestarting = (instanceId: string): boolean =>
+		restartMutation.isPending && restartMutation.variables?.instanceId === instanceId
+	const isRunning = (instanceId: string): boolean =>
+		instancesQuery.data?.find((instance) => instance.id === instanceId)?.status === "running"
 
 	return (
 		<Card>
@@ -143,20 +147,22 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 													: "text-muted-foreground",
 											)}
 										>
-											{remedyForGroup(group)}
+											{remedyForGroup(group, isRunning(group.instanceId))}
 										</span>
-										<Button
-											size="sm"
-											variant="secondary"
-											disabled={restartMutation.isPending}
-											onClick={() => restartMutation.mutate({ instanceId: group.instanceId })}
-										>
-											{restartMutation.isPending ? (
-												<Spinner label="Restarting" />
-											) : (
-												"Restart to fix"
-											)}
-										</Button>
+										{isRunning(group.instanceId) ? (
+											<Button
+												size="sm"
+												variant="secondary"
+												disabled={isRestarting(group.instanceId)}
+												onClick={() => restartMutation.mutate({ instanceId: group.instanceId })}
+											>
+												{isRestarting(group.instanceId) ? (
+													<Spinner label="Restarting" />
+												) : (
+													"Restart to fix"
+												)}
+											</Button>
+										) : null}
 									</div>
 									<ul className="mt-1 space-y-0.5">
 										{group.entries.map((drift) => (

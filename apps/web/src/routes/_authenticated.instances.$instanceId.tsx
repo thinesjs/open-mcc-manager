@@ -16,6 +16,7 @@ import { BotConfigPanel } from "~/components/bot-config-panel"
 import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
+import { DeviceCode } from "~/components/device-code"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceSettingsForm } from "~/components/instance-settings-form"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
@@ -33,6 +34,7 @@ import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
+import { liveReading } from "~/lib/live-reading"
 import { consoleLines } from "~/lib/minecraft-text"
 import { useTRPC } from "~/lib/trpc"
 
@@ -143,13 +145,32 @@ function InstanceDetailPage() {
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
 	const cancelAuthMutation = useMutation(
-		trpc.instance.cancelAuthentication.mutationOptions({ onSuccess, onError }),
+		trpc.instance.cancelAuthentication.mutationOptions({
+			onSuccess: async () => {
+				authenticateMutation.reset()
+				completeMutation.reset()
+				await onSuccess()
+			},
+			onError,
+		}),
 	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
 	const instance = instanceQuery.data
 	const interactive = instance ? needsInteractiveSignIn(instance.accountType) : false
 	const challenge = authenticateMutation.data
+	const running = instance?.status === "running"
+	const config = configQuery.data
+	const liveOn = running && config?.liveControlEnabled === true
+	const liveStatus = liveReading(liveStatusQuery, liveOn)
+	const liveWorld = liveReading(liveWorldQuery, running && config?.worldDataEnabled === true)
+	const liveEntities = liveReading(liveEntitiesQuery, running && config?.entityDataEnabled === true)
+	const liveInventory = liveReading(
+		liveInventoryQuery,
+		running && config?.inventoryDataEnabled === true,
+	)
+	const liveEvents = liveReading(liveEventsQuery, liveOn)
+	const liveChat = liveReading(liveChatQuery, liveOn)
 	const busy =
 		startMutation.isPending ||
 		stopMutation.isPending ||
@@ -269,24 +290,7 @@ function InstanceDetailPage() {
 						</Alert>
 					) : null}
 
-					{challenge ? (
-						<Alert variant="info" icon={<KeyRound />}>
-							<span className="block">
-								Open{" "}
-								<a
-									href={challenge.verificationUri}
-									target="_blank"
-									rel="noreferrer"
-									className="text-primary underline underline-offset-4"
-								>
-									{challenge.verificationUri}
-								</a>{" "}
-								and enter the code{" "}
-								<span className="font-mono font-semibold tracking-wider">{challenge.userCode}</span>
-								. Then choose “I finished signing in”.
-							</span>
-						</Alert>
-					) : null}
+					{challenge ? <DeviceCode challenge={challenge} /> : null}
 
 					<Tabs defaultValue="overview">
 						<TabsList>
@@ -360,34 +364,36 @@ function InstanceDetailPage() {
 										<h2 className="text-sm font-semibold text-foreground">Live state</h2>
 										<p className="text-xs text-muted-foreground">What the bot can see right now.</p>
 									</div>
-									{liveStatusQuery.isPending ? (
+									{!running ? (
+										<p className="text-sm text-muted-foreground">
+											Not live. The bot is not running.
+										</p>
+									) : liveStatusQuery.isPending ? (
 										<Spinner label="Reading live state" />
-									) : liveStatusQuery.data ? (
+									) : liveStatus ? (
 										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-											{liveStatusQuery.data.username ? (
+											{liveStatus.username ? (
 												<div className="flex justify-between gap-4">
 													<dt className="text-sm text-muted-foreground">Signed in as</dt>
-													<dd className="text-sm text-foreground">
-														{liveStatusQuery.data.username}
-													</dd>
+													<dd className="text-sm text-foreground">{liveStatus.username}</dd>
 												</div>
 											) : null}
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Connected to</dt>
 												<dd className="text-sm text-foreground">
-													{liveStatusQuery.data.host}:{liveStatusQuery.data.port}
+													{liveStatus.host}:{liveStatus.port}
 												</dd>
 											</div>
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Protocol</dt>
 												<dd className="text-sm tabular-nums text-foreground">
-													{liveStatusQuery.data.protocolVersion}
+													{liveStatus.protocolVersion}
 												</dd>
 											</div>
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">World data</dt>
 												<dd className="text-sm text-foreground">
-													{liveStatusQuery.data.terrainEnabled ? "Terrain" : "No terrain"}
+													{liveStatus.terrainEnabled ? "Terrain" : "No terrain"}
 												</dd>
 											</div>
 										</dl>
@@ -397,59 +403,57 @@ function InstanceDetailPage() {
 										</p>
 									)}
 
-									{liveWorldQuery.data ? (
+									{liveWorld ? (
 										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Server ticks</dt>
 												<dd className="text-sm tabular-nums text-foreground">
-													{liveWorldQuery.data.tps === undefined
-														? "—"
-														: `${liveWorldQuery.data.tps.toFixed(1)} tps`}
+													{liveWorld.tps === undefined ? "—" : `${liveWorld.tps.toFixed(1)} tps`}
 												</dd>
 											</div>
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Dimension</dt>
-												<dd className="text-sm text-foreground">
-													{liveWorldQuery.data.dimension ?? "—"}
-												</dd>
+												<dd className="text-sm text-foreground">{liveWorld.dimension ?? "—"}</dd>
 											</div>
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Chunks loaded</dt>
 												<dd className="text-sm tabular-nums text-foreground">
-													{liveWorldQuery.data.loadedChunkCount ?? 0}
-													{liveWorldQuery.data.pendingChunkCount
-														? ` (${liveWorldQuery.data.pendingChunkCount} pending)`
+													{liveWorld.loadedChunkCount ?? 0}
+													{liveWorld.pendingChunkCount
+														? ` (${liveWorld.pendingChunkCount} pending)`
 														: ""}
 												</dd>
 											</div>
 											<div className="flex justify-between gap-4">
 												<dt className="text-sm text-muted-foreground">Position</dt>
 												<dd className="text-sm tabular-nums text-foreground">
-													{liveWorldQuery.data.location
-														? `${Math.round(liveWorldQuery.data.location.x ?? 0)}, ${Math.round(liveWorldQuery.data.location.y ?? 0)}, ${Math.round(liveWorldQuery.data.location.z ?? 0)}`
+													{liveWorld.location
+														? `${Math.round(liveWorld.location.x ?? 0)}, ${Math.round(liveWorld.location.y ?? 0)}, ${Math.round(liveWorld.location.z ?? 0)}`
 														: "—"}
 												</dd>
 											</div>
 										</dl>
 									) : null}
 
-									<LiveReadouts
-										stats={livePlayerStatsQuery.data}
-										effects={liveStatusEffectsQuery.data}
-										bots={liveBotsQuery.data}
-										players={livePlayersQuery.data}
-									/>
+									{running ? (
+										<LiveReadouts
+											stats={liveReading(livePlayerStatsQuery, liveOn)}
+											effects={liveReading(liveStatusEffectsQuery, liveOn)}
+											bots={liveReading(liveBotsQuery, liveOn)}
+											players={liveReading(livePlayersQuery, liveOn)}
+										/>
+									) : null}
 
-									{liveEntitiesQuery.data ? (
+									{liveEntities ? (
 										<div className="space-y-2">
 											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-												Nearby ({liveEntitiesQuery.data.totalTracked} tracked)
+												Nearby ({liveEntities.totalTracked} tracked)
 											</h3>
-											{liveEntitiesQuery.data.entities.length === 0 ? (
+											{liveEntities.entities.length === 0 ? (
 												<p className="text-sm text-muted-foreground">Nothing within {32} blocks.</p>
 											) : (
 												<ul className="grid gap-x-8 gap-y-1 text-xs sm:grid-cols-2">
-													{liveEntitiesQuery.data.entities.map((entity) => (
+													{liveEntities.entities.map((entity) => (
 														<li key={entity.id} className="flex justify-between gap-4">
 															<span className="text-foreground">{entity.label}</span>
 															<span className="tabular-nums text-muted-foreground">
@@ -464,34 +468,34 @@ function InstanceDetailPage() {
 										</div>
 									) : null}
 
-									{liveInventoryQuery.data ? (
+									{liveInventory ? (
 										<div className="space-y-2">
 											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 												Inventory
 											</h3>
 											<LiveInventory
-												inventory={liveInventoryQuery.data}
+												inventory={liveInventory}
 												instanceId={instanceId}
 												canInteract={configQuery.data?.inventoryDataEnabled === true}
 											/>
 										</div>
 									) : null}
 
-									{liveEventsQuery.data && liveEventsQuery.data.events.length > 0 ? (
+									{liveEvents && liveEvents.events.length > 0 ? (
 										<div className="space-y-2">
 											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 												Events
 											</h3>
-											<LiveEvents events={liveEventsQuery.data.events} />
+											<LiveEvents events={liveEvents.events} />
 										</div>
 									) : null}
 
-									{liveChatQuery.data && liveChatQuery.data.length > 0 ? (
+									{liveChat && liveChat.length > 0 ? (
 										<div className="space-y-2">
 											<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 												Chat
 											</h3>
-											<LiveChat entries={liveChatQuery.data} />
+											<LiveChat entries={liveChat} />
 										</div>
 									) : null}
 								</section>

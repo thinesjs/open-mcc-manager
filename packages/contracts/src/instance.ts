@@ -179,7 +179,7 @@ export type InstancePublic = z.infer<typeof instancePublic>
 export const deviceCodeChallenge = z.object({
 	userCode: z.string(),
 	verificationUri: z.string(),
-	expiresAt: z.date(),
+	expiresAt: z.string().datetime(),
 })
 export type DeviceCodeChallenge = z.infer<typeof deviceCodeChallenge>
 

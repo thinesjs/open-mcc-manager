@@ -11,7 +11,7 @@ const PRESENTATION_BY_STATUS: Record<InstanceStatus, InstanceStatusPresentation>
 	created: {
 		label: "Created",
 		variant: "update",
-		description: "Provisioned. Authentication required.",
+		description: "Not started yet.",
 	},
 	needs_auth: {
 		label: "Needs auth",
@@ -21,7 +21,7 @@ const PRESENTATION_BY_STATUS: Record<InstanceStatus, InstanceStatusPresentation>
 	stopped: {
 		label: "Stopped",
 		variant: "info",
-		description: "Authenticated. Not running.",
+		description: "Not running.",
 	},
 	running: {
 		label: "Running",

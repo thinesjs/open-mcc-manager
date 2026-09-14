@@ -251,10 +251,12 @@ function AlertsPage() {
 						key={destination.id}
 						className="rounded-[var(--radius)] border border-border bg-card p-4"
 					>
-						<div className="flex items-start justify-between gap-4">
-							<div className="min-w-0 space-y-1">
-								<div className="flex items-center gap-2">
-									<span className="font-medium text-foreground">{destination.name}</span>
+						<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+							<div className="min-w-0 flex-1 basis-56 space-y-1">
+								<div className="flex flex-wrap items-center gap-2">
+									<span className="min-w-0 break-words font-medium text-foreground">
+										{destination.name}
+									</span>
 									<Badge variant="outline">{destination.kindLabel}</Badge>
 									{destination.enabled ? null : <Badge variant="secondary">Off</Badge>}
 								</div>
@@ -296,7 +298,7 @@ function AlertsPage() {
 									)}
 								</p>
 							</div>
-							<div className="flex shrink-0 items-center gap-2">
+							<div className="flex flex-wrap items-center gap-2">
 								{may("edit") && canBeCreated(destination.kind) ? (
 									<Button
 										size="sm"

@@ -123,8 +123,14 @@ describe("grouping config drift by instance", () => {
 		const [ordinary] = groupConfigDrift([entry("a", "One", "managed")])
 		const [silent] = groupConfigDrift([entry("b", "ChatBot.McpServer", "unreachable")])
 
-		expect(ordinary && remedyForGroup(ordinary)).toMatch(/Restarting this instance rewrites/)
-		expect(silent && remedyForGroup(silent)).toMatch(/turn live control off/)
+		expect(ordinary && remedyForGroup(ordinary, true)).toMatch(/Restarting this instance rewrites/)
+		expect(silent && remedyForGroup(silent, true)).toMatch(/turn live control off/)
+	})
+
+	it("never tells an operator to restart a stopped bot, whose next start fixes it", () => {
+		const [ordinary] = groupConfigDrift([entry("a", "One", "managed")])
+
+		expect(ordinary && remedyForGroup(ordinary, false)).toBe("Fixed the next time it starts.")
 	})
 
 	it("returns nothing when there is no config drift", () => {

@@ -152,7 +152,7 @@ export const clearValue = (draft: BotConfigDraft, key: SettingName): BotConfigDr
 	return next
 }
 
-export type UnmetDependency = { readonly requires: string }
+export type UnmetDependency = { readonly requires: readonly string[] }
 
 const dependencyFor = (key: SettingName): BotConfigDependency | undefined =>
 	BOT_CONFIG_DEPENDENCIES.find((entry) => entry.keys.includes(key))
@@ -169,14 +169,17 @@ export const unmetDependency = (
 		if (dependency.kind === "instance") {
 			const missing = dependency.requires.filter((setting) => instance[setting] !== true)
 			if (missing.length === 0) return undefined
-			return {
-				requires: missing.map((setting) => INSTANCE_SETTING_LABELS[setting]).join(" and "),
-			}
+			return { requires: missing.map((setting) => INSTANCE_SETTING_LABELS[setting]) }
 		}
 		if (effectiveValue(draft, dependency.requires) !== "true") {
-			return { requires: BOT_CONFIG_FIELDS[dependency.requires].label }
+			return { requires: [BOT_CONFIG_FIELDS[dependency.requires].label] }
 		}
 		current = dependency.requires
 	}
 	return undefined
 }
+
+export const describeUnmetDependency = ({ requires }: UnmetDependency): string =>
+	requires.length === 1
+		? `Does nothing until ${requires[0]} is on.`
+		: `Does nothing until these are on: ${requires.join(", ")}.`

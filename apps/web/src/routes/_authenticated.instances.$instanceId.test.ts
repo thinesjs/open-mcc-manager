@@ -9,8 +9,6 @@ describe("the live state a bot reports", () => {
 		const row = source.indexOf("Signed in as")
 
 		expect(row).toBeGreaterThan(-1)
-		expect(source.slice(Math.max(0, row - 160), row)).toContain(
-			"{liveStatusQuery.data.username ? (",
-		)
+		expect(source.slice(Math.max(0, row - 160), row)).toContain("{liveStatus.username ? (")
 	})
 })

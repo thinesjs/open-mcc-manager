@@ -1,3 +1,4 @@
+import { HOST_KEY_FINGERPRINT_PATTERN } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, Info } from "lucide-react"
@@ -30,6 +31,14 @@ export type EnrollHostStepsProps = {
 	onEnrolled: (hostId: string) => void
 }
 
+const PORT_DIGITS = /^[0-9]{1,5}$/
+
+const portFrom = (value: string): number | null => {
+	if (!PORT_DIGITS.test(value)) return null
+	const port = Number(value)
+	return port >= 1 && port <= 65535 ? port : null
+}
+
 export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
@@ -55,17 +64,42 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 		setStep(target)
 	}
 
-	const canCheck = expectedFingerprint.length > 0 && hostname.length > 0
+	const checkedInput =
+		(current: string, set: (value: string) => void) =>
+		(value: string): void => {
+			if (value === current) return
+			checkMutation.reset()
+			set(value)
+		}
 
-	const canAdvance =
-		step === 0 ? sshKeyId.length > 0 : step === 1 ? name.length > 0 && hostname.length > 0 : true
+	const portNumber = portFrom(port)
+	const addressReady =
+		name.length > 0 && hostname.length > 0 && portNumber !== null && username.length > 0
+	const fingerprintReady = HOST_KEY_FINGERPRINT_PATTERN.test(expectedFingerprint)
+
+	const target =
+		portNumber === null ? null : { hostname, port: portNumber, username, sshKeyId, expectedFingerprint }
+	const canCheck = target !== null && addressReady && sshKeyId.length > 0 && fingerprintReady
+
+	const checked = checkMutation.variables
+	const checkedReady =
+		checkMutation.data?.ready === true &&
+		checked !== undefined &&
+		checked.sshKeyId === sshKeyId &&
+		checked.hostname === hostname &&
+		checked.port === portNumber &&
+		checked.username === username &&
+		checked.expectedFingerprint === expectedFingerprint
+
+	const canAdvance = step === 0 ? sshKeyId.length > 0 : step === 1 ? addressReady : true
 
 	const submit = () => {
+		if (portNumber === null) return
 		enrollMutation.mutate(
 			{
 				name,
 				hostname,
-				port: Number.parseInt(port, 10),
+				port: portNumber,
 				username,
 				sshKeyId,
 				expectedFingerprint,
@@ -107,7 +141,10 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 
 						<div className="space-y-1.5">
 							<Label htmlFor="enroll-key">SSH key</Label>
-							<Select value={sshKeyId} onValueChange={(value) => setSshKeyId(value ?? "")}>
+							<Select
+								value={sshKeyId}
+								onValueChange={(value) => checkedInput(sshKeyId, setSshKeyId)(value ?? "")}
+							>
 								<SelectTrigger id="enroll-key">
 									<SelectValue placeholder="Select a key">
 										{() => keys.find((key) => key.id === sshKeyId)?.name}
@@ -160,7 +197,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 									id="enroll-hostname"
 									value={hostname}
 									placeholder="100.64.0.9"
-									onChange={(event) => setHostname(event.target.value)}
+									onChange={(event) => checkedInput(hostname, setHostname)(event.target.value)}
 								/>
 							</div>
 							<div className="space-y-1.5">
@@ -169,7 +206,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 									id="enroll-port"
 									value={port}
 									inputMode="numeric"
-									onChange={(event) => setPort(event.target.value)}
+									aria-invalid={portNumber === null}
+									onChange={(event) => checkedInput(port, setPort)(event.target.value)}
 								/>
 							</div>
 						</div>
@@ -179,7 +217,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							<Input
 								id="enroll-username"
 								value={username}
-								onChange={(event) => setUsername(event.target.value)}
+								onChange={(event) => checkedInput(username, setUsername)(event.target.value)}
 							/>
 						</div>
 					</div>
@@ -190,9 +228,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Prepare the host</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Run once on {hostname || "the host"}. Authorises this deployment's key for{" "}
-								{username}, installs the client's dependencies, and outputs the host key fingerprint
-								required by the next step. Idempotent.
+								Run once on {hostname || "the host"}. It sets up {username} to run bots in Podman
+								and prints the fingerprint for the next step.
 							</p>
 						</div>
 
@@ -221,7 +258,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								id="enroll-fingerprint"
 								value={expectedFingerprint}
 								placeholder="SHA256:…"
-								onChange={(event) => setExpectedFingerprint(event.target.value)}
+								onChange={(event) => checkedInput(expectedFingerprint, setExpectedFingerprint)(event.target.value)}
 							/>
 						</div>
 
@@ -234,9 +271,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
 							<div className="flex items-start justify-between gap-3">
 								<div>
-									<p className="text-sm font-medium text-foreground">Connection check</p>
+									<p className="text-sm font-medium text-foreground">Host check</p>
 									<p className="mt-0.5 text-xs text-muted-foreground">
-										Checks that OpenMCC can safely reach this server.
+										Enroll once this server is ready for bots.
 									</p>
 								</div>
 								<Button
@@ -244,15 +281,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 									size="sm"
 									variant="secondary"
 									disabled={!canCheck || checkMutation.isPending}
-									onClick={() =>
-										checkMutation.mutate({
-											hostname,
-											port: Number.parseInt(port, 10),
-											username,
-											sshKeyId,
-											expectedFingerprint,
-										})
-									}
+									onClick={() => {
+										if (target !== null) checkMutation.mutate(target)
+									}}
 								>
 									{checkMutation.isPending ? <Spinner label="Checking" /> : "Check host"}
 								</Button>
@@ -299,7 +330,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				{isLastStep(step, ENROLL_STEPS.length) ? (
 					<Button
 						size="sm"
-						disabled={enrollMutation.isPending || expectedFingerprint.length === 0}
+						disabled={enrollMutation.isPending || !fingerprintReady || !checkedReady}
 						onClick={submit}
 					>
 						{enrollMutation.isPending ? <Spinner label="Enrolling" /> : "Enroll host"}

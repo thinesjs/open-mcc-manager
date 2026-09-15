@@ -206,11 +206,35 @@ describe("keeping the panel's view of each host current", () => {
 		)
 	})
 
-	it("polls only hosts that finished provisioning", () => {
-		expect(isPollable(host())).toBe(true)
-		expect(isPollable(host({ status: "pending" }))).toBe(false)
-		expect(isPollable(host({ status: "provisioning" }))).toBe(false)
-		expect(isPollable(host({ status: "error" }))).toBe(false)
+	it.each(["ready", "error", "provisioning", "unreachable"] as const)(
+		"keeps polling a set-up host whose status is %s, so a failed or running Repair freezes nothing",
+		(status) => {
+			expect(isPollable(host({ status }))).toBe(true)
+		},
+	)
+
+	it("polls a host whose Repair failed, leasing it like any other", async () => {
+		const lease = vi.fn(leasing("0"))
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host({ status: "error" })],
+			lease,
+			recordSeen: async () => undefined,
+			now: () => new Date(),
+		})
+
+		expect(run.reached).toEqual(["host-1"])
+		expect(lease).toHaveBeenCalledTimes(1)
+	})
+
+	it("never polls a host that never finished setup, whatever its status says", () => {
+		expect(isPollable(host({ status: "pending", osRelease: null }))).toBe(false)
+		expect(isPollable(host({ status: "provisioning", osRelease: null }))).toBe(false)
+		expect(isPollable(host({ osRelease: null }))).toBe(false)
+	})
+
+	it("never polls a host being removed, which teardown is emptying", () => {
+		expect(isPollable(host({ status: "removing" }))).toBe(false)
 	})
 
 	it.each([

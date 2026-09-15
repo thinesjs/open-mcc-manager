@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { sql } from "kysely"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
@@ -797,42 +798,68 @@ describe("the host table after the single host model (real Postgres)", () => {
 })
 
 describe("which hosts the health poller lists (real Postgres)", () => {
-	it("lists a ready host only with its network stack and architecture recorded, exactly as the poller's own check allows", async () => {
+	it("lists every set-up host with its runtime recorded, except one being removed, exactly as the poller's own check allows", async () => {
 		const scope = { organizationId: orgB }
 		const made: string[] = []
 		const wanted: string[] = []
-		for (const status of ["pending", "ready", "error"] as const) {
-			for (const networkStack of [null, "pasta"] as const) {
-				for (const architecture of [null, "arm64"] as const) {
-					const created = await repo.insert(scope, {
-						name: `poll-${status}-${networkStack ?? "none"}-${architecture ?? "none"}`,
-						hostname: "10.0.9.1",
-						port: 22,
-						username: "mcc",
-						sshKeyId: null,
-					})
-					trackHostId(created.id)
-					await testDb()
-						.updateTable("host")
-						.set({ status, networkStack, architecture, osRelease: "systemd 257" })
-						.where("id", "=", created.id)
-						.execute()
-					made.push(created.id)
-					if (status === "ready" && networkStack !== null && architecture !== null) {
-						wanted.push(created.id)
+		const named = new Map<string, string>()
+		for (const status of ["pending", "provisioning", "ready", "error", "removing"] as const) {
+			for (const osRelease of [null, "systemd 257"] as const) {
+				for (const networkStack of [null, "pasta"] as const) {
+					for (const architecture of [null, "arm64"] as const) {
+						const name = `poll-${status}-${osRelease === null ? "unset" : "set"}-${networkStack ?? "none"}-${architecture ?? "none"}`
+						const created = await repo.insert(scope, {
+							name,
+							hostname: "10.0.9.1",
+							port: 22,
+							username: "mcc",
+							sshKeyId: null,
+						})
+						trackHostId(created.id)
+						await testDb()
+							.updateTable("host")
+							.set({
+								status,
+								osRelease,
+								networkStack,
+								architecture,
+								provisioningAttemptId: status === "provisioning" ? randomUUID() : null,
+								provisioningClaimedAt: status === "provisioning" ? new Date() : null,
+								teardownRequestedAt: status === "removing" ? new Date() : null,
+							})
+							.where("id", "=", created.id)
+							.execute()
+						made.push(created.id)
+						named.set(name, created.id)
+						if (
+							status !== "removing" &&
+							osRelease !== null &&
+							networkStack !== null &&
+							architecture !== null
+						) {
+							wanted.push(created.id)
+						}
 					}
 				}
 			}
 		}
+		const idOf = (name: string): string => named.get(name) ?? name
 
 		const listed = (await repo.listPollableAcrossOrganizations())
 			.map((row) => row.id)
 			.filter((id) => made.includes(id))
+			.sort()
 		const rows = await Promise.all(made.map((id) => repo.findById(scope, id)))
-		const allowed = rows.flatMap((row) => (row !== undefined && isPollable(row) ? [row.id] : []))
+		const allowed = rows
+			.flatMap((row) => (row !== undefined && isPollable(row) ? [row.id] : []))
+			.sort()
 
-		expect(wanted).toHaveLength(1)
-		expect(listed).toEqual(wanted)
-		expect(allowed).toEqual(wanted)
+		expect(wanted).toHaveLength(4)
+		expect(listed).toContain(idOf("poll-error-set-pasta-arm64"))
+		expect(listed).toContain(idOf("poll-provisioning-set-pasta-arm64"))
+		expect(listed).not.toContain(idOf("poll-removing-set-pasta-arm64"))
+		expect(listed).not.toContain(idOf("poll-ready-unset-pasta-arm64"))
+		expect(listed).toEqual([...wanted].sort())
+		expect(allowed).toEqual(listed)
 	})
 })

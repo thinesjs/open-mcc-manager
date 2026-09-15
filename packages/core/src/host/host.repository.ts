@@ -134,7 +134,8 @@ export const createHostRepository = (db: Executor) => ({
 		db
 			.selectFrom("host")
 			.selectAll()
-			.where("status", "=", "ready")
+			.where("status", "<>", "removing")
+			.where("osRelease", "is not", null)
 			.where("networkStack", "is not", null)
 			.where("architecture", "is not", null)
 			.execute(),

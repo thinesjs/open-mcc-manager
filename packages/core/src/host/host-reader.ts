@@ -48,7 +48,7 @@ export const leaseHostReader = async (
 	scope: OrgScope,
 	hostId: string,
 	deadlineMs: number,
-	need: HostNeed = "setUpOnce",
+	need: HostNeed,
 ): Promise<HostReadLease> => {
 	const host = await deps.hosts.findById(scope, hostId)
 	const identity = host ? identityOf(host) : undefined

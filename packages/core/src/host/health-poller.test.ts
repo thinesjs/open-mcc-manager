@@ -348,7 +348,13 @@ describe("the health poller on a shared connection", () => {
 			readConnections,
 		}
 		const lease = (target: HostRow, deadlineMs: number) =>
-			leaseHostReader(readerDeps, { organizationId: target.organizationId }, target.id, deadlineMs)
+			leaseHostReader(
+				readerDeps,
+				{ organizationId: target.organizationId },
+				target.id,
+				deadlineMs,
+				"runtime",
+			)
 		return { readConnections, lease, expectedFingerprints }
 	}
 

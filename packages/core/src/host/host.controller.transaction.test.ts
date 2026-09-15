@@ -1871,7 +1871,7 @@ describe("shared read connections open, read and close outside every transaction
 		const readerDeps = { hosts, sshKeys, secrets, readConnections }
 		const scope = { organizationId }
 		const readOnce = async () => {
-			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000)
+			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000, "setUpOnce")
 			if (leased.kind !== "leased") return leased.kind
 			try {
 				return await leased.reader.probePort(33333)

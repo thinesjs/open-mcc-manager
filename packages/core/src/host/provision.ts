@@ -99,7 +99,7 @@ export const explainClientFailure = (output: string): string => {
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const imagePullCommand = (image: RuntimeImage): string =>
-	`podman pull --quiet ${shellQuote(runtimeImageReference(image))}`
+	`podman pull ${shellQuote(runtimeImageReference(image))}`
 
 export const imageIdCommand = (image: RuntimeImage): string =>
 	`podman image inspect --format '{{.Id}}' ${shellQuote(runtimeImageReference(image))}`

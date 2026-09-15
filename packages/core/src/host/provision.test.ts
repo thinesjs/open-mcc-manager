@@ -381,7 +381,7 @@ describe("the runtime image", () => {
 		await provisionHost(transport)
 
 		expect(imagePullCommand(ARM64)).toBe(
-			"podman pull --quiet 'mcr.microsoft.com/dotnet/runtime-deps@sha256:003addb8550309e7cd6886ff29175c4c6d926cb920eb9966bda388fe9d682062'",
+			"podman pull 'mcr.microsoft.com/dotnet/runtime-deps@sha256:003addb8550309e7cd6886ff29175c4c6d926cb920eb9966bda388fe9d682062'",
 		)
 		expect(transport.commands).toContain(imagePullCommand(ARM64))
 		expect(transport.commands).not.toContain(imagePullCommand(runtimeImageFor("x64")))

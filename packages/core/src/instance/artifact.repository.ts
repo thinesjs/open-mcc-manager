@@ -1,4 +1,4 @@
-import type { Executor, InstanceArtifactKind } from "@open-mcc/db"
+import type { Db, Executor, InstanceArtifactKind } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
 import { type CursorAdvance, EMPTY_FINGERPRINT } from "./artifact"
@@ -44,7 +44,7 @@ const insertArtifact = async (
 	return row !== undefined
 }
 
-export const createArtifactRepository = (db: Executor) => ({
+export const createArtifactRepository = (db: Db) => ({
 	store: async (scope: OrgScope, values: ArtifactValues): Promise<boolean> =>
 		await insertArtifact(db, scope, values),
 

@@ -538,7 +538,7 @@ describe("★ collecting a player list without writing to a running bot's files"
 		expect(command.startsWith(`${TRUNCATE}${DIRECTORY}/collect.lock sh -c '`)).toBe(true)
 		expect(
 			command.endsWith(
-				`&& dd if=/dev/null of=${STATE}/'\\''playerlog.txt'\\'' oflag=nofollow,nonblock status=none'; s=$?; exit $s`,
+				`&& dd if=/dev/null of=${STATE}/'\\''playerlog.txt'\\'' oflag=nofollow,nonblock conv=nocreat status=none'; s=$?; exit $s`,
 			),
 		).toBe(true)
 		expect(command.match(/in inactive\|failed\) ;; \*\) exit 1 ;; esac/g)).toHaveLength(2)

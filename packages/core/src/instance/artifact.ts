@@ -253,7 +253,7 @@ export const truncateCommand = (
 		stopped(authUnitName(instanceId)),
 		`[ "$(${regularFileSize(instanceId, name)})" = ${cursor.offset} ]`,
 		`[ "$(${readBytes(file, window.skip, window.count)} | sha256sum | cut -c1-64)" = ${cursor.fingerprint} ]`,
-		`dd if=/dev/null of=${file} oflag=nofollow,nonblock status=none`,
+		`dd if=/dev/null of=${file} oflag=nofollow,nonblock conv=nocreat status=none`,
 	].join(" && ")
 	return withDeadline(
 		TRUNCATE_KILL_AFTER_SECONDS,

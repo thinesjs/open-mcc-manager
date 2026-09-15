@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest"
 import { withDeadline } from "../../packages/core/src/host/deadline"
 import { storageStepCommand } from "../../packages/core/src/host/podman-facts"
 import { renderUnitTemplates } from "../../packages/core/src/host/unit-template"
@@ -116,6 +116,14 @@ const PLANT = [
 	"done",
 ].join("\n")
 
+const NOFILE_DIAGNOSIS = [
+	'echo "caller hard nofile: $(ulimit -H -n)"',
+	'echo "fs.nr_open: $(timeout 5 cat /proc/sys/fs/nr_open)"',
+	"echo \"user service hard nofile: $(timeout 5 systemd-run --user --wait --pipe --quiet sh -c 'ulimit -H -n' 2>&1 | head -n 1)\"",
+	'timeout 5 podman --log-level=debug exec "$1" true 2>&1 | grep -i -E "rlimit|nofile" | head -n 5',
+	"exit 0",
+].join("\n")
+
 const TRY_THE_MOUNT_POINT = [
 	'mv "$0" /data/moved; echo "rename=$?"',
 	'rmdir "$0"; echo "remove=$?"',
@@ -195,9 +203,19 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			"reading the bot's state",
 		).trim()
 
+	const nofileDiagnosis = async (): Promise<string> =>
+		await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, CONTAINER).then(
+			(ran) => ran.stdout.slice(0, 2000),
+			(error) =>
+				`diagnostic unavailable: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`,
+		)
+
 	const startBot = async (): Promise<void> => {
 		const started = await shell(host, { ...as, timeoutMs: 120_000 }, startUnitCommand(BOT))
-		expect(parseUnitStartState(started.stdout)?.activeState, started.stderr).toBe("active")
+		if (parseUnitStartState(started.stdout)?.activeState !== "active") {
+			const failure = `the bot did not start: ${started.stdout.trim()} ${started.stderr.trim().slice(0, 1000)}`
+			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
+		}
 	}
 
 	const stopBot = async (): Promise<void> => {
@@ -315,29 +333,52 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 		await remove(host)
 	}, 300_000)
 
+	afterEach(async () => {
+		await shell(host, { ...as, timeoutMs: 120_000 }, `${MANAGER} stop "$1"`, INSTANCE)
+		await shell(host, as, 'rm -f -- "$@"', ...ON_THE_HOST)
+	}, 180_000)
+
+	const inTheBot = async (what: string, script: string, ...args: readonly string[]) => {
+		const ran = await shell(
+			host,
+			{ ...as, timeoutMs: 60_000 },
+			'systemd-run --user --wait --pipe --quiet podman exec "$@"',
+			CONTAINER,
+			"sh",
+			"-c",
+			script,
+			...args,
+		)
+		if (ran.status !== 0) {
+			const failure = `${what} exited ${ran.status}: ${ran.stderr.trim().slice(0, 1000)}`
+			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
+		}
+		return ran.stdout
+	}
+
 	it("★ keeps the replays mount point in place when the bot tries to rename or remove it", async () => {
 		await startBot()
 
-		const tried = await shell(
-			host,
-			as,
-			'podman exec "$1" sh -c "$2" /data/replay_recordings',
-			CONTAINER,
+		const tried = await inTheBot(
+			"trying the mount point from inside the bot",
 			TRY_THE_MOUNT_POINT,
+			"/data/replay_recordings",
 		)
 		const statusOf = (step: string): string | undefined =>
-			new RegExp(`^${step}=(\\d+)$`, "m").exec(tried.stdout)?.[1]
+			new RegExp(`^${step}=(\\d+)$`, "m").exec(tried)?.[1]
 		const probe = await shell(host, as, 'cat "$1/probe" && rm -f "$1/probe"', REPLAYS)
 
 		expect(
+			{ wrote: statusOf("write"), seenOnTheHost: probe.stdout },
+			`the bot's own write must land first: ${tried}${probe.stderr}`,
+		).toEqual({ wrote: "0", seenOnTheHost: "probe\n" })
+		expect(
 			{
-				renamed: statusOf("rename") === "0",
-				removed: statusOf("remove") === "0",
-				wrote: statusOf("write"),
-				seenOnTheHost: probe.stdout,
+				renameRefused: statusOf("rename") !== undefined && statusOf("rename") !== "0",
+				removeRefused: statusOf("remove") !== undefined && statusOf("remove") !== "0",
 			},
-			tried.stderr,
-		).toEqual({ renamed: false, removed: false, wrote: "0", seenOnTheHost: "probe\n" })
+			tried,
+		).toEqual({ renameRefused: true, removeRefused: true })
 	})
 
 	it.each(["link", "fifo"] as const)(
@@ -346,18 +387,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			const before = await decoyDigest()
 			await clearPlanted()
 			await startBot()
-			succeeded(
-				await shell(
-					host,
-					as,
-					'podman exec "$1" sh -c "$2" "$3" "$4" "$5" "$6" "$7"',
-					CONTAINER,
-					PLANT,
-					planted,
-					...PLANTED,
-				),
-				`planting a ${planted} at every collected name`,
-			)
+			await inTheBot(`planting a ${planted} at every collected name`, PLANT, planted, ...PLANTED)
 			await stopBot()
 			succeeded(
 				await shell(
@@ -397,7 +427,6 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 				mailerBytes: [0, 0],
 				left: "",
 			})
-			await clearPlanted()
 		},
 	)
 

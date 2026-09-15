@@ -66,7 +66,7 @@ export const FIXED_CONFIG_KEYS = [
 	"ChatBot.TelegramBridge.Enabled",
 ] as const
 
-export const LIVE_CONTROL_BIND_HOST = "127.0.0.1"
+export const LIVE_CONTROL_BIND_HOST = "0.0.0.0"
 
 export const LIVE_CONTROL_ROUTE = "/mcp"
 

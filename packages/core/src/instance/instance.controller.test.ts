@@ -369,6 +369,23 @@ describe("a bot's files and its start", () => {
 		).toHaveLength(2)
 	})
 
+	it("rotates the live control token into the env file create made, unquoted and exact", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.start(owner, "abc123")
+		await controller.restart(owner, "abc123")
+
+		const tokens = transport.stdins.filter((stdin) => stdin.startsWith("MCC_MCP_AUTH_TOKEN="))
+		expect(tokens).toHaveLength(2)
+		for (const token of tokens) expect(token).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
+		expect(tokens[0]).not.toBe(tokens[1])
+		expect(
+			transport.commands.filter((command) => command === `(umask 077; cat > ${DIR}/env)`),
+		).toHaveLength(2)
+		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
+	})
+
 	it("fails a start into a directory that is gone, before it starts anything", async () => {
 		const { deps, transport } = withSavedConfig()
 		answering(transport, `(umask 077; cat > ${DIR}/env)`, {

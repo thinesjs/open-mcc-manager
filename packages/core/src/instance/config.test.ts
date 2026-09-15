@@ -8,6 +8,7 @@ import {
 	renderInstanceConfig,
 	splitServerAddress,
 } from "./config"
+import { compareInstanceConfig } from "./config-drift"
 
 const base = {
 	accountType: "microsoft",
@@ -351,11 +352,26 @@ describe("instance config rendering", () => {
 		expect(renderInstanceConfig(base)).toContain("RequireAuthToken = true")
 	})
 
-	it("pins the live endpoint to loopback, never offering the choice", () => {
+	it("binds the live endpoint to every address inside the bot's container, never offering the choice", () => {
 		const rendered = renderInstanceConfig({ ...base, liveControlEnabled: true })
 
-		expect(rendered).toContain('BindHost = "127.0.0.1"')
-		expect(rendered).not.toContain("0.0.0.0")
+		expect(rendered.match(/^BindHost = .*$/gm)).toEqual(['BindHost = "0.0.0.0"'])
+		expect(FIXED_CONFIG_KEYS).toContain("ChatBot.McpServer.Transport.BindHost")
+		expect(ALLOWED_CONFIG_KEYS).not.toContain("ChatBot.McpServer.Transport.BindHost")
+	})
+
+	it("reports a host file still binding the live endpoint to loopback as fixed drift", () => {
+		const expected = renderInstanceConfig({ ...base, liveControlEnabled: true })
+		const actual = expected.replace('BindHost = "0.0.0.0"', 'BindHost = "127.0.0.1"')
+
+		expect(compareInstanceConfig(expected, actual)).toEqual([
+			{
+				kind: "fixed",
+				key: "ChatBot.McpServer.Transport.BindHost",
+				expected: "0.0.0.0",
+				actual: "127.0.0.1",
+			},
+		])
 	})
 
 	it("denies the live endpoint every write, leaving the fifo the only way in", () => {

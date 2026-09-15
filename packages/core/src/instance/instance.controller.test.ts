@@ -82,6 +82,13 @@ import {
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import { reconcileFactsCommand } from "./reconcile"
+import {
+	deleteDirectoryCommand,
+	removeContainersCommand,
+	removeTimersCommand,
+	stopUnitsCommand,
+	verifyGoneCommand,
+} from "./removal"
 import type { ScheduleRepository } from "./schedule.repository"
 import { instanceDir, instanceLayoutSteps, startUnitCommand, unitName } from "./unit"
 
@@ -1074,28 +1081,13 @@ describe("scheduled commands", () => {
 })
 
 describe("removing an instance", () => {
-	it("takes its sleep timers with it, which would otherwise fire forever", async () => {
-		const { deps, transport } = makeDeps()
-		const controller = createInstanceController(deps)
-
-		await controller.remove(owner, "abc123")
-
-		const joined = transport.commands.join("\n")
-		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-stop@abc123.timer'`)
-		expect(joined).toContain(`${SYSTEMCTL} disable --now 'open-mcc-sleep-start@abc123.timer'`)
-		expect(joined).toContain(`rm -f ${UNITS}/'open-mcc-sleep-stop@abc123.timer'`)
-		expect(joined).toContain(`rm -f ${UNITS}/'open-mcc-sleep-start@abc123.timer'`)
-	})
-
-	const REMOVAL = {
-		timer: `${SYSTEMCTL} disable --now 'open-mcc-sleep-start@abc123.timer' || true`,
-		stopInstance: `${SYSTEMCTL} stop 'open-mcc@abc123.service' || true; ${SYSTEMCTL} disable 'open-mcc@abc123.service' || true; ${SYSTEMCTL} reset-failed 'open-mcc@abc123.service' || true`,
-		stopSignIn: `${SYSTEMCTL} stop 'open-mcc-auth@abc123.service' || true; ${SYSTEMCTL} reset-failed 'open-mcc-auth@abc123.service' || true`,
-		quiet: `real=$(cd "$HOME"/.local/share/open-mcc/instances/abc123 2>/dev/null && pwd -P) || exit 0; for process in /proc/[0-9]*; do case "$(readlink "$process/cwd" 2>/dev/null)" in "$real"|"$real"/*) exit 1;; esac; done; exit 0`,
-		directory: 'rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123',
+	const STEPS = {
+		timers: removeTimersCommand("abc123"),
+		stop: stopUnitsCommand("abc123"),
+		containers: removeContainersCommand("abc123"),
+		verify: verifyGoneCommand("abc123"),
+		directory: deleteDirectoryCommand("abc123"),
 	} as const
-
-	const failed = { stdout: "", stderr: "", exitCode: 1 }
 
 	const removeOn = (host: HostRow, transport: ReturnType<typeof createFakeTransport>) => {
 		const { deps, instances, audit } = makeDeps({
@@ -1105,88 +1097,136 @@ describe("removing an instance", () => {
 		return { instances, audit, outcome: createInstanceController(deps).remove(owner, "abc123") }
 	}
 
-	it("stops the sign-in unit as well as the instance before checking what is still running", async () => {
+	const answering = (exitCodeFor: (command: string, time: number) => number | undefined) => {
 		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
-		const at = (command: string) => transport.commands.indexOf(command)
+		const scripted = transport.exec
+		transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			const result = await scripted(command, timeoutMs, stdin)
+			const time = transport.commands.filter((each) => each === command).length
+			return { ...result, exitCode: exitCodeFor(command, time) ?? result.exitCode }
+		}
+		return transport
+	}
 
-		expect(at(REMOVAL.stopInstance)).toBeGreaterThanOrEqual(0)
-		expect(at(REMOVAL.stopSignIn)).toBeGreaterThanOrEqual(0)
-		expect(at(REMOVAL.stopInstance)).toBeLessThan(at(REMOVAL.quiet))
-		expect(at(REMOVAL.stopSignIn)).toBeLessThan(at(REMOVAL.quiet))
-	})
-
-	it("takes the sleep timers away first, so neither can start the instance again", async () => {
-		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
-		const at = (command: string) => transport.commands.indexOf(command)
-
-		expect(at(REMOVAL.timer)).toBeGreaterThanOrEqual(0)
-		expect(at(REMOVAL.timer)).toBeLessThan(at(REMOVAL.stopInstance))
-	})
-
-	it("deletes the instance's directory, which holds its sign-in and live-control secrets, once nothing is running", async () => {
-		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
-		const at = (command: string) => transport.commands.indexOf(command)
-
-		expect(at(REMOVAL.directory)).toBeGreaterThanOrEqual(0)
-		expect(at(REMOVAL.quiet)).toBeGreaterThanOrEqual(0)
-		expect(at(REMOVAL.quiet)).toBeLessThan(at(REMOVAL.directory))
-	})
-
-	it("stops both units again once the directory is gone, so a start in that window does not outlive the removal", async () => {
-		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
-		const directoryAt = transport.commands.indexOf(REMOVAL.directory)
-
-		expect(directoryAt).toBeGreaterThanOrEqual(0)
-		expect(transport.commands.lastIndexOf(REMOVAL.stopInstance)).toBeGreaterThan(directoryAt)
-		expect(transport.commands.lastIndexOf(REMOVAL.stopSignIn)).toBeGreaterThan(directoryAt)
-	})
-
-	it("never asks to disable the sign-in unit, which nothing ever enables", async () => {
-		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
-
-		expect(
-			transport.commands.filter((command) => command.includes("disable 'open-mcc-auth@")),
-		).toEqual([])
-	})
-
-	it("deletes the row only after every host step has run", async () => {
+	it("runs its seven steps in order, deleting the row only after the second verify", async () => {
 		const transport = createFakeTransport()
 		const { instances, audit, outcome } = removeOn(hostRow, transport)
-		let commandsBeforeDelete = -1
+		const order: string[] = []
 		instances.delete = vi.fn(async () => {
-			commandsBeforeDelete = transport.commands.length
+			order.push(...transport.commands, "delete the row")
 			return true
 		})
 		await outcome
 
-		expect(commandsBeforeDelete).toBe(transport.commands.length)
-		expect(transport.commands.at(-1)).toBe(REMOVAL.stopSignIn)
+		expect(order).toEqual([
+			STEPS.timers,
+			STEPS.stop,
+			STEPS.containers,
+			STEPS.verify,
+			STEPS.directory,
+			STEPS.verify,
+			"delete the row",
+		])
 		expect(audit.record).toHaveBeenCalledTimes(1)
 	})
 
-	it("keeps the row, and deletes nothing, when something is still using the instance", async () => {
-		const transport = createFakeTransport({ [REMOVAL.quiet]: failed })
+	it.each([
+		{
+			named: "the first verify finds something left",
+			step: STEPS.verify,
+			time: 1,
+			exitCode: 1,
+			ran: 4,
+		},
+		{
+			named: "the second verify finds a start that slipped in",
+			step: STEPS.verify,
+			time: 2,
+			exitCode: 1,
+			ran: 6,
+		},
+		{
+			named: "removing the containers runs out of time",
+			step: STEPS.containers,
+			time: 1,
+			exitCode: 124,
+			ran: 3,
+		},
+		{
+			named: "removing the containers has to be killed",
+			step: STEPS.containers,
+			time: 1,
+			exitCode: 137,
+			ran: 3,
+		},
+		{
+			named: "deleting the directory runs out of time",
+			step: STEPS.directory,
+			time: 1,
+			exitCode: 124,
+			ran: 5,
+		},
+		{
+			named: "deleting the directory has to be killed",
+			step: STEPS.directory,
+			time: 1,
+			exitCode: 137,
+			ran: 5,
+		},
+	])(
+		"keeps the row and says the bot is still in use when $named",
+		async ({ step, time, exitCode, ran }) => {
+			const transport = answering((command, seen) =>
+				command === step && seen === time ? exitCode : undefined,
+			)
+			const { instances, audit, outcome } = removeOn(hostRow, transport)
+
+			await expect(outcome).rejects.toBeInstanceOf(InstanceStillInUseError)
+			expect(transport.commands).toHaveLength(ran)
+			expect(instances.delete).not.toHaveBeenCalled()
+			expect(audit.record).not.toHaveBeenCalled()
+		},
+	)
+
+	it.each([
+		{ named: "a sleep timer cannot be taken away", step: STEPS.timers, ran: 1 },
+		{ named: "the directory cannot be deleted", step: STEPS.directory, ran: 5 },
+	])("keeps the row and says removal did not finish when $named", async ({ step, ran }) => {
+		const transport = answering((command) => (command === step ? 1 : undefined))
 		const { instances, audit, outcome } = removeOn(hostRow, transport)
 
-		await expect(outcome).rejects.toThrow(InstanceStillInUseError)
-		expect(transport.commands).not.toContain(REMOVAL.directory)
+		await expect(outcome).rejects.toBeInstanceOf(InstanceRemovalFailedError)
+		expect(transport.commands).toHaveLength(ran)
 		expect(instances.delete).not.toHaveBeenCalled()
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
-	it("keeps the row when the host cannot delete the directory", async () => {
-		const transport = createFakeTransport({ [REMOVAL.directory]: failed })
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
+	it("gives the removal 155 seconds of remote work, its connection included", async () => {
+		const transport = createFakeTransport()
+		const connect = vi.spyOn(transport, "connect")
+		await removeOn(hostRow, transport).outcome
+		const waits = [
+			...connect.mock.calls.map(([options]) => options.timeoutMs),
+			...transport.timeouts,
+		]
 
-		await expect(outcome).rejects.toThrow(InstanceRemovalFailedError)
-		expect(transport.commands.at(-1)).toBe(REMOVAL.directory)
-		expect(instances.delete).not.toHaveBeenCalled()
-		expect(audit.record).not.toHaveBeenCalled()
+		expect(waits).toEqual([10_000, 15_000, 45_000, 15_000, 15_000, 40_000, 15_000])
+		expect(waits.reduce((total, each) => total + each, 0)).toBe(155_000)
+	})
+
+	it("fails a start issued once the row is gone", async () => {
+		const { deps, instances } = makeDeps()
+		let removed = false
+		instances.findById = vi.fn(async () => (removed ? undefined : instanceRow()))
+		instances.delete = vi.fn(async () => {
+			removed = true
+			return true
+		})
+		const controller = createInstanceController(deps)
+
+		await controller.remove(owner, "abc123")
+
+		await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(InstanceNotFoundError)
 	})
 
 	it("keeps the row when the host cannot be reached", async () => {
@@ -1202,7 +1242,7 @@ describe("removing an instance", () => {
 	it("keeps the row when a step never answers", async () => {
 		const transport = createFakeTransport(
 			{},
-			{ exec: { [REMOVAL.stopInstance]: new Error("Command timed out") } },
+			{ exec: { [STEPS.stop]: new Error("Command timed out") } },
 		)
 		const { instances, audit, outcome } = removeOn(hostRow, transport)
 
@@ -1211,20 +1251,18 @@ describe("removing an instance", () => {
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
-	it("gives each unit longer to stop than the unit itself waits before killing it", async () => {
+	it("gives the units longer to stop than each waits before killing its client", async () => {
 		const transport = createFakeTransport()
 		await removeOn(hostRow, transport).outcome
 		const templates = renderUnitTemplates(UNIT_RUNTIME)
 		const stopSeconds = (unit: string) =>
 			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
-		const timeoutFor = (command: string) => transport.timeouts[transport.commands.indexOf(command)]
+		const stopWait = transport.timeouts[transport.commands.indexOf(STEPS.stop)]
 
 		expect(stopSeconds(INSTANCE_UNIT_NAME)).toBeGreaterThan(0)
 		expect(stopSeconds(AUTH_UNIT_NAME)).toBeGreaterThan(0)
-		expect(timeoutFor(REMOVAL.stopInstance)).toBeGreaterThan(
-			2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000,
-		)
-		expect(timeoutFor(REMOVAL.stopSignIn)).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
+		expect(stopWait).toBeGreaterThan(2 * stopSeconds(INSTANCE_UNIT_NAME) * 1000)
+		expect(stopWait).toBeGreaterThan(stopSeconds(AUTH_UNIT_NAME) * 1000)
 	})
 
 	it("issues no account command, and never kills or deletes by account", async () => {
@@ -2101,7 +2139,7 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 
 		await createInstanceController(deps).remove(owner, "abc123")
 
-		expect(transport.commands).toContain('rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123')
+		expect(transport.commands).toContain(deleteDirectoryCommand("abc123"))
 		expect(instances.delete).toHaveBeenCalledTimes(1)
 	})
 
@@ -2227,9 +2265,7 @@ describe("a bot on a host with no recorded runtime", () => {
 
 			await createInstanceController(deps).remove(owner, "abc123")
 
-			expect(transport.commands).toContain(
-				'rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123',
-			)
+			expect(transport.commands).toContain(deleteDirectoryCommand("abc123"))
 			expect(instances.delete).toHaveBeenCalledTimes(1)
 		})
 	})

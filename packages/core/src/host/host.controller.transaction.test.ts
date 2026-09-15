@@ -422,7 +422,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 				...args: Parameters<HostRepository["recordProvisioningFailure"]>
 			) => {
 				await hosts.recordProvisioningFailure(...args)
-				for (const write of held.splice(0)) {
+				for (const write of held.splice(0).reverse()) {
 					await write()
 					replayed += 1
 				}

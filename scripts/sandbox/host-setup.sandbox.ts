@@ -2,6 +2,18 @@ import { setTimeout as delay } from "node:timers/promises"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import { hostSetupScript } from "../../apps/web/src/lib/host-setup"
 import {
+	lingerCommand,
+	networkHelperCommand,
+	PODMAN_INSTALL_COMMAND,
+	ROOT_REFUSAL,
+	subordinateIdsCommand,
+} from "../../packages/core/src/host/check"
+import {
+	HOST_FACTS_COMMAND,
+	nextSubordinateRange,
+	parseHostFacts,
+} from "../../packages/core/src/host/podman-facts"
+import {
 	exec,
 	homeOf,
 	mintKey,
@@ -17,8 +29,14 @@ import {
 	succeeded,
 } from "./sandbox"
 
+const INSTALL_TIMEOUT_MS = 600_000
+
 const setUp = (host: string, account: string, publicKey: string) =>
-	shell(host, { user: "tester" }, hostSetupScript(account, publicKey))
+	shell(
+		host,
+		{ user: "tester", timeoutMs: INSTALL_TIMEOUT_MS },
+		hostSetupScript(account, publicKey),
+	)
 
 const authorizedKeysOf = (account: string): string => `${homeOf(account)}/.ssh/authorized_keys`
 
@@ -64,6 +82,23 @@ const presentedFingerprint = async (host: string): Promise<string> =>
 		),
 		"reading the host key sshd presents",
 	).trim()
+
+const hasPodman = async (host: string): Promise<boolean> =>
+	(await shell(host, ROOT, "command -v podman")).status === 0
+
+const factsOf = async (host: string, account: string) =>
+	parseHostFacts(
+		succeeded(await shell(host, { user: account }, HOST_FACTS_COMMAND), "reading the host facts"),
+	)
+
+const accountWithoutSubordinateIds = async (host: string): Promise<string> => {
+	const account = await newAccount(host)
+	succeeded(
+		await shell(host, ROOT, 'sed -i "/^$1:/d" /etc/subuid /etc/subgid', account),
+		"removing the account's subordinate ids",
+	)
+	return account
+}
 
 describe("the host setup script", () => {
 	let host = ""
@@ -382,7 +417,7 @@ describe("the host setup script, when the account step prints an escape sequence
 	})
 })
 
-describe("the host setup script, on a machine with no libicu", () => {
+describe("the host setup script, on a plain host without Podman", () => {
 	let host = ""
 
 	beforeAll(async () => {
@@ -393,17 +428,135 @@ describe("the host setup script, on a machine with no libicu", () => {
 		await remove(host)
 	})
 
-	const hasLibicu = async (): Promise<boolean> =>
-		succeeded(await exec(host, ROOT, ["ldconfig", "-p"]), "listing libraries").includes("libicuuc")
-
-	it("installs it from the distribution's own packages", async () => {
-		expect(await hasLibicu()).toBe(false)
-		const account = await newAccount(host)
+	it("refuses a root account before changing anything", async () => {
 		const key = await mintKey(host)
+		const watched = ["/root", "/var/lib/systemd/linger", "/etc/subuid", "/etc/subgid"]
+		const before = await snapshot(host, ...watched)
+
+		const ran = await setUp(host, "root", key.publicKey)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain(ROOT_REFUSAL)
+		expect(await snapshot(host, ...watched)).toBe(before)
+		expect(await hasPodman(host)).toBe(false)
+	})
+
+	it("installs Podman, and gives an account with no subordinate ids a range after the highest", async () => {
+		expect(await hasPodman(host)).toBe(false)
+		const account = await accountWithoutSubordinateIds(host)
+		const key = await mintKey(host)
+		const before = await factsOf(host, account)
+		expect(before.subuid.own || before.subgid.own).toBe(false)
+		const range = nextSubordinateRange(before.subuid.ranges, before.subgid.ranges)
 
 		const ran = await setUp(host, account, key.publicKey)
 
 		expect(ran.status, ran.stderr).toBe(0)
-		expect(await hasLibicu()).toBe(true)
+		expect(ran.stdout).toContain("installed Podman with slirp4netns")
+		const after = await factsOf(host, account)
+		expect(after.podman?.major).toBe(4)
+		expect(after.helpers).toContain("slirp4netns")
+		expect(after.subuid.own && after.subgid.own).toBe(true)
+		expect(
+			succeeded(
+				await shell(host, ROOT, 'grep -h "^$1:" /etc/subuid /etc/subgid', account),
+				"reading the account's ranges",
+			),
+		).toBe(`${account}:${range.start}:65536\n${account}:${range.start}:65536\n`)
+		expect(await lingers(host, account)).toBe(true)
+	})
+})
+
+describe("the host setup script, when a package it would install conflicts with one already there", () => {
+	let host = ""
+
+	beforeAll(async () => {
+		host = await startHost(inject("sandbox"))
+	})
+
+	afterAll(async () => {
+		await remove(host)
+	})
+
+	const installed = async (): Promise<string> =>
+		succeeded(
+			await shell(host, ROOT, "dpkg -l | awk '$1 == \"ii\" {print $2}' | sort"),
+			"listing installed packages",
+		)
+
+	it("stops at apt-get, which removes nothing because of --no-remove", async () => {
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				[
+					"set -eu",
+					"work=$(mktemp -d)",
+					'mkdir -p "$work/pkg/DEBIAN"',
+					"printf 'Package: open-mcc-conflict\\nVersion: 1.0\\nArchitecture: all\\nMaintainer: sandbox <sandbox@example.invalid>\\nConflicts: catatonit\\nDescription: conflicts with catatonit\\n' > \"$work/pkg/DEBIAN/control\"",
+					'dpkg-deb --build "$work/pkg" "$work/open-mcc-conflict.deb" >/dev/null',
+					'dpkg -i "$work/open-mcc-conflict.deb" >/dev/null',
+				].join("\n"),
+			),
+			"installing a package that conflicts with catatonit",
+		)
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		const before = await installed()
+		expect(before).toContain("open-mcc-conflict\n")
+
+		const ran = await setUp(host, account, key.publicKey)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("Could not install Podman")
+		expect(ran.stderr).toContain("remove is disabled")
+		expect(await installed()).toBe(before)
+		expect(await hasPodman(host)).toBe(false)
+	})
+})
+
+describe("the commands the host check shows, run as written on a plain host", () => {
+	let host = ""
+
+	beforeAll(async () => {
+		host = await startHost(inject("sandbox"))
+	})
+
+	afterAll(async () => {
+		await remove(host)
+	})
+
+	it("fixes every missing prerequisite it has a command for", async () => {
+		const account = await accountWithoutSubordinateIds(host)
+		succeeded(
+			await exec(host, { ...ROOT, timeoutMs: INSTALL_TIMEOUT_MS }, ["apt-get", "update", "-qq"]),
+			"refreshing the package lists this image leaves out",
+		)
+		const before = await factsOf(host, account)
+		expect(before.podman).toBeNull()
+		expect(before.subuid.own || before.subgid.own).toBe(false)
+		expect(await lingers(host, account)).toBe(false)
+
+		const commands = [
+			lingerCommand(account),
+			PODMAN_INSTALL_COMMAND,
+			networkHelperCommand("slirp4netns"),
+			networkHelperCommand("pasta"),
+			subordinateIdsCommand(
+				nextSubordinateRange(before.subuid.ranges, before.subgid.ranges),
+				account,
+			),
+		]
+		for (const command of commands) {
+			const ran = await shell(host, { user: "tester", timeoutMs: INSTALL_TIMEOUT_MS }, command)
+
+			expect(ran.status, `${command}\n${ran.stderr}`).toBe(0)
+		}
+
+		const after = await factsOf(host, account)
+		expect(after.podman?.major).toBe(4)
+		expect(after.helpers).toEqual(["slirp4netns", "pasta"])
+		expect(after.subuid.own && after.subgid.own).toBe(true)
+		expect(await lingers(host, account)).toBe(true)
 	})
 })

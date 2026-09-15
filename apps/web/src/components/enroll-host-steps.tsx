@@ -78,7 +78,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const fingerprintReady = HOST_KEY_FINGERPRINT_PATTERN.test(expectedFingerprint)
 
 	const target =
-		portNumber === null ? null : { hostname, port: portNumber, username, sshKeyId, expectedFingerprint }
+		portNumber === null
+			? null
+			: { hostname, port: portNumber, username, sshKeyId, expectedFingerprint }
 	const canCheck = target !== null && addressReady && sshKeyId.length > 0 && fingerprintReady
 
 	const checked = checkMutation.variables
@@ -258,7 +260,9 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								id="enroll-fingerprint"
 								value={expectedFingerprint}
 								placeholder="SHA256:…"
-								onChange={(event) => checkedInput(expectedFingerprint, setExpectedFingerprint)(event.target.value)}
+								onChange={(event) =>
+									checkedInput(expectedFingerprint, setExpectedFingerprint)(event.target.value)
+								}
 							/>
 						</div>
 

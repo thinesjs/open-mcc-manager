@@ -118,10 +118,7 @@ const architectureResult = (machine: string): HostCheckResult => {
 		const architecture = architectureForMachine(machine)
 		return pass("architecture", `${machine.trim()} uses the ${architecture} build`)
 	} catch (error) {
-		return fail(
-			"architecture",
-			error instanceof Error ? error.message : "Unsupported architecture",
-		)
+		return fail("architecture", error instanceof Error ? error.message : "Unsupported architecture")
 	}
 }
 

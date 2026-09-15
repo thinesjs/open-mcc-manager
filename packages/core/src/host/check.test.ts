@@ -28,10 +28,7 @@ const FRESH_FACTS = {
 type Facts = Record<string, string>
 
 const factsOutput = (facts: Facts, extra: readonly string[] = []): string =>
-	[
-		...Object.entries(facts).map(([key, value]) => `${key}=${value}`),
-		...extra,
-	].join("\n")
+	[...Object.entries(facts).map(([key, value]) => `${key}=${value}`), ...extra].join("\n")
 
 const OWN_RANGES = ["subuid=own 165536 65536", "subgid=own 165536 65536", "helper=slirp4netns"]
 
@@ -81,9 +78,9 @@ describe("checking a host before committing to enrol it", () => {
 		const report = await check(hostWith())
 
 		expect(report.ready).toBe(true)
-		expect(report.checks.filter((each) => each.outcome !== "pass").map((each) => each.name)).toEqual(
-			["storage"],
-		)
+		expect(
+			report.checks.filter((each) => each.outcome !== "pass").map((each) => each.name),
+		).toEqual(["storage"])
 		expect(resultOf(report, "storage")).toMatchObject({
 			outcome: "warn",
 			detail: "Set up during provisioning.",
@@ -389,27 +386,26 @@ describe("what an account needs to run containers", () => {
 	it.each([
 		{ podman: "podman version 4.3.1", helper: "pasta", missing: "slirp4netns" },
 		{ podman: "podman version 5.4.2", helper: "slirp4netns", missing: "passt" },
-	])(
-		"asks for $missing when $podman has only $helper",
-		async ({ podman, helper, missing }) => {
-			const report = await check(
-				hostWith({ ...FRESH_FACTS, podman }, [
-					"subuid=own 165536 65536",
-					"subgid=own 165536 65536",
-					`helper=${helper}`,
-				]),
-			)
+	])("asks for $missing when $podman has only $helper", async ({ podman, helper, missing }) => {
+		const report = await check(
+			hostWith({ ...FRESH_FACTS, podman }, [
+				"subuid=own 165536 65536",
+				"subgid=own 165536 65536",
+				`helper=${helper}`,
+			]),
+		)
 
-			expect(resultOf(report, "network-helper")).toMatchObject({
-				outcome: "fail",
-				detail: "A Podman network helper is missing.",
-				command: `sudo apt-get install -y --no-install-recommends --no-remove ${missing}`,
-			})
-		},
-	)
+		expect(resultOf(report, "network-helper")).toMatchObject({
+			outcome: "fail",
+			detail: "A Podman network helper is missing.",
+			command: `sudo apt-get install -y --no-install-recommends --no-remove ${missing}`,
+		})
+	})
 
 	it("quotes an account name the shell would otherwise split", async () => {
-		const transport = await connected(hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }))
+		const transport = await connected(
+			hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }),
+		)
 
 		const report = await checkHostOverTransport(transport, "bot runner")
 

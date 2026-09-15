@@ -21,6 +21,7 @@ const runEntrypoint = (level: string): readonly Fields[] => {
 			OTEL_EXPORTER_OTLP_ENDPOINT: "",
 		},
 	})
+	if (result.error) throw result.error
 	return result.stdout
 		.split("\n")
 		.filter((line) => line.startsWith("{"))

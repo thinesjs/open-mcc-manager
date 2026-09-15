@@ -302,6 +302,47 @@ describe("container storage", () => {
 
 		expect(outcomeOf(report, "storage")).toBe("pass")
 	})
+
+	it("passes an account the manager already set up when podman info fails, leaving Podman's error to provisioning", async () => {
+		const report = await check(
+			hostWith({ ...FRESH_FACTS, storage: "set-up" }, OWN_RANGES, {
+				[PODMAN_INFO_COMMAND]: {
+					stdout: "",
+					stderr: "Error: command required for rootless mode with multiple IDs",
+					exitCode: 125,
+				},
+			}),
+		)
+
+		expect(resultOf(report, "storage")).toMatchObject({ outcome: "pass", detail: "Set up" })
+		expect(report.ready).toBe(true)
+	})
+
+	it("still fails an account the manager set up when Podman reports another driver", async () => {
+		const report = await check(
+			hostWith({ ...FRESH_FACTS, storage: "set-up" }, OWN_RANGES, {
+				[PODMAN_INFO_COMMAND]: ok("true vfs"),
+			}),
+		)
+
+		expect(resultOf(report, "storage")).toMatchObject({
+			outcome: "fail",
+			detail: "Podman on this account already has data. Use a fresh account.",
+		})
+	})
+
+	it("still fails an account that already ran Podman when podman info fails", async () => {
+		const report = await check(
+			hostWith({ ...FRESH_FACTS, storage: "used" }, OWN_RANGES, {
+				[PODMAN_INFO_COMMAND]: { stdout: "", stderr: "Error: database graph driver", exitCode: 125 },
+			}),
+		)
+
+		expect(resultOf(report, "storage")).toMatchObject({
+			outcome: "fail",
+			detail: "Podman on this account already has data. Use a fresh account.",
+		})
+	})
 })
 
 describe("Podman itself", () => {

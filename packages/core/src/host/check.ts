@@ -175,11 +175,13 @@ const storageResult = (facts: HostPodmanFacts, info: PodmanInfo | null): HostChe
 	}
 	if (facts.storage === "fresh") return warn("storage", "Set up during provisioning.")
 	if (info === null) return skipped("storage", NOT_CHECKED)
-	return info.driver === "overlay"
-		? pass("storage", "Set up")
-		: fail("storage", USED_STORAGE_REFUSAL, {
+	const anotherDriver = info.driver !== null && info.driver !== "overlay"
+	const unreadableAfterUse = info.driver === null && facts.storage === "used"
+	return anotherDriver || unreadableAfterUse
+		? fail("storage", USED_STORAGE_REFUSAL, {
 				hint: "Provisioning sets up storage only for an account that has never run Podman.",
 			})
+		: pass("storage", "Set up")
 }
 
 const metadataResult = (reach: HostPodmanFacts["metadata"]): HostCheckResult => {

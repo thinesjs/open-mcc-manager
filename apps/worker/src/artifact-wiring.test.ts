@@ -15,7 +15,6 @@ vi.mock("@open-mcc/core", async (importOriginal) => {
 			refused: 0,
 			failed: 0,
 			replaysPruned: 2,
-			cacheDirectoriesPruned: 1,
 			storedPruned: 0,
 			mailerStateOverBudget: 3,
 		}),

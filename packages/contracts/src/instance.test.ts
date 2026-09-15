@@ -410,7 +410,7 @@ describe("reading a stored config document", () => {
 	it.each([
 		{
 			named: "a bot file name the client already uses",
-			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+			botConfig: { "ChatBot.PlayerListLogger.File": "SessionCache.db" },
 		},
 		{
 			named: "a bot file another bot already writes",

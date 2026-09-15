@@ -47,7 +47,7 @@ const isPlainText = (value: string): boolean => {
 
 const A_FILE_NAME = "A file name, not a path"
 
-export const CLIENT_WORKING_DIRECTORY_NAMES = [
+export const RESERVED_FILE_NAMES: readonly string[] = [
 	"MinecraftClient",
 	"Sentry",
 	"SessionCache.db",
@@ -56,26 +56,9 @@ export const CLIENT_WORKING_DIRECTORY_NAMES = [
 	"lang",
 	"replay_recordings",
 	"recording_cache",
-] as const
-
-export const COLLECTOR_WINDOW_NAMES = [
-	"env",
-	"control",
-	"auth.log",
-	"MinecraftClient.ini",
-	"MinecraftClient.backup.ini",
-	"unit.env",
-] as const
-
-export const RESERVED_FILE_NAMES: readonly string[] = [
-	...CLIENT_WORKING_DIRECTORY_NAMES,
-	...COLLECTOR_WINDOW_NAMES,
 ]
 
-export const DRAIN_TEMPORARY = "player-list.collecting"
-
-export const isReservedFileName = (value: string): boolean =>
-	RESERVED_FILE_NAMES.includes(value) || value === DRAIN_TEMPORARY
+export const isReservedFileName = (value: string): boolean => RESERVED_FILE_NAMES.includes(value)
 
 const NOT_RESERVED = { message: "The client already uses that file name" }
 

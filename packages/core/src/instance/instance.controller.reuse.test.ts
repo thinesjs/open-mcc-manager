@@ -54,6 +54,9 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	lastExitCode: null,
 	authClaimId: null,
 	authClaimedAt: null,
+	playerListOffset: "0",
+	playerListFingerprint: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	playerListCursorVersion: "0",
 	createdAt: new Date(),
 	...overrides,
 })

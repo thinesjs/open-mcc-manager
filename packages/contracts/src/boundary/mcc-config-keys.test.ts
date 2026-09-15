@@ -339,12 +339,16 @@ const GOLDEN_RESERVED: readonly string[] = [
 	"lang",
 	"replay_recordings",
 	"recording_cache",
+]
+
+const OUTSIDE_THE_WORKING_DIRECTORY: readonly string[] = [
 	"env",
 	"control",
 	"auth.log",
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
 	"unit.env",
+	"player-list.collecting",
 ]
 
 const CLIENT_FILE = "The client already uses that file name"
@@ -371,11 +375,14 @@ describe("★ a bot file name the client or this manager already keeps in the in
 		expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
 	})
 
-	it("refuses player-list.collecting, the one temporary the collector drains through", () => {
-		expect(fileKeysSaying("player-list.collecting", CLIENT_FILE)).toEqual(FILE_KEYS)
-	})
+	it.each(OUTSIDE_THE_WORKING_DIRECTORY)(
+		"★ saves %s, which is outside the client's working directory, now that the collector reads only that directory",
+		(value) => {
+			expect(fileKeysSaying(value, "")).toEqual(FILE_KEYS)
+		},
+	)
 
-	it("★ saves any other name ending in .collecting, which nothing on the host uses", () => {
+	it("★ saves any name ending in .collecting, which nothing on the host uses", () => {
 		expect(fileKeysSaying("daily.collecting", "")).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("playerlog.txt.collecting", "")).toEqual(FILE_KEYS)
 	})
@@ -391,13 +398,9 @@ describe("★ a bot file name the client or this manager already keeps in the in
 		expect(fileKeysSaying("SessionCache.ini", CLIENT_FILE)).toEqual([])
 	})
 
-	it("refuses unit.env, the port file the collector would otherwise drain empty", () => {
-		expect(fileKeysSaying("unit.env", CLIENT_FILE)).toEqual(FILE_KEYS)
-	})
-
 	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {
-		expect(fileKeysSaying("env", CLIENT_FILE)).toEqual(FILE_KEYS)
-		expect(fileKeysSaying("Env", "")).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("lang", CLIENT_FILE)).toEqual(FILE_KEYS)
+		expect(fileKeysSaying("Lang", "")).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("sessioncache.db", "")).toEqual(FILE_KEYS)
 	})
 })

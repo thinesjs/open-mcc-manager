@@ -117,7 +117,7 @@ describe("setting the queues up", () => {
 		expect(http?.expireInSeconds).toBe(5 * 60)
 	})
 
-	it("★ never retries a host sweep, because a retry would read a host the last attempt already drained", async () => {
+	it("★ never retries a host sweep, leaving a host it could not reach to the next hourly sweep", async () => {
 		const { admin, stored } = fakePgBoss()
 		await reconcileQueues(admin)
 

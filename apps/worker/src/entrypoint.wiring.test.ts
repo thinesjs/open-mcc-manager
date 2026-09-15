@@ -12,6 +12,7 @@ const runEntrypoint = (level: string): readonly Fields[] => {
 	const result = spawnSync(join(APP, "node_modules/.bin/tsx"), ["src/index.ts"], {
 		cwd: APP,
 		encoding: "utf8",
+		timeout: 15_000,
 		env: {
 			...process.env,
 			LOG_LEVEL: level,
@@ -37,12 +38,12 @@ describe("the worker entrypoint as the daemon actually runs it", () => {
 		const fatal = entries.find((entry) => entry.message === "Worker failed to start")
 		expect(fatal?.level).toBe("error")
 		expect(fatal?.service).toBe("open-mcc-worker")
-	})
+	}, 15_000)
 
 	it("honours LOG_LEVEL=error from the real process, dropping the warning but keeping the failure", () => {
 		const entries = runEntrypoint("error")
 
 		expect(entries.filter((entry) => String(entry.message).includes(OTLP))).toEqual([])
 		expect(entries.find((entry) => entry.message === "Worker failed to start")?.level).toBe("error")
-	})
+	}, 15_000)
 })

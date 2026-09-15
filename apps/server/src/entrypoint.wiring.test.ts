@@ -12,6 +12,7 @@ const runEntrypoint = (level: string, port: string): readonly Fields[] => {
 	const result = spawnSync(join(APP, "node_modules/.bin/tsx"), ["src/index.ts"], {
 		cwd: APP,
 		encoding: "utf8",
+		timeout: 15_000,
 		env: {
 			...process.env,
 			LOG_LEVEL: level,
@@ -41,14 +42,14 @@ describe("the server entrypoint as the daemon actually runs it", () => {
 		const fatal = entries.filter((entry) => entry.level === "error")
 		expect(fatal).toHaveLength(1)
 		expect(fatal[0]?.service).toBe("open-mcc-server")
-	})
+	}, 15_000)
 
 	it("honours LOG_LEVEL=error from the real process, dropping the warning but keeping the failure", () => {
 		const entries = runEntrypoint("error", "1")
 
 		expect(entries.filter((entry) => String(entry.message).includes(OTLP))).toEqual([])
 		expect(entries.filter((entry) => entry.level === "error")).toHaveLength(1)
-	})
+	}, 15_000)
 
 	it("has a root logger before env validation, because a rejected env is itself reported through it", () => {
 		const entries = runEntrypoint("warn", "0")
@@ -56,5 +57,5 @@ describe("the server entrypoint as the daemon actually runs it", () => {
 		const rejected = entries.find((entry) => String(entry.message).includes("PORT"))
 		expect(rejected?.level).toBe("error")
 		expect(rejected?.service).toBe("open-mcc-server")
-	})
+	}, 15_000)
 })

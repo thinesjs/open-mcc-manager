@@ -152,7 +152,7 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 	const refusalOf = async (removal: Promise<void>): Promise<Error | undefined> =>
 		await removal.then(
 			() => undefined,
-			(error: Error) => error,
+			(error) => (error instanceof Error ? error : new Error(String(error))),
 		)
 
 	beforeAll(async () => {

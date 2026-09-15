@@ -387,7 +387,7 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			.manager.controller.start(owner, botId)
 			.then(
 				() => undefined,
-				(error: Error) => error,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
 			)
 
 		expect(

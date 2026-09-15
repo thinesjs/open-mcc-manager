@@ -443,7 +443,7 @@ describe("host controller re-trust", () => {
 			})
 			.then(
 				() => undefined,
-				(error: Error) => error,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
 			)
 
 		expect(refusal).toBeInstanceOf(FingerprintMismatchError)

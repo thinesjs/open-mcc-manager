@@ -447,7 +447,7 @@ describe("the host setup script, on a plain host without Podman", () => {
 		const key = await mintKey(host)
 		const before = await factsOf(host, account)
 		expect(before.subuid.own || before.subgid.own).toBe(false)
-		const range = nextSubordinateRange(before.subuid.ranges, before.subgid.ranges)
+		const range = nextSubordinateRange(before.subuid.end, before.subgid.end)
 
 		const ran = await setUp(host, account, key.publicKey)
 
@@ -542,10 +542,7 @@ describe("the commands the host check shows, run as written on a plain host", ()
 			PODMAN_INSTALL_COMMAND,
 			networkHelperCommand("slirp4netns"),
 			networkHelperCommand("pasta"),
-			subordinateIdsCommand(
-				nextSubordinateRange(before.subuid.ranges, before.subgid.ranges),
-				account,
-			),
+			subordinateIdsCommand(nextSubordinateRange(before.subuid.end, before.subgid.end), account),
 		]
 		for (const command of commands) {
 			const ran = await shell(host, { user: "tester", timeoutMs: INSTALL_TIMEOUT_MS }, command)

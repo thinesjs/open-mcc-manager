@@ -30,7 +30,13 @@ type Facts = Record<string, string>
 const factsOutput = (facts: Facts, extra: readonly string[] = []): string =>
 	[...Object.entries(facts).map(([key, value]) => `${key}=${value}`), ...extra].join("\n")
 
-const OWN_RANGES = ["subuid=own 165536 65536", "subgid=own 165536 65536", "helper=slirp4netns"]
+const OWN_RANGES = [
+	"subuid=own",
+	"subuid-end=231072",
+	"subgid=own",
+	"subgid-end=231072",
+	"helper=slirp4netns",
+]
 
 const ok = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
 
@@ -334,7 +340,11 @@ describe("container storage", () => {
 	it("still fails an account that already ran Podman when podman info fails", async () => {
 		const report = await check(
 			hostWith({ ...FRESH_FACTS, storage: "used" }, OWN_RANGES, {
-				[PODMAN_INFO_COMMAND]: { stdout: "", stderr: "Error: database graph driver", exitCode: 125 },
+				[PODMAN_INFO_COMMAND]: {
+					stdout: "",
+					stderr: "Error: database graph driver",
+					exitCode: 125,
+				},
 			}),
 		)
 
@@ -401,9 +411,10 @@ describe("what an account needs to run containers", () => {
 	it("gives the usermod command with a range after the highest one in use", async () => {
 		const report = await check(
 			hostWith(FRESH_FACTS, [
-				"subuid=other 100000 65536",
-				"subgid=other 100000 65536",
-				"subgid=other 165536 65536",
+				"subuid=other",
+				"subuid-end=165536",
+				"subgid=other",
+				"subgid-end=231072",
 				"helper=slirp4netns",
 			]),
 		)
@@ -418,7 +429,7 @@ describe("what an account needs to run containers", () => {
 
 	it("fails when only one of the two files has the account", async () => {
 		const report = await check(
-			hostWith(FRESH_FACTS, ["subuid=own 165536 65536", "helper=slirp4netns"]),
+			hostWith(FRESH_FACTS, ["subuid=own", "subuid-end=231072", "helper=slirp4netns"]),
 		)
 
 		expect(outcomeOf(report, "subordinate-ids")).toBe("fail")
@@ -430,8 +441,10 @@ describe("what an account needs to run containers", () => {
 	])("asks for $missing when $podman has only $helper", async ({ podman, helper, missing }) => {
 		const report = await check(
 			hostWith({ ...FRESH_FACTS, podman }, [
-				"subuid=own 165536 65536",
-				"subgid=own 165536 65536",
+				"subuid=own",
+				"subuid-end=231072",
+				"subgid=own",
+				"subgid-end=231072",
 				`helper=${helper}`,
 			]),
 		)

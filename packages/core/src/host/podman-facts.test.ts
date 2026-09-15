@@ -10,7 +10,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
+import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
@@ -330,9 +330,10 @@ describe("parsing the host facts", () => {
 		"os=debian 12",
 		"podman=podman version 4.3.1",
 		"storage=fresh",
-		"subuid=other 100000 65536",
-		"subuid=own 165536 65536",
-		"subgid=own 165536 65536",
+		"subuid=own",
+		"subuid-end=231072",
+		"subgid=own",
+		"subgid-end=231072",
 		"cgroup=cgroup2fs",
 		"helper=slirp4netns",
 		"metadata=000",
@@ -346,14 +347,8 @@ describe("parsing the host facts", () => {
 			podman: { major: 4, minor: 3, patch: 1 },
 			storage: "fresh",
 			overrides: [],
-			subuid: {
-				own: true,
-				ranges: [
-					{ start: 100000, count: 65536 },
-					{ start: 165536, count: 65536 },
-				],
-			},
-			subgid: { own: true, ranges: [{ start: 165536, count: 65536 }] },
+			subuid: { own: true, end: 231072 },
+			subgid: { own: true, end: 231072 },
 			cgroupV2: true,
 			helpers: ["slirp4netns"],
 			metadata: "unanswered",
@@ -387,31 +382,58 @@ describe("parsing the host facts", () => {
 
 	it("keeps no remote text but the few words it expects", () => {
 		const facts = parseHostFacts(
-			"uid=0 203.0.113.9\nos=\u001b]8;;https://203.0.113.9\u0007 12\nhelper=/usr/bin/pasta\nsubuid=own 1:2 3",
+			"uid=0 203.0.113.9\nos=\u001b]8;;https://203.0.113.9\u0007 12\nhelper=/usr/bin/pasta\nsubuid=own 1:2 3\nsubuid-end=12 203.0.113.9",
 		)
 
 		expect(facts.uid).toBeNull()
 		expect(facts.os).toEqual({ id: null, version: "12" })
 		expect(facts.helpers).toEqual([])
-		expect(facts.subuid).toEqual({ own: false, ranges: [] })
+		expect(facts.subuid).toEqual({ own: false, end: 0 })
+	})
+})
+
+describe("reading subordinate ids on a host with more ranges than a line cap would keep", () => {
+	const OTHER_RANGES = 300
+
+	const subordinateFactsAgainst = (file: string): string =>
+		HOST_FACTS_COMMAND.split("\n")
+			.filter((line) => line.includes("/etc/subuid") || line.includes("/etc/subgid"))
+			.map((line) => line.replaceAll("/etc/subuid", file).replaceAll("/etc/subgid", file))
+			.join("\n")
+
+	it("sees the account's own line and the highest end, however far down the files they are", () => {
+		const home = scratchHome()
+		const others = Array.from(
+			{ length: OTHER_RANGES },
+			(_, index) => `other${index}:${100000 + index * 65536}:65536`,
+		)
+		const highestEnd = 100000 + OTHER_RANGES * 65536
+		const file = writeFile(
+			home,
+			"subids",
+			[...others, `${userInfo().username}:165536:65536`, ""].join("\n"),
+		)
+		const script = subordinateFactsAgainst(file)
+
+		const facts = parseHostFacts(outputOf(runIn(home, script)))
+
+		expect(script.split("\n")).toHaveLength(2)
+		expect(facts.subuid.own).toBe(true)
+		expect(facts.subgid.own).toBe(true)
+		expect(nextSubordinateRange(facts.subuid.end, facts.subgid.end)).toEqual({
+			start: highestEnd,
+			end: highestEnd + 65535,
+		})
 	})
 })
 
 describe("choosing a subordinate id range to add", () => {
 	it("starts after the highest end in either file", () => {
-		expect(
-			nextSubordinateRange(
-				[{ start: 100000, count: 65536 }],
-				[
-					{ start: 165536, count: 65536 },
-					{ start: 100000, count: 65536 },
-				],
-			),
-		).toEqual({ start: 231072, end: 296607 })
+		expect(nextSubordinateRange(165536, 231072)).toEqual({ start: 231072, end: 296607 })
 	})
 
 	it("starts at 100000 when neither file has a range", () => {
-		expect(nextSubordinateRange([], [])).toEqual({ start: 100000, end: 165535 })
+		expect(nextSubordinateRange(0, 0)).toEqual({ start: 100000, end: 165535 })
 	})
 })
 

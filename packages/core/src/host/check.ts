@@ -149,7 +149,7 @@ const subordinateIdsResult = (facts: HostPodmanFacts, account: string): HostChec
 		? pass("subordinate-ids", "Set up")
 		: fail("subordinate-ids", "This account can't run containers yet.", {
 				command: subordinateIdsCommand(
-					nextSubordinateRange(facts.subuid.ranges, facts.subgid.ranges),
+					nextSubordinateRange(facts.subuid.end, facts.subgid.end),
 					account,
 				),
 				hint: "The range starts after the highest one in /etc/subuid and /etc/subgid. Ranges from a directory service (NSS) aren't seen here.",

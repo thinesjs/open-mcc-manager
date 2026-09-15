@@ -93,7 +93,7 @@ const fact = (key: string, command: string): string =>
 	`printf '${key}=%s\\n' "$( ${command} 2>/dev/null | head -n 1 | cut -c 1-256 | tr -c '[:print:]\\n' ' ')"`
 
 const subordinateLines = (key: string, file: string): string =>
-	`awk -F: -v u="$(id -un 2>/dev/null)" -v i="$(id -u 2>/dev/null)" 'NF == 3 && $1 != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print "${key}=" (($1 == u || $1 == i) ? "own" : "other") " " $2 " " $3 }' ${file} 2>/dev/null | head -n 256`
+	`awk -F: -v u="$(id -un 2>/dev/null)" -v i="$(id -u 2>/dev/null)" 'NF == 3 && $1 != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { if ($1 == u || $1 == i) own = 1; e = $2 + $3; if (e > top) top = e } END { printf "${key}=%s\\n${key}-end=%.0f\\n", (own ? "own" : "other"), top }' ${file} 2>/dev/null`
 
 export const HOST_FACTS_COMMAND = [
 	fact("uid", "id -u"),
@@ -119,7 +119,7 @@ const UID = /^[0-9]{1,10}$/
 
 const OS_WORD = /^[a-z0-9._-]{1,32}$/
 
-const SUBORDINATE_LINE = /^(own|other) ([0-9]{1,10}) ([0-9]{1,10})$/
+const SUBORDINATE_END = /^[0-9]{1,10}$/
 
 export const parseHostFacts = (output: string) => {
 	const lines = output.split("\n").map((line) => {
@@ -133,15 +133,10 @@ export const parseHostFacts = (output: string) => {
 	const uid = (first("uid") ?? "").trim()
 	const [osId = "", osVersion = ""] = (first("os") ?? "").trim().split(" ")
 	const subordinate = (key: string) => {
-		const entries = all(key).flatMap((value) => {
-			const match = SUBORDINATE_LINE.exec(value.trim())
-			if (match === null) return []
-			const [, owner = "", start = "", count = ""] = match
-			return [{ own: owner === "own", start: Number(start), count: Number(count) }]
-		})
+		const end = (first(`${key}-end`) ?? "").trim()
 		return {
-			own: entries.some((entry) => entry.own),
-			ranges: entries.map(({ start, count }) => ({ start, count })),
+			own: (first(key) ?? "").trim() === "own",
+			end: SUBORDINATE_END.test(end) ? Number(end) : 0,
 		}
 	}
 	const metadata = (first("metadata") ?? "none").trim()
@@ -175,19 +170,11 @@ export const parseHostFacts = (output: string) => {
 
 export type HostPodmanFacts = ReturnType<typeof parseHostFacts>
 
-export type SubordinateRange = HostPodmanFacts["subuid"]["ranges"][number]
-
 export const SUBORDINATE_ID_FLOOR = 100_000
 
 export const SUBORDINATE_ID_COUNT = 65_536
 
-export const nextSubordinateRange = (
-	subuid: readonly SubordinateRange[],
-	subgid: readonly SubordinateRange[],
-) => {
-	const start = Math.max(
-		SUBORDINATE_ID_FLOOR,
-		...[...subuid, ...subgid].map((range) => range.start + range.count),
-	)
+export const nextSubordinateRange = (subuidEnd: number, subgidEnd: number) => {
+	const start = Math.max(SUBORDINATE_ID_FLOOR, subuidEnd, subgidEnd)
 	return { start, end: start + SUBORDINATE_ID_COUNT - 1 }
 }

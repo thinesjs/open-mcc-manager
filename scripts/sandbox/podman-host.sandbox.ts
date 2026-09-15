@@ -152,14 +152,26 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 		succeeded(await exec(host, as, ["podman", "--version"]), "podman --version")
 		const facts = await factsOf(host, as)
+		const metadata = await exec(host, ROOT, [
+			"curl",
+			"-s",
+			"--max-time",
+			"1",
+			"-o",
+			"/dev/null",
+			"-w",
+			"%{http_code}",
+			"http://169.254.169.254/",
+		])
 
+		expect(metadata.stdout).toMatch(/^[0-9]{3}$/)
 		expect(facts).toMatchObject({
 			uid: uidOf("pod1"),
 			usableHome: true,
 			storage: "fresh",
 			overrides: [],
 			cgroupV2: true,
-			metadata: "unanswered",
+			metadata: metadata.stdout === "000" ? "unanswered" : "answered",
 			subuid: { own: true },
 			subgid: { own: true },
 		})

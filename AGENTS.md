@@ -662,12 +662,15 @@ there would never be hit.
   and with `destroy()` 2 minutes after it became ready, whatever leases remain.
   A lease reuses a connection only if its deadline ends before that hard age;
   otherwise a replacement opens and becomes the connection later reads use.
-- **One deadline per read.** A read's deadline starts when it leases and covers
-  the local queue, the channel open and every MCP phase: 10 seconds for a live
-  readout and the poller's username read, 15 for the console, server usage and
-  host facts, 20 for a bot's journal, and 60 for the setup check. A deadline at
-  or past the hard age is refused, and `reconcile.test.ts` keeps the setup
-  check's below the hard age less a full connect.
+- **One deadline per read.** A read's deadline starts once the read has its
+  connection, and covers the local queue, the channel open and every MCP phase:
+  10 seconds for a live readout and the poller's username read, 15 for the
+  console, server usage and host facts, 20 for a bot's journal, and 60 for the
+  setup check. Opening a connection is bounded separately, by the 10-second
+  connect timeout, so a read that has to open one can take its deadline plus up
+  to 10 seconds: about 20 seconds for a live readout, and about 70 for the setup
+  check. A deadline at or past the hard age is refused, and `reconcile.test.ts`
+  keeps the setup check's below the hard age less a full connect.
 - **Channels.** A connection allows 6 channels in total, counting execs, forwards
   and probes together, and a forward holds its slot until it closes. A read that
   expires while it is still waiting in that local queue fails with

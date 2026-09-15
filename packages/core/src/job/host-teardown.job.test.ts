@@ -1,5 +1,6 @@
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import { podmanImageId, runtimeImageFor } from "../host/runtime-image"
 import { createHostTeardownHandler } from "./host-teardown.job"
 
 const payload = {
@@ -15,6 +16,8 @@ const payload = {
 const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
 
 const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
+
+const REMOVE_FILES = `timeout -k 5 50 sh -c 'chmod -R u+rwX -- "$HOME"/.local/share/open-mcc && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
 
 describe("what a failed host clean-up records for the dashboard", () => {
 	it("records why it could not reach the host without the address the error named", async () => {
@@ -64,6 +67,30 @@ const cleaningWith = (transport: HostTransport) => {
 }
 
 describe("what a clean-up needs to know about the host", () => {
+	it.each([
+		{ named: "an arm64 host", given: { architecture: "arm64" }, removed: ["arm64"] },
+		{ named: "a host that recorded no architecture", given: {}, removed: [] },
+		{ named: "an architecture it does not know", given: { architecture: "sparc" }, removed: [] },
+	] as const)(
+		"removes the runtime image its payload names for $named",
+		async ({ given, removed }) => {
+			const transport = createFakeTransport({
+				[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
+			})
+			const { handler, onCleaned } = cleaningWith(transport)
+
+			await handler({ ...payload, ...given })
+
+			expect(transport.commands.filter((command) => command.includes("podman rmi"))).toEqual(
+				removed.map(
+					(architecture) =>
+						`timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor(architecture))}; s=$?; exit $s`,
+				),
+			)
+			expect(onCleaned).toHaveBeenCalledTimes(1)
+		},
+	)
+
 	it("cleans a host from a payload that names only how to reach it", async () => {
 		const transport = createFakeTransport({
 			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
@@ -72,7 +99,7 @@ describe("what a clean-up needs to know about the host", () => {
 
 		await handler(payload)
 
-		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(transport.commands).toContain(REMOVE_FILES)
 		expect(onCleaned).toHaveBeenCalledTimes(1)
 		expect(onFailed).not.toHaveBeenCalled()
 	})
@@ -90,7 +117,7 @@ describe("what a clean-up needs to know about the host", () => {
 			unitDir: "/etc/systemd/system",
 		})
 
-		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(transport.commands).toContain(REMOVE_FILES)
 		expect(
 			transport.commands.filter((command) =>
 				/\/srv\/open-mcc|\/etc\/systemd\/system/.test(command),
@@ -136,6 +163,21 @@ describe("★ what a clean-up that got onto the host records for the dashboard",
 		])
 		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
 			expect.stringContaining("203.0.113.9:2222"),
+		])
+	})
+
+	it("★ throws when the channel drops while the files are being deleted, leaving the retry to the queue", async () => {
+		const { handler, onFailed, onCleaned } = cleaningWith(
+			createFakeTransport(
+				{ [INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 } },
+				{ exec: { [REMOVE_FILES]: new Error("read ECONNRESET 203.0.113.9:2222") } },
+			),
+		)
+
+		await expect(handler(payload)).rejects.toThrow("ECONNRESET")
+		expect(onCleaned).not.toHaveBeenCalled()
+		expect(onFailed.mock.calls.map(([, , reason]) => reason)).toEqual([
+			"Cleaning stopped before it finished.",
 		])
 	})
 })

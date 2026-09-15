@@ -11,7 +11,8 @@ import type { Db, HostRow } from "@open-mcc/db"
 import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import { createJobQueue, HOST_TEARDOWN_QUEUE, type JobQueue, type SendJob } from "../job/job.queue"
+import { createJobQueue, type JobQueue, type SendJob } from "../job/job.queue"
+import { HOST_TEARDOWN_QUEUE } from "../job/queue-setup"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -121,6 +122,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			username: host.username,
 			sshKeyId: host.sshKeyId,
 			hostKeyFingerprint: host.hostKeyFingerprint,
+			...(host.architecture === null ? {} : { architecture: host.architecture }),
 		}
 	}
 

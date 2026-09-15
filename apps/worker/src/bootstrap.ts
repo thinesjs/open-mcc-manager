@@ -98,7 +98,6 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 	})
 	attachQueueWarning(boss, logger)
 	await boss.start()
-	await boss.createQueue(HOST_TEARDOWN_QUEUE)
 	await reconcileQueues(
 		adminFor({
 			createQueue: async (name, options) => await boss.createQueue(name, options),

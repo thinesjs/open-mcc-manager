@@ -1,39 +1,63 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { isManagedUnit } from "../instance/reconcile"
-import { INSTANCES_PATH, INSTANCES_ROOT, systemctl, UNIT_DIR } from "./profile"
+import { isManagedUnit, MANAGED_CONTAINER_PATTERN } from "../instance/reconcile"
+import { UNIT_STOP_TIMEOUT_MS } from "../instance/removal"
+import { RUNNING_UNIT_STATES } from "../instance/unit"
+import { withDeadline } from "./deadline"
+import type { MccArchitecture } from "./mcc-release"
+import { INSTANCES_PATH, INSTANCES_ROOT, podman, systemctl, UNIT_DIR } from "./profile"
+import { podmanImageId, runtimeImageFor } from "./runtime-image"
 
 export const TEARDOWN_TIMEOUT_MS = 20_000
 
+const CONTAINERS_TIMEOUT_MS = 60_000
+
+const IMAGE_TIMEOUT_MS = 15_000
+
+const FILES_TIMEOUT_MS = 60_000
+
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
-export const selfExcludingPattern = (path: string): string => {
-	const trimmed = path.replace(/\/+$/, "")
-	const cut = trimmed.lastIndexOf("/")
-	const head = trimmed.slice(0, cut + 1)
-	const tail = trimmed.slice(cut + 1)
-	if (tail.length === 0) return trimmed
-	return `${head}[${tail.slice(0, 1)}]${tail.slice(1)}`
-}
-
-const PROCESS_PATTERN = `"$HOME"/${shellQuote(selfExcludingPattern(INSTANCES_PATH))}`
+const BOT_UNITS = ["open-mcc@*.service", "open-mcc-auth@*.service"].map(shellQuote).join(" ")
 
 export type TeardownReport = {
 	unitsRemoved: readonly string[]
 	directoryRemoved: boolean
-	processesLeft: number
 	lingeringLeft: boolean
 	remaining: readonly string[]
 }
 
-const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
-	const result = await transport.exec(`ls -1 ${UNIT_DIR} 2>/dev/null || true`, TEARDOWN_TIMEOUT_MS)
-	return result.stdout
+const linesOf = (output: string): string[] =>
+	output
 		.split("\n")
 		.map((line) => line.trim())
-		.filter((line) => line.length > 0 && isManagedUnit(line))
+		.filter((line) => line.length > 0)
+
+const listManagedUnits = async (transport: HostTransport): Promise<string[]> => {
+	const result = await transport.exec(`ls -1 ${UNIT_DIR} 2>/dev/null || true`, TEARDOWN_TIMEOUT_MS)
+	return linesOf(result.stdout).filter((line) => isManagedUnit(line))
 }
 
-export const tearDownHost = async (transport: HostTransport): Promise<TeardownReport> => {
+const listContainers = async (transport: HostTransport): Promise<string[] | undefined> => {
+	const result = await transport.exec(podman("ps -a --format '{{.Names}}'"), TEARDOWN_TIMEOUT_MS)
+	if (result.exitCode !== 0) return undefined
+	return linesOf(result.stdout).filter((name) => MANAGED_CONTAINER_PATTERN.test(name))
+}
+
+const countRunningUnits = async (transport: HostTransport): Promise<number | undefined> => {
+	const result = await transport.exec(
+		systemctl(
+			`list-units --plain --no-legend --state=${RUNNING_UNIT_STATES.join(",")} ${shellQuote("open-mcc*")}`,
+		),
+		TEARDOWN_TIMEOUT_MS,
+	)
+	if (result.exitCode !== 0) return undefined
+	return linesOf(result.stdout).filter((line) => isManagedUnit(line.split(/\s+/)[0] ?? "")).length
+}
+
+export const tearDownHost = async (
+	transport: HostTransport,
+	architecture: MccArchitecture | undefined,
+): Promise<TeardownReport> => {
 	const remaining: string[] = []
 	const units = await listManagedUnits(transport)
 
@@ -43,15 +67,46 @@ export const tearDownHost = async (transport: HostTransport): Promise<TeardownRe
 			TEARDOWN_TIMEOUT_MS,
 		)
 	}
+	await transport.exec(systemctl(`stop ${BOT_UNITS}`), UNIT_STOP_TIMEOUT_MS)
+
+	const containers = await listContainers(transport)
+	if (containers !== undefined && containers.length > 0) {
+		await transport.exec(
+			withDeadline(5, 50, `podman rm -f --ignore ${containers.join(" ")}`),
+			CONTAINERS_TIMEOUT_MS,
+		)
+	}
+	const containersLeft = await listContainers(transport)
+	if (containersLeft === undefined) remaining.push("The containers could not be listed")
+	else if (containersLeft.length > 0) {
+		remaining.push(`${containersLeft.length} container(s) still present`)
+	}
+	const running = await countRunningUnits(transport)
+	if (running === undefined) remaining.push("The running units could not be listed")
+	else if (running > 0) remaining.push(`${running} unit(s) still running`)
+
 	for (const unit of units) {
 		await transport.exec(`rm -f ${UNIT_DIR}/${shellQuote(unit)}`, TEARDOWN_TIMEOUT_MS)
 	}
 	await transport.exec(systemctl("daemon-reload"), TEARDOWN_TIMEOUT_MS)
 	await transport.exec(`${systemctl("reset-failed")} || true`, TEARDOWN_TIMEOUT_MS)
 
-	await transport.exec(`pkill -f ${PROCESS_PATTERN} || true`, TEARDOWN_TIMEOUT_MS)
+	if (architecture !== undefined) {
+		const image = await transport.exec(
+			withDeadline(3, 10, `podman rmi --ignore ${podmanImageId(runtimeImageFor(architecture))}`),
+			IMAGE_TIMEOUT_MS,
+		)
+		if (image.exitCode !== 0) remaining.push("The runtime image could not be removed")
+	}
 
-	await transport.exec(`rm -rf ${INSTANCES_ROOT}`, TEARDOWN_TIMEOUT_MS)
+	await transport.exec(
+		withDeadline(
+			5,
+			50,
+			`sh -c 'chmod -R u+rwX -- ${INSTANCES_ROOT} && rm -rf -- ${INSTANCES_ROOT}'`,
+		),
+		FILES_TIMEOUT_MS,
+	)
 	const check = await transport.exec(
 		`test -e ${INSTANCES_ROOT} && printf present || printf gone`,
 		TEARDOWN_TIMEOUT_MS,
@@ -62,14 +117,6 @@ export const tearDownHost = async (transport: HostTransport): Promise<TeardownRe
 	const leftoverUnits = await listManagedUnits(transport)
 	for (const unit of leftoverUnits) remaining.push(`${unit} is still installed`)
 
-	const processes = await transport.exec(
-		`pgrep -f ${PROCESS_PATTERN} 2>/dev/null | grep -c . || true`,
-		TEARDOWN_TIMEOUT_MS,
-	)
-	const processesLeft = Number.parseInt(processes.stdout.trim(), 10)
-	const stillRunning = Number.isSafeInteger(processesLeft) && processesLeft > 0 ? processesLeft : 0
-	if (stillRunning > 0) remaining.push(`${stillRunning} process(es) still running`)
-
 	const lingering = await transport.exec(
 		'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no',
 		TEARDOWN_TIMEOUT_MS,
@@ -78,7 +125,6 @@ export const tearDownHost = async (transport: HostTransport): Promise<TeardownRe
 	return {
 		unitsRemoved: units,
 		directoryRemoved,
-		processesLeft: stillRunning,
 		lingeringLeft: lingering.stdout.trim() === "yes",
 		remaining,
 	}

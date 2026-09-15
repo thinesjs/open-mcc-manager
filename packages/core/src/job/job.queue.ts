@@ -1,6 +1,7 @@
 import type { Executor } from "@open-mcc/db"
 import { asSqlRunner, type SqlRunner } from "./executor-adapter"
 import {
+	HOST_TEARDOWN_QUEUE,
 	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
@@ -8,8 +9,6 @@ import {
 	STATUS_ESCALATE_QUEUE,
 	SYSTEM_UPDATE_CHECK_QUEUE,
 } from "./queue-setup"
-
-export const HOST_TEARDOWN_QUEUE = "host.teardown"
 
 export const QUEUE_NAMES = [
 	HOST_TEARDOWN_QUEUE,

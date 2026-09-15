@@ -1,6 +1,9 @@
+import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
+import { tearDownHost } from "../host/teardown"
 import {
 	configuredAs,
+	HOST_TEARDOWN_QUEUE,
 	INSTANCE_ARTIFACT_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,
 	NOTIFICATION_EMAIL_QUEUE,
@@ -74,6 +77,30 @@ const fakePgBoss = () => {
 	return { admin, created, updated, stored }
 }
 
+const longestTeardownDeadlineSeconds = async (): Promise<number> => {
+	const transport = createFakeTransport({
+		"XDG_RUNTIME_DIR=/run/user/$(id -u) podman ps -a --format '{{.Names}}'": {
+			stdout: "open-mcc-abc\n",
+			stderr: "",
+			exitCode: 0,
+		},
+	})
+	await transport.connect({
+		hostname: "h",
+		port: 22,
+		username: "u",
+		privateKey: "k",
+		expectedFingerprint: "f",
+		timeoutMs: 1,
+	})
+	await tearDownHost(transport, "arm64")
+	const deadlines = transport.commands.flatMap((command) => {
+		const found = /^timeout -k (\d+) (\d+) /.exec(command)
+		return found === null ? [] : [Number(found[1]) + Number(found[2])]
+	})
+	return Math.max(...deadlines)
+}
+
 const policyNamed = (name: string): QueuePolicy => {
 	const policy = NOTIFICATION_QUEUE_POLICIES.find((candidate) => candidate.name === name)
 	if (policy === undefined) throw new Error(`no policy named ${name}`)
@@ -136,6 +163,19 @@ describe("setting the queues up", () => {
 		expect(check?.retryLimit).toBe(0)
 		expect(check?.retryBackoff).toBe(false)
 		expect(check?.deadLetter).toBeNull()
+	})
+
+	it("★ retries a host teardown twice, a minute apart, only once the longest teardown deadline has ended its work", async () => {
+		const { admin, stored } = fakePgBoss()
+		await reconcileQueues(admin)
+
+		const teardown = stored.get(HOST_TEARDOWN_QUEUE)
+		const longest = await longestTeardownDeadlineSeconds()
+		expect(teardown?.retryLimit).toBe(2)
+		expect(teardown?.retryDelay).toBe(60)
+		expect(teardown?.retryBackoff).toBe(false)
+		expect(longest).toBe(55)
+		expect(teardown?.retryDelay).toBeGreaterThan(longest)
 	})
 
 	it("still points a delivery queue at the dead-letter queue, so an unexpected throw is kept", async () => {

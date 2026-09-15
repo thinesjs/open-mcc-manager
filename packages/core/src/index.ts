@@ -157,11 +157,12 @@ export type { SqlRunner } from "./job/executor-adapter"
 export { asSqlRunner } from "./job/executor-adapter"
 export { createHostTeardownHandler } from "./job/host-teardown.job"
 export type { JobQueue, QueueName, SendJob, SendJobOptions } from "./job/job.queue"
-export { createJobQueue, HOST_TEARDOWN_QUEUE, QUEUE_NAMES } from "./job/job.queue"
+export { createJobQueue, QUEUE_NAMES } from "./job/job.queue"
 export type { QueueAdmin, QueuePolicy, StoredQueue } from "./job/queue-setup"
 export {
 	adminFor,
 	DEADLETTER_RETENTION_SECONDS,
+	HOST_TEARDOWN_QUEUE,
 	INSTANCE_ARTIFACT_QUEUE,
 	NOTIFICATION_CLEANUP_QUEUE,
 	NOTIFICATION_DEADLETTER_QUEUE,

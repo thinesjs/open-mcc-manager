@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -21,14 +21,18 @@ const SOURCE_FILE = /\.(?:[cm]?ts|tsx)$/
 const MINTS_A_READ_COMMAND = /\basReadCommand\b/
 
 const filesMintingReadCommands = (dir: string, found: string[] = []): string[] => {
-	for (const entry of readdirSync(dir)) {
-		if (SKIPPED.has(entry)) continue
-		const full = join(dir, entry)
-		if (statSync(full).isDirectory()) {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		if (SKIPPED.has(entry.name)) continue
+		const full = join(dir, entry.name)
+		if (entry.isDirectory()) {
 			filesMintingReadCommands(full, found)
 			continue
 		}
-		if (SOURCE_FILE.test(entry) && MINTS_A_READ_COMMAND.test(readFileSync(full, "utf8"))) {
+		if (
+			entry.isFile() &&
+			SOURCE_FILE.test(entry.name) &&
+			MINTS_A_READ_COMMAND.test(readFileSync(full, "utf8"))
+		) {
 			found.push(relative(REPOSITORY_ROOT, full))
 		}
 	}

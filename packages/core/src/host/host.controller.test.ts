@@ -1159,7 +1159,8 @@ describe("what provisioning tells the operator when it fails", () => {
 			}),
 			onError,
 		)
-		const copy = "Could not confirm systemd, a non-root account and a usable home folder on this host."
+		const copy =
+			"Could not confirm systemd, a non-root account and a usable home folder on this host."
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
 			new HostProvisioningFailedError(copy),

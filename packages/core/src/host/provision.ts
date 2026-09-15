@@ -71,21 +71,21 @@ export const SYSTEM_COMMAND = [
 
 const UID = /^[0-9]{1,10}$/
 
-const valueOf = (lines: readonly string[], key: string): string | null => {
+const lineValue = (lines: readonly string[], key: string): string | null => {
 	const line = lines.find((each) => each.startsWith(`${key}=`))
 	return line === undefined ? null : line.slice(key.length + 1)
 }
 
 export const parseSystem = (output: string) => {
 	const lines = output.split("\n")
-	const uid = valueOf(lines, "uid") ?? ""
+	const uid = lineValue(lines, "uid") ?? ""
 	return {
 		uid: UID.test(uid) ? Number(uid) : null,
-		home: valueOf(lines, "home") ?? "",
-		passwdHome: valueOf(lines, "passwd-home") ?? "",
-		systemd: hostFact(valueOf(lines, "systemd") ?? ""),
-		osId: hostFact(valueOf(lines, "os-id") ?? ""),
-		osName: hostFact(valueOf(lines, "os-name") ?? ""),
+		home: lineValue(lines, "home") ?? "",
+		passwdHome: lineValue(lines, "passwd-home") ?? "",
+		systemd: hostFact(lineValue(lines, "systemd") ?? ""),
+		osId: hostFact(lineValue(lines, "os-id") ?? ""),
+		osName: hostFact(lineValue(lines, "os-name") ?? ""),
 	}
 }
 

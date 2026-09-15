@@ -130,14 +130,22 @@ describe("provisionHost", () => {
 			["Verifying the runtime image", imageIdCommand(ARM64), 15_000],
 			["Checking the client runs", clientCheckCommand(ARM64), 30_000],
 			["Installing the instance unit", expect.stringContaining("'open-mcc@.service'"), 15_000],
-			["Installing the sleep units", expect.stringContaining("'open-mcc-sleep-stop@.service'"), 15_000],
+			[
+				"Installing the sleep units",
+				expect.stringContaining("'open-mcc-sleep-stop@.service'"),
+				15_000,
+			],
 			[
 				"Installing the sleep units",
 				expect.stringContaining("'open-mcc-sleep-start@.service'"),
 				15_000,
 			],
 			["Installing the sleep units", expect.stringContaining("'open-mcc-auth@.service'"), 15_000],
-			["Reloading systemd", "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reload", 15_000],
+			[
+				"Reloading systemd",
+				"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reload",
+				15_000,
+			],
 		])
 	})
 
@@ -176,7 +184,9 @@ describe("provisionHost", () => {
 
 	it("★ records our own Unknown for a systemd line it cannot trust", async () => {
 		const transport = await connected({
-			[SYSTEM_COMMAND]: answer(systemOutput({ systemd: `systemd 252 \u001b[31m${"x".repeat(200)}` })),
+			[SYSTEM_COMMAND]: answer(
+				systemOutput({ systemd: `systemd 252 \u001b[31m${"x".repeat(200)}` }),
+			),
 		})
 
 		expect((await provisionHost(transport)).osRelease).toBe("Unknown")
@@ -202,7 +212,9 @@ describe("provisionHost", () => {
 	it("refuses a root account at its first step, before anything else", async () => {
 		const transport = await connected({ [SYSTEM_COMMAND]: answer(systemOutput({ uid: "0" })) })
 
-		await expect(provisionHost(transport)).rejects.toThrow("Bots can't run as root. Use a normal account.")
+		await expect(provisionHost(transport)).rejects.toThrow(
+			"Bots can't run as root. Use a normal account.",
+		)
 		expect(transport.commands).toEqual([SYSTEM_COMMAND])
 	})
 
@@ -249,8 +261,10 @@ describe("checking Podman before provisioning touches it", () => {
 		const transport = await connected({
 			[HOST_FACTS_COMMAND]: answer(
 				factsOutput({ podman: "podman version 5.4.2" }, [
-					"subuid=own 165536 65536",
-					"subgid=own 165536 65536",
+					"subuid=own",
+					"subuid-end=231072",
+					"subgid=own",
+					"subgid-end=231072",
 					"helper=pasta",
 				]),
 			),
@@ -264,11 +278,23 @@ describe("checking Podman before provisioning touches it", () => {
 		["a Podman older than 4.3.1", factsOutput({ podman: "podman version 4.3.0" })],
 		["cgroup v1", factsOutput({ cgroup: "tmpfs" })],
 		["a root account", factsOutput({ uid: "0" })],
-		["no subordinate uids", factsOutput({}, ["subgid=own 165536 65536", "helper=slirp4netns"])],
-		["no subordinate gids", factsOutput({}, ["subuid=own 165536 65536", "helper=slirp4netns"])],
+		[
+			"no subordinate uids",
+			factsOutput({}, ["subgid=own", "subgid-end=231072", "helper=slirp4netns"]),
+		],
+		[
+			"no subordinate gids",
+			factsOutput({}, ["subuid=own", "subuid-end=231072", "helper=slirp4netns"]),
+		],
 		[
 			"only the helper another Podman major needs",
-			factsOutput({}, ["subuid=own 165536 65536", "subgid=own 165536 65536", "helper=pasta"]),
+			factsOutput({}, [
+				"subuid=own",
+				"subuid-end=231072",
+				"subgid=own",
+				"subgid-end=231072",
+				"helper=pasta",
+			]),
 		],
 	])("refuses %s before it sets up storage", async (_case, facts) => {
 		const transport = await connected({ [HOST_FACTS_COMMAND]: answer(facts) })
@@ -389,7 +415,9 @@ describe("checking the client runs", () => {
 	})
 
 	it("unpacks the client into the container's own temporary space, since its root is read-only", () => {
-		expect(clientCheckCommand(ARM64)).toMatch(/--read-only .*-e DOTNET_BUNDLE_EXTRACT_BASE_DIR=\/tmp /)
+		expect(clientCheckCommand(ARM64)).toMatch(
+			/--read-only .*-e DOTNET_BUNDLE_EXTRACT_BASE_DIR=\/tmp /,
+		)
 	})
 
 	it("never runs the client on the host itself", async () => {

@@ -31,7 +31,13 @@ const FACTS = {
 	cgroup: "cgroup2fs",
 }
 
-const CONTAINER_ACCESS = ["subuid=own 165536 65536", "subgid=own 165536 65536", "helper=slirp4netns"]
+const CONTAINER_ACCESS = [
+	"subuid=own",
+	"subuid-end=231072",
+	"subgid=own",
+	"subgid-end=231072",
+	"helper=slirp4netns",
+]
 
 export const factsOutput = (
 	values: Readonly<Record<string, string>> = {},

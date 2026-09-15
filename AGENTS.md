@@ -360,8 +360,9 @@ Dependency direction is one-way: router → controller → repository.
   Hono, no tRPC, no HTTP types.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
-  one `PROVISION_STEP_TIMEOUT_MS` (`provision.ts`) for every command
-  `provisionHost` runs — 10s + 2 x 120s against a 300s lease today. The three
+  the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
+  fifteen 15s commands, the 180s client download, the 180s image pull and the
+  30s client check, 625s against a 900s lease today. The three
   constants live in three files and nothing but that arithmetic ties them
   together, so a third provisioning step would silently push the worst case
   past the lease: attempt A's claim expires mid-flight, a second actor

@@ -2,7 +2,6 @@ import type { HostCheckReport } from "@open-mcc/contracts"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import {
-	CLIENT_PROBE_COMMAND,
 	checkHostOverTransport,
 	FORWARD_PROBE_PORT,
 	LINGER_COMMAND,
@@ -47,7 +46,6 @@ const hostWith = (
 ) => ({
 	"systemctl --version | head -n 1": ok("systemd 252 (252.39-1~deb12u2)"),
 	"uname -m": ok("aarch64"),
-	[CLIENT_PROBE_COMMAND]: ok("3"),
 	[LINGER_COMMAND]: ok("yes"),
 	[HOST_FACTS_COMMAND]: ok(factsOutput(facts, extra)),
 	...overrides,
@@ -109,7 +107,6 @@ describe("checking a host before committing to enrol it", () => {
 			"storage",
 			"tcp-forwarding",
 			"cloud-metadata",
-			"client-runtime",
 		])
 	})
 
@@ -150,13 +147,14 @@ describe("checking a host before committing to enrol it", () => {
 		expect(transport.commands.some((command) => command.includes("systemd-run"))).toBe(false)
 	})
 
-	it("blocks on a missing client dependency and names the package", async () => {
-		const report = await check(
-			hostWith(FRESH_FACTS, OWN_RANGES, { [CLIENT_PROBE_COMMAND]: ok("0") }),
-		)
+	it("asks nothing about the client's libraries, which ship in the runtime image", async () => {
+		const transport = await connected(hostWith())
 
-		expect(report.ready).toBe(false)
-		expect(resultOf(report, "client-runtime")?.detail).toContain("libicu")
+		const report = await checkHostOverTransport(transport, ACCOUNT)
+
+		expect(report.checks.map((each) => each.name)).not.toContain("client-runtime")
+		expect(transport.commands.some((command) => /libicu|ldconfig/.test(command))).toBe(false)
+		expect(JSON.stringify(report)).not.toContain("libicu")
 	})
 
 	it("blocks on an architecture with no client build", async () => {
@@ -202,7 +200,7 @@ describe("checking a host before committing to enrol it", () => {
 
 		expect(report.ready).toBe(false)
 		expect(outcomeOf(report, "reachable")).toBe("fail")
-		expect(report.checks.filter((each) => each.outcome === "skipped")).toHaveLength(12)
+		expect(report.checks.filter((each) => each.outcome === "skipped")).toHaveLength(11)
 	})
 })
 

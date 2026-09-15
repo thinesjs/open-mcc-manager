@@ -57,11 +57,12 @@ export type { HostReaderDeps, HostReadLease } from "./host/host-reader"
 export { hostReadKey, leaseHostReader } from "./host/host-reader"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
-	HOME_COMMAND,
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
+	SYSTEM_COMMAND,
 } from "./host/provision"
+export { provisionableHost } from "./host/provisionable-host"
 export type {
 	ArtifactRepository,
 	ArtifactSummary,

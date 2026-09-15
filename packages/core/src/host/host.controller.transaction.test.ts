@@ -20,7 +20,6 @@ import {
 	trackHostId,
 	trackSshKeyId,
 } from "../test/db"
-import { LINGER_COMMAND } from "./check"
 import {
 	type ActorContext,
 	createHostController,
@@ -38,21 +37,13 @@ import {
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 import { hostReadKey, leaseHostReader } from "./host-reader"
-import { HOME_COMMAND } from "./provision"
+import { provisionableHost } from "./provisionable-host"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
 const sendJobDouble = async () => null
 
-const PROVISIONABLE = {
-	[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
-	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
-	'"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1': {
-		stdout: "Minecraft Console Client v26.2",
-		stderr: "",
-		exitCode: 0,
-	},
-}
+const PROVISIONABLE = provisionableHost()
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -324,6 +315,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 
 		const final = await hosts.findById({ organizationId }, hostId)
 		expect(final?.status).toBe("ready")
+		expect(final?.networkStack).toBe("slirp4netns")
 	})
 
 	it("does not re-claim a host that is already provisioning", async () => {

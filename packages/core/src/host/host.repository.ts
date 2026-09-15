@@ -75,7 +75,7 @@ const requireConsistentTrustTuple = (values: HostCreateValues): void => {
 	}
 }
 
-export const PROVISIONING_LEASE_MS = 10 * 60 * 1000
+export const PROVISIONING_LEASE_MS = 15 * 60 * 1000
 
 export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
 	claimedAt === null || now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
@@ -281,12 +281,14 @@ export const createHostRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		attemptId: string,
-		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName">,
+		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName"> &
+			Partial<Pick<HostRow, "networkStack">>,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")
 			.set({
 				...whitelistHostUpdate(patch),
+				...(patch.networkStack !== undefined && { networkStack: patch.networkStack }),
 				provisioningAttemptId: null,
 				provisioningClaimedAt: null,
 				organizationId: scope.organizationId,

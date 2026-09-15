@@ -356,6 +356,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					osRelease: result.osRelease,
 					osId: result.osId,
 					osName: result.osName,
+					networkStack: result.networkStack,
 				})
 				if (!updated) {
 					throw new HostConcurrentlyModifiedError(

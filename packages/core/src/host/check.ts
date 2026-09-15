@@ -21,7 +21,6 @@ import {
 	parsePodmanInfo,
 	requiredStackFor,
 } from "./podman-facts"
-import { explainClientFailure } from "./provision"
 
 export const CHECK_TIMEOUT_MS = 20_000
 
@@ -29,8 +28,6 @@ export const FORWARD_PROBE_PORT = 22
 
 export const LINGER_COMMAND =
 	'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no'
-
-export const CLIENT_PROBE_COMMAND = "ldconfig -p 2>/dev/null | grep -c libicuuc || true"
 
 export const ROOT_REFUSAL = "Bots can't run as root. Use a normal account."
 
@@ -215,7 +212,6 @@ export const checkHostOverTransport = async (
 	const machine = await transport.exec("uname -m", CHECK_TIMEOUT_MS)
 	const facts = parseHostFacts((await transport.exec(HOST_FACTS_COMMAND, CHECK_TIMEOUT_MS)).stdout)
 	const linger = await transport.exec(LINGER_COMMAND, CHECK_TIMEOUT_MS)
-	const runtime = await transport.exec(CLIENT_PROBE_COMMAND, CHECK_TIMEOUT_MS)
 	const info = readsPodmanInfo(facts)
 		? parsePodmanInfo((await transport.exec(PODMAN_INFO_COMMAND, CHECK_TIMEOUT_MS)).stdout)
 		: null
@@ -247,11 +243,5 @@ export const checkHostOverTransport = async (
 					"This host's sshd refuses port forwarding, so live instance control will not work. Set AllowTcpForwarding to yes to enable it.",
 				),
 		metadataResult(facts.metadata),
-		Number.parseInt(runtime.stdout.trim(), 10) > 0
-			? pass("client-runtime", "libicu is installed")
-			: fail(
-					"client-runtime",
-					explainClientFailure("Couldn't find a valid ICU package installed on the system."),
-				),
 	])
 }

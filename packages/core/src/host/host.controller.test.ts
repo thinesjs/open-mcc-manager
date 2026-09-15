@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import { LINGER_COMMAND } from "./check"
 import {
 	CONNECT_TIMEOUT_MS,
 	createHostController,
@@ -27,19 +26,12 @@ import type {
 	OrgScope,
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
-import { HOME_COMMAND, provisionHost } from "./provision"
+import { provisionHost, SYSTEM_COMMAND } from "./provision"
+import { provisionableHost, systemOutput } from "./provisionable-host"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
-const PROVISIONABLE = {
-	[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
-	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
-	'"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1': {
-		stdout: "Minecraft Console Client v26.2",
-		stderr: "",
-		exitCode: 0,
-	},
-}
+const PROVISIONABLE = provisionableHost()
 
 const ctx = {
 	organizationId: "org-1",
@@ -216,12 +208,7 @@ const deps = (
 			seal: vi.fn(),
 		} satisfies SecretStore,
 		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
-		createTransport: vi.fn(() =>
-			createFakeTransport({
-				...PROVISIONABLE,
-				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			}),
-		),
+		createTransport: vi.fn(() => createFakeTransport(PROVISIONABLE)),
 		evictHost: () => undefined,
 		instanceIdsOnHost: vi.fn(async () => []),
 		now: () => new Date(),
@@ -709,24 +696,16 @@ describe("host controller provisioning", () => {
 	})
 
 	it("locks the host, claims it conditionally on its current status, and transitions to ready once it succeeds", async () => {
-		const transport = createFakeTransport({
-			...PROVISIONABLE,
-			'. /etc/os-release 2>/dev/null; printf \'%s\\n%s\' "$ID" "$PRETTY_NAME"': {
-				stdout: "debian\nDebian GNU/Linux 12 (bookworm)",
-				stderr: "",
-				exitCode: 0,
-			},
-			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport(PROVISIONABLE)
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
 
 		const updated = await controller.provision(ctx, "host-1")
 
 		expect(d.secrets.open).toHaveBeenCalledWith("sealed", "k1")
-		expect(transport.commands).toContain("systemctl --version | head -n 1")
+		expect(transport.commands).toContain(SYSTEM_COMMAND)
 		expect(transport.commands).toContain(
-			'install -d -m 0711 "$HOME"/.local/share/open-mcc/instances',
+			'install -d -m 0700 "$HOME"/.local/share/open-mcc "$HOME"/.local/share/open-mcc/bin "$HOME"/.local/share/open-mcc/instances',
 		)
 		expect(transport.state()).toBe("disconnected")
 		expect(updated?.osRelease).toBe("systemd 252")
@@ -746,6 +725,7 @@ describe("host controller provisioning", () => {
 				osRelease: "systemd 252",
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
+				networkStack: "slirp4netns",
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)
@@ -762,7 +742,7 @@ describe("host controller provisioning", () => {
 	it("transitions status to error and rethrows the original error when systemd is missing, without auditing or leaking the private key", async () => {
 		const transport = createFakeTransport({
 			...PROVISIONABLE,
-			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
+			[SYSTEM_COMMAND]: { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		const d = deps({ createTransport: vi.fn(() => transport) })
 		const controller = createHostController(d)
@@ -813,7 +793,7 @@ describe("host controller provisioning", () => {
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
 			new HostProvisioningFailedError(
-				"Could not confirm systemd and a usable home directory on this host.",
+				"Could not confirm systemd, a non-root account and a usable home folder on this host.",
 			),
 		)
 
@@ -859,7 +839,7 @@ describe("host controller provisioning", () => {
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
 			new HostProvisioningFailedError(
-				"Could not confirm systemd and a usable home directory on this host.",
+				"Could not confirm systemd, a non-root account and a usable home folder on this host.",
 			),
 		)
 		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
@@ -1012,11 +992,11 @@ const provisionConnectOptions = {
 }
 
 describe("provisionHost", () => {
-	it("records the systemd version and creates a setgid instances directory", async () => {
+	it("records the systemd version and creates private instance directories", async () => {
 		const transport = createFakeTransport({
 			...PROVISIONABLE,
-			"systemctl --version | head -n 1": {
-				stdout: "systemd 252 (252.22-1~deb12u1)",
+			[SYSTEM_COMMAND]: {
+				stdout: systemOutput({ systemd: "systemd 252 (252.22-1~deb12u1)" }),
 				stderr: "",
 				exitCode: 0,
 			},
@@ -1025,14 +1005,14 @@ describe("provisionHost", () => {
 		const result = await provisionHost(transport)
 		expect(result.osRelease).toBe("systemd 252 (252.22-1~deb12u1)")
 		expect(transport.commands).toContain(
-			'install -d -m 0711 "$HOME"/.local/share/open-mcc/instances',
+			'install -d -m 0700 "$HOME"/.local/share/open-mcc "$HOME"/.local/share/open-mcc/bin "$HOME"/.local/share/open-mcc/instances',
 		)
 	})
 
 	it("fails when systemd is absent", async () => {
 		const transport = createFakeTransport({
 			...PROVISIONABLE,
-			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
+			[SYSTEM_COMMAND]: { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		await transport.connect(provisionConnectOptions)
 		await expect(provisionHost(transport)).rejects.toThrow(/systemd/i)
@@ -1046,8 +1026,11 @@ describe("provisionHost", () => {
 	it("refuses a home directory carrying a shell metacharacter, so a hostile host cannot smuggle a command into every later path", async () => {
 		const transport = createFakeTransport({
 			...PROVISIONABLE,
-			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			[HOME_COMMAND]: { stdout: "/home/$(id -u)\n/home/$(id -u)", stderr: "", exitCode: 0 },
+			[SYSTEM_COMMAND]: {
+				stdout: systemOutput({ home: "/home/$(id -u)", "passwd-home": "/home/$(id -u)" }),
+				stderr: "",
+				exitCode: 0,
+			},
 		})
 		await transport.connect(provisionConnectOptions)
 
@@ -1059,8 +1042,11 @@ describe("provisionHost", () => {
 	it("refuses a relative home directory rather than resolving it against an unknown working directory", async () => {
 		const transport = createFakeTransport({
 			...PROVISIONABLE,
-			"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
-			[HOME_COMMAND]: { stdout: "home/mccuser\nhome/mccuser", stderr: "", exitCode: 0 },
+			[SYSTEM_COMMAND]: {
+				stdout: systemOutput({ home: "home/mccuser", "passwd-home": "home/mccuser" }),
+				stderr: "",
+				exitCode: 0,
+			},
 		})
 		await transport.connect(provisionConnectOptions)
 
@@ -1076,6 +1062,8 @@ describe("provisionHost", () => {
 		const remoteBudgetMs = transport.timeouts.reduce((total, each) => total + each, 0)
 		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs
 		expect(transport.timeouts).toHaveLength(transport.commands.length)
+		expect(worstCaseMs).toBe(625_000)
+		expect(PROVISIONING_LEASE_MS).toBe(15 * 60 * 1000)
 		expect(worstCaseMs).toBeLessThan(PROVISIONING_LEASE_MS)
 	})
 })
@@ -1136,7 +1124,7 @@ describe("what provisioning tells the operator when it fails", () => {
 
 	it("reports a step that failed on the host as a provisioning failure, not as an internal fault", async () => {
 		const transport = createFakeTransport({
-			"systemctl --version | head -n 1": { stdout: "", stderr: "not found", exitCode: 127 },
+			[SYSTEM_COMMAND]: { stdout: "", stderr: "not found", exitCode: 127 },
 		})
 		const { controller } = provisioningHosts(transport)
 
@@ -1163,7 +1151,7 @@ describe("what provisioning tells the operator when it fails", () => {
 		const onError = vi.fn((_message: string, _error: Error | string) => {})
 		const { controller, hosts } = provisioningHosts(
 			createFakeTransport({
-				"systemctl --version | head -n 1": {
+				[SYSTEM_COMMAND]: {
 					stdout: "",
 					stderr: "curl: (7) Failed to connect to 203.0.113.9 port 2222, token hunter2",
 					exitCode: 1,
@@ -1171,7 +1159,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			}),
 			onError,
 		)
-		const copy = "Could not confirm systemd and a usable home directory on this host."
+		const copy = "Could not confirm systemd, a non-root account and a usable home folder on this host."
 
 		await expect(controller.provision(ctx, "host-1")).rejects.toThrow(
 			new HostProvisioningFailedError(copy),

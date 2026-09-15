@@ -60,7 +60,6 @@ export {
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
-	SYSTEM_COMMAND,
 } from "./host/provision"
 export { provisionableHost } from "./host/provisionable-host"
 export type {

@@ -27,6 +27,7 @@ import {
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
 	HostMisconfiguredError,
+	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
@@ -37,11 +38,16 @@ import {
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 import { hostReadKey, leaseHostReader } from "./host-reader"
-import { provisionableHost } from "./provisionable-host"
+import { HOST_FACTS_COMMAND } from "./podman-facts"
+import { imagePullCommand, SYSTEM_COMMAND } from "./provision"
+import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
+import { runtimeImageFor } from "./runtime-image"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
 const sendJobDouble = async () => null
+
+const answer = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
 
 const PROVISIONABLE = provisionableHost()
 
@@ -316,6 +322,88 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		const final = await hosts.findById({ organizationId }, hostId)
 		expect(final?.status).toBe("ready")
 		expect(final?.networkStack).toBe("slirp4netns")
+	})
+
+	it("keeps what setup recorded when a Repair fails, and records Podman 5's stack when one succeeds", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-repair-facts")
+		const ubuntu = {
+			[SYSTEM_COMMAND]: answer(
+				systemOutput({
+					systemd: "systemd 255 (255.4-1ubuntu8)",
+					"os-id": "ubuntu",
+					"os-name": "Ubuntu 24.04.3 LTS",
+				}),
+			),
+		}
+		const attempts = [
+			provisionableHost(ubuntu),
+			provisionableHost({
+				[SYSTEM_COMMAND]: answer(
+					systemOutput({
+						systemd: "systemd 257 (257.7-1)",
+						"os-id": "debian",
+						"os-name": "Debian GNU/Linux 13 (trixie)",
+					}),
+				),
+				[imagePullCommand(runtimeImageFor("x64"))]: {
+					stdout: "",
+					stderr: "Error: initializing source: connection refused",
+					exitCode: 125,
+				},
+			}),
+			provisionableHost({
+				...ubuntu,
+				[HOST_FACTS_COMMAND]: answer(
+					factsOutput({ podman: "podman version 5.4.2" }, [
+						"subuid=own",
+						"subuid-end=231072",
+						"subgid=own",
+						"subgid-end=231072",
+						"helper=pasta",
+					]),
+				),
+			}),
+		]
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+		const recorded = {
+			networkStack: "slirp4netns",
+			osRelease: "systemd 255 (255.4-1ubuntu8)",
+			osId: "ubuntu",
+			osName: "Ubuntu 24.04.3 LTS",
+		}
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			...recorded,
+		})
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			...recorded,
+		})
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			...recorded,
+			networkStack: "pasta",
+		})
 	})
 
 	it("does not re-claim a host that is already provisioning", async () => {

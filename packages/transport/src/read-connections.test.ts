@@ -129,6 +129,21 @@ describe("sharing one connection per host", () => {
 		reader.release()
 	})
 
+	it("T2: opens again on the next read after an open that fails before it returns a promise", async () => {
+		const { connections, made, lease } = harness()
+		const refused = new Error("the key could not be read")
+		const refuseAtOnce = (): Promise<void> => {
+			throw refused
+		}
+
+		await expect(connections.lease(HOST, IDENTITY, 10_000, refuseAtOnce)).rejects.toBe(refused)
+		expect(made).toHaveLength(1)
+
+		const reader = await lease()
+		expect(made).toHaveLength(2)
+		reader.release()
+	})
+
 	it("T3: destroys the old connection and opens one new one when the fingerprint changes", async () => {
 		const { made, lease } = harness()
 		const first = await lease()

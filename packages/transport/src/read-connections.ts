@@ -263,7 +263,7 @@ export const createReadConnections = (options: ReadConnectionsOptions) => {
 		}
 		const done = (async () => {
 			try {
-				await open(transport)
+				await Promise.resolve(transport).then(open)
 			} catch (error) {
 				giveUp()
 				throw error

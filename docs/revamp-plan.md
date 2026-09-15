@@ -229,38 +229,22 @@ exists only between `AfterGameJoined` and disconnect, so connection-refused mean
 "not joined yet", never "failure". It must not raise an alarm.
 
 **Authentication is required even through the tunnel**, because the tunnel gives us
-a path and not exclusivity. On a rootless host every instance shares a UID and a
-network namespace, so a sibling can reach the port. The token is per-instance and
-lives in the sealed store.
+a path and not exclusivity: the port is published on the host's loopback, where any
+process on the host itself can reach it. The token is per-instance and lives in the
+sealed store.
 
 ### The isolation boundary, stated honestly
 
-On a **rootless** host, sibling instances are separated by a *file* boundary only —
-the mount namespace (`ProtectHome=tmpfs` plus `BindPaths`) hides one instance's
-directory from another. They are **not** separated at the process level: a shared
-UID means siblings can already signal each other, read each other's
-`/proc/<pid>/environ`, and so reach any token held in an environment variable.
-`ProtectProc=invisible` does not help, because it hides processes owned by *other*
-users and rootless siblings share one.
+Each bot runs in its own rootless Podman container, with its own PID, mount and
+network namespaces. A bot cannot see another bot's processes, read its environment or
+files, or reach the host's loopback, where every bot's live-control port is published.
+Its token reaches the client through `podman run --env-file`, from a file that is never
+mounted into any container.
 
-`ProtectProc=ptraceable` is a real possibility the earlier draft wrongly dismissed by
-claiming no directive could isolate same-UID siblings. It hides processes that cannot be
-`ptrace()`d rather than processes owned by other users, and `PTRACE_MODE_ATTACH` *is* gated
-by Yama — so where `kernel.yama.ptrace_scope` is `1`, which several distributions default
-to, non-ancestor siblings cannot attach to each other and the whole `/proc/<pid>` entry,
-`environ` included, becomes invisible. Two caveats keep it out of the standing constraints
-for now: the manager does not control that sysctl, and `ProtectProc=` is implemented through
-filesystem namespacing, so a systemd *user* manager that cannot set up a mount namespace
-discards it silently — the same failure this repo already measures for `ProtectHome` and
-`PrivateTmp`. It must therefore go through the existing provisioning probe and be *measured*
-before `SECURITY.md` describes it as a control. Note that plain same-UID access alone is
-enough to read `environ`: `PTRACE_MODE_READ` is not restricted by Yama at all.
-
-A listening loopback port therefore does not widen the rootless threat model — an
-attacker who controls one rootless instance already controls them all. Real
-per-instance separation is what `system` mode provides, through per-instance OS
-users (`usesPerInstanceUsers`). `SECURITY.md` must say this plainly rather than
-implying instances are isolated from one another.
+What bots share is one kernel uid: every bot runs as the enrolled account, so a container
+escape yields that account and every bot on the host with it, tokens and session caches
+included. `SECURITY.md` says this plainly rather than implying bots are isolated beyond
+it.
 
 ## Stage 3 — Live chat and commands — **landed, minus chat send**
 

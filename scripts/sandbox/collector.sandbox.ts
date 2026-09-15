@@ -206,7 +206,8 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 	const nofileDiagnosis = async (): Promise<string> =>
 		await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, CONTAINER).then(
 			(ran) => ran.stdout.slice(0, 2000),
-			(error: Error) => `diagnostic unavailable: ${error.message.slice(0, 200)}`,
+			(error) =>
+				`diagnostic unavailable: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`,
 		)
 
 	const startBot = async (): Promise<void> => {

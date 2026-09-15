@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
 	configDriftDefeatsSafety,
 	describeConfigDrift,
+	describeRuntimeDrift,
 	describeStateDrift,
 	describeUnitDrift,
 	describeUnreachable,
@@ -41,6 +42,7 @@ describe("drift summary", () => {
 			summariseDrift({
 				hostId: "h",
 				reachable: true,
+				runtimeDrift: [],
 				unitDrift: [],
 				stateDrift: [],
 				configDrift: [],
@@ -52,6 +54,7 @@ describe("drift summary", () => {
 		const summary = summariseDrift({
 			hostId: "h",
 			reachable: true,
+			runtimeDrift: [],
 			unitDrift: [{ kind: "missing", unit: "open-mcc@.service" }],
 			stateDrift: [{ instanceId: "abc", desired: "running", observed: "failed" }],
 			configDrift: [],
@@ -174,5 +177,28 @@ describe("what the browser is told about a key the operator saved", () => {
 				actual: null,
 			}),
 		).toBe(false)
+	})
+})
+
+describe("a host whose Podman changed under it", () => {
+	it("tells the operator Podman was upgraded and that Repair setup updates it", () => {
+		expect(describeRuntimeDrift({ kind: "network-stack" })).toBe(
+			"Podman was upgraded. Repair setup to update it.",
+		)
+	})
+
+	it("counts it, so a host with nothing else wrong is never called converged", () => {
+		const summary = summariseDrift({
+			hostId: "h",
+			reachable: true,
+			runtimeDrift: [{ kind: "network-stack" }],
+			unitDrift: [],
+			stateDrift: [],
+			configDrift: [],
+		})
+		if (summary.verdict !== "drifted") throw new Error("expected drift")
+
+		expect(summary.total).toBe(1)
+		expect(summary.runtimeDrift).toEqual([{ kind: "network-stack" }])
 	})
 })

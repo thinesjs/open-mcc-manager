@@ -2,6 +2,7 @@ import type {
 	ConfigDriftPublic,
 	HostReconciliation,
 	HostUnreachableReason,
+	RuntimeDrift,
 	StateDrift,
 	UnitDrift,
 } from "@open-mcc/contracts"
@@ -22,6 +23,7 @@ export type DriftSummary =
 	| { verdict: "converged" }
 	| {
 			verdict: "drifted"
+			runtimeDrift: RuntimeDrift[]
 			unitDrift: UnitDrift[]
 			stateDrift: StateDrift[]
 			configDrift: ConfigDriftPublic[]
@@ -33,16 +35,25 @@ export const summariseDrift = (reconciliation: HostReconciliation): DriftSummary
 		return { verdict: "unknown", reason: reconciliation.reason }
 	}
 	const total =
+		reconciliation.runtimeDrift.length +
 		reconciliation.unitDrift.length +
 		reconciliation.stateDrift.length +
 		reconciliation.configDrift.length
 	if (total === 0) return { verdict: "converged" }
 	return {
 		verdict: "drifted",
+		runtimeDrift: reconciliation.runtimeDrift,
 		unitDrift: reconciliation.unitDrift,
 		stateDrift: reconciliation.stateDrift,
 		configDrift: reconciliation.configDrift,
 		total,
+	}
+}
+
+export const describeRuntimeDrift = (drift: RuntimeDrift): string => {
+	switch (drift.kind) {
+		case "network-stack":
+			return "Podman was upgraded. Repair setup to update it."
 	}
 }
 

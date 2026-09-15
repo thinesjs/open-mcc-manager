@@ -639,8 +639,8 @@ there would never be hit.
 
 - **Readers only.** `createReadConnections`
   (`packages/transport/src/read-connections.ts`) hands out a `HostReader`, never a
-  `HostTransport`. A reader can `exec` a `ReadCommand` with no stdin, `forward`,
-  `probePort` and `release`, and nothing else. Every write stays on a fresh
+  `HostTransport`. A reader can `exec` a `ReadCommand` with no stdin, `forward` and
+  `release`, and nothing else. Every write stays on a fresh
   connection: start, stop, restart, create, send command, config save, sleep
   window, instance removal, inventory drop and select, scheduled commands,
   sign-in, host check, provisioning, teardown and the collector.
@@ -673,8 +673,8 @@ there would never be hit.
   to 10 seconds: about 20 seconds for a live readout, and about 70 for the setup
   check. A deadline at or past the hard age is refused, and `reconcile.test.ts`
   keeps the setup check's below the hard age less a full connect.
-- **Channels.** A connection allows 6 channels in total, counting execs, forwards
-  and probes together, and a forward holds its slot until it closes. A read that
+- **Channels.** A connection allows 6 channels in total, counting execs and forwards
+  together, and a forward holds its slot until it closes. A read that
   expires while it is still waiting in that local queue fails with
   `ChannelQueueExpiredError` and leaves the connection alone. A read whose
   deadline passes while a channel is requested from sshd or open retires the
@@ -841,10 +841,13 @@ reachable from any network, and nothing here may change that.
   load and on clean exit fails and is logged. `start` re-renders the saved
   config immediately before launching the unit, so a save made while an
   instance runs takes effect at its next start.
-- Connection-refused means "not joined yet", never failure — MCP listens only
-  between `AfterGameJoined` and disconnect. A live endpoint that never answered
-  *after* joining is reported as `unreachable` drift, because MCC swallows its
-  own bind failure.
+- MCP listens only between `AfterGameJoined` and disconnect, so a readout that
+  finds nothing before the client joins means "not joined yet", never failure.
+  Podman's forwarder holds the published port whether or not the client
+  listens, so a forward that succeeds proves nothing. A live endpoint that never
+  answered *after* joining is reported as `unreachable` drift, because MCC
+  swallows its own bind failure: reconcile posts once to the route without the
+  token, and only a `401` proves the client listens.
 
 ## What the bots write on a host
 

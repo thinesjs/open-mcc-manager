@@ -203,6 +203,7 @@ export const startServer = async (
 		createTransport: createSshTransport,
 		readConnections,
 		withTransaction: createInstanceControllerTransaction(db),
+		now: () => Date.now(),
 	})
 	const destinationController = createDestinationController({
 		withTransaction: createDestinationControllerTransaction(db),

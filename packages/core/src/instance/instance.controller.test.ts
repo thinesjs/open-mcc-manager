@@ -1,3 +1,5 @@
+import { createServer, type Server } from "node:http"
+import { connect } from "node:net"
 import { instanceConfigInput, type SleepWindowInput } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
@@ -12,12 +14,13 @@ import { DatabaseError } from "@open-mcc/db"
 import {
 	createFakeTransport,
 	createReadConnections,
+	LiveChannelUnavailableError,
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
 	type ReusableTransport,
 } from "@open-mcc/transport"
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 const READER_RESULTS = {
 	readPlayerStats: {
@@ -78,6 +81,7 @@ import {
 	scheduledRunFailure,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
+import { reconcileFactsCommand } from "./reconcile"
 import type { ScheduleRepository } from "./schedule.repository"
 import { instanceDir, instanceLayoutSteps, startUnitCommand, unitName } from "./unit"
 
@@ -236,6 +240,13 @@ const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceComman
 	...overrides,
 })
 
+const HOST_FACTS = reconcileFactsCommand(
+	"56e3d8542b4091c81816101e95875e32ec981577e669112c479a57d4003e4c29",
+)
+
+const factsSaying = (version: string) =>
+	`open-mcc/units\nopen-mcc/podman\n${version}\nopen-mcc/containers\nopen-mcc/image\n0\nopen-mcc/end\n`
+
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({
 		[startUnitCommand("abc123")]: {
@@ -243,6 +254,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 			stderr: "",
 			exitCode: 0,
 		},
+		[HOST_FACTS]: { stdout: factsSaying("podman version 4.3.1"), stderr: "", exitCode: 0 },
 	})
 	const readTransports: { next: () => ReusableTransport } = { next: () => transport }
 	const readConnections = createReadConnections({
@@ -301,6 +313,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		createTransport: () => transport,
 		readConnections,
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		now: () => Date.now(),
 		...overrides,
 	}
 	return { transport, audit, instances, deps, readTransports, readConnections }
@@ -308,6 +321,8 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 
 describe("a bot's files and its start", () => {
 	const DIR = '"$HOME"/.local/share/open-mcc/instances/abc123'
+
+	const ENV_WRITE = `(umask 077; cat > ${DIR}/env && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`
 
 	const RUNNING = { status: "running" }
 
@@ -380,15 +395,32 @@ describe("a bot's files and its start", () => {
 		expect(tokens).toHaveLength(2)
 		for (const token of tokens) expect(token).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
 		expect(tokens[0]).not.toBe(tokens[1])
-		expect(
-			transport.commands.filter((command) => command === `(umask 077; cat > ${DIR}/env)`),
-		).toHaveLength(2)
+		expect(transport.commands.filter((command) => command === ENV_WRITE)).toHaveLength(2)
 		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
+	})
+
+	it("rewrites unit.env from the row's port in the exec that writes the token, adding no exec", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const configWrite = `(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`
+
+		await controller.start(owner, "abc123")
+		const started = [...transport.commands]
+		transport.commands.length = 0
+		await controller.restart(owner, "abc123")
+
+		expect(started).toEqual([ENV_WRITE, configWrite, startUnitCommand("abc123")])
+		expect(transport.commands).toEqual([
+			`${SYSTEMCTL} stop 'open-mcc@abc123'`,
+			ENV_WRITE,
+			configWrite,
+			startUnitCommand("abc123"),
+		])
 	})
 
 	it("fails a start into a directory that is gone, before it starts anything", async () => {
 		const { deps, transport } = withSavedConfig()
-		answering(transport, `(umask 077; cat > ${DIR}/env)`, {
+		answering(transport, ENV_WRITE, {
 			stdout: "",
 			stderr: "sh: 1: cannot create env: Directory nonexistent",
 			exitCode: 2,
@@ -892,7 +924,7 @@ describe("reconciliation", () => {
 		const { deps, transport } = makeDeps()
 		const original = transport.execUntil
 		transport.execUntil = async (command: string, signal: AbortSignal) =>
-			command.startsWith("ls -1")
+			command.includes("ls -1")
 				? { stdout: "", stderr: "Permission denied", exitCode: 2 }
 				: await original(command, signal)
 		const controller = createInstanceController(deps)
@@ -932,6 +964,21 @@ describe("reconciliation", () => {
 
 		expect(JSON.stringify(result)).not.toContain("10.4.5.6")
 		expect(result).toEqual({ hostId: "host-1", reachable: false, reason: "unreachable" })
+	})
+
+	it("reads the stack the host's live Podman needs against the one its setup recorded", async () => {
+		const { deps, transport } = makeDeps()
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
+			command === HOST_FACTS
+				? { stdout: factsSaying("podman version 5.4.2"), stderr: "", exitCode: 0 }
+				: await original(command, signal)
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		if (!result.reachable) throw new Error("expected a reachable host")
+		expect(result.runtimeDrift).toEqual([{ kind: "network-stack" }])
 	})
 
 	it("★ tells a host that was never finished apart from one that did not answer", async () => {
@@ -2182,5 +2229,210 @@ describe("a bot on a host with no recorded runtime", () => {
 			)
 			expect(instances.delete).toHaveBeenCalledTimes(1)
 		})
+	})
+})
+
+describe("the token goes only to a bot seen running", () => {
+	const ACTIVE_CHECK = `${SYSTEMCTL} is-active --quiet 'open-mcc@abc123.service'`
+	const TOKEN = "31337token"
+	const authorizations: (string | undefined)[] = []
+	let client: Server
+	let clientPort = 0
+
+	beforeAll(async () => {
+		client = createServer((request, response) => {
+			authorizations.push(request.headers.authorization)
+			request.resume()
+			request.on("end", () => response.writeHead(401).end())
+		})
+		await new Promise<void>((resolve) => client.listen(0, "127.0.0.1", resolve))
+		const address = client.address()
+		clientPort = address !== null && typeof address === "object" ? address.port : 0
+	})
+
+	afterAll(async () => {
+		await new Promise<void>((resolve) => client.close(() => resolve()))
+	})
+
+	const liveBot = (running: { exitCode: number }, clock: { at: number }) => {
+		authorizations.length = 0
+		const made = makeDeps({
+			now: () => clock.at,
+			secrets: {
+				open: () => TOKEN,
+				seal: (plaintext: string) => ({ ciphertext: `sealed(${plaintext.length})`, keyId: "k1" }),
+				activeKeyId: "k1",
+			},
+		})
+		made.deps.instances.findById = async () =>
+			instanceRow({
+				liveControlPort: 33350,
+				liveControlTokenEncrypted: "sealed(32)",
+				liveControlTokenKeyId: "k1",
+			})
+		made.deps.instances.latestConfig = async () =>
+			configRow({
+				document: { ...SAVED_DOCUMENT, liveControlEnabled: true, liveControlPort: 33350 },
+			})
+		const checks: string[] = []
+		const opened: string[] = []
+		const { transport } = made
+		const execUntil = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) => {
+			if (command !== ACTIVE_CHECK) return await execUntil(command, signal)
+			checks.push("shared")
+			return { stdout: "", stderr: "", exitCode: running.exitCode }
+		}
+		const exec = transport.exec
+		transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			if (command !== ACTIVE_CHECK) return await exec(command, timeoutMs, stdin)
+			checks.push("fresh")
+			return { stdout: "", stderr: "", exitCode: running.exitCode }
+		}
+		const toClient = (via: string) => async (port: number) => {
+			opened.push(`${via}:${port}`)
+			const socket = connect(clientPort, "127.0.0.1")
+			return { socket, close: () => socket.destroy() }
+		}
+		transport.forwardUntil = toClient("shared")
+		transport.forward = toClient("fresh")
+		return { ...made, controller: createInstanceController(made.deps), checks, opened }
+	}
+
+	it("issues no is-active for a second readout within 5 seconds of an active result", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		expect(await controller.readLivePlayerStats(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayerStats,
+		)
+		clock.at += 4_999
+		expect(await controller.readLivePlayerStats(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayerStats,
+		)
+
+		expect(checks).toEqual(["shared"])
+	})
+
+	it("issues one again for a readout 5 seconds after that result", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		clock.at += 5_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
+	})
+
+	it("opens no forward and sends no token once the bot is not running, though it was before", async () => {
+		const running = { exitCode: 0 }
+		const clock = { at: 1_000_000 }
+		const { controller, checks, opened, audit, readConnections } = liveBot(running, clock)
+		await controller.readLiveStatus(owner, "abc123").catch(() => undefined)
+		expect(authorizations).toEqual([`Bearer ${TOKEN}`])
+		expect(opened).toEqual(["shared:33350"])
+
+		running.exitCode = 3
+		clock.at += 5_000
+		authorizations.length = 0
+		opened.length = 0
+		await expect(controller.readLiveStatus(owner, "abc123")).resolves.toBeUndefined()
+		await expect(
+			controller.dropInventoryItem(owner, "abc123", "minecraft:dirt", 1),
+		).rejects.toBeInstanceOf(LiveChannelUnavailableError)
+
+		expect(opened).toEqual([])
+		expect(authorizations).toEqual([])
+		expect(checks).toEqual(["shared", "shared", "fresh"])
+		expect(audit.record).not.toHaveBeenCalled()
+		expect(readConnections.activeLeases()).toBe(0)
+	})
+
+	it("asks once for readouts that arrive together", async () => {
+		const { controller, checks, transport } = liveBot({ exitCode: 0 }, { at: 1_000_000 })
+		const answered = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) => {
+			await new Promise((resolve) => setImmediate(resolve))
+			return await answered(command, signal)
+		}
+
+		const outcomes = await Promise.all([
+			controller.readLivePlayerStats(owner, "abc123"),
+			controller.readLiveStatusEffects(owner, "abc123"),
+			controller.readLiveBots(owner, "abc123"),
+			controller.readLivePlayers(owner, "abc123"),
+		])
+
+		expect(outcomes).toEqual([
+			READER_RESULTS.readPlayerStats,
+			READER_RESULTS.readStatusEffects,
+			READER_RESULTS.readLoadedBots,
+			READER_RESULTS.readPlayersList,
+		])
+		expect(checks).toEqual(["shared"])
+	})
+
+	it("asks on the connection each request forwards over", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks, opened } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLiveStatus(owner, "abc123").catch(() => undefined)
+		clock.at += 5_000
+		await controller.dropInventoryItem(owner, "abc123", "minecraft:dirt", 1).catch(() => undefined)
+
+		expect(checks).toEqual(["shared", "fresh"])
+		expect(opened).toEqual(["shared:33350", "fresh:33350"])
+	})
+
+	it.each([
+		{ named: "its host key", changed: { hostKeyFingerprint: "SHA256:replaced" } },
+		{ named: "its address", changed: { hostname: "10.0.0.2" } },
+		{ named: "its SSH port", changed: { port: 2222 } },
+		{ named: "its account", changed: { username: "other" } },
+		{ named: "its SSH key", changed: { sshKeyId: "key-2" } },
+	])("asks again within 5 seconds once the host changes $named", async ({ changed }) => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks, deps } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		deps.hosts.findById = async () => ({ ...hostRow, ...changed })
+		clock.at += 1_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
+	})
+
+	type LiveController = ReturnType<typeof createInstanceController>
+
+	it.each([
+		{
+			named: "a stop",
+			run: async (controller: LiveController) => {
+				await controller.stop(owner, "abc123")
+			},
+		},
+		{
+			named: "a restart",
+			run: async (controller: LiveController) => {
+				await controller.restart(owner, "abc123")
+			},
+		},
+		{
+			named: "a removal",
+			run: async (controller: LiveController) => {
+				await controller.remove(owner, "abc123")
+			},
+		},
+	])("asks again within 5 seconds after $named", async ({ run }) => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		await run(controller)
+		clock.at += 1_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
 	})
 })

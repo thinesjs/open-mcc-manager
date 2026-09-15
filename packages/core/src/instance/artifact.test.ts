@@ -144,6 +144,7 @@ const sweepOn = async (
 		[rowAt(cursor)],
 		options.documents ?? new Map(),
 		store,
+		async () => true,
 	)
 	const sweep = sweeps[0]
 	if (sweep === undefined) throw new Error("expected one sweep")

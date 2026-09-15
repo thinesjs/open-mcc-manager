@@ -50,8 +50,9 @@ import {
 } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
+import { endedByDeadline } from "../host/deadline"
 import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
-import type { HostRepository, OrgScope } from "../host/host.repository"
+import { createHostRepository, type HostRepository, type OrgScope } from "../host/host.repository"
 import { type HostReadLease, leaseHostReader } from "../host/host-reader"
 import { systemctl, UNIT_DIR } from "../host/profile"
 import { checkHostRuntime, type HostNeed, hostMeets } from "../host/runtime-guard"
@@ -103,10 +104,14 @@ import {
 	unitRuntimeFor,
 } from "./reconcile"
 import {
-	processesGoneCommand,
-	removeDirectoryCommand,
-	stopUnitCommands,
+	DIRECTORY_DELETE_TIMEOUT_MS,
+	deleteDirectoryCommand,
+	REMOVAL_STEP_TIMEOUT_MS,
+	removeContainersCommand,
+	removeTimersCommand,
+	stopUnitsCommand,
 	UNIT_STOP_TIMEOUT_MS,
+	verifyGoneCommand,
 } from "./removal"
 import {
 	parseDaysOfWeek,
@@ -142,6 +147,7 @@ export type InstanceTransactionRepos = {
 	schedules: ScheduleRepository
 	commands: CommandRepository
 	audit: Pick<AuditRepository, "record">
+	hosts: Pick<HostRepository, "lockHost" | "findById">
 }
 
 export type WithInstanceTransaction = <T>(
@@ -156,6 +162,7 @@ export const createInstanceControllerTransaction = (db: Db): WithInstanceTransac
 				schedules: createScheduleRepository(tx),
 				commands: createCommandRepository(tx),
 				audit: createAuditRepository(tx),
+				hosts: createHostRepository(tx),
 			}),
 		)
 	return withTransaction
@@ -750,6 +757,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					claimed.push(port)
 					initialConfig = { ...initialConfig, liveControlPort: port }
 					return await deps.withTransaction(async (repos) => {
+						await repos.hosts.lockHost(scopeOf(ctx), input.hostId)
+						const locked = await repos.hosts.findById(scopeOf(ctx), input.hostId)
+						if (locked?.status !== "ready" || checkHostRuntime(locked).kind !== "ready") {
+							throw new InstanceHostNotProvisionedError(
+								`Host ${input.hostId} is not ready for a new bot`,
+							)
+						}
 						const row = await repos.instances.insert(scopeOf(ctx), {
 							hostId: input.hostId,
 							name: input.name,
@@ -1415,7 +1429,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		authenticate: async (ctx: ActorContext, instanceId: string) => {
 			requireCapabilityFor(ctx.role, "instance.authenticate")
 			const { beginAuthentication } = await import("./authenticate")
-			return await beginAuthentication(deps, ctx, instanceId)
+			return await beginAuthentication(deps, ctx, instanceId, forgetActive)
 		},
 
 		completeAuthentication: async (ctx: ActorContext, instanceId: string) => {
@@ -1441,41 +1455,35 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 			try {
-				for (const name of [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]) {
-					await transport.exec(
-						`${systemctl(`disable --now ${shellQuote(name)}`)} || true`,
-						INSTANCE_STEP_TIMEOUT_MS,
-					)
-					await transport.exec(`rm -f ${UNIT_DIR}/${shellQuote(name)}`, INSTANCE_STEP_TIMEOUT_MS)
-				}
-				await transport.exec(systemctl("daemon-reload"), INSTANCE_STEP_TIMEOUT_MS)
-				const stopUnits = async () => {
-					for (const command of stopUnitCommands(instance.id)) {
-						await transport.exec(command, UNIT_STOP_TIMEOUT_MS)
-					}
-				}
+				const exitOf = async (command: string, timeoutMs: number): Promise<number> =>
+					(await transport.exec(command, timeoutMs)).exitCode
+				const stillInUse = () =>
+					new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
 				const unfinished = () =>
 					new InstanceRemovalFailedError(
 						`Instance ${instanceId} could not be fully removed from its host`,
 					)
 
-				await stopUnits()
-				forgetActive(instance.id)
-				const quiet = await transport.exec(
-					processesGoneCommand(instance.id),
-					INSTANCE_STEP_TIMEOUT_MS,
-				)
-				if (quiet.exitCode !== 0) {
-					throw new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
+				if ((await exitOf(removeTimersCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+					throw unfinished()
 				}
-
-				const directory = await transport.exec(
-					removeDirectoryCommand(instance.id),
-					INSTANCE_STEP_TIMEOUT_MS,
+				await transport.exec(stopUnitsCommand(instance.id), UNIT_STOP_TIMEOUT_MS)
+				forgetActive(instance.id)
+				if ((await exitOf(removeContainersCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+					throw stillInUse()
+				}
+				if ((await exitOf(verifyGoneCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+					throw stillInUse()
+				}
+				const deleted = await exitOf(
+					deleteDirectoryCommand(instance.id),
+					DIRECTORY_DELETE_TIMEOUT_MS,
 				)
-				if (directory.exitCode !== 0) throw unfinished()
-
-				await stopUnits()
+				if (endedByDeadline(deleted)) throw stillInUse()
+				if (deleted !== 0) throw unfinished()
+				if ((await exitOf(verifyGoneCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+					throw stillInUse()
+				}
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

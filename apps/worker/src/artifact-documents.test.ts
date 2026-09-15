@@ -148,6 +148,7 @@ const commandsSweptWith = async (botConfig: Json): Promise<readonly string[]> =>
 		...wired,
 		organizationIds: async () => ["org-1"],
 		hosts: async () => [HOST],
+		host: async () => HOST,
 		instancesOn: async () => [INSTANCE],
 		connect: async () => {
 			await transport.connect({

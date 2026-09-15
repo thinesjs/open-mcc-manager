@@ -26,7 +26,6 @@ import {
 	egressPolicy,
 	generateSshKeyPair,
 	type HealthPollerHandle,
-	HOST_TEARDOWN_QUEUE,
 	hostList,
 	hostReadKey,
 	JOURNAL_READ_TIMEOUT_MS,
@@ -106,7 +105,6 @@ export const startServer = async (
 	})
 	attachQueueWarning(boss, logger)
 	await boss.start()
-	await boss.createQueue(HOST_TEARDOWN_QUEUE)
 	await reconcileQueues(
 		adminFor({
 			createQueue: async (name, options) => await boss.createQueue(name, options),
@@ -172,10 +170,6 @@ export const startServer = async (
 		now: () => new Date(),
 		evictHost: (organizationId, hostId) =>
 			readConnections.evict(hostReadKey(organizationId, hostId)),
-		instanceIdsOnHost: async (scope, hostId) =>
-			(await createInstanceRepository(db).list(scope))
-				.filter((instance) => instance.hostId === hostId)
-				.map((instance) => instance.id),
 		withTransaction: createHostControllerTransaction(db, sendJob),
 		onError: runtimeErrorReporter(logger),
 	})

@@ -97,6 +97,7 @@ export const beginAuthentication = async (
 	deps: InstanceControllerDeps,
 	ctx: ActorContext,
 	instanceId: string,
+	forgetActive: (instanceId: string) => void,
 	polling: AuthPolling = {
 		attempts: DEVICE_CODE_POLL_ATTEMPTS,
 		intervalMs: DEVICE_CODE_POLL_INTERVAL_MS,
@@ -150,6 +151,7 @@ export const beginAuthentication = async (
 			`${systemctl(`stop ${shellQuote(unitName(instance.id))}`)} || true`,
 			UNIT_STOP_TIMEOUT_MS,
 		)
+		forgetActive(instance.id)
 
 		const log = `${instanceDir(instance.id)}/auth.log`
 

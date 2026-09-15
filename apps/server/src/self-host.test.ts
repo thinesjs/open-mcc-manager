@@ -109,7 +109,6 @@ const appWith = (
 		probeHostKey: async () => presented,
 		createTransport: () => createFakeTransport(),
 		evictHost: () => undefined,
-		instanceIdsOnHost: async () => [],
 		now: () => new Date(),
 		withTransaction: createHostControllerTransaction(db, async () => null),
 	})

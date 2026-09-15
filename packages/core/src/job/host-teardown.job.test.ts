@@ -1,5 +1,6 @@
 import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import { podmanImageId, runtimeImageFor } from "../host/runtime-image"
 import { createHostTeardownHandler } from "./host-teardown.job"
 
 const payload = {
@@ -12,9 +13,9 @@ const payload = {
 	organizationId: "org-1",
 }
 
-const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
-
 const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
+
+const REMOVE_FILES = `timeout -k 5 50 sh -c '{ [ ! -e "$HOME"/.local/share/open-mcc ] || chmod -R u+rwX -- "$HOME"/.local/share/open-mcc; } && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
 
 describe("what a failed host clean-up records for the dashboard", () => {
 	it("records why it could not reach the host without the address the error named", async () => {
@@ -64,23 +65,31 @@ const cleaningWith = (transport: HostTransport) => {
 }
 
 describe("what a clean-up needs to know about the host", () => {
+	it("removes whichever pinned runtime image the host holds, from a payload that names no architecture", async () => {
+		const transport = createFakeTransport()
+		const { handler, onCleaned } = cleaningWith(transport)
+
+		await handler(payload)
+
+		expect(transport.commands.filter((command) => command.includes("podman rmi"))).toEqual([
+			`timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor("arm64"))} ${podmanImageId(runtimeImageFor("x64"))}; s=$?; exit $s`,
+		])
+		expect(onCleaned).toHaveBeenCalledTimes(1)
+	})
+
 	it("cleans a host from a payload that names only how to reach it", async () => {
-		const transport = createFakeTransport({
-			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport()
 		const { handler, onCleaned, onFailed } = cleaningWith(transport)
 
 		await handler(payload)
 
-		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(transport.commands).toContain(REMOVE_FILES)
 		expect(onCleaned).toHaveBeenCalledTimes(1)
 		expect(onFailed).not.toHaveBeenCalled()
 	})
 
 	it("cleans the account's own home, never a path an old queued payload still names", async () => {
-		const transport = createFakeTransport({
-			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport()
 		const { handler, onCleaned, onFailed } = cleaningWith(transport)
 
 		await handler({
@@ -90,7 +99,7 @@ describe("what a clean-up needs to know about the host", () => {
 			unitDir: "/etc/systemd/system",
 		})
 
-		expect(transport.commands).toContain('rm -rf "$HOME"/.local/share/open-mcc')
+		expect(transport.commands).toContain(REMOVE_FILES)
 		expect(
 			transport.commands.filter((command) =>
 				/\/srv\/open-mcc|\/etc\/systemd\/system/.test(command),
@@ -104,9 +113,7 @@ describe("what a clean-up needs to know about the host", () => {
 describe("★ what a clean-up that got onto the host records for the dashboard", () => {
 	it("records only its own words when something is left behind, and gives the details to the log", async () => {
 		const { handler, onFailed, onError } = cleaningWith(
-			createFakeTransport({
-				[INSTANCES_LEFT]: { stdout: "present", stderr: "", exitCode: 0 },
-			}),
+			createFakeTransport({ [REMOVE_FILES]: { stdout: "", stderr: "", exitCode: 1 } }),
 		)
 
 		await expect(handler(payload)).rejects.toThrow()
@@ -136,6 +143,21 @@ describe("★ what a clean-up that got onto the host records for the dashboard",
 		])
 		expect(onError.mock.calls.map(([, error]) => String(error))).toEqual([
 			expect.stringContaining("203.0.113.9:2222"),
+		])
+	})
+
+	it("★ throws when the channel drops while the files are being deleted, leaving the retry to the queue", async () => {
+		const { handler, onFailed, onCleaned } = cleaningWith(
+			createFakeTransport(
+				{},
+				{ exec: { [REMOVE_FILES]: new Error("read ECONNRESET 203.0.113.9:2222") } },
+			),
+		)
+
+		await expect(handler(payload)).rejects.toThrow("ECONNRESET")
+		expect(onCleaned).not.toHaveBeenCalled()
+		expect(onFailed.mock.calls.map(([, , reason]) => reason)).toEqual([
+			"Cleaning stopped before it finished.",
 		])
 	})
 })

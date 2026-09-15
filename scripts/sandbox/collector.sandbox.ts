@@ -30,6 +30,8 @@ import {
 import type { InstanceRow } from "../../packages/db/src/index"
 import {
 	HOME,
+	inContainer,
+	nofileDiagnosis,
 	PODMAN_TARGETS,
 	shellTransport,
 	startPodmanHost,
@@ -116,14 +118,6 @@ const PLANT = [
 	"done",
 ].join("\n")
 
-const NOFILE_DIAGNOSIS = [
-	'echo "caller hard nofile: $(ulimit -H -n)"',
-	'echo "fs.nr_open: $(timeout 5 cat /proc/sys/fs/nr_open)"',
-	"echo \"user service hard nofile: $(timeout 5 systemd-run --user --wait --pipe --quiet sh -c 'ulimit -H -n' 2>&1 | head -n 1)\"",
-	'timeout 5 podman --log-level=debug exec "$1" true 2>&1 | grep -i -E "rlimit|nofile" | head -n 5',
-	"exit 0",
-].join("\n")
-
 const TRY_THE_MOUNT_POINT = [
 	'mv "$0" /data/moved; echo "rename=$?"',
 	'rmdir "$0"; echo "remove=$?"',
@@ -203,18 +197,11 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			"reading the bot's state",
 		).trim()
 
-	const nofileDiagnosis = async (): Promise<string> =>
-		await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, CONTAINER).then(
-			(ran) => ran.stdout.slice(0, 2000),
-			(error) =>
-				`diagnostic unavailable: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`,
-		)
-
 	const startBot = async (): Promise<void> => {
 		const started = await shell(host, { ...as, timeoutMs: 120_000 }, startUnitCommand(BOT))
 		if (parseUnitStartState(started.stdout)?.activeState !== "active") {
 			const failure = `the bot did not start: ${started.stdout.trim()} ${started.stderr.trim().slice(0, 1000)}`
-			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
+			throw new Error(`${failure}\n${await nofileDiagnosis(host, as, CONTAINER)}`)
 		}
 	}
 
@@ -240,6 +227,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			],
 			new Map(),
 			store,
+			async () => true,
 		)
 		return { swept: sweeps[0], elapsed: Date.now() - began }
 	}
@@ -337,23 +325,8 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 		await shell(host, as, 'rm -f -- "$@"', ...ON_THE_HOST)
 	}, 180_000)
 
-	const inTheBot = async (what: string, script: string, ...args: readonly string[]) => {
-		const ran = await shell(
-			host,
-			{ ...as, timeoutMs: 60_000 },
-			'systemd-run --user --wait --pipe --quiet podman exec "$@"',
-			CONTAINER,
-			"sh",
-			"-c",
-			script,
-			...args,
-		)
-		if (ran.status !== 0) {
-			const failure = `${what} exited ${ran.status}: ${ran.stderr.trim().slice(0, 1000)}`
-			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
-		}
-		return ran.stdout
-	}
+	const inTheBot = async (what: string, script: string, ...args: readonly string[]) =>
+		await inContainer(host, as, CONTAINER, what, ["sh", "-c", script, ...args])
 
 	it("★ keeps the replays mount point in place when the bot tries to rename or remove it", async () => {
 		await startBot()

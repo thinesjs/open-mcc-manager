@@ -56,7 +56,6 @@ beforeAll(async () => {
 		probeHostKey: async () => Buffer.alloc(0),
 		createTransport: () => createFakeTransport(),
 		evictHost: () => undefined,
-		instanceIdsOnHost: vi.fn(async () => []),
 		now: () => new Date(),
 		withTransaction: createHostControllerTransaction(db, async () => null),
 	})

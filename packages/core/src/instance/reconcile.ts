@@ -214,7 +214,7 @@ const readHostFacts = async (reader: SetupReader, imageId: string) => {
 
 const CONTAINER_PREFIX = "open-mcc-"
 
-const MANAGED_CONTAINER_PATTERN = /^open-mcc-(?:auth-)?([A-Za-z0-9_-]{1,64})$/
+export const MANAGED_CONTAINER_PATTERN = /^open-mcc-(?:auth-)?([A-Za-z0-9_-]{1,64})$/
 
 const leftoverContainers = (
 	names: readonly string[],

@@ -367,6 +367,7 @@ const collectPlayerList = async (
 	name: string,
 	store: ArtifactStore,
 	tally: Tally,
+	stillCollecting: () => Promise<boolean>,
 ): Promise<void> => {
 	const stored = cursorOf(instance)
 	if (stored === undefined) {
@@ -427,6 +428,7 @@ const collectPlayerList = async (
 	}
 	if (cursor.offset === 0 || read.size !== cursor.offset) return
 	if (!isStopped(read.unit) || !isStopped(read.auth)) return
+	if (!(await stillCollecting())) return
 	await truncatePlayerList(transport, instance.id, name, cursor, store, tally)
 }
 
@@ -556,19 +558,24 @@ export const sweepHostArtifacts = async (
 	instances: readonly InstanceRow[],
 	documents: ReadonlyMap<string, string>,
 	store: ArtifactStore,
+	stillCollecting: () => Promise<boolean>,
 ): Promise<readonly InstanceArtifactSweep[]> => {
 	const sweeps: InstanceArtifactSweep[] = []
 	for (const instance of instances) {
+		if (!(await stillCollecting())) break
 		const replays = `${instanceDir(instance.id)}/${INSTANCE_LAYOUT.replays}`
 		const names = artifactNamesFor(documents.get(instance.id))
 		const tally = emptyTally()
 
 		if (names.playerList === undefined) tally.refused += 1
-		else await collectPlayerList(transport, instance, names.playerList, store, tally)
+		else
+			await collectPlayerList(transport, instance, names.playerList, store, tally, stillCollecting)
 
-		await collectReplays(transport, replays, instance.id, store, tally)
-		await pruneReplays(transport, replays, tally)
-		await measureMailerState(transport, instance.id, names, tally)
+		if (await stillCollecting()) {
+			await collectReplays(transport, replays, instance.id, store, tally)
+			await pruneReplays(transport, replays, tally)
+			await measureMailerState(transport, instance.id, names, tally)
+		}
 
 		sweeps.push({
 			instanceId: instance.id,

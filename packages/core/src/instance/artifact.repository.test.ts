@@ -255,6 +255,7 @@ describe("★ moving a player list's cursor only with the bytes it stored", () =
 				],
 				new Map(),
 				storeFor(ownerOrg),
+				async () => true,
 			)
 
 		await sweep()

@@ -143,7 +143,7 @@ describe("what the operator is told is wrong", () => {
 
 	it("★ flags a saved bot file the client already uses, so the operator sees it on opening the form", () => {
 		const draft = draftFrom({
-			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+			botConfig: { "ChatBot.PlayerListLogger.File": "SessionCache.db" },
 			advancedKeys: {},
 		})
 

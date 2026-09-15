@@ -1853,7 +1853,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 			configRow({
 				document: {
 					...JSON.parse(JSON.stringify(SAVED)),
-					botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+					botConfig: { "ChatBot.PlayerListLogger.File": "SessionCache.db" },
 				},
 			}),
 		)
@@ -1870,7 +1870,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		)
 		expect(transport.stdins.find((each) => each.includes("[Main.General]"))).toBeUndefined()
 		expect((await controller.getConfig(owner, "abc123"))?.botConfig).toEqual({
-			"ChatBot.PlayerListLogger.File": "env",
+			"ChatBot.PlayerListLogger.File": "SessionCache.db",
 		})
 	})
 
@@ -1889,7 +1889,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, transport } = withReservedBotFile()
 		const onHost = renderInstanceConfig({
 			...SAVED,
-			botConfig: { "ChatBot.PlayerListLogger.File": "env" },
+			botConfig: { "ChatBot.PlayerListLogger.File": "SessionCache.db" },
 			liveControlPort: instanceRow().liveControlPort,
 		}).replace("RequireAuthToken = true", "RequireAuthToken = false")
 		const execUntil = transport.execUntil

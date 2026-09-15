@@ -279,7 +279,7 @@ function InstanceDetailPage() {
 
 					{completeMutation.data?.authenticated === true ? (
 						<Alert variant="success" icon={<KeyRound />}>
-							Signed in. This bot can start now.
+							Signed in. Start the bot when you're ready.
 						</Alert>
 					) : null}
 

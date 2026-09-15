@@ -8,8 +8,8 @@ host is managed the same way. The manager connects as the one account enrolled
 for that host, works only inside that account's home directory under its
 systemd user manager, and runs each bot in a rootless Podman container as that
 account. It never gains root: the host check, provisioning and the setup script
-all refuse uid 0, and the check and provisioning require Podman to report
-itself rootless. Enrol an ordinary account, so a stolen key yields that one
+all refuse uid 0, and provisioning requires Podman to report itself rootless
+before any bot runs. Enrol an ordinary account, so a stolen key yields that one
 unprivileged account rather than the host itself. The operator runs
 `loginctl enable-linger <user>` once, by hand, so instances survive logout and
 start at boot; provisioning refuses to continue until they have.
@@ -296,8 +296,10 @@ depth, not a substitute for one.
   - **No host loopback.** Neither network stack lets a bot reach the host's
     loopback, where every bot's live-control port is published, so no bot can
     reach another's.
-  - **No bot-written file is read.** The manager reads no file inside a bot's
-    writable directories, and removal deletes them without following links.
+  - **No planted link is followed.** The manager's one look inside a bot's
+    writable directories is the sign-in check: `find`, following no link, asks
+    whether `state/SessionCache.db` is a non-empty regular file, and reads
+    nothing from it. Removal deletes those directories without following links.
 - **What does not hold between bots.**
   - **One kernel uid.** Every bot runs as the enrolled account: root inside the
     container maps to it. A container escape, meaning a kernel or container

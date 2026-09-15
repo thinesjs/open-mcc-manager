@@ -255,7 +255,7 @@ describe("device code pattern", () => {
 describe("beginAuthentication", () => {
 	it("stops the unit before starting an authentication session", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
 		const authAt = transport.commands.findIndex((each) =>
 			each.includes("start 'open-mcc-auth@abc123.service'"),
@@ -267,7 +267,7 @@ describe("beginAuthentication", () => {
 	it("runs the sign-in through its own unit, so it is confined the same way a running instance is", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		expect(
 			transport.commands.some((each) => each.includes("start 'open-mcc-auth@abc123.service'")),
@@ -277,7 +277,7 @@ describe("beginAuthentication", () => {
 	it("launches nothing detached from systemd, which would escape the unit's restrictions", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		for (const command of transport.commands) {
 			expect(command).not.toContain("nohup")
@@ -289,7 +289,7 @@ describe("beginAuthentication", () => {
 	it("surfaces the pairing code without carrying anything the client wrote afterwards", async () => {
 		const withToken = `${DEVICE_CODE_OUTPUT}\nrefresh_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9`
 		const { deps } = makeDeps(withToken)
-		const result = await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		const result = await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 		expect(result.userCode).toBe("FJDPTLX8")
 		expect(result.verificationUri).toBe("https://www.microsoft.com/link")
 		expect(JSON.stringify(result)).not.toContain("eyJ")
@@ -304,16 +304,16 @@ describe("beginAuthentication", () => {
 				_attemptId: string,
 			): Promise<ReturnType<typeof instanceRow> | undefined> => undefined,
 		)
-		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
-			InstanceAuthInProgressError,
-		)
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow(InstanceAuthInProgressError)
 	})
 
 	it("releases the claim when the session fails, rather than holding it for the whole lease", async () => {
 		const { deps, transport, instances } = makeDeps("no code here at all")
-		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
-			/device code/i,
-		)
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow(/device code/i)
 		const claimedWith = vi.mocked(instances.claimForAuth).mock.calls.at(0)?.at(2)
 		expect(claimedWith).toBeDefined()
 		expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
@@ -326,7 +326,7 @@ describe("beginAuthentication", () => {
 
 	it("holds the claim on success, because the operator needs minutes to finish the login", async () => {
 		const { deps, instances } = makeDeps(DEVICE_CODE_OUTPUT)
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
 	})
 })
@@ -449,7 +449,7 @@ describe("orphaned authentication clients", () => {
 	it("stops a session left by an earlier attempt before starting a new one", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		const stopAt = transport.commands.findIndex(stoppedAuthUnit)
 		const startAt = transport.commands.findIndex((each) =>
@@ -462,9 +462,9 @@ describe("orphaned authentication clients", () => {
 	it("does not leave a session running when no device code ever appears", async () => {
 		const { deps, transport } = makeDeps("nothing resembling a device code")
 
-		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow(
-			/device code/i,
-		)
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow(/device code/i)
 
 		expect(transport.commands.filter(stoppedAuthUnit).length).toBeGreaterThanOrEqual(2)
 	})
@@ -472,7 +472,9 @@ describe("orphaned authentication clients", () => {
 	it("stops the session on the way out even though the claim is also released", async () => {
 		const { deps, transport, instances } = makeDeps("no code")
 
-		await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toThrow()
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow()
 
 		expect(transport.commands.some(stoppedAuthUnit)).toBe(true)
 		expect(instances.releaseAuthClaim).toHaveBeenCalled()
@@ -481,7 +483,7 @@ describe("orphaned authentication clients", () => {
 	it("clears a failed session so systemd will start it again next time", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		expect(
 			transport.commands.some((each) =>
@@ -567,7 +569,7 @@ describe("signing in through a host that cannot be reached", () => {
 	it("reports starting a sign-in as unreachable and lets the claim go", async () => {
 		const { deps, instances } = makeDeps("", { createTransport: refused })
 
-		const outcome = beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		const outcome = beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		await expect(outcome).rejects.toBeInstanceOf(HostUnreachableError)
 		await expect(outcome).rejects.toThrow(/^The server refused the connection$/)
@@ -606,7 +608,7 @@ describe("stopping the instance before a sign-in", () => {
 			)?.[1],
 		)
 
-		await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 
 		const stopAt = transport.commands.findIndex((each) => each.includes("stop 'open-mcc@abc123'"))
 		expect(stopSeconds).toBeGreaterThan(0)
@@ -620,7 +622,7 @@ describe("signing in on a host with no recorded runtime", () => {
 		[
 			"starting",
 			async (deps: InstanceControllerDeps) => {
-				await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+				await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 			},
 		],
 		[
@@ -657,9 +659,9 @@ describe("signing in on a host with no recorded runtime", () => {
 				hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) },
 			})
 
-			await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toBeInstanceOf(
-				InstanceHostNotFoundError,
-			)
+			await expect(
+				beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+			).rejects.toBeInstanceOf(InstanceHostNotFoundError)
 			expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
 				{ organizationId: "org-1" },
 				"abc123",

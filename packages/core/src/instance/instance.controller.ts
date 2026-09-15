@@ -1415,7 +1415,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		authenticate: async (ctx: ActorContext, instanceId: string) => {
 			requireCapabilityFor(ctx.role, "instance.authenticate")
 			const { beginAuthentication } = await import("./authenticate")
-			return await beginAuthentication(deps, ctx, instanceId)
+			return await beginAuthentication(deps, ctx, instanceId, forgetActive)
 		},
 
 		completeAuthentication: async (ctx: ActorContext, instanceId: string) => {

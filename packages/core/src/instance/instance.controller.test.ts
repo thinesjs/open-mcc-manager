@@ -2237,6 +2237,8 @@ describe("a bot on a host with no recorded runtime", () => {
 
 describe("the token goes only to a bot seen running", () => {
 	const ACTIVE_CHECK = `${SYSTEMCTL} is-active --quiet 'open-mcc@abc123.service'`
+	const SIGN_IN_LOG =
+		"To sign in, open https://www.microsoft.com/link in your browser and enter the code: FJDPTLX8\n"
 	const TOKEN = "31337token"
 	const authorizations: (string | undefined)[] = []
 	let client: Server
@@ -2288,6 +2290,9 @@ describe("the token goes only to a bot seen running", () => {
 		}
 		const exec = transport.exec
 		transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			if (command.endsWith("/auth.log 2>/dev/null || true")) {
+				return { stdout: SIGN_IN_LOG, stderr: "", exitCode: 0 }
+			}
 			if (command !== ACTIVE_CHECK) return await exec(command, timeoutMs, stdin)
 			checks.push("fresh")
 			return { stdout: "", stderr: "", exitCode: running.exitCode }
@@ -2425,6 +2430,12 @@ describe("the token goes only to a bot seen running", () => {
 			named: "a removal",
 			run: async (controller: LiveController) => {
 				await controller.remove(owner, "abc123")
+			},
+		},
+		{
+			named: "a sign-in, which stops the bot first",
+			run: async (controller: LiveController) => {
+				await controller.authenticate(owner, "abc123")
 			},
 		},
 	])("asks again within 5 seconds after $named", async ({ run }) => {

@@ -3,13 +3,18 @@ import { describe, expect, it } from "vitest"
 import {
 	INSTANCE_LAYOUT,
 	instanceDir,
+	instanceLayoutSteps,
+	parseUnitStartState,
 	renderEnvironmentFile,
 	renderUnitEnv,
+	startUnitCommand,
 	unitName,
 	validateInstanceId,
 } from "./unit"
 
 const TOKEN = "0123456789abcdef0123456789abcdef"
+
+const DIR = '"$HOME"/.local/share/open-mcc/instances/abc123'
 
 describe("instance id validation", () => {
 	it("rejects a systemd specifier, naming that as the reason", () => {
@@ -39,6 +44,85 @@ describe("what a bot's directory holds", () => {
 			control: "control",
 			collectLock: "collect.lock",
 		})
+	})
+})
+
+describe("making a bot's directory", () => {
+	const steps = instanceLayoutSteps({
+		instanceId: "abc123",
+		liveControlPort: 33333,
+		liveControlToken: TOKEN,
+		configDocument: "[Main]\n",
+	})
+
+	it("makes every directory first, then the fifo, lock and port file, then the token and the config", () => {
+		expect(steps.map((step) => step.command)).toEqual([
+			`install -d -m 0700 ${DIR} ${DIR}/config ${DIR}/state ${DIR}/replays ${DIR}/recording-cache`,
+			`(test -p ${DIR}/control || mkfifo -m 0600 ${DIR}/control) && (umask 077; : > ${DIR}/collect.lock && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`,
+			`(umask 077; cat > ${DIR}/env)`,
+			`(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`,
+		])
+	})
+
+	it("sends the token and the config as stdin, never on a command line", () => {
+		expect(steps.map((step) => step.stdin)).toEqual([
+			undefined,
+			undefined,
+			`MCC_MCP_AUTH_TOKEN=${TOKEN}\n`,
+			"[Main]\n",
+		])
+		for (const step of steps) expect(step.command).not.toContain(TOKEN)
+	})
+
+	it("refuses a port or a token the unit could not read", () => {
+		expect(() =>
+			instanceLayoutSteps({
+				instanceId: "abc123",
+				liveControlPort: 0,
+				liveControlToken: TOKEN,
+				configDocument: "",
+			}),
+		).toThrow(/port/i)
+		expect(() =>
+			instanceLayoutSteps({
+				instanceId: "abc123",
+				liveControlPort: 33333,
+				liveControlToken: "not-hex",
+				configDocument: "",
+			}),
+		).toThrow(/token/i)
+	})
+})
+
+describe("starting a bot and reading what systemd made of it", () => {
+	it("starts the unit and reads its state and result in the same command", () => {
+		expect(startUnitCommand("abc123")).toBe(
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start 'open-mcc@abc123' && XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState -p Result 'open-mcc@abc123'",
+		)
+	})
+
+	it("reads the two properties in either order", () => {
+		expect(parseUnitStartState("ActiveState=active\nResult=success\n")).toEqual({
+			activeState: "active",
+			result: "success",
+		})
+		expect(parseUnitStartState("Result=exec-condition\nActiveState=inactive")).toEqual({
+			activeState: "inactive",
+			result: "exec-condition",
+		})
+	})
+
+	it.each([
+		["nothing", ""],
+		["no result", "ActiveState=active\n"],
+		["no state", "Result=success\n"],
+		["an extra property", "ActiveState=active\nResult=success\nSubState=running\n"],
+		["Windows line endings", "ActiveState=active\r\nResult=success\r\n"],
+		["a repeated property", "ActiveState=active\nActiveState=failed\nResult=success\n"],
+		["an empty value", "ActiveState=\nResult=success\n"],
+		["both on one line", "ActiveState=active Result=success"],
+	])("refuses output with %s rather than guess", (_case, output) => {
+		expect(parseUnitStartState(output)).toBeUndefined()
 	})
 })
 

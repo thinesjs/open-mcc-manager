@@ -2,6 +2,7 @@ import type { McConfigScalar, McConfigValue } from "@open-mcc/contracts/boundary
 import { readMccConfigKeys, readMccConfigSections } from "@open-mcc/contracts/boundary/mcc-config"
 import { ADVANCED_KEY_NAMES, BOT_CONFIG_NAMES } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { ALLOWED_CONFIG_KEYS, EMPTIED_CONFIG_SECTIONS, FIXED_CONFIG_KEYS } from "./config"
+import { CONFIG_FILE_NAME } from "./unit"
 
 export type ConfigDrift =
 	| {
@@ -19,7 +20,7 @@ export type ConfigDrift =
 	| { kind: "section"; section: string; entries: number }
 	| { kind: "unreadable"; key: string }
 
-export const CONFIG_PATH_NAME = "MinecraftClient.ini"
+export const CONFIG_PATH_NAME = CONFIG_FILE_NAME
 
 const MANAGED_KEYS: readonly string[] = ALLOWED_CONFIG_KEYS
 const FIXED_KEYS: readonly string[] = FIXED_CONFIG_KEYS

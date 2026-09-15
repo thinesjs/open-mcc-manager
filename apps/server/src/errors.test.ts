@@ -14,6 +14,7 @@ import {
 	HostNotFoundError,
 	HostProvisioningInProgressError,
 	InstanceRemovalFailedError,
+	InstanceSignInRunningError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -50,6 +51,12 @@ describe("mapKnownError", () => {
 			httpStatus: 403,
 			message: "You do not have permission to perform this action",
 		})
+	})
+
+	it("maps InstanceSignInRunningError to CONFLICT, under its own code", () => {
+		expect(
+			mapKnownError(new InstanceSignInRunningError("Sign-in is running for instance abc123")),
+		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_SIGN_IN_RUNNING" })
 	})
 
 	it("maps HostNotFoundError to NOT_FOUND", () => {

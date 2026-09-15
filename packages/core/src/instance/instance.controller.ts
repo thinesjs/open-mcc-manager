@@ -113,7 +113,15 @@ import {
 } from "./schedule"
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
-import { instanceDir, renderEnvironmentFile, unitName } from "./unit"
+import {
+	CONFIG_FILE_PATH,
+	instanceDir,
+	instanceLayoutSteps,
+	parseUnitStartState,
+	renderEnvironmentFile,
+	startUnitCommand,
+	unitName,
+} from "./unit"
 
 export type ActorContext = {
 	organizationId: string
@@ -192,6 +200,7 @@ export const scheduledRunFailure = (error: Error | string): string => {
 }
 
 export class InstanceAuthInProgressError extends Error {}
+export class InstanceSignInRunningError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
 export class InstanceStillInUseError extends Error {}
@@ -209,6 +218,18 @@ const reasonFor = (error: Error): HostUnreachableReason => {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
+
+const startedOrThrow = (instanceId: string, output: string): void => {
+	const state = parseUnitStartState(output)
+	if (state === undefined) {
+		throw new Error(`Could not read whether instance ${instanceId} started`)
+	}
+	if (state.activeState === "active") return
+	if (state.result === "exec-condition") {
+		throw new InstanceSignInRunningError(`Sign-in is running for instance ${instanceId}`)
+	}
+	throw new Error(`Failed to start instance ${instanceId}: ${state.activeState} ${state.result}`)
+}
 
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
@@ -383,7 +404,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
-			const configPath = `${instanceDir(instance.id)}/MinecraftClient.ini`
+			const configPath = `${instanceDir(instance.id)}/${CONFIG_FILE_PATH}`
 			const result = await transport.exec(
 				`(umask 077; cat > ${configPath})`,
 				INSTANCE_STEP_TIMEOUT_MS,
@@ -559,12 +580,15 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		try {
 			const result = await transport.exec(
-				systemctl(`${verb} ${shellQuote(unitName(instance.id))}`),
+				verb === "start"
+					? startUnitCommand(instance.id)
+					: systemctl(`${verb} ${shellQuote(unitName(instance.id))}`),
 				verb === "stop" ? UNIT_STOP_TIMEOUT_MS : INSTANCE_STEP_TIMEOUT_MS,
 			)
 			if (result.exitCode !== 0) {
 				throw new Error(`Failed to ${verb} instance ${instance.id}: ${result.stderr.trim()}`)
 			}
+			if (verb === "start") startedOrThrow(instance.id, result.stdout)
 		} finally {
 			await transport.close().catch(() => undefined)
 		}
@@ -643,26 +667,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					})
 				})
 
-				const dir = instanceDir(created.id)
-				const steps: Array<[string, string, string | undefined]> = [
-					[`install -d -m 0700 ${dir}`, "Failed to create the instance directory", undefined],
-					[
-						`test -p ${dir}/control || mkfifo -m 0600 ${dir}/control`,
-						"Failed to create the control fifo",
-						undefined,
-					],
-					[
-						`(umask 077; cat > ${dir}/env)`,
-						"Failed to write the instance environment",
-						renderEnvironmentFile({ liveControlToken }),
-					],
-					[
-						`(umask 077; cat > ${dir}/MinecraftClient.ini)`,
-						"Failed to write the instance config",
-						renderInstanceConfig(initialConfig),
-					],
-				]
-				for (const [command, failure, stdin] of steps) {
+				const steps = instanceLayoutSteps({
+					instanceId: created.id,
+					liveControlPort: created.liveControlPort,
+					liveControlToken,
+					configDocument: renderInstanceConfig(initialConfig),
+				})
+				for (const { command, failure, stdin } of steps) {
 					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS, stdin)
 					if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
 				}
@@ -965,7 +976,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const document = renderInstanceConfig(settled)
 
 			try {
-				const configPath = `${instanceDir(instance.id)}/MinecraftClient.ini`
+				const configPath = `${instanceDir(instance.id)}/${CONFIG_FILE_PATH}`
 				const result = await transport.exec(
 					`(umask 077; cat > ${configPath})`,
 					INSTANCE_STEP_TIMEOUT_MS,

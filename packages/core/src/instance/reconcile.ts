@@ -21,7 +21,7 @@ import {
 	isSecretKey,
 } from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
-import { instanceDir, unitName } from "./unit"
+import { CONFIG_FILE_PATH, instanceDir, unitName } from "./unit"
 
 export type {
 	ConfigDriftPublic,
@@ -156,7 +156,7 @@ const readInstanceConfig = async (
 	reader: SetupReader,
 	instanceId: string,
 ): Promise<string | undefined> => {
-	const path = `${instanceDir(instanceId)}/${CONFIG_PATH_NAME}`
+	const path = `${instanceDir(instanceId)}/${CONFIG_FILE_PATH}`
 	const result = await reader.exec(asReadCommand(`cat ${path} 2>/dev/null || true`))
 	const text = result.stdout
 	return text.trim().length === 0 ? undefined : text

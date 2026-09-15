@@ -16,6 +16,10 @@ export const INSTANCE_LAYOUT = {
 	collectLock: "collect.lock",
 } as const
 
+export const CONFIG_FILE_NAME = "MinecraftClient.ini"
+
+export const CONFIG_FILE_PATH = `${INSTANCE_LAYOUT.config}/${CONFIG_FILE_NAME}`
+
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const validateInstanceId = (id: string): string => {
@@ -61,3 +65,66 @@ export const stopAuthCommand = (instanceId: string): string => {
 
 export const instanceDir = (instanceId: string): string =>
 	`${INSTANCES_ROOT}/instances/${validateInstanceId(instanceId)}`
+
+export type InstanceLayoutValues = {
+	instanceId: string
+	liveControlPort: number
+	liveControlToken: string
+	configDocument: string
+}
+
+export const instanceLayoutSteps = ({
+	instanceId,
+	liveControlPort,
+	liveControlToken,
+	configDocument,
+}: InstanceLayoutValues) => {
+	const dir = instanceDir(instanceId)
+	const { config, state, replays, recordingCache, unitEnv, env, control, collectLock } =
+		INSTANCE_LAYOUT
+	return [
+		{
+			command: `install -d -m 0700 ${dir} ${dir}/${config} ${dir}/${state} ${dir}/${replays} ${dir}/${recordingCache}`,
+			failure: "Failed to create the instance directories",
+			stdin: undefined,
+		},
+		{
+			command: `(test -p ${dir}/${control} || mkfifo -m 0600 ${dir}/${control}) && (umask 077; : > ${dir}/${collectLock} && printf '%s' ${shellQuote(renderUnitEnv(liveControlPort))} > ${dir}/${unitEnv})`,
+			failure: "Failed to create the control fifo, the collector lock and the port file",
+			stdin: undefined,
+		},
+		{
+			command: `(umask 077; cat > ${dir}/${env})`,
+			failure: "Failed to write the instance environment",
+			stdin: renderEnvironmentFile({ liveControlToken }),
+		},
+		{
+			command: `(umask 077; cat > ${dir}/${CONFIG_FILE_PATH})`,
+			failure: "Failed to write the instance config",
+			stdin: configDocument,
+		},
+	]
+}
+
+export const startUnitCommand = (instanceId: string): string => {
+	const unit = shellQuote(unitName(instanceId))
+	return `${systemctl(`start ${unit}`)} && ${systemctl(`show -p ActiveState -p Result ${unit}`)}`
+}
+
+const UNIT_START_LINE = /^(ActiveState|Result)=([a-z][a-z-]*)$/
+
+export const parseUnitStartState = (output: string) => {
+	const lines = (output.endsWith("\n") ? output.slice(0, -1) : output).split("\n")
+	if (lines.length !== 2) return undefined
+	const values = new Map<string, string>()
+	for (const line of lines) {
+		const match = UNIT_START_LINE.exec(line)
+		if (match === null) return undefined
+		const [, key = "", value = ""] = match
+		if (values.has(key)) return undefined
+		values.set(key, value)
+	}
+	const activeState = values.get("ActiveState")
+	const result = values.get("Result")
+	return activeState === undefined || result === undefined ? undefined : { activeState, result }
+}

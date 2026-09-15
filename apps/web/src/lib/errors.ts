@@ -83,6 +83,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"This instance signs in without a device code, so there is nothing to approve.",
 	INSTANCE_AUTH_IN_PROGRESS:
 		"This instance is being signed in to Microsoft. Wait for that to finish, then try again.",
+	INSTANCE_SIGN_IN_RUNNING: "Sign-in is running. Try again when it's done.",
 	INSTANCE_CONCURRENTLY_MODIFIED:
 		"This instance was changed by someone else. Refresh and try again.",
 	INSTANCE_STILL_IN_USE:

@@ -13,6 +13,15 @@ describe("getErrorMessage", () => {
 		)
 	})
 
+	it("says a start waits for the sign-in that is running", () => {
+		const message = getErrorMessage({
+			message: "Sign-in is running for this instance",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+
+		expect(message).toBe("Sign-in is running. Try again when it's done.")
+	})
+
 	it("says a removal did not finish without naming a step that may have succeeded", () => {
 		const message = getErrorMessage({
 			message: "The host could not finish removing this instance",

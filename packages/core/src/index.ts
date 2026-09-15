@@ -113,6 +113,7 @@ export {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	scheduledRunFailure,
 } from "./instance/instance.controller"

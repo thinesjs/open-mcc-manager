@@ -540,7 +540,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document.replace('Host = "play.example.net"', 'Host = "elsewhere.example"'),
 					stderr: "",
@@ -596,7 +596,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document.replace("{ min = 5.0, max = 20.0 }", "{ min = 7.0, max = 30.0 }"),
 					stderr: "",
@@ -680,7 +680,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document.replace('File = "playerlist.txt"', 'File = "players-%serverip%.txt"'),
 					stderr: "",
@@ -733,7 +733,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document.replace('Password = "-"', 'Password = "hunter2"'),
 					stderr: "",
@@ -785,7 +785,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document.replace('Mode = "single"', 'Mode = "10.0.0.7:25565 hunter2"'),
 					stderr: "",
@@ -848,7 +848,7 @@ describe("comparing a host's client config", () => {
 					},
 				[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
 					{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
-				'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+				'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 					{
 						stdout: document,
 						stderr: "",
@@ -906,7 +906,7 @@ describe("comparing a host's client config", () => {
 					stderr: "",
 					exitCode: 0,
 				},
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+			'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 				{
 					stdout: document,
 					stderr: "",

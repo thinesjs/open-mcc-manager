@@ -44,6 +44,7 @@ import {
 	type HostTransport,
 	LiveChannelUnavailableError,
 	type ReadConnections,
+	readCommandText,
 	TransportInterruptedError,
 } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
@@ -91,6 +92,7 @@ import {
 	selectHeldItem as selectItemOverChannel,
 } from "./live-control"
 import {
+	activeCheckCommand,
 	expectedUnits,
 	type HostReconciliation,
 	type HostUnreachableReason,
@@ -166,7 +168,10 @@ export type InstanceControllerDeps = {
 	createTransport: () => HostTransport
 	readConnections: Pick<ReadConnections, "lease">
 	withTransaction: WithInstanceTransaction
+	now: () => number
 }
+
+export const ACTIVE_RESULT_MAX_AGE_MS = 5_000
 
 export const LIVE_PORT_PROBE_TIMEOUT_MS = 3_000
 
@@ -238,6 +243,28 @@ const startedOrThrow = (instanceId: string, output: string): void => {
 
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
+
+	const activeReadAt = new Map<string, number>()
+	const activeChecks = new Map<string, Promise<boolean>>()
+
+	const requireRunning = async (
+		instanceId: string,
+		isActive: () => Promise<boolean>,
+	): Promise<void> => {
+		const readAt = activeReadAt.get(instanceId)
+		if (readAt !== undefined && deps.now() - readAt < ACTIVE_RESULT_MAX_AGE_MS) return
+		activeReadAt.delete(instanceId)
+		const check =
+			activeChecks.get(instanceId) ??
+			isActive()
+				.then((active) => {
+					if (active) activeReadAt.set(instanceId, deps.now())
+					return active
+				})
+				.finally(() => activeChecks.delete(instanceId))
+		activeChecks.set(instanceId, check)
+		if (!(await check)) throw new LiveChannelUnavailableError("The bot is not running")
+	}
 
 	const connectToHost = async (
 		scope: OrgScope,
@@ -458,6 +485,15 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			LIVE_CONTROL_TIMEOUT_MS,
 			"setUpOnce",
 		)
+		try {
+			await requireRunning(
+				instanceId,
+				async () => (await reader.exec(activeCheckCommand(instanceId))).exitCode === 0,
+			)
+		} catch (error) {
+			reader.release()
+			throw error
+		}
 		return { reader, port: endpoint.port, route: endpoint.route, token: endpoint.token }
 	}
 
@@ -468,6 +504,21 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const endpoint = await liveEndpointFor(ctx, instanceId)
 		if (!endpoint) return undefined
 		const transport = await connectToHost(scopeOf(ctx), endpoint.hostId, "setUpOnce")
+		try {
+			await requireRunning(
+				instanceId,
+				async () =>
+					(
+						await transport.exec(
+							readCommandText(activeCheckCommand(instanceId)),
+							LIVE_CONTROL_TIMEOUT_MS,
+						)
+					).exitCode === 0,
+			)
+		} catch (error) {
+			await transport.close().catch(() => undefined)
+			throw error
+		}
 		return {
 			target: { transport, port: endpoint.port, route: endpoint.route, token: endpoint.token },
 			close: async () => {

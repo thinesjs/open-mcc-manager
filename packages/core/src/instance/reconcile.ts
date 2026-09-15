@@ -9,7 +9,7 @@ import type {
 } from "@open-mcc/contracts"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import { asReadCommand, type HostReader } from "@open-mcc/transport"
+import { asReadCommand, type HostReader, type ReadCommand } from "@open-mcc/transport"
 import { parsePodmanVersion, requiredStackFor } from "../host/podman-facts"
 import { journalctl, podman, systemctl, UNIT_DIR } from "../host/profile"
 import type { RuntimeHost } from "../host/runtime-guard"
@@ -228,6 +228,9 @@ const leftoverContainers = (
 		return !known.has(id) && !known.has(name.slice(CONTAINER_PREFIX.length))
 	})
 }
+
+export const activeCheckCommand = (instanceId: string): ReadCommand =>
+	asReadCommand(systemctl(`is-active --quiet ${shellQuote(`${unitName(instanceId)}.service`)}`))
 
 export type HostObservation = {
 	reconciliation: HostReconciliation

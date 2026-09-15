@@ -1,3 +1,5 @@
+import { createServer, type Server } from "node:http"
+import { connect } from "node:net"
 import { instanceConfigInput, type SleepWindowInput } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
@@ -12,12 +14,13 @@ import { DatabaseError } from "@open-mcc/db"
 import {
 	createFakeTransport,
 	createReadConnections,
+	LiveChannelUnavailableError,
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
 	type ReusableTransport,
 } from "@open-mcc/transport"
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 const READER_RESULTS = {
 	readPlayerStats: {
@@ -310,6 +313,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		createTransport: () => transport,
 		readConnections,
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		now: () => Date.now(),
 		...overrides,
 	}
 	return { transport, audit, instances, deps, readTransports, readConnections }
@@ -2206,5 +2210,159 @@ describe("a bot on a host with no recorded runtime", () => {
 			)
 			expect(instances.delete).toHaveBeenCalledTimes(1)
 		})
+	})
+})
+
+describe("the token goes only to a bot seen running", () => {
+	const ACTIVE_CHECK = `${SYSTEMCTL} is-active --quiet 'open-mcc@abc123.service'`
+	const TOKEN = "31337token"
+	const authorizations: (string | undefined)[] = []
+	let client: Server
+	let clientPort = 0
+
+	beforeAll(async () => {
+		client = createServer((request, response) => {
+			authorizations.push(request.headers.authorization)
+			request.resume()
+			request.on("end", () => response.writeHead(401).end())
+		})
+		await new Promise<void>((resolve) => client.listen(0, "127.0.0.1", resolve))
+		const address = client.address()
+		clientPort = address !== null && typeof address === "object" ? address.port : 0
+	})
+
+	afterAll(async () => {
+		await new Promise<void>((resolve) => client.close(() => resolve()))
+	})
+
+	const liveBot = (running: { exitCode: number }, clock: { at: number }) => {
+		authorizations.length = 0
+		const made = makeDeps({
+			now: () => clock.at,
+			secrets: {
+				open: () => TOKEN,
+				seal: (plaintext: string) => ({ ciphertext: `sealed(${plaintext.length})`, keyId: "k1" }),
+				activeKeyId: "k1",
+			},
+		})
+		made.deps.instances.findById = async () =>
+			instanceRow({
+				liveControlPort: 33350,
+				liveControlTokenEncrypted: "sealed(32)",
+				liveControlTokenKeyId: "k1",
+			})
+		made.deps.instances.latestConfig = async () =>
+			configRow({
+				document: { ...SAVED_DOCUMENT, liveControlEnabled: true, liveControlPort: 33350 },
+			})
+		const checks: string[] = []
+		const opened: string[] = []
+		const { transport } = made
+		const execUntil = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) => {
+			if (command !== ACTIVE_CHECK) return await execUntil(command, signal)
+			checks.push("shared")
+			return { stdout: "", stderr: "", exitCode: running.exitCode }
+		}
+		const exec = transport.exec
+		transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			if (command !== ACTIVE_CHECK) return await exec(command, timeoutMs, stdin)
+			checks.push("fresh")
+			return { stdout: "", stderr: "", exitCode: running.exitCode }
+		}
+		const toClient = (via: string) => async (port: number) => {
+			opened.push(`${via}:${port}`)
+			const socket = connect(clientPort, "127.0.0.1")
+			return { socket, close: () => socket.destroy() }
+		}
+		transport.forwardUntil = toClient("shared")
+		transport.forward = toClient("fresh")
+		return { ...made, controller: createInstanceController(made.deps), checks, opened }
+	}
+
+	it("issues no is-active for a second readout within 5 seconds of an active result", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		expect(await controller.readLivePlayerStats(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayerStats,
+		)
+		clock.at += 4_999
+		expect(await controller.readLivePlayerStats(owner, "abc123")).toEqual(
+			READER_RESULTS.readPlayerStats,
+		)
+
+		expect(checks).toEqual(["shared"])
+	})
+
+	it("issues one again for a readout 5 seconds after that result", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		clock.at += 5_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
+	})
+
+	it("opens no forward and sends no token once the bot is not running, though it was before", async () => {
+		const running = { exitCode: 0 }
+		const clock = { at: 1_000_000 }
+		const { controller, checks, opened, audit, readConnections } = liveBot(running, clock)
+		await controller.readLiveStatus(owner, "abc123").catch(() => undefined)
+		expect(authorizations).toEqual([`Bearer ${TOKEN}`])
+		expect(opened).toEqual(["shared:33350"])
+
+		running.exitCode = 3
+		clock.at += 5_000
+		authorizations.length = 0
+		opened.length = 0
+		await expect(controller.readLiveStatus(owner, "abc123")).resolves.toBeUndefined()
+		await expect(
+			controller.dropInventoryItem(owner, "abc123", "minecraft:dirt", 1),
+		).rejects.toBeInstanceOf(LiveChannelUnavailableError)
+
+		expect(opened).toEqual([])
+		expect(authorizations).toEqual([])
+		expect(checks).toEqual(["shared", "shared", "fresh"])
+		expect(audit.record).not.toHaveBeenCalled()
+		expect(readConnections.activeLeases()).toBe(0)
+	})
+
+	it("asks once for readouts that arrive together", async () => {
+		const { controller, checks, transport } = liveBot({ exitCode: 0 }, { at: 1_000_000 })
+		const answered = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) => {
+			await new Promise((resolve) => setImmediate(resolve))
+			return await answered(command, signal)
+		}
+
+		const outcomes = await Promise.all([
+			controller.readLivePlayerStats(owner, "abc123"),
+			controller.readLiveStatusEffects(owner, "abc123"),
+			controller.readLiveBots(owner, "abc123"),
+			controller.readLivePlayers(owner, "abc123"),
+		])
+
+		expect(outcomes).toEqual([
+			READER_RESULTS.readPlayerStats,
+			READER_RESULTS.readStatusEffects,
+			READER_RESULTS.readLoadedBots,
+			READER_RESULTS.readPlayersList,
+		])
+		expect(checks).toEqual(["shared"])
+	})
+
+	it("asks on the connection each request forwards over", async () => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks, opened } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLiveStatus(owner, "abc123").catch(() => undefined)
+		clock.at += 5_000
+		await controller.dropInventoryItem(owner, "abc123", "minecraft:dirt", 1).catch(() => undefined)
+
+		expect(checks).toEqual(["shared", "fresh"])
+		expect(opened).toEqual(["shared:33350", "fresh:33350"])
 	})
 })

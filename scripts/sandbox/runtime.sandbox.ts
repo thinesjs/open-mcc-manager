@@ -264,6 +264,7 @@ const managerFor = async (host: string, as: As, provisioned: ProvisionResult) =>
 		secrets,
 		createTransport: () => shellTransport(host, as),
 		readConnections,
+		now: () => Date.now(),
 		withTransaction: async (fn) =>
 			await fn({
 				instances,

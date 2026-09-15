@@ -405,6 +405,25 @@ describe("the runtime image", () => {
 		expect(transport.commands.some((command) => command.includes("podman run"))).toBe(false)
 		expect(transport.commands.some((command) => command.includes("daemon-reload"))).toBe(false)
 	})
+
+	it("stops at the pull when it fails, with its own failure, and never checks the image's ID", async () => {
+		const transport = await connected({
+			...ON_ARM64,
+			[imagePullCommand(ARM64)]: {
+				stdout: "",
+				stderr: "Error: initializing source: connection refused",
+				exitCode: 125,
+			},
+		})
+		const seen: string[] = []
+
+		await expect(
+			provisionHost(transport, { onProgress: (progress) => seen.push(progress.step) }),
+		).rejects.toThrow(/^Failed to download the runtime image: .*connection refused/)
+		expect(seen.at(-1)).toBe("Downloading the runtime image")
+		expect(transport.commands).not.toContain(imageIdCommand(ARM64))
+		expect(transport.commands.some((command) => command.includes("podman run"))).toBe(false)
+	})
 })
 
 describe("checking the client runs", () => {

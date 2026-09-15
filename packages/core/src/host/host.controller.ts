@@ -450,8 +450,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const target = await deps.hosts.findById(scope, hostId)
 			if (!target) return false
 
-			const teardownPayload = teardownPayloadFor(target)
-
 			const removed = await deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 				const found = await repos.hosts.findById(scope, hostId)
@@ -471,6 +469,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					)
 				}
 
+				const teardownPayload = teardownPayloadFor(found)
 				if (!teardownPayload) {
 					const removed = await repos.hosts.delete(scope, hostId)
 					if (removed) {

@@ -2155,4 +2155,59 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 		expect(bots).toHaveLength(1)
 		expect((await hosts.findById({ organizationId }, hostId))?.status).toBe("ready")
 	})
+
+	it("tears the host down with the host key a re-trust committed between removal's first read and its lock", async () => {
+		const { db, hosts, sshKeys, hostId, ctx } = await seedReadyHost("org-retrust-before-teardown")
+		let signalLocking: () => void = () => {}
+		const locking = new Promise<void>((resolve) => {
+			signalLocking = resolve
+		})
+		let releaseLock: () => void = () => {}
+		const lockGate = new Promise<void>((resolve) => {
+			releaseLock = resolve
+		})
+		const enqueued: Record<string, string>[] = []
+		const removalHeldBeforeLock: WithTransaction = (fn) =>
+			db.transaction().execute((tx) => {
+				const locked = createHostRepository(tx)
+				return fn({
+					hosts: {
+						...locked,
+						lockHost: async (scope: OrgScope, id: string) => {
+							signalLocking()
+							await lockGate
+							await locked.lockHost(scope, id)
+						},
+					},
+					audit: createAuditRepository(tx),
+					jobs: {
+						enqueue: async (_queue, payload) => {
+							enqueued.push(payload)
+						},
+					},
+				})
+			})
+		const retrusting = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			evictHost: () => undefined,
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+
+		const removing = hostControllerOn(hosts, sshKeys, removalHeldBeforeLock).remove(ctx, hostId)
+		await locking
+		try {
+			await retrusting.retrustHostKey(ctx, hostId, { hostKeyFingerprint: ROTATED_FINGERPRINT })
+		} finally {
+			releaseLock()
+		}
+		await expect(removing).resolves.toBe(true)
+		await trackBotsOn(hostId)
+
+		expect(enqueued.map((payload) => payload.hostKeyFingerprint)).toEqual([ROTATED_FINGERPRINT])
+	})
 })

@@ -67,12 +67,9 @@ export const COLLECTOR_WINDOW_NAMES = [
 	"unit.env",
 ] as const
 
-export const SIGN_IN_PROBE_WINDOW_NAMES = ["SessionCache.ini"] as const
-
 export const RESERVED_FILE_NAMES: readonly string[] = [
 	...CLIENT_WORKING_DIRECTORY_NAMES,
 	...COLLECTOR_WINDOW_NAMES,
-	...SIGN_IN_PROBE_WINDOW_NAMES,
 ]
 
 export const DRAIN_TEMPORARY = "player-list.collecting"

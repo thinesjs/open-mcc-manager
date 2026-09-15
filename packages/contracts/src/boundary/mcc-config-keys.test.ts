@@ -345,7 +345,6 @@ const GOLDEN_RESERVED: readonly string[] = [
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
 	"unit.env",
-	"SessionCache.ini",
 ]
 
 const CLIENT_FILE = "The client already uses that file name"
@@ -387,6 +386,10 @@ describe("★ a bot file name the client or this manager already keeps in the in
 			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
 		},
 	)
+
+	it("saves SessionCache.ini, which nothing on the host reads any more", () => {
+		expect(fileKeysSaying("SessionCache.ini", CLIENT_FILE)).toEqual([])
+	})
 
 	it("refuses unit.env, the port file the collector would otherwise drain empty", () => {
 		expect(fileKeysSaying("unit.env", CLIENT_FILE)).toEqual(FILE_KEYS)

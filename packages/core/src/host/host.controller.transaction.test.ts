@@ -471,6 +471,63 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		})
 	})
 
+	it("shows none of an earlier setup's steps when a Repair cannot connect", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-repair-connect")
+		const transports = [
+			createFakeTransport(
+				provisionableHost({
+					[imagePullCommand(runtimeImageFor("x64"))]: {
+						stdout: "",
+						stderr: "Error: initializing source: connection refused",
+						exitCode: 125,
+					},
+				}),
+			),
+			createFakeTransport(
+				{},
+				{
+					connect: Object.assign(new Error("connect ECONNREFUSED 10.0.0.90:22"), {
+						code: "ECONNREFUSED",
+					}),
+				},
+			),
+		]
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => transports.shift() ?? createFakeTransport()),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: "Downloading the runtime image",
+			provisioningStepIndex: 9,
+			provisioningStepTotal: 15,
+		})
+
+		await expect(controller.provision(ctx, hostId)).rejects.toThrow(
+			"The server refused the connection",
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: null,
+			provisioningStepIndex: null,
+			provisioningStepTotal: null,
+			provisioningError: "The server refused the connection",
+		})
+	})
+
 	it("does not re-claim a host that is already provisioning", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-lock-stuck")

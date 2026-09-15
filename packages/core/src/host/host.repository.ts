@@ -266,6 +266,9 @@ export const createHostRepository = (db: Executor) => ({
 				provisioningAttemptId: randomUUID(),
 				provisioningClaimedAt: now,
 				provisioningError: null,
+				provisioningStep: null,
+				provisioningStepIndex: null,
+				provisioningStepTotal: null,
 				organizationId: scope.organizationId,
 			})
 			.where("id", "=", id)

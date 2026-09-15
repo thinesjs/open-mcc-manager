@@ -7,12 +7,14 @@ import {
 	provisionHost,
 } from "../../packages/core/src/host/provision"
 import { podmanImageId, runtimeImageFor } from "../../packages/core/src/host/runtime-image"
+import { instanceLayoutSteps } from "../../packages/core/src/instance/unit"
 import { createFakeTransport } from "../../packages/transport/src/fake"
 import {
 	type As,
 	buildImage,
 	exec,
 	ROOT,
+	read,
 	remove,
 	SANDBOX_PLATFORM,
 	shell,
@@ -114,6 +116,55 @@ describe.each(TARGETS)("provisioning a Podman host on $name", (target) => {
 			"open-mcc-auth@probe.service",
 		])
 		expect(verified.status, `${verified.stdout}${verified.stderr}`).toBe(0)
+
+		const probe = "/home/pod1/.local/share/open-mcc/instances/probe"
+		for (const step of instanceLayoutSteps({
+			instanceId: "probe",
+			liveControlPort: 33333,
+			liveControlToken: "0123456789abcdef0123456789abcdef",
+			configDocument: "[Main]\n",
+		})) {
+			const ran = await shell(
+				host,
+				{ ...as, ...(step.stdin === undefined ? {} : { input: step.stdin }) },
+				step.command,
+			)
+			expect(ran.status, `${step.failure}: ${ran.stderr}`).toBe(0)
+		}
+		expect(
+			succeeded(
+				await exec(host, ROOT, [
+					"stat",
+					"-c",
+					"%n %a %F",
+					probe,
+					`${probe}/config`,
+					`${probe}/state`,
+					`${probe}/replays`,
+					`${probe}/recording-cache`,
+					`${probe}/control`,
+					`${probe}/collect.lock`,
+					`${probe}/unit.env`,
+					`${probe}/env`,
+					`${probe}/config/MinecraftClient.ini`,
+				]),
+				"reading the layout create makes",
+			)
+				.trim()
+				.split("\n"),
+		).toEqual([
+			`${probe} 700 directory`,
+			`${probe}/config 700 directory`,
+			`${probe}/state 700 directory`,
+			`${probe}/replays 700 directory`,
+			`${probe}/recording-cache 700 directory`,
+			`${probe}/control 600 fifo`,
+			`${probe}/collect.lock 600 regular empty file`,
+			`${probe}/unit.env 600 regular file`,
+			`${probe}/env 600 regular file`,
+			`${probe}/config/MinecraftClient.ini 600 regular file`,
+		])
+		expect(await read(host, `${probe}/unit.env`)).toBe("OPEN_MCC_PORT=33333\n")
 
 		const image = runtimeImageFor(
 			architectureForMachine(succeeded(await exec(host, as, ["uname", "-m"]), "uname -m")),

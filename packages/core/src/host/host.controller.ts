@@ -152,7 +152,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			}
 
 			try {
-				return await checkHostOverTransport(transport)
+				return await checkHostOverTransport(transport, input.username)
 			} finally {
 				await transport.close().catch(() => undefined)
 			}

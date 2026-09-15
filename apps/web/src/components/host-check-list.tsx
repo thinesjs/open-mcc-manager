@@ -1,6 +1,8 @@
 import { HOST_CHECK_LABELS, type HostCheckOutcome, type HostCheckReport } from "@open-mcc/contracts"
 import { Check, CircleAlert, Minus, TriangleAlert } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
+import { CopyButton } from "~/components/copy-button"
+import { Tooltip } from "~/components/ui/tooltip"
 
 const ICON: Record<HostCheckOutcome, typeof Check> = {
 	pass: Check,
@@ -32,9 +34,19 @@ export const HostCheckList = ({ report }: { report: HostCheckReport }) => {
 						className="flex items-start gap-2.5"
 					>
 						<Icon className={`mt-0.5 size-3.5 shrink-0 ${TONE[check.outcome]}`} aria-hidden />
-						<div className="min-w-0">
+						<div className="min-w-0 flex-1">
 							<p className="text-sm text-foreground">{HOST_CHECK_LABELS[check.name]}</p>
-							<p className="text-xs leading-relaxed text-muted-foreground">{check.detail}</p>
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								{check.hint ? <Tooltip content={check.hint}>{check.detail}</Tooltip> : check.detail}
+							</p>
+							{check.command ? (
+								<div className="mt-1.5 flex items-start gap-2">
+									<pre className="min-w-0 flex-1 overflow-x-auto rounded-[var(--radius)] border border-border bg-muted/40 px-2.5 py-1.5">
+										<code className="font-mono text-xs text-foreground">{check.command}</code>
+									</pre>
+									<CopyButton value={check.command} label="Command" />
+								</div>
+							) : null}
 						</div>
 					</motion.li>
 				)

@@ -138,21 +138,66 @@ const labelled = (runId: string, kind: string): readonly string[] => [
 	`${RUN_LABEL}=${runId}`,
 ]
 
-export const hostRunArguments = (name: string, runId: string, image: string): readonly string[] => [
+export const SANDBOX_PLATFORM: string | null = process.env.SANDBOX_PLATFORM || null
+
+const onPlatform = (platform: string | null): readonly string[] =>
+	platform === null ? [] : ["--platform", platform]
+
+export const hostRunArguments = (
+	name: string,
+	runId: string,
+	image: string,
+	tmpfs: readonly string[] = [],
+	platform: string | null = SANDBOX_PLATFORM,
+): readonly string[] => [
 	"run",
 	"--detach",
 	"--name",
 	name,
 	...labelled(runId, "host"),
+	...onPlatform(platform),
 	"--privileged",
 	"--cgroupns=private",
 	"--tmpfs",
 	"/run",
 	"--tmpfs",
 	"/run/lock",
+	...tmpfs.flatMap((each) => ["--tmpfs", each]),
 	"--",
 	image,
 ]
+
+export type ImageBuild = {
+	target: "host" | "podman-host"
+	baseImage: string | null
+	platform: string | null
+}
+
+export const imageBuildArguments = ({
+	target,
+	baseImage,
+	platform,
+}: ImageBuild): readonly string[] => [
+	"build",
+	"--quiet",
+	"--target",
+	target,
+	...(baseImage === null ? [] : ["--build-arg", `BASE_IMAGE=${baseImage}`]),
+	...onPlatform(platform),
+	join(REPOSITORY, "docker", "sandbox"),
+]
+
+const IMAGE_ID = /^sha256:[0-9a-f]{64}$/
+
+export const buildImage = async (build: ImageBuild): Promise<string> => {
+	const what = `the sandbox ${build.target} image${build.baseImage === null ? "" : ` on ${build.baseImage}`}`
+	const image = succeeded(
+		await docker(imageBuildArguments(build), { timeoutMs: 1_800_000 }),
+		`building ${what}`,
+	).trim()
+	if (!IMAGE_ID.test(image)) throw new Error(`building ${what} printed no image id: ${image}`)
+	return image
+}
 
 const nameFor = (runId: string, kind: string): string =>
 	`open-mcc-sandbox-${runId}-${kind}-${randomUUID().slice(0, 8)}`
@@ -161,10 +206,13 @@ const SETTLED = new Set(["running", "degraded", "maintenance", "stopping"])
 
 export const settled = (state: string): boolean => SETTLED.has(state)
 
-export const startHost = async (sandbox: Sandbox): Promise<string> => {
+export const startHost = async (
+	sandbox: Sandbox,
+	tmpfs: readonly string[] = [],
+): Promise<string> => {
 	const name = nameFor(sandbox.run, "host")
 	succeeded(
-		await docker(hostRunArguments(name, sandbox.run, sandbox.image)),
+		await docker(hostRunArguments(name, sandbox.run, sandbox.image, tmpfs)),
 		"starting a sandbox host",
 	)
 	let state = ""

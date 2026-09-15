@@ -3,11 +3,18 @@ import { hostKeyFingerprint } from "./host"
 
 export const HOST_CHECK_NAMES = [
 	"reachable",
+	"account",
 	"systemd",
 	"architecture",
-	"client-runtime",
 	"lingering",
+	"podman",
+	"cgroups",
+	"subordinate-ids",
+	"network-helper",
+	"storage",
 	"tcp-forwarding",
+	"cloud-metadata",
+	"client-runtime",
 ] as const
 
 export type HostCheckName = (typeof HOST_CHECK_NAMES)[number]
@@ -20,6 +27,8 @@ export const hostCheckResult = z.object({
 	name: z.enum(HOST_CHECK_NAMES),
 	outcome: hostCheckOutcome,
 	detail: z.string(),
+	command: z.string().nullable(),
+	hint: z.string().nullable(),
 })
 
 export type HostCheckResult = z.infer<typeof hostCheckResult>
@@ -43,11 +52,18 @@ export type CheckHostInput = z.infer<typeof checkHostInput>
 
 export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {
 	reachable: "SSH reachable",
+	account: "Account",
 	systemd: "systemd present",
 	architecture: "Supported architecture",
-	"client-runtime": "Client dependencies",
 	lingering: "Lingering enabled",
+	podman: "Podman",
+	cgroups: "Container support",
+	"subordinate-ids": "Container access",
+	"network-helper": "Network helper",
+	storage: "Container storage",
 	"tcp-forwarding": "SSH port forwarding",
+	"cloud-metadata": "Cloud metadata",
+	"client-runtime": "Client dependencies",
 }
 
 export const isBlocking = (check: HostCheckResult): boolean => check.outcome === "fail"

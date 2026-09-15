@@ -841,10 +841,13 @@ reachable from any network, and nothing here may change that.
   load and on clean exit fails and is logged. `start` re-renders the saved
   config immediately before launching the unit, so a save made while an
   instance runs takes effect at its next start.
-- Connection-refused means "not joined yet", never failure — MCP listens only
-  between `AfterGameJoined` and disconnect. A live endpoint that never answered
-  *after* joining is reported as `unreachable` drift, because MCC swallows its
-  own bind failure.
+- MCP listens only between `AfterGameJoined` and disconnect, so a readout that
+  finds nothing before the client joins means "not joined yet", never failure.
+  Podman's forwarder holds the published port whether or not the client
+  listens, so a forward that succeeds proves nothing. A live endpoint that never
+  answered *after* joining is reported as `unreachable` drift, because MCC
+  swallows its own bind failure: reconcile posts once to the route without the
+  token, and only a `401` proves the client listens.
 
 ## What the bots write on a host
 

@@ -259,7 +259,7 @@ export const provisionHost = async (
 		throw new Error(explainClientFailure(probeOutput))
 	}
 
-	const templates = renderUnitTemplates()
+	const templates = renderUnitTemplates({ networkStack, imageId: podmanImageId(image) })
 
 	advance()
 	await step(

@@ -20,8 +20,14 @@ import {
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 	STUCK_MARKERS,
+	unitRuntimeFor,
 	WITHHELD_VALUE,
 } from "./reconcile"
+
+const UNIT_RUNTIME = {
+	networkStack: "slirp4netns",
+	imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+} as const
 
 const instance = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	id: "abc123",
@@ -108,26 +114,46 @@ describe("observed state", () => {
 
 describe("expected units", () => {
 	it("expects every shipped template even when no schedule exists", () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
-		for (const name of Object.keys(renderUnitTemplates())) expect(expected.has(name)).toBe(true)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
+		for (const name of Object.keys(renderUnitTemplates(UNIT_RUNTIME)))
+			expect(expected.has(name)).toBe(true)
 	})
 
 	it("expects a schedule's timers only for an instance that still exists", () => {
 		const orphan = schedule({ instanceId: "gone" })
-		const expected = expectedUnits([instance()], [orphan], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [orphan], renderScheduleUnits, UNIT_RUNTIME)
 		expect([...expected.keys()].some((name) => name.includes("gone"))).toBe(false)
 	})
 
 	it("expects both timers for a scheduled instance", () => {
-		const expected = expectedUnits([instance()], [schedule()], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [schedule()], renderScheduleUnits, UNIT_RUNTIME)
 		expect(expected.has("open-mcc-sleep-stop@abc123.timer")).toBe(true)
 		expect(expected.has("open-mcc-sleep-start@abc123.timer")).toBe(true)
 	})
 })
 
+describe("the runtime the units are rendered for", () => {
+	it("comes from the recorded network stack and the image pinned for the recorded architecture", () => {
+		expect(unitRuntimeFor({ networkStack: "pasta", architecture: "arm64" })).toEqual({
+			networkStack: "pasta",
+			imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+		})
+		expect(unitRuntimeFor({ networkStack: "slirp4netns", architecture: "x64" })).toEqual({
+			networkStack: "slirp4netns",
+			imageId: "56e3d8542b4091c81816101e95875e32ec981577e669112c479a57d4003e4c29",
+		})
+	})
+
+	it("is unknown when no network stack or no architecture is recorded, never a default", () => {
+		expect(unitRuntimeFor({ networkStack: null, architecture: "x64" })).toBeUndefined()
+		expect(unitRuntimeFor({ networkStack: "pasta", architecture: null })).toBeUndefined()
+		expect(unitRuntimeFor({ networkStack: null, architecture: null })).toBeUndefined()
+	})
+})
+
 describe("reconciling a host", () => {
 	it("reports no drift when every unit matches and the state agrees", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
@@ -155,7 +181,7 @@ describe("reconciling a host", () => {
 	})
 
 	it("distinguishes a unit that is absent from one whose content has changed", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const replies = fileReplies(expected)
 		const names = [...expected.keys()]
 		const missing = names[0] ?? ""
@@ -190,7 +216,7 @@ describe("reconciling a host", () => {
 	})
 
 	it("reports an instance the manager believes is running but the host has stopped", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
@@ -244,7 +270,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("reports a timer left behind for an instance that no longer exists", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@deleted1.timer"]),
@@ -270,7 +296,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("leaves unrelated units on the host alone, which are none of its business", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "nginx.service", "ssh.service", "cron.service"]),
@@ -294,7 +320,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("reports another organization's timer on a shared host, which the trust model allows", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listing([...expected.keys(), "open-mcc-sleep-stop@otherorg1.timer"]),
@@ -320,7 +346,7 @@ describe("units the manager does not define", () => {
 	})
 
 	it("treats a failed listing as unknown rather than as a host with nothing extra", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			'ls -1 "$HOME"/.config/systemd/user': {
@@ -361,7 +387,7 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("reports drift for a unit systemd calls active whose client is wedged", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
@@ -388,7 +414,7 @@ describe("a client that is running but not doing anything", () => {
 	})
 
 	it("leaves a genuinely healthy instance alone", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			...listingOf([...expected.keys()]),
@@ -487,7 +513,7 @@ describe("recognising a client that is stuck", () => {
 
 describe("comparing a host's client config", () => {
 	it("reads each instance's config off the host and names a key that drifted", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -543,7 +569,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("shows an operator both bounds of a drifted delay, never the object itself", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -599,7 +625,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("says the config is missing rather than reporting every key as drifted", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const transport = await connected({
 			...fileReplies(expected),
 			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
@@ -624,7 +650,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("★ withholds the host's own value even when the drift is a SAFETY one on an operator key", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -680,7 +706,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("★ never puts a password the host holds into the browser", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -732,7 +758,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("withholds the host's own value when a key the operator saved has drifted", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
@@ -792,7 +818,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("reports a live control endpoint that never claimed its port", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",
@@ -853,7 +879,7 @@ describe("comparing a host's client config", () => {
 	})
 
 	it("says nothing about live control before the client has joined a server", async () => {
-		const expected = expectedUnits([instance()], [], renderScheduleUnits)
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
 		const document = renderInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "Steve",

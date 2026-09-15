@@ -113,6 +113,11 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	...overrides,
 })
 
+const UNIT_RUNTIME = {
+	networkStack: "slirp4netns",
+	imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+} as const
+
 const hostRow: HostRow = {
 	id: "host-1",
 	organizationId: "org-1",
@@ -120,8 +125,8 @@ const hostRow: HostRow = {
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	networkStack: null,
-	architecture: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -771,6 +776,29 @@ describe("reconciliation", () => {
 		if (result.reachable) throw new Error("unreachable expected")
 		expect(result.reason).toBe("unprovisioned")
 	})
+
+	it.each([
+		["no network stack", { networkStack: null }],
+		["no architecture", { architecture: null }],
+	] as const)(
+		"reports a host with %s recorded as not set up, and never connects to it",
+		async (_case, missing) => {
+			const { deps, readTransports } = makeDeps({
+				hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) },
+			})
+			let opened = 0
+			readTransports.next = () => {
+				opened += 1
+				return createFakeTransport()
+			}
+			const controller = createInstanceController(deps)
+
+			const result = await controller.reconcileHost(owner, "host-1")
+
+			expect(result).toEqual({ hostId: "host-1", reachable: false, reason: "unprovisioned" })
+			expect(opened).toBe(0)
+		},
+	)
 })
 
 describe("scheduled commands", () => {
@@ -987,7 +1015,7 @@ describe("removing an instance", () => {
 	it("gives each unit longer to stop than the unit itself waits before killing it", async () => {
 		const transport = createFakeTransport()
 		await removeOn(hostRow, transport).outcome
-		const templates = renderUnitTemplates()
+		const templates = renderUnitTemplates(UNIT_RUNTIME)
 		const stopSeconds = (unit: string) =>
 			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
 		const timeoutFor = (command: string) => transport.timeouts[transport.commands.indexOf(command)]
@@ -1192,7 +1220,7 @@ describe("running several instances on one host", () => {
 
 		const wroteEnv = transport.stdins.filter((each) => each.includes("MCC_MCP_AUTH_TOKEN="))
 		expect(wroteEnv).toHaveLength(1)
-		expect(wroteEnv[0]).toMatch(/MCC_MCP_AUTH_TOKEN="[0-9a-f]{32}"/)
+		expect(wroteEnv[0]).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
 	})
 
 	it("seals the rotated token rather than writing it to the database in the clear", async () => {
@@ -1831,7 +1859,9 @@ describe("stopping an instance", () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(
+				renderUnitTemplates(UNIT_RUNTIME)[INSTANCE_UNIT_NAME] ?? "",
+			)?.[1],
 		)
 
 		await controller.stop(owner, "abc123")

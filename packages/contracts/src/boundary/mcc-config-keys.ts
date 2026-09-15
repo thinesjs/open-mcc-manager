@@ -60,6 +60,12 @@ export const RESERVED_FILE_NAMES: readonly string[] = [
 	"recording_cache",
 	"Rendered_Maps",
 	"lang",
+	"config",
+	"state",
+	"replays",
+	"recording-cache",
+	"unit.env",
+	"collect.lock",
 ]
 
 export const DRAIN_TEMPORARY = "player-list.collecting"

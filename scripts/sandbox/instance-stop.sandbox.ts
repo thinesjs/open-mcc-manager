@@ -56,7 +56,11 @@ const FILL_CONTROL = 'timeout 2 sh -c \'cat /dev/zero > "$1"\' sh "$1" || [ $? -
 
 const MANAGER = "systemctl --user"
 
-const UNIT = renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? ""
+const UNIT =
+	renderUnitTemplates({
+		networkStack: "slirp4netns",
+		imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+	})[INSTANCE_UNIT_NAME] ?? ""
 
 const unitSeconds = (setting: string): number =>
 	Number(new RegExp(`^${setting}=(\\d+)$`, "m").exec(UNIT)?.[1])

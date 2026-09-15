@@ -343,6 +343,12 @@ const GOLDEN_RESERVED: readonly string[] = [
 	"recording_cache",
 	"Rendered_Maps",
 	"lang",
+	"config",
+	"state",
+	"replays",
+	"recording-cache",
+	"unit.env",
+	"collect.lock",
 ]
 
 const CLIENT_FILE = "The client already uses that file name"

@@ -5,6 +5,17 @@ export type EnvironmentValues = {
 	liveControlToken: string
 }
 
+export const INSTANCE_LAYOUT = {
+	config: "config",
+	state: "state",
+	replays: "replays",
+	recordingCache: "recording-cache",
+	unitEnv: "unit.env",
+	env: "env",
+	control: "control",
+	collectLock: "collect.lock",
+} as const
+
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const validateInstanceId = (id: string): string => {
@@ -17,15 +28,26 @@ export const validateInstanceId = (id: string): string => {
 	return id
 }
 
-const environmentValue = (value: string): string => {
-	if (/[\n\r]/.test(value)) throw new Error("Environment values must not contain newlines")
-	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
-}
-
 export const LIVE_CONTROL_TOKEN_ENV = "MCC_MCP_AUTH_TOKEN"
 
-export const renderEnvironmentFile = (values: EnvironmentValues): string =>
-	[`${LIVE_CONTROL_TOKEN_ENV}=${environmentValue(values.liveControlToken)}`, ""].join("\n")
+const LIVE_CONTROL_TOKEN = /^[0-9a-f]{32}$/
+
+export const renderEnvironmentFile = (values: EnvironmentValues): string => {
+	if (!LIVE_CONTROL_TOKEN.test(values.liveControlToken)) {
+		throw new Error("The live control token must be 32 lowercase hex characters")
+	}
+	return `${LIVE_CONTROL_TOKEN_ENV}=${values.liveControlToken}\n`
+}
+
+const PORT_DIGITS = /^[1-9][0-9]{0,4}$/
+
+export const renderUnitEnv = (port: number): string => {
+	const digits = String(port)
+	if (!PORT_DIGITS.test(digits) || port > 65535) {
+		throw new Error("The live control port must be a whole number from 1 to 65535")
+	}
+	return `OPEN_MCC_PORT=${digits}\n`
+}
 
 export const unitName = (instanceId: string): string => `open-mcc@${validateInstanceId(instanceId)}`
 

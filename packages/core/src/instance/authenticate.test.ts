@@ -556,7 +556,12 @@ describe("stopping the instance before a sign-in", () => {
 	it("gives the stop longer than the unit can wait before killing the client", async () => {
 		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(
+				renderUnitTemplates({
+					networkStack: "slirp4netns",
+					imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+				})[INSTANCE_UNIT_NAME] ?? "",
+			)?.[1],
 		)
 
 		await beginAuthentication(deps, owner, "abc123", FAST_POLL)

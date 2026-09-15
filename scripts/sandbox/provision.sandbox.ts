@@ -106,6 +106,15 @@ describe.each(TARGETS)("provisioning a Podman host on $name", (target) => {
 		expect(seen).toEqual([...PROVISION_STEPS])
 		expect(result.networkStack).toBe(target.stack)
 
+		const verified = await exec(host, as, [
+			"systemd-analyze",
+			"--user",
+			"verify",
+			"open-mcc@probe.service",
+			"open-mcc-auth@probe.service",
+		])
+		expect(verified.status, `${verified.stdout}${verified.stderr}`).toBe(0)
+
 		const image = runtimeImageFor(
 			architectureForMachine(succeeded(await exec(host, as, ["uname", "-m"]), "uname -m")),
 		)

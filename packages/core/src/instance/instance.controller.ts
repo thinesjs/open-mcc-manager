@@ -96,6 +96,7 @@ import {
 	RECONCILE_DEADLINE_MS,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
+	unitRuntimeFor,
 } from "./reconcile"
 import {
 	processesGoneCommand,
@@ -1033,6 +1034,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "instance.read")
 
 			const scope = scopeOf(ctx)
+			const host = await deps.hosts.findById(scope, hostId)
+			if (!host) return { hostId, reachable: false, reason: "misconfigured" }
+			const runtime = unitRuntimeFor(host)
+			if (runtime === undefined) return { hostId, reachable: false, reason: "unprovisioned" }
 			const instances = (await deps.instances.list(scope)).filter(
 				(instance) => instance.hostId === hostId,
 			)
@@ -1059,7 +1064,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return { hostId, reachable: false, reason }
 			}
 
-			const expected = expectedUnits(instances, schedules, renderScheduleUnits)
+			const expected = expectedUnits(instances, schedules, renderScheduleUnits, runtime)
 			let observed: Awaited<ReturnType<typeof reconcileHostOverTransport>>
 			try {
 				observed = await reconcileHostOverTransport(

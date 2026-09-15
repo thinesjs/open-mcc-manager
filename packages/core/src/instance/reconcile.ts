@@ -7,10 +7,11 @@ import type {
 	UnitDrift,
 } from "@open-mcc/contracts"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
-import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
+import type { HostRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { asReadCommand, type HostReader, ReadDeadlineExceededError } from "@open-mcc/transport"
 import { journalctl, systemctl, UNIT_DIR } from "../host/profile"
-import { renderUnitTemplates } from "../host/unit-template"
+import { podmanImageId, runtimeImageFor } from "../host/runtime-image"
+import { renderUnitTemplates, type UnitRuntime } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
 import {
 	CONFIG_PATH_NAME,
@@ -100,13 +101,24 @@ const readFile = async (reader: SetupReader, path: string): Promise<string | und
 	return result.stdout === MISSING_MARKER ? undefined : result.stdout
 }
 
+export const unitRuntimeFor = (
+	host: Pick<HostRow, "networkStack" | "architecture">,
+): UnitRuntime | undefined =>
+	host.networkStack === null || host.architecture === null
+		? undefined
+		: {
+				networkStack: host.networkStack,
+				imageId: podmanImageId(runtimeImageFor(host.architecture)),
+			}
+
 export const expectedUnits = (
 	instances: readonly InstanceRow[],
 	schedules: readonly InstanceScheduleRow[],
 	renderWindow: (schedule: InstanceScheduleRow) => Record<string, string>,
+	runtime: UnitRuntime,
 ): Map<string, string> => {
 	const expected = new Map<string, string>()
-	for (const [name, contents] of Object.entries(renderUnitTemplates())) {
+	for (const [name, contents] of Object.entries(renderUnitTemplates(runtime))) {
 		expected.set(name, contents)
 	}
 	const known = new Set(instances.map((instance) => instance.id))

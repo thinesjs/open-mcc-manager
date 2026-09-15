@@ -824,7 +824,8 @@ reachable from any network, and nothing here may change that.
 - **The row owns the port.** `instance.liveControlPort` is a real column with a
   unique constraint per host. Anything that renders an instance's expected
   config takes the port from the row, never from the stored config document —
-  `expectedDocumentFor` exists so `writeSavedConfig` and `reconcileHost` cannot
+  `storedConfigFor` does that once, and both the start path (`expectedDocumentFor`,
+  then `writeConfigDocument`) and `reconcileHost` render from it, so they cannot
   disagree. Four separate bugs came from reading a port out of a stale config;
   all four typechecked and passed tests.
 - `create` probes the host with `canForward` before claiming a port, then

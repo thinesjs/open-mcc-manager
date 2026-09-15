@@ -190,9 +190,10 @@ must be rendered here, or the channel deletes itself:
 | `ChatBot.McpServer.Capabilities.Inventory` | `MANAGED` | `true` — we render `false` |
 | `ChatBot.McpServer.Capabilities.EntityWorld` | `MANAGED` | `true` — we render `false` |
 
-**The port cannot be left at its default.** Every instance would take `33333`, and on a
-rootless host they share one network namespace — so the second instance to start cannot
-bind and its endpoint never appears at all. The port is allocated per instance.
+**The port cannot be left at its default.** Every instance would take `33333`, and every
+bot publishes its port on the host's loopback — so the second instance to start cannot
+publish it, its container fails to start, and its endpoint never appears at all. The port is
+allocated per instance.
 
 ### MCP is a read channel; the FIFO stays the only write
 

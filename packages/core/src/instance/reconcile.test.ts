@@ -1188,10 +1188,7 @@ describe("refusing host output it cannot read in full", () => {
 			stdout: VALID.replace("open-mcc-abc123", "open-mcc abc123"),
 		},
 		{ named: "sections out of order", stdout: swapped },
-		{
-			named: "a section twice",
-			stdout: VALID.replace("open-mcc/end\n", "open-mcc/image\n0\nopen-mcc/end\n"),
-		},
+		{ named: "its end twice", stdout: `${VALID}open-mcc/end\n` },
 		{ named: "lines after its end", stdout: `${VALID}open-mcc-extra\n` },
 	])("refuses $named", async ({ stdout }) => {
 		await expect(run(stdout)).rejects.toThrow()

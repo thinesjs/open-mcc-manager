@@ -1273,6 +1273,15 @@ minted at boot, and a sudo-capable `tester` account. It starts `--privileged
 --cgroupns=private` with tmpfs on `/run`. The installer runs inside `docker:dind`
 on a copy of the checkout, never the checkout itself, because it writes `.env`.
 
+The Dockerfile's `podman-host` target adds rootless Podman to that host, built on
+the `BASE_IMAGE` argument: `scripts/sandbox/podman-host.sandbox.ts` runs it on
+Debian 12, Debian 13 and Ubuntu 24.04. It masks Podman's own system units, which
+fail in a container and leave the host `degraded`. Its accounts `pod1` to `pod6`
+each get a `--tmpfs` over `~/.local/share/containers`, because rootless overlay
+cannot nest on Docker's overlayfs. `SANDBOX_PLATFORM=linux/amd64` builds and boots
+every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
+rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.
+
 No sandbox container is given a host path, home directory, `~/.ssh` or the
 Docker socket. Every `docker` call goes through the guard in
 `scripts/sandbox/sandbox.ts`, and files reach a container on `docker exec` stdin.
@@ -1298,7 +1307,9 @@ no real boot or login session, and linger is observed through logind alone.
 `self-host.sh`'s probe needs Docker, which the sandbox does not have, so the
 tests that need a finished run put a stand-in `docker` on `PATH`. Real
 reachability from a container to the host is exercised by nothing here. Only
-Debian's `apt` path for libicu runs; `dnf` and `apk` do not.
+the setup script's `apt` path for Podman runs, on Debian 12; its other
+distributions are refused. A container runs on this machine's kernel, so the
+Ubuntu target proves Ubuntu's packages, not an Ubuntu kernel or its AppArmor.
 
 The installer test is a full run: it builds the images, starts the stack with
 its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,

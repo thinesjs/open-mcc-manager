@@ -63,7 +63,6 @@ const spyReader = () => {
 			forwarded.push(port)
 			throw new LiveChannelUnavailableError("no channel in this test")
 		},
-		probePort: async () => "refused",
 		release: () => {
 			released += 1
 		},
@@ -153,7 +152,6 @@ describe("asking a bot its name only while it runs", () => {
 				const socket = connect(clientPort, "127.0.0.1")
 				return { socket, close: () => socket.destroy() }
 			},
-			probePort: async () => "refused",
 			release: () => {
 				released += 1
 			},

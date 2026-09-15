@@ -9,6 +9,7 @@ import {
 	readerOver,
 } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import { activeCheckCommand } from "../instance/reconcile"
 import { OS_RELEASE_COMMAND } from "./facts"
 import { failedUnitsCommand } from "./health"
 import { isPollable, runHealthPoll } from "./health-poller"
@@ -430,7 +431,7 @@ describe("the health poller on a shared connection", () => {
 					const leased = await leaseForRead(20_000)
 					if (leased.kind !== "leased") return
 					try {
-						await leased.reader.probePort(33333)
+						await leased.reader.exec(activeCheckCommand(instanceId))
 					} finally {
 						leased.reader.release()
 					}

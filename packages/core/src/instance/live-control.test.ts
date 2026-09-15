@@ -106,7 +106,6 @@ const reader: HostReader = {
 		const socket = connect(servedPort, "127.0.0.1")
 		return { socket, close: () => socket.destroy() }
 	},
-	probePort: async () => "open",
 	release: () => undefined,
 }
 

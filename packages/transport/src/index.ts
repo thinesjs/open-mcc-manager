@@ -13,7 +13,6 @@ export type {
 	ConnectionIdentity,
 	HostReader,
 	OpenConnection,
-	ProbeOutcome,
 	ReadCommand,
 	ReadConnections,
 	ReadConnectionsOptions,

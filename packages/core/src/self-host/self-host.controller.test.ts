@@ -60,6 +60,7 @@ const makeHostRow = (): HostRow => ({
 	port: 22,
 	username: "mcc",
 	networkStack: null,
+	architecture: null,
 	osId: null,
 	osName: null,
 	failedUnits: null,

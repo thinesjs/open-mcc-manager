@@ -294,13 +294,14 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		attemptId: string,
 		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName"> &
-			Partial<Pick<HostRow, "networkStack">>,
+			Partial<Pick<HostRow, "networkStack" | "architecture">>,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")
 			.set({
 				...whitelistHostUpdate(patch),
 				...(patch.networkStack !== undefined && { networkStack: patch.networkStack }),
+				...(patch.architecture !== undefined && { architecture: patch.architecture }),
 				provisioningAttemptId: null,
 				provisioningClaimedAt: null,
 				organizationId: scope.organizationId,

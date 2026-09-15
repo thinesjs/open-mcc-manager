@@ -57,6 +57,7 @@ const makeHostRow = (overrides: Partial<HostRow> = {}): HostRow => ({
 	port: 22,
 	username: "mcc",
 	networkStack: null,
+	architecture: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -726,6 +727,7 @@ describe("host controller provisioning", () => {
 				osId: "debian",
 				osName: "Debian GNU/Linux 12 (bookworm)",
 				networkStack: "slirp4netns",
+				architecture: "x64",
 			},
 		)
 		expect(d.audit.record).toHaveBeenCalledTimes(1)

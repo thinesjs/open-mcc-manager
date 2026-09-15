@@ -52,6 +52,7 @@ const HOST: HostRow = {
 	username: "mcc",
 	status: "ready",
 	networkStack: null,
+	architecture: null,
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:abc",
 	hostKeyAlgorithm: "ssh-ed25519",

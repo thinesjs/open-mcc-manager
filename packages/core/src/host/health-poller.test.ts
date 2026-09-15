@@ -23,6 +23,7 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	port: 22,
 	username: "mcc",
 	networkStack: null,
+	architecture: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,

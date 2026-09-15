@@ -54,6 +54,7 @@ export interface AuditEvent {
 }
 
 export interface Host {
+	architecture: string | null
 	cpuCount: number | null
 	createdAt: Generated<Timestamp>
 	failedUnits: number | null

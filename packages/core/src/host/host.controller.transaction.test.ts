@@ -379,6 +379,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		const ctx = actorFor(organizationId, memberId)
 		const recorded = {
 			networkStack: "slirp4netns",
+			architecture: "x64",
 			osRelease: "systemd 255 (255.4-1ubuntu8)",
 			osId: "ubuntu",
 			osName: "Ubuntu 24.04.3 LTS",

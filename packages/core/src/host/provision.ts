@@ -7,7 +7,7 @@ import {
 import type { HostTransport } from "@open-mcc/transport"
 import { ROOT_REFUSAL } from "./check"
 import { hostFact, UNKNOWN_HOST_FACT } from "./facts"
-import { mccReleaseForMachine } from "./mcc-release"
+import { type MccArchitecture, mccReleaseForMachine } from "./mcc-release"
 import {
 	formatPodmanVersion,
 	HOST_FACTS_COMMAND,
@@ -42,6 +42,7 @@ export type ProvisionResult = {
 	osId: string | null
 	osName: string | null
 	networkStack: NetworkStack
+	architecture: MccArchitecture
 }
 
 export type ProvisionProgress = {
@@ -283,7 +284,7 @@ export const provisionHost = async (
 	advance()
 	await step(transport, systemctl("daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease, osId, osName, networkStack }
+	return { osRelease, osId, osName, networkStack, architecture: release.architecture }
 }
 
 export { LINGER_STEP_LABEL }

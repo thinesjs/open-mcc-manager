@@ -250,6 +250,20 @@ describe("provisionHost", () => {
 	})
 })
 
+describe("recording the host's architecture", () => {
+	it("records the client build a host runs, for an x86_64 host", async () => {
+		const transport = await connected()
+
+		expect((await provisionHost(transport)).architecture).toBe("x64")
+	})
+
+	it("records the client build a host runs, for an aarch64 host", async () => {
+		const transport = await connected(ON_ARM64)
+
+		expect((await provisionHost(transport)).architecture).toBe("arm64")
+	})
+})
+
 describe("checking Podman before provisioning touches it", () => {
 	it("records the network stack Podman 4 needs", async () => {
 		const transport = await connected()

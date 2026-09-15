@@ -287,8 +287,12 @@ describe("enrolling only a host whose check came back ready", () => {
 		)
 
 		fireEvent.click(button("Check host"))
+		await waitFor(() => expect(check).toHaveBeenCalledTimes(1))
 		type("Server fingerprint", OTHER_FINGERPRINT)
 		await act(async () => finish(READY))
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 20))
+		})
 
 		expect(isDisabled("Enroll host")).toBe(true)
 	})

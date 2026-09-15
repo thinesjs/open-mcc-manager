@@ -331,24 +331,20 @@ describe("the negative the client keeps, and means something by", () => {
 })
 
 const GOLDEN_RESERVED: readonly string[] = [
+	"MinecraftClient",
+	"Sentry",
+	"SessionCache.db",
+	"ProfileKeyCache.ini",
+	"Rendered_Maps",
+	"lang",
+	"replay_recordings",
+	"recording_cache",
 	"env",
 	"control",
 	"auth.log",
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
-	"SessionCache.db",
 	"SessionCache.ini",
-	"ProfileKeyCache.ini",
-	"replay_recordings",
-	"recording_cache",
-	"Rendered_Maps",
-	"lang",
-	"config",
-	"state",
-	"replays",
-	"recording-cache",
-	"unit.env",
-	"collect.lock",
 ]
 
 const CLIENT_FILE = "The client already uses that file name"
@@ -383,6 +379,13 @@ describe("★ a bot file name the client or this manager already keeps in the in
 		expect(fileKeysSaying("daily.collecting", "")).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("playerlog.txt.collecting", "")).toEqual(FILE_KEYS)
 	})
+
+	it.each(["MinecraftClient", "Sentry"])(
+		"refuses %s, which the client places in its working directory",
+		(value) => {
+			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
+		},
+	)
 
 	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {
 		expect(fileKeysSaying("env", CLIENT_FILE)).toEqual(FILE_KEYS)

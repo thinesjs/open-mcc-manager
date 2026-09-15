@@ -47,25 +47,31 @@ const isPlainText = (value: string): boolean => {
 
 const A_FILE_NAME = "A file name, not a path"
 
-export const RESERVED_FILE_NAMES: readonly string[] = [
+export const CLIENT_WORKING_DIRECTORY_NAMES = [
+	"MinecraftClient",
+	"Sentry",
+	"SessionCache.db",
+	"ProfileKeyCache.ini",
+	"Rendered_Maps",
+	"lang",
+	"replay_recordings",
+	"recording_cache",
+] as const
+
+export const COLLECTOR_WINDOW_NAMES = [
 	"env",
 	"control",
 	"auth.log",
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
-	"SessionCache.db",
-	"SessionCache.ini",
-	"ProfileKeyCache.ini",
-	"replay_recordings",
-	"recording_cache",
-	"Rendered_Maps",
-	"lang",
-	"config",
-	"state",
-	"replays",
-	"recording-cache",
-	"unit.env",
-	"collect.lock",
+] as const
+
+export const SIGN_IN_PROBE_WINDOW_NAMES = ["SessionCache.ini"] as const
+
+export const RESERVED_FILE_NAMES: readonly string[] = [
+	...CLIENT_WORKING_DIRECTORY_NAMES,
+	...COLLECTOR_WINDOW_NAMES,
+	...SIGN_IN_PROBE_WINDOW_NAMES,
 ]
 
 export const DRAIN_TEMPORARY = "player-list.collecting"

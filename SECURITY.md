@@ -9,10 +9,11 @@ for that host, works only inside that account's home directory under its
 systemd user manager, and runs each bot in a rootless Podman container as that
 account. It never gains root: the host check, provisioning and the setup script
 all refuse uid 0, and provisioning requires Podman to report itself rootless
-before any bot runs. Enrol an ordinary account, so a stolen key yields that one
-unprivileged account rather than the host itself. The operator runs
-`loginctl enable-linger <user>` once, by hand, so instances survive logout and
-start at boot; provisioning refuses to continue until they have.
+before any bot runs (`check.test.ts`, `provision.test.ts`,
+`podman-facts.test.ts`, `host-setup.test.ts`). Enrol an ordinary account, so a
+stolen key yields that one unprivileged account rather than the host itself.
+Lingering is turned on once, by the setup script or by hand, so instances
+survive logout and start at boot; provisioning refuses to continue without it.
 
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an
@@ -256,6 +257,30 @@ depth, not a substitute for one.
   this protection under normal operation. A re-trust attempted before the
   claim is taken, or after the attempt has finalized (success or error) or
   its claim has gone stale, is allowed to proceed.
+- **A bot's record is deleted only once its host shows the bot gone.** Removal
+  stops the bot and its sign-in, removes both containers, checks that neither
+  unit runs and neither container exists, deletes the bot's directory, and
+  checks again. The record goes only after both checks pass and every delete
+  succeeds; otherwise it stays and removal can be retried, so the dashboard
+  never loses track of a bot whose session cache or token is still on the host.
+  The container removal and the directory delete run under a deadline on the
+  host that ends before the manager stops waiting, so a hung delete is killed
+  rather than left running. `instance.controller.test.ts` proves the order and
+  `removal.test.ts` the commands; `removal.sandbox.ts` runs them against
+  rootless Podman in sandbox containers, outside `pnpm test`.
+- **Removing a host cleans up what the manager installed.** A queued job stops
+  every bot and sign-in, removes the manager's units, containers and runtime
+  image, and deletes `~/.local/share/open-mcc`; the container, image and
+  directory deletes each run under a host deadline. It finds units and
+  containers by name, so any other unit or container in that account named the
+  way the manager names its own goes too. The host's record is deleted only once
+  nothing is left; otherwise the job retries twice, a minute apart, each retry
+  starting after the last attempt's deadlines have ended (`teardown.test.ts`,
+  `queue-setup.test.ts`). It leaves the account, the manager's key in
+  `authorized_keys`, lingering, Podman with this account's Podman settings and
+  storage (`~/.config/containers/storage.conf`, `~/.local/share/containers`),
+  and the subordinate ids and packages the setup script added. Remove those by
+  hand when you retire the host.
 - **Audited enrollment with attribution surviving member deletion.** Enrollment,
   provisioning, and removal are recorded as audit events carrying both the
   actor's id and a non-blank actor label captured at the time of the action.
@@ -284,7 +309,9 @@ depth, not a substitute for one.
   and hosts should not be shared across trust boundaries an operator cares about
   keeping separate.
 - **What holds between bots on one host.** Each bot runs in its own rootless
-  Podman container:
+  Podman container. `podman-host.sandbox.ts` proves the separate namespaces and
+  the closed loopback on Debian 12, Debian 13 and Ubuntu 24.04, and
+  `unit-template.test.ts` pins the flags and mounts:
   - **Separate namespaces.** Each has its own PID, mount and network
     namespaces, so it cannot see another bot's processes, environment, files or
     ports.
@@ -305,7 +332,8 @@ depth, not a substitute for one.
     `stat`, which opens nothing. It writes into `state/` only to empty a player
     list it has fully stored, once the bot and its sign-in have both stopped,
     under the lock a start takes. Removal deletes those directories without
-    following links.
+    following links. `artifact.test.ts` and `collector.sandbox.ts` prove the
+    collector's half.
 - **What does not hold between bots.**
   - **One kernel uid.** Every bot runs as the enrolled account: root inside the
     container maps to it. A container escape, meaning a kernel or container
@@ -327,13 +355,14 @@ depth, not a substitute for one.
   Podman packages, not an Ubuntu kernel or its AppArmor.
 - **Drift reporting discloses other organizations' instance ids on a shared
   host.** Reconciliation enumerates the manager's unit files in
-  `~/.config/systemd/user` and reports any the requesting organization does not
-  define. That listing is host-wide, while the expected set is organization-
-  scoped, so if two organizations enroll the *same* machine, each sees the
-  other's sleep timers — and therefore the other's instance ids — reported as
-  unexpected drift. The enumeration cannot distinguish another organization's
-  live timer from a leftover of one's own deleted instance, which is the case it
-  exists to catch. This is consistent with the deployment model above:
+  `~/.config/systemd/user` and its `open-mcc-*` containers, and reports any the
+  requesting organization does not define. That listing is host-wide, while the
+  expected set is organization-scoped, so if two organizations enroll the *same*
+  machine, each sees the other's sleep timers and bot containers — and
+  therefore the other's instance ids — reported as unexpected drift. The
+  enumeration cannot distinguish another organization's live timer or container
+  from a leftover of one's own deleted instance, which is the case it exists to
+  catch. This is consistent with the deployment model above:
   organizations are an administrative partition, not a customer-isolation
   boundary. Do not enroll one host into two organizations that should not see
   each other.

@@ -162,7 +162,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Fourteen rules stated further down this document are enforced too, and are listed
+Sixteen rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -182,6 +182,8 @@ have:
 | Registration closed to every authentication method once a user exists | `apps/server/src/registration-gate.test.ts` — the gate is driven with a `create-user` source for each method better-auth can report as well as over HTTP, so unwiring it from `createAuth` or making it always admit both fail it |
 | No sandbox container is given a host path, home directory, `~/.ssh` or the Docker socket | `scripts/sandbox/sandbox.test.ts` — every `docker` call the sandbox suite makes goes through one guard, which refuses, among the arguments of a `run` or `create` up to a `--` (a bind mount can only come from a docker-level flag before the image, never from the command run inside a container; every harness `run` builder passes `--` right before its image, and a call without `--` is scanned to its end, so a `v`-flag after the image is refused there too), any argument that is a short-flag group containing `v`, `--volume`, `--mount` or `--volumes-from`; refuses any argument naming `docker.sock` anywhere; and refuses every `docker cp` or `docker container cp` in either direction. So an in-container `grep -v` or `tar -xvf` under `docker exec` is allowed, while `run -dv /host:/c img` is not. Files reach a container on `docker exec` stdin. A direct `spawn("docker", ...)` would go around it |
 | No sandbox container is killed or force-removed | `scripts/sandbox/sandbox.test.ts` — the same guard refuses `kill` and `restart`, an `rm` or `remove` carrying `--force`, `--force=…` or a short-flag group containing `f`, and any `stop` that is not `stop --timeout -1` or that carries `--signal` or `-s`, each with or without the `container` prefix, and the harness's own stop arguments are checked against it. A direct `spawn("docker", ...)` would go around it |
+| A host-side deadline on removal's and teardown's deletes, ending inside the manager's wait | `packages/core/src/instance/removal.test.ts` and `packages/core/src/host/teardown.test.ts` — each reads `timeout -k <k> <n>` off the commands a removal renders or a real `tearDownHost` issues, and requires `n + k` below that exec's wait; `packages/core/src/host/deadline.test.ts` pins the wrapper's shape. It proves the arithmetic, NOT that a host kills anything: `removal.sandbox.ts` and `collector.sandbox.ts` prove that, outside `pnpm test` |
+| The teardown queue retrying only after its longest host deadline | `packages/core/src/job/queue-setup.test.ts` — reads `retryLimit` 2 and `retryDelay` 60 off the reconciled queue and takes the longest deadline from the commands a real `tearDownHost` issues, so a deadline longer than the delay fails it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -830,8 +832,9 @@ reachable from any network, and nothing here may change that.
   all four typechecked and passed tests.
 - `create` probes the host with `canForward` before claiming a port, then
   retries on a unique violation. `canForward` answers "a forward succeeded",
-  which conflates "the host permits forwarding" with "something is listening";
-  for allocation that is the behaviour wanted.
+  which means something holds the port: a listener, or Podman's forwarder for a
+  running bot whether or not its client listens. For allocation that is the
+  behaviour wanted.
 - The token is minted fresh on **every start**, sealed in the store, and reaches
   MCC only through `podman run --env-file`, from the instance's `env` file: one
   unquoted `MCC_MCP_AUTH_TOKEN=<32 lowercase hex>` line, because Podman keeps
@@ -933,6 +936,13 @@ what it is called:
   the sweep reports the byte size and warns past `MAILER_STATE_WARN_BYTES`, so
   the growth is visible rather than silent.
 
+The sweep re-reads the host before each bot, and again before that bot's
+truncate, replays and Mailer, and stops touching a host once its removal is
+requested (`artifact-collect.job.test.ts`). One exec already under way can still
+land inside teardown's delete, such as a truncate whose `flock` recreates
+`collect.lock`; that teardown attempt then fails, and its retry covers it. A
+single bot's removal that races a sweep can still fail once; its retry succeeds.
+
 A file on a host is attacker-influenced — a player's chat reaches
 `PlayerListLogger` through the tab list and `Mailer` through a private message —
 so **the collector never interprets what it carries**. Content is validated as
@@ -955,6 +965,31 @@ kind, each at most `MAX_ARTIFACT_BYTES`, and everything past
 `ARTIFACT_RETENTION_DAYS` regardless. An unreachable host costs nothing — it is
 counted, skipped, and retried on the next hour, which is why the queue's
 `retryLimit` is `0` — and retention still runs for its organization.
+
+## Removing a bot or a host
+
+Removal's container and directory deletes, teardown's container, image and
+directory deletes, and the collector's check-and-truncate each run under a
+deadline on the host. `withDeadline` (`packages/core/src/host/deadline.ts`)
+renders `timeout -k <k> <n> <command>; s=$?; exit $s`, with `n + k` below the
+wait the manager gives that exec. The outer shell stays, so a TERM or KILL
+arrives as exit 124 or 137, which `endedByDeadline` reads. A process in
+uninterruptible sleep can outlive both signals.
+
+- **A bot's row goes only once the host shows it gone.** `remove` deletes the
+  sleep timers, stops both units, removes both containers, verifies that neither
+  unit runs and neither container exists, deletes the bot's directory, and
+  verifies again. A failed container removal or verify, or a delete ended by its
+  deadline, is `InstanceStillInUseError`; a failed timer step or any other
+  failed delete is `InstanceRemovalFailedError`. Both keep the row. The delete
+  makes anything the bot locked writable first, and `rm -rf` follows no link.
+- **Teardown runs on `HOST_TEARDOWN_QUEUE` with `retryLimit: 2` and
+  `retryDelay: 60`**, longer than its longest host deadline of 55 seconds, so a
+  retry starts only after the last attempt's deadlines have ended. It stops
+  every bot and sign-in by unit pattern, removes the containers
+  `MANAGED_CONTAINER_PATTERN` matches, both pinned runtime images and the
+  instances directory, and leaves lingering on, since turning it off cannot be
+  relied on without root. The host row is deleted only when nothing is left.
 
 ## Checking for a newer release
 
@@ -1318,11 +1353,22 @@ logs a network error and the unit ends with status 4. With a stand-in client tha
 waits, it proves a sleep window's start is skipped while sign-in runs, that a
 sign-in start and a bot start racing each other both skip, each on seeing the
 other starting, and that the bot stays stopped afterwards.
+`scripts/sandbox/reconcile.sandbox.ts` checks drift, a Podman upgrade and when a
+token may leave. `scripts/sandbox/collector.sandbox.ts` has a bot plant links and
+FIFOs at every name the collector takes, and holds a truncate past its deadline.
+`scripts/sandbox/removal.sandbox.ts` removes running bots, races starts against
+removal and tears a host down. `scripts/sandbox/instance-stop.sandbox.ts` proves
+a bot's stop on Debian 12.
 Start every Podman command in a sandbox test through `shell`, never a direct
 `exec`: a process started straight from `docker exec` is AppArmor-unconfined, so
 on a kernel with `apparmor_restrict_unprivileged_userns=1`, as on GitHub's Ubuntu
 runners, the account's first Podman command cannot create its user namespace.
 Never set that sysctl to 0 to get past it; real Ubuntu hosts keep it.
+Exec into a bot's container through the user manager, as `inContainer` in
+`scripts/sandbox/podman-account.ts` does with `systemd-run --user --wait --pipe`:
+on Debian 12, Podman 4.3.1 with crun 1.8.1 can refuse a `podman exec` whose
+caller's open-file limit is below the container's. The product never execs into
+a bot; a feature that does must go through the user manager too.
 `SANDBOX_PLATFORM=linux/amd64` builds and boots
 every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
 rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.
@@ -1345,16 +1391,20 @@ fails the run and is named, for a person to remove.
 
 It is not part of `pnpm test`. It needs a Docker engine that allows privileged
 containers, and it takes minutes. CI runs it as its own `sandbox` job. Without
-Docker its global setup fails loudly; it never skips.
+Docker its global setup fails loudly; it never skips. On a machine short of
+memory, run it as `pnpm test:sandbox --maxWorkers=2`, and the unit suites as
+`pnpm exec turbo run test --concurrency=2`.
 
 A green run does not prove what a container cannot reproduce. systemd there has
 no real boot or login session, and linger is observed through logind alone.
 `self-host.sh`'s probe needs Docker, which the sandbox does not have, so the
 tests that need a finished run put a stand-in `docker` on `PATH`. Real
-reachability from a container to the host is exercised by nothing here. Only
-the setup script's `apt` path for Podman runs, on Debian 12; its other
-distributions are refused. A container runs on this machine's kernel, so the
-Ubuntu target proves Ubuntu's packages, not an Ubuntu kernel or its AppArmor.
+reachability from the manager's container to its host is exercised by nothing
+here. Only the setup script's `apt` path for Podman runs, on Debian 12. The
+script installs Podman only when it is missing, and refuses a host that has
+neither Podman nor `apt`; nothing else gates on the distribution. A container
+runs on this machine's kernel, so the Ubuntu target proves Ubuntu's packages,
+not an Ubuntu kernel or its AppArmor.
 
 The installer test is a full run: it builds the images, starts the stack with
 its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,

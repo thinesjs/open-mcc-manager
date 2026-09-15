@@ -18,6 +18,7 @@ import {
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
 	SESSION_CACHE_FILES,
+	sessionCacheProbeCommand,
 	VERIFICATION_URI_PATTERN,
 } from "./authenticate"
 import type { CommandRepository } from "./command.repository"
@@ -327,19 +328,28 @@ describe("beginAuthentication", () => {
 })
 
 describe("completeAuthentication", () => {
-	const withProbe = (sessionCacheExists: boolean) => {
+	const STATE_PROBE =
+		'out=$(find "$HOME/.local/share/open-mcc/instances/abc123/state" -maxdepth 1 -name SessionCache.db -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1'
+
+	const withProbe = (status: 0 | 1 | 2) => {
 		const made = makeDeps("")
 		const original = made.transport.exec
 		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
 			const result = await original(command, timeoutMs, stdin)
-			if (!command.includes("SessionCache")) return result
-			return { ...result, exitCode: sessionCacheExists ? 0 : 1 }
+			if (command === STATE_PROBE) return { ...result, exitCode: status }
+			if (command.includes("SessionCache")) return { ...result, exitCode: 1 }
+			return result
 		}
 		return made
 	}
 
+	it("builds the probe for the state directory alone, by type and size, following no link", () => {
+		expect(sessionCacheProbeCommand("abc123")).toBe(STATE_PROBE)
+		expect(() => sessionCacheProbeCommand("abc%i")).toThrow()
+	})
+
 	it("reports the instance still unauthenticated when no session cache has appeared", async () => {
-		const { deps, transport, instances } = withProbe(false)
+		const { deps, transport, instances } = withProbe(1)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
 
 		const state = await completeAuthentication(deps, owner, "abc123")
@@ -350,7 +360,7 @@ describe("completeAuthentication", () => {
 	})
 
 	it("moves the instance to stopped and clears the device-code log once the cache exists", async () => {
-		const { deps, transport, instances } = withProbe(true)
+		const { deps, transport, instances } = withProbe(0)
 		vi.mocked(instances.findById).mockResolvedValue(
 			instanceRow({ status: "needs_auth", authClaimId: "attempt-1", authClaimedAt: new Date() }),
 		)
@@ -373,24 +383,52 @@ describe("completeAuthentication", () => {
 		).toBe(true)
 	})
 
-	it("accepts either session cache format, since the client reads both", async () => {
-		const { deps, transport, instances } = withProbe(true)
+	it("finds the cache in state/, where the client now writes it, and nowhere else", async () => {
+		const { deps, transport, instances } = withProbe(0)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: true, status: "stopped" })
+		expect([...SESSION_CACHE_FILES]).toEqual(["SessionCache.db"])
+		expect(transport.commands).toContain(STATE_PROBE)
+	})
+
+	it("throws when the state directory cannot be read, never reporting not signed in yet", async () => {
+		const { deps, instances } = withProbe(2)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		await expect(completeAuthentication(deps, owner, "abc123")).rejects.toThrow(/signed in/)
+		expect(instances.update).not.toHaveBeenCalled()
+		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+	})
+
+	it("never starts the bot when sign-in completes or is cancelled", async () => {
+		const completed = withProbe(0)
+		vi.mocked(completed.instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+		await completeAuthentication(completed.deps, owner, "abc123")
+		const cancelled = withProbe(0)
+		vi.mocked(cancelled.instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+		await cancelAuthentication(cancelled.deps, owner, "abc123")
+
+		expect(
+			[...completed.transport.commands, ...cancelled.transport.commands].filter((command) =>
+				/ start /.test(command),
+			),
+		).toEqual([])
+	})
+
+	it("keeps the old two-name probe out of the host commands", async () => {
+		const { deps, transport, instances } = withProbe(0)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
 
 		await completeAuthentication(deps, owner, "abc123")
 
-		expect([...SESSION_CACHE_FILES]).toEqual(["SessionCache.db", "SessionCache.ini"])
-		expect(
-			transport.commands.some(
-				(each) =>
-					each ===
-					'test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.db || test -s "$HOME"/.local/share/open-mcc/instances/abc123/SessionCache.ini',
-			),
-		).toBe(true)
+		expect(transport.commands.some((each) => each.includes("test -s"))).toBe(false)
 	})
 
 	it("does not touch the host for an instance that never needed authenticating", async () => {
-		const { deps, transport, instances } = withProbe(true)
+		const { deps, transport, instances } = withProbe(0)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
 
 		const state = await completeAuthentication(deps, owner, "abc123")

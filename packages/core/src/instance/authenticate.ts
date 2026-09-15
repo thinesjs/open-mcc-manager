@@ -6,7 +6,7 @@ import {
 } from "@open-mcc/contracts"
 import type { HostRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { systemctl } from "../host/profile"
+import { INSTANCES_PATH, systemctl } from "../host/profile"
 import { hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
@@ -19,7 +19,14 @@ import {
 	InstanceNotFoundError,
 } from "./instance.controller"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
-import { authUnitName, instanceDir, stopAuthCommand, unitName } from "./unit"
+import {
+	authUnitName,
+	INSTANCE_LAYOUT,
+	instanceDir,
+	stopAuthCommand,
+	unitName,
+	validateInstanceId,
+} from "./unit"
 
 const connectForSignIn = async (
 	transport: HostTransport,
@@ -46,7 +53,10 @@ export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
 
 export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
 
-export const SESSION_CACHE_FILES = ["SessionCache.db", "SessionCache.ini"] as const
+export const SESSION_CACHE_FILES = ["SessionCache.db"] as const
+
+export const sessionCacheProbeCommand = (instanceId: string): string =>
+	`out=$(find "$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1`
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -215,10 +225,13 @@ export const completeAuthentication = async (
 		})
 
 		const probe = await transport.exec(
-			SESSION_CACHE_FILES.map((name) => `test -s ${dir}/${name}`).join(" || "),
+			sessionCacheProbeCommand(instance.id),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
-		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
+		if (probe.exitCode === 1) return { authenticated: false, status: instance.status }
+		if (probe.exitCode !== 0) {
+			throw new Error(`Could not read whether instance ${instance.id} has signed in`)
+		}
 
 		await stopAuthSession(transport, instance.id)
 		await transport.exec(`rm -f ${dir}/auth.log`, AUTH_SESSION_TIMEOUT_MS)

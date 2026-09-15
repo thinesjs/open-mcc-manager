@@ -104,6 +104,7 @@ const SWAPPED_FIND = [
 	"#!/bin/sh",
 	'for argument in "$@"; do',
 	`\tif [ "$argument" = -printf ]; then stat -L -c '%s' "${DECOY}"; exit 0; fi`,
+	`\tif [ "$argument" = -mmin ]; then printf '%s\\n' "${REPLAYS}/${REPLAY}"; exit 0; fi`,
 	"done",
 	'exec /usr/bin/find "$@"',
 	"",

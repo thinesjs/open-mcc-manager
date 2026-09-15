@@ -8,6 +8,8 @@ import { cutoffFor } from "../notification/retention"
 import {
 	ARTIFACT_RETENTION_DAYS,
 	ARTIFACTS_KEPT_PER_KIND,
+	type CollectedArtifact,
+	type CursorAdvance,
 	type InstanceArtifactSweep,
 	MAILER_STATE_WARN_BYTES,
 	sweepHostArtifacts,
@@ -22,7 +24,6 @@ export type ArtifactCollectRun = {
 	readonly refused: number
 	readonly failed: number
 	readonly replaysPruned: number
-	readonly cacheDirectoriesPruned: number
 	readonly storedPruned: number
 	readonly mailerStateOverBudget: number
 }
@@ -34,6 +35,12 @@ export type ArtifactCollectDeps = {
 	readonly savedDocument: (scope: OrgScope, instanceId: string) => Promise<string | undefined>
 	readonly connect: (host: HostRow) => Promise<HostTransport>
 	readonly store: (scope: OrgScope, values: ArtifactValues) => Promise<boolean>
+	readonly storeAndAdvance: (
+		scope: OrgScope,
+		values: ArtifactValues,
+		advance: CursorAdvance,
+	) => Promise<void>
+	readonly resetCursor: (scope: OrgScope, instanceId: string, version: number) => Promise<boolean>
 	readonly deleteBeyondKept: (
 		scope: OrgScope,
 		instanceId: string,
@@ -69,12 +76,18 @@ export const createArtifactCollector =
 		let refused = 0
 		let failed = 0
 		let replaysPruned = 0
-		let cacheDirectoriesPruned = 0
 		let storedPruned = 0
 		let mailerStateOverBudget = 0
 
 		for (const organizationId of await deps.organizationIds()) {
 			const scope = { organizationId }
+			const valuesOf = (instanceId: string, artifact: CollectedArtifact): ArtifactValues => ({
+				instanceId,
+				kind: artifact.kind,
+				content: artifact.content,
+				digest: artifact.digest,
+				collectedAt: now,
+			})
 			for (const host of (await deps.hosts(scope)).filter(isPollable)) {
 				hosts += 1
 				const instances = await deps.instancesOn(scope, host.id)
@@ -84,20 +97,15 @@ export const createArtifactCollector =
 				let transport: HostTransport | undefined
 				try {
 					transport = await deps.connect(host)
-					sweeps = await sweepHostArtifacts(
-						transport,
-						instances,
-						documents,
-						async (instanceId, artifact) => {
-							await deps.store(scope, {
-								instanceId,
-								kind: artifact.kind,
-								content: artifact.content,
-								digest: artifact.digest,
-								collectedAt: now,
-							})
+					sweeps = await sweepHostArtifacts(transport, instances, documents, {
+						keep: async (instanceId, artifact) => {
+							await deps.store(scope, valuesOf(instanceId, artifact))
 						},
-					)
+						storeAndAdvance: async (instanceId, artifact, advance) =>
+							await deps.storeAndAdvance(scope, valuesOf(instanceId, artifact), advance),
+						resetCursor: async (instanceId, version) =>
+							await deps.resetCursor(scope, instanceId, version),
+					})
 				} catch (error) {
 					unreachable += 1
 					deps.onError?.(
@@ -114,7 +122,6 @@ export const createArtifactCollector =
 					refused += sweep.refused
 					failed += sweep.failed
 					replaysPruned += sweep.replaysPruned
-					cacheDirectoriesPruned += sweep.cacheDirectoriesPruned
 					if (sweep.mailerStateBytes > MAILER_STATE_WARN_BYTES) mailerStateOverBudget += 1
 					for (const kind of sweep.kindsCollected) {
 						storedPruned += await deps.deleteBeyondKept(
@@ -137,7 +144,6 @@ export const createArtifactCollector =
 			refused,
 			failed,
 			replaysPruned,
-			cacheDirectoriesPruned,
 			storedPruned,
 			mailerStateOverBudget,
 		}
@@ -148,9 +154,9 @@ export type ArtifactCollectReporter = (run: ArtifactCollectRun) => void
 export const artifactCollectReporter =
 	(logger: Pick<Logger, "info" | "warn">): ArtifactCollectReporter =>
 	(run) => {
-		if (run.collected > 0 || run.replaysPruned > 0 || run.cacheDirectoriesPruned > 0) {
+		if (run.collected > 0 || run.replaysPruned > 0) {
 			logger.info(
-				`Collected ${run.collected} instance artifacts and freed ${run.replaysPruned} replays and ${run.cacheDirectoriesPruned} recording caches`,
+				`Collected ${run.collected} instance artifacts and freed ${run.replaysPruned} replays`,
 			)
 		}
 		if (run.oversize > 0 || run.refused > 0 || run.failed > 0) {

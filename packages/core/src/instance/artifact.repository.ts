@@ -1,6 +1,7 @@
 import type { Executor, InstanceArtifactKind } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { type CursorAdvance, EMPTY_FINGERPRINT } from "./artifact"
 
 export type ArtifactValues = {
 	instanceId: string
@@ -18,26 +19,72 @@ export type ArtifactSummary = {
 	collectedAt: Date
 }
 
+const insertArtifact = async (
+	executor: Executor,
+	scope: OrgScope,
+	values: ArtifactValues,
+): Promise<boolean> => {
+	const row = await executor
+		.insertInto("instanceArtifact")
+		.values({
+			id: nanoid(),
+			organizationId: scope.organizationId,
+			instanceId: values.instanceId,
+			kind: values.kind,
+			content: values.content,
+			digest: values.digest,
+			byteSize: values.content.length,
+			collectedAt: values.collectedAt,
+		})
+		.onConflict((conflict) =>
+			conflict.columns(["organizationId", "instanceId", "kind", "digest"]).doNothing(),
+		)
+		.returning("id")
+		.executeTakeFirst()
+	return row !== undefined
+}
+
 export const createArtifactRepository = (db: Executor) => ({
-	store: async (scope: OrgScope, values: ArtifactValues): Promise<boolean> => {
-		const row = await db
-			.insertInto("instanceArtifact")
-			.values({
-				id: nanoid(),
-				organizationId: scope.organizationId,
-				instanceId: values.instanceId,
-				kind: values.kind,
-				content: values.content,
-				digest: values.digest,
-				byteSize: values.content.length,
-				collectedAt: values.collectedAt,
+	store: async (scope: OrgScope, values: ArtifactValues): Promise<boolean> =>
+		await insertArtifact(db, scope, values),
+
+	storeAndAdvance: async (
+		scope: OrgScope,
+		values: ArtifactValues,
+		advance: CursorAdvance,
+	): Promise<void> => {
+		await db.transaction().execute(async (tx) => {
+			await insertArtifact(tx, scope, values)
+			const moved = await tx
+				.updateTable("instance")
+				.set({
+					playerListOffset: advance.offset + values.content.length,
+					playerListFingerprint: advance.fingerprint,
+					playerListCursorVersion: advance.version + 1,
+				})
+				.where("organizationId", "=", scope.organizationId)
+				.where("id", "=", values.instanceId)
+				.where("playerListCursorVersion", "=", String(advance.version))
+				.returning("id")
+				.executeTakeFirst()
+			if (moved === undefined) throw new Error("The player list cursor moved after it was read")
+		})
+	},
+
+	resetCursor: async (scope: OrgScope, instanceId: string, version: number): Promise<boolean> => {
+		const moved = await db
+			.updateTable("instance")
+			.set({
+				playerListOffset: 0,
+				playerListFingerprint: EMPTY_FINGERPRINT,
+				playerListCursorVersion: version + 1,
 			})
-			.onConflict((conflict) =>
-				conflict.columns(["organizationId", "instanceId", "kind", "digest"]).doNothing(),
-			)
+			.where("organizationId", "=", scope.organizationId)
+			.where("id", "=", instanceId)
+			.where("playerListCursorVersion", "=", String(version))
 			.returning("id")
 			.executeTakeFirst()
-		return row !== undefined
+		return moved !== undefined
 	},
 
 	listSummaries: async (scope: OrgScope, instanceId: string): Promise<ArtifactSummary[]> =>

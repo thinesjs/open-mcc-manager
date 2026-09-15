@@ -4,12 +4,13 @@ import type { McConfigValue } from "@open-mcc/contracts/boundary/mcc-config"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import {
 	CLIENT_DEFAULT_FILES,
-	DRAIN_TEMPORARY,
 	isOperatorFileName,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import type { InstanceRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { instanceDir } from "./unit"
+import { withDeadline } from "../host/deadline"
+import { systemctl } from "../host/profile"
+import { authUnitName, INSTANCE_LAYOUT, instanceDir, unitName } from "./unit"
 
 export const ARTIFACT_STEP_TIMEOUT_MS = 20_000
 
@@ -21,13 +22,21 @@ export const REPLAY_KEEP_DAYS = 7
 
 export const REPLAY_SETTLE_MINUTES = 15
 
-export const ORPHANED_CACHE_MINUTES = 24 * 60
-
 export const ARTIFACT_RETENTION_DAYS = 30
 
 export const ARTIFACTS_KEPT_PER_KIND = 48
 
 export const MAILER_STATE_WARN_BYTES = 4 * 1024 * 1024
+
+export const FINGERPRINT_BYTES = 64
+
+export const EMPTY_FINGERPRINT = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+export const TRUNCATE_KILL_AFTER_SECONDS = 2
+
+export const TRUNCATE_DEADLINE_SECONDS = 10
+
+const READ_BLOCK_BYTES = 65536
 
 export const PLAYER_LIST_FILE_DEFAULT = CLIENT_DEFAULT_FILES["ChatBot.PlayerListLogger.File"]
 
@@ -47,15 +56,27 @@ export const MAILER_IGNORE_LIST_KEY = "ChatBot.Mailer.IgnoreListFile"
 
 const COLLECTED_KEYS = [PLAYER_LIST_FILE_KEY, MAILER_DATABASE_KEY, MAILER_IGNORE_LIST_KEY] as const
 
+const STOPPED_UNIT_STATES = ["inactive", "failed"] as const
+
 const BASE64_ONLY = /^[A-Za-z0-9+/]*={0,2}$/
 
 const REPLAY_NAME = /^[A-Za-z0-9_]{1,128}\.mcpr$/
 
 const COUNT_ONLY = /^\d{1,10}$/
 
-const TWO_SIZES = /^\s*(\d{1,12})\s+(\d{1,12})\s*$/
+const STAT_LINE = /^([a-z]+(?: [a-z]+)*) (0|[1-9][0-9]{0,14})$/
+
+const CURSOR_NUMBER = /^(0|[1-9][0-9]{0,14})$/
+
+const FINGERPRINT = /^[0-9a-f]{64}$/
+
+const PLAYER_LIST_READ =
+	/^size=(0|[1-9][0-9]{0,14})?\nunit=([a-z]+(?:-[a-z]+)*)\nauth=([a-z]+(?:-[a-z]+)*)\nbefore=([0-9a-f]{64})\nchunk=([A-Za-z0-9+/]*={0,2})\nafter=([0-9a-f]{64})\n$/
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
+
+const literalPattern = (name: string): string =>
+	name.replace(/[*?[\]]/g, (character) => `\\${character}`)
 
 export const isCollectableName = (value: string): boolean => isOperatorFileName(value)
 
@@ -84,13 +105,15 @@ export const countFrom = (output: string): number => {
 	return Number.isSafeInteger(value) && value > 0 ? value : 0
 }
 
-export const mailerStateBytesFrom = (output: string): number => {
-	const found = TWO_SIZES.exec(output)
-	if (found === null) return 0
-	const database = Number(found[1] ?? "")
-	const ignoreList = Number(found[2] ?? "")
-	if (!Number.isSafeInteger(database) || !Number.isSafeInteger(ignoreList)) return 0
-	return database + ignoreList
+export const mailerStateBytesFrom = (output: string): number | undefined => {
+	let bytes = 0
+	for (const line of output.split("\n")) {
+		if (line === "") continue
+		const found = STAT_LINE.exec(line)
+		if (found === null) return undefined
+		if (found[1] === "regular file") bytes += Number(found[2])
+	}
+	return bytes
 }
 
 export const digestOf = (content: Buffer): string =>
@@ -129,10 +152,130 @@ export const artifactNamesFor = (document: string | undefined): ArtifactNames =>
 	return { playerList: isMailerFile ? undefined : playerList, mailerDatabase, mailerIgnoreList }
 }
 
+export type PlayerListCursor = {
+	readonly offset: number
+	readonly fingerprint: string
+	readonly version: number
+}
+
+export type CursorAdvance = {
+	readonly offset: number
+	readonly fingerprint: string
+	readonly version: number
+}
+
+const cursorOf = (row: InstanceRow): PlayerListCursor | undefined => {
+	if (
+		!CURSOR_NUMBER.test(row.playerListOffset) ||
+		!CURSOR_NUMBER.test(row.playerListCursorVersion) ||
+		!FINGERPRINT.test(row.playerListFingerprint)
+	) {
+		return undefined
+	}
+	return {
+		offset: Number(row.playerListOffset),
+		fingerprint: row.playerListFingerprint,
+		version: Number(row.playerListCursorVersion),
+	}
+}
+
+export const fingerprintWindow = (end: number): { skip: number; count: number } => {
+	const skip = Math.max(0, end - FINGERPRINT_BYTES)
+	return { skip, count: end - skip }
+}
+
+const readBytes = (path: string, skip: number | string, count: number | string): string =>
+	`dd if=${path} iflag=nofollow,nonblock,skip_bytes,count_bytes skip=${skip} count=${count} bs=${READ_BLOCK_BYTES} status=none`
+
+const activeStateOf = (unit: string): string =>
+	systemctl(`show -p ActiveState --value ${shellQuote(unit)}`)
+
+const stateDirectory = (instanceId: string): string =>
+	`${instanceDir(instanceId)}/${INSTANCE_LAYOUT.state}`
+
+const regularFileSize = (instanceId: string, name: string): string =>
+	`find ${stateDirectory(instanceId)} -maxdepth 1 -type f -name ${shellQuote(literalPattern(name))} -printf '%s\\n'`
+
+export const playerListReadCommand = (instanceId: string, name: string, offset: number): string => {
+	const file = `${stateDirectory(instanceId)}/${shellQuote(name)}`
+	const before = fingerprintWindow(offset)
+	return [
+		`s=$(${regularFileSize(instanceId, name)})`,
+		"n=0",
+		`if [ -n "$s" ] && [ "$s" -ge ${offset} ] 2>/dev/null; then n=$((s - ${offset})); fi`,
+		`if [ "$n" -gt ${MAX_ARTIFACT_BYTES} ]; then n=${MAX_ARTIFACT_BYTES}; fi`,
+		`e=$((${offset} + n))`,
+		"a=0",
+		`if [ "$e" -gt ${FINGERPRINT_BYTES} ]; then a=$((e - ${FINGERPRINT_BYTES})); fi`,
+		`printf 'size=%s\\nunit=%s\\nauth=%s\\nbefore=%s\\nchunk=' "$s" "$(${activeStateOf(`${unitName(instanceId)}.service`)})" "$(${activeStateOf(authUnitName(instanceId))})" "$(${readBytes(file, before.skip, before.count)} | sha256sum | cut -c1-64)"`,
+		`${readBytes(file, offset, "$n")} | base64 | tr -d '\\n'`,
+		`printf '\\nafter=%s\\n' "$(${readBytes(file, "$a", "$((e - a))")} | sha256sum | cut -c1-64)"`,
+	].join("\n")
+}
+
+export type PlayerListRead = {
+	readonly size: number | undefined
+	readonly unit: string
+	readonly auth: string
+	readonly before: string
+	readonly chunk: Buffer
+	readonly after: string
+}
+
+export const parsePlayerListRead = (output: string): PlayerListRead | undefined => {
+	const found = PLAYER_LIST_READ.exec(output)
+	if (found === null) return undefined
+	const [, size, unit = "", auth = "", before = "", encoded = "", after = ""] = found
+	const chunk = Buffer.from(encoded, "base64")
+	if (chunk.toString("base64") !== encoded) return undefined
+	return {
+		size: size === undefined ? undefined : Number(size),
+		unit,
+		auth,
+		before,
+		chunk,
+		after,
+	}
+}
+
+export const truncateCommand = (
+	instanceId: string,
+	name: string,
+	cursor: { readonly offset: number; readonly fingerprint: string },
+): string => {
+	const directory = instanceDir(instanceId)
+	const file = `${stateDirectory(instanceId)}/${shellQuote(name)}`
+	const window = fingerprintWindow(cursor.offset)
+	const stopped = (unit: string): string =>
+		`case "$(${activeStateOf(unit)})" in ${STOPPED_UNIT_STATES.join("|")}) ;; *) exit 1 ;; esac`
+	const script = [
+		stopped(`${unitName(instanceId)}.service`),
+		stopped(authUnitName(instanceId)),
+		`[ "$(${regularFileSize(instanceId, name)})" = ${cursor.offset} ]`,
+		`[ "$(${readBytes(file, window.skip, window.count)} | sha256sum | cut -c1-64)" = ${cursor.fingerprint} ]`,
+		`dd if=/dev/null of=${file} oflag=nofollow,nonblock status=none`,
+	].join(" && ")
+	return withDeadline(
+		TRUNCATE_KILL_AFTER_SECONDS,
+		TRUNCATE_DEADLINE_SECONDS,
+		`flock -n ${directory}/${INSTANCE_LAYOUT.collectLock} sh -c ${shellQuote(script)}`,
+	)
+}
+
 export type CollectedArtifact = {
 	readonly kind: InstanceArtifactKind
 	readonly content: Buffer
 	readonly digest: string
+}
+
+export type ArtifactStore = {
+	readonly keep: (instanceId: string, artifact: CollectedArtifact) => Promise<void>
+	readonly storeAndAdvance: (
+		instanceId: string,
+		artifact: CollectedArtifact,
+		advance: CursorAdvance,
+	) => Promise<void>
+	readonly resetCursor: (instanceId: string, version: number) => Promise<boolean>
 }
 
 export type InstanceArtifactSweep = {
@@ -143,11 +286,8 @@ export type InstanceArtifactSweep = {
 	readonly refused: number
 	readonly failed: number
 	readonly replaysPruned: number
-	readonly cacheDirectoriesPruned: number
 	readonly mailerStateBytes: number
 }
-
-export type KeepArtifact = (instanceId: string, artifact: CollectedArtifact) => Promise<void>
 
 type Tally = {
 	collected: number
@@ -156,7 +296,6 @@ type Tally = {
 	refused: number
 	failed: number
 	replaysPruned: number
-	cacheDirectoriesPruned: number
 	mailerStateBytes: number
 }
 
@@ -167,91 +306,128 @@ const emptyTally = (): Tally => ({
 	refused: 0,
 	failed: 0,
 	replaysPruned: 0,
-	cacheDirectoriesPruned: 0,
 	mailerStateBytes: 0,
 })
 
-const readBase64 = async (
+const isStopped = (state: string): boolean =>
+	STOPPED_UNIT_STATES.some((stopped) => stopped === state)
+
+const exitCodeOf = async (
 	transport: HostTransport,
-	path: string,
-	upTo: number,
-): Promise<string | undefined> => {
+	command: string,
+): Promise<number | undefined> => {
 	try {
-		const result = await transport.exec(
-			`head -c ${upTo} ${path} 2>/dev/null | base64 | tr -d '\\n'`,
-			ARTIFACT_STEP_TIMEOUT_MS,
-		)
-		return result.stdout
+		return (await transport.exec(command, ARTIFACT_STEP_TIMEOUT_MS)).exitCode
 	} catch {
 		return undefined
 	}
 }
 
-const drainHead = async (
+const readPlayerList = async (
 	transport: HostTransport,
-	directory: string,
+	instanceId: string,
 	name: string,
-	bytes: number,
-): Promise<boolean> => {
-	const part = `${directory}/${shellQuote(DRAIN_TEMPORARY)}`
-	const target = `${directory}/${shellQuote(name)}`
+	offset: number,
+): Promise<PlayerListRead | undefined> => {
 	try {
 		const result = await transport.exec(
-			`tail -c +${bytes + 1} ${target} > ${part} && mv -f ${part} ${target} || { rm -f ${part}; exit 1; }`,
+			playerListReadCommand(instanceId, name, offset),
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
-		return result.exitCode === 0
+		return result.exitCode === 0 ? parsePlayerListRead(result.stdout) : undefined
 	} catch {
-		return false
+		return undefined
 	}
 }
 
-const removeFile = async (transport: HostTransport, path: string): Promise<boolean> => {
+const truncatePlayerList = async (
+	transport: HostTransport,
+	instanceId: string,
+	name: string,
+	cursor: PlayerListCursor,
+	store: ArtifactStore,
+	tally: Tally,
+): Promise<void> => {
+	const exitCode = await exitCodeOf(transport, truncateCommand(instanceId, name, cursor))
+	if (exitCode === 1) return
+	if (exitCode !== 0) {
+		tally.failed += 1
+		return
+	}
 	try {
-		const result = await transport.exec(`rm -f ${path}`, ARTIFACT_STEP_TIMEOUT_MS)
-		return result.exitCode === 0
+		await store.resetCursor(instanceId, cursor.version)
 	} catch {
-		return false
+		tally.failed += 1
 	}
 }
 
 const collectPlayerList = async (
 	transport: HostTransport,
-	directory: string,
+	instance: InstanceRow,
 	name: string,
-	instanceId: string,
-	keep: KeepArtifact,
+	store: ArtifactStore,
 	tally: Tally,
 ): Promise<void> => {
-	const path = `${directory}/${shellQuote(name)}`
-	const encoded = await readBase64(transport, path, MAX_ARTIFACT_BYTES)
-	if (encoded === undefined) {
-		tally.failed += 1
-		return
-	}
-	const decoded = decodeHostBytes(encoded, MAX_ARTIFACT_BYTES)
-	if (decoded.kind === "empty") return
-	if (decoded.kind === "unusable" || decoded.kind === "oversize") {
+	const stored = cursorOf(instance)
+	if (stored === undefined) {
 		tally.refused += 1
 		return
 	}
-	const artifact: CollectedArtifact = {
-		kind: "playerList",
-		content: decoded.content,
-		digest: digestOf(decoded.content),
+	let cursor = stored
+	let read = await readPlayerList(transport, instance.id, name, cursor.offset)
+	if (
+		read?.size !== undefined &&
+		(read.size < cursor.offset || read.before !== cursor.fingerprint)
+	) {
+		let reset = false
+		try {
+			reset = await store.resetCursor(instance.id, cursor.version)
+		} catch {
+			reset = false
+		}
+		if (!reset) {
+			tally.failed += 1
+			return
+		}
+		cursor = { offset: 0, fingerprint: EMPTY_FINGERPRINT, version: cursor.version + 1 }
+		read = await readPlayerList(transport, instance.id, name, 0)
 	}
-	try {
-		await keep(instanceId, artifact)
-	} catch {
+	if (read === undefined) {
 		tally.failed += 1
 		return
 	}
-	if (!(await drainHead(transport, directory, name, decoded.content.length))) {
+	if (read.size === undefined) return
+	if (read.chunk.length !== Math.min(read.size - cursor.offset, MAX_ARTIFACT_BYTES)) {
 		tally.failed += 1
 		return
 	}
-	tally.collected += 1
-	tally.kindsCollected.add("playerList")
+	if (read.chunk.length > 0) {
+		const artifact: CollectedArtifact = {
+			kind: "playerList",
+			content: read.chunk,
+			digest: digestOf(read.chunk),
+		}
+		try {
+			await store.storeAndAdvance(instance.id, artifact, {
+				offset: cursor.offset,
+				fingerprint: read.after,
+				version: cursor.version,
+			})
+		} catch {
+			tally.failed += 1
+			return
+		}
+		cursor = {
+			offset: cursor.offset + read.chunk.length,
+			fingerprint: read.after,
+			version: cursor.version + 1,
+		}
+		tally.collected += 1
+		tally.kindsCollected.add("playerList")
+	}
+	if (cursor.offset === 0 || read.size !== cursor.offset) return
+	if (!isStopped(read.unit) || !isStopped(read.auth)) return
+	await truncatePlayerList(transport, instance.id, name, cursor, store, tally)
 }
 
 const listSettledReplays = async (
@@ -274,11 +450,23 @@ const listSettledReplays = async (
 	}
 }
 
+const readReplay = async (transport: HostTransport, path: string): Promise<string | undefined> => {
+	try {
+		const result = await transport.exec(
+			`dd if=${path} iflag=nofollow,nonblock,count_bytes count=${MAX_ARTIFACT_BYTES + 1} bs=${READ_BLOCK_BYTES} status=none | base64 | tr -d '\\n'`,
+			ARTIFACT_STEP_TIMEOUT_MS,
+		)
+		return result.stdout
+	} catch {
+		return undefined
+	}
+}
+
 const collectReplays = async (
 	transport: HostTransport,
 	directory: string,
 	instanceId: string,
-	keep: KeepArtifact,
+	store: ArtifactStore,
 	tally: Tally,
 ): Promise<void> => {
 	const names = await listSettledReplays(transport, directory)
@@ -288,7 +476,7 @@ const collectReplays = async (
 	}
 	for (const name of names) {
 		const path = `${directory}/${shellQuote(name)}`
-		const encoded = await readBase64(transport, path, MAX_ARTIFACT_BYTES + 1)
+		const encoded = await readReplay(transport, path)
 		if (encoded === undefined) {
 			tally.failed += 1
 			continue
@@ -309,12 +497,12 @@ const collectReplays = async (
 			digest: digestOf(decoded.content),
 		}
 		try {
-			await keep(instanceId, artifact)
+			await store.keep(instanceId, artifact)
 		} catch {
 			tally.failed += 1
 			continue
 		}
-		if (!(await removeFile(transport, path))) {
+		if ((await exitCodeOf(transport, `rm -f ${path}`)) !== 0) {
 			tally.failed += 1
 			continue
 		}
@@ -339,25 +527,9 @@ const pruneReplays = async (
 	}
 }
 
-const pruneRecordingCache = async (
-	transport: HostTransport,
-	directory: string,
-	tally: Tally,
-): Promise<void> => {
-	try {
-		const result = await transport.exec(
-			`find ${directory} -type f -mmin +${ORPHANED_CACHE_MINUTES} -delete 2>/dev/null; find ${directory} -mindepth 1 -type d -empty -delete -print 2>/dev/null | wc -l`,
-			ARTIFACT_STEP_TIMEOUT_MS,
-		)
-		tally.cacheDirectoriesPruned += countFrom(result.stdout)
-	} catch {
-		tally.failed += 1
-	}
-}
-
 const measureMailerState = async (
 	transport: HostTransport,
-	directory: string,
+	instanceId: string,
 	names: ArtifactNames,
 	tally: Tally,
 ): Promise<void> => {
@@ -365,14 +537,15 @@ const measureMailerState = async (
 		tally.refused += 1
 		return
 	}
-	const database = `${directory}/${shellQuote(names.mailerDatabase)}`
-	const ignoreList = `${directory}/${shellQuote(names.mailerIgnoreList)}`
+	const state = stateDirectory(instanceId)
 	try {
 		const result = await transport.exec(
-			`printf '%s %s' "$(wc -c < ${database} 2>/dev/null || printf 0)" "$(wc -c < ${ignoreList} 2>/dev/null || printf 0)"`,
+			`stat -c '%F %s' -- ${state}/${shellQuote(names.mailerDatabase)} ${state}/${shellQuote(names.mailerIgnoreList)} 2>/dev/null || true`,
 			ARTIFACT_STEP_TIMEOUT_MS,
 		)
-		tally.mailerStateBytes += mailerStateBytesFrom(result.stdout)
+		const bytes = mailerStateBytesFrom(result.stdout)
+		if (bytes === undefined) tally.refused += 1
+		else tally.mailerStateBytes += bytes
 	} catch {
 		tally.failed += 1
 	}
@@ -382,22 +555,20 @@ export const sweepHostArtifacts = async (
 	transport: HostTransport,
 	instances: readonly InstanceRow[],
 	documents: ReadonlyMap<string, string>,
-	keep: KeepArtifact,
+	store: ArtifactStore,
 ): Promise<readonly InstanceArtifactSweep[]> => {
 	const sweeps: InstanceArtifactSweep[] = []
 	for (const instance of instances) {
-		const directory = instanceDir(instance.id)
+		const replays = `${instanceDir(instance.id)}/${INSTANCE_LAYOUT.replays}`
 		const names = artifactNamesFor(documents.get(instance.id))
 		const tally = emptyTally()
 
 		if (names.playerList === undefined) tally.refused += 1
-		else await collectPlayerList(transport, directory, names.playerList, instance.id, keep, tally)
+		else await collectPlayerList(transport, instance, names.playerList, store, tally)
 
-		const replays = `${directory}/${REPLAY_DIRECTORY}`
-		await collectReplays(transport, replays, instance.id, keep, tally)
+		await collectReplays(transport, replays, instance.id, store, tally)
 		await pruneReplays(transport, replays, tally)
-		await pruneRecordingCache(transport, `${directory}/${RECORDING_CACHE_DIRECTORY}`, tally)
-		await measureMailerState(transport, directory, names, tally)
+		await measureMailerState(transport, instance.id, names, tally)
 
 		sweeps.push({
 			instanceId: instance.id,
@@ -407,7 +578,6 @@ export const sweepHostArtifacts = async (
 			refused: tally.refused,
 			failed: tally.failed,
 			replaysPruned: tally.replaysPruned,
-			cacheDirectoriesPruned: tally.cacheDirectoriesPruned,
 			mailerStateBytes: tally.mailerStateBytes,
 		})
 	}

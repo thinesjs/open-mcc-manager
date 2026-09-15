@@ -254,6 +254,10 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 			return transport
 		},
 		store: async (scope, values) => await artifacts.store(scope, values),
+		storeAndAdvance: async (scope, values, advance) =>
+			await artifacts.storeAndAdvance(scope, values, advance),
+		resetCursor: async (scope, instanceId, version) =>
+			await artifacts.resetCursor(scope, instanceId, version),
 		deleteBeyondKept: async (scope, instanceId, kind, kept) =>
 			await artifacts.deleteBeyondKept(scope, instanceId, kind, kept),
 		deleteCollectedBefore: async (scope, cutoff) =>

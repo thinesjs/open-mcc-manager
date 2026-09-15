@@ -6,6 +6,7 @@ export { CONSTRAINT_VIOLATION_KINDS, constraintViolationOf } from "./constraint-
 export type { Json, JsonObject, JsonValue } from "./generated/database"
 export {
 	appliedSchemaVersion,
+	createMigrator,
 	DrizzleHistoryWithoutBaselineError,
 	migrateToLatest,
 } from "./migrator"

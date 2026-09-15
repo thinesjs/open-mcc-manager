@@ -1,8 +1,15 @@
 import type { HostRow, InstanceRow } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import type { ReusableTransport } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { OrgScope } from "../host/host.repository"
-import { ARTIFACT_RETENTION_DAYS, ARTIFACTS_KEPT_PER_KIND, MAX_ARTIFACT_BYTES } from "./artifact"
+import { createPlayerListHost, fingerprintOf, type PlayerListHost } from "../test/player-list-host"
+import {
+	ARTIFACT_RETENTION_DAYS,
+	ARTIFACTS_KEPT_PER_KIND,
+	type CursorAdvance,
+	EMPTY_FINGERPRINT,
+	PLAYER_LIST_FILE_DEFAULT,
+} from "./artifact"
 import type { ArtifactValues } from "./artifact.repository"
 import {
 	type ArtifactCollectDeps,
@@ -11,9 +18,6 @@ import {
 	artifactCollectReporter,
 	createArtifactCollector,
 } from "./artifact-collect.job"
-import { instanceDir } from "./unit"
-
-type FakeScript = NonNullable<Parameters<typeof createFakeTransport>[0]>
 
 const NOW = new Date("2026-09-13T12:00:00.000Z")
 
@@ -66,43 +70,66 @@ const instance: InstanceRow = {
 	liveControlTokenKeyId: null,
 	authClaimId: null,
 	authClaimedAt: null,
+	playerListOffset: "0",
+	playerListFingerprint: EMPTY_FINGERPRINT,
+	playerListCursorVersion: "0",
 	createdAt: NOW,
 }
 
-const DIRECTORY = instanceDir("afk")
-
-const playerLogRead = `head -c ${MAX_ARTIFACT_BYTES} ${DIRECTORY}/'playerlog.txt' 2>/dev/null | base64 | tr -d '\\n'`
-
 type Recorder = {
 	stored: ArtifactValues[]
+	advances: CursorAdvance[]
+	resets: number[]
 	keptBounds: Array<{ instanceId: string; kind: string; kept: number }>
 	retention: Date[]
 }
 
+const playerListHost = (content: string | undefined, unit = "active", auth = "inactive") =>
+	createPlayerListHost("afk", PLAYER_LIST_FILE_DEFAULT, {
+		content: content === undefined ? undefined : Buffer.from(content),
+		unit,
+		auth,
+	})
+
+const connected = async (transport: ReusableTransport): Promise<ReusableTransport> => {
+	await transport.connect({
+		hostname: host.hostname,
+		port: host.port,
+		username: host.username,
+		privateKey: "k",
+		expectedFingerprint: "f",
+		timeoutMs: 1,
+	})
+	return transport
+}
+
 const depsFor = (
-	script: FakeScript,
+	target: PlayerListHost = playerListHost(undefined),
 	overrides: Partial<ArtifactCollectDeps> = {},
 ): { deps: ArtifactCollectDeps; recorder: Recorder } => {
-	const recorder: Recorder = { stored: [], keptBounds: [], retention: [] }
+	const recorder: Recorder = {
+		stored: [],
+		advances: [],
+		resets: [],
+		keptBounds: [],
+		retention: [],
+	}
 	const deps: ArtifactCollectDeps = {
 		organizationIds: async () => ["org-1"],
 		hosts: async () => [host],
 		instancesOn: async () => [instance],
 		savedDocument: async () => undefined,
-		connect: async () => {
-			const transport = createFakeTransport(script)
-			await transport.connect({
-				hostname: host.hostname,
-				port: host.port,
-				username: host.username,
-				privateKey: "k",
-				expectedFingerprint: "f",
-				timeoutMs: 1,
-			})
-			return transport
-		},
+		connect: async () => await connected(target.transport),
 		store: async (_scope: OrgScope, values: ArtifactValues) => {
 			recorder.stored.push(values)
+			return true
+		},
+		storeAndAdvance: async (_scope, values, advance) => {
+			recorder.stored.push(values)
+			recorder.advances.push(advance)
+		},
+		resetCursor: async (_scope, _instanceId, version) => {
+			recorder.resets.push(version)
 			return true
 		},
 		deleteBeyondKept: async (_scope, instanceId, kind, kept) => {
@@ -120,27 +147,50 @@ const depsFor = (
 }
 
 describe("collecting across the fleet", () => {
-	it("keeps what a host wrote and bounds what is kept for the kinds it collected", async () => {
-		const { deps, recorder } = depsFor({
-			[playerLogRead]: {
-				stdout: Buffer.from("alice\n").toString("base64"),
-				stderr: "",
-				exitCode: 0,
-			},
-		})
+	it("keeps what a host wrote, advances its cursor, and bounds what is kept for the kinds it collected", async () => {
+		const { deps, recorder } = depsFor(playerListHost("alice\n"))
 
 		const run = await createArtifactCollector(deps)()
 
 		expect(run.collected).toBe(1)
 		expect(recorder.stored[0]?.kind).toBe("playerList")
 		expect(recorder.stored[0]?.collectedAt).toEqual(NOW)
+		expect(recorder.advances).toEqual([
+			{ offset: 0, fingerprint: fingerprintOf(Buffer.from("alice\n"), 6), version: 0 },
+		])
 		expect(recorder.keptBounds).toEqual([
 			{ instanceId: "afk", kind: "playerList", kept: ARTIFACTS_KEPT_PER_KIND },
 		])
 	})
 
+	it("★ runs no host command while a commit is open: read, then commit, then truncate, then reset", async () => {
+		const target = playerListHost("alice\n", "inactive", "inactive")
+		const events: string[] = []
+		const reach = target.transport.exec
+		target.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			if (command.startsWith("s=$(find")) events.push("read")
+			if (command.startsWith("timeout -k")) events.push("truncate")
+			return await reach(command, timeoutMs, stdin)
+		}
+		const { deps } = depsFor(target, {
+			storeAndAdvance: async () => {
+				events.push("commit begins")
+				await new Promise((resolve) => setTimeout(resolve, 5))
+				events.push("commit ends")
+			},
+			resetCursor: async () => {
+				events.push("reset")
+				return true
+			},
+		})
+
+		await createArtifactCollector(deps)()
+
+		expect(events).toEqual(["read", "commit begins", "commit ends", "truncate", "reset"])
+	})
+
 	it("does not bound a kind it collected nothing of", async () => {
-		const { deps, recorder } = depsFor({})
+		const { deps, recorder } = depsFor()
 
 		await createArtifactCollector(deps)()
 
@@ -148,7 +198,7 @@ describe("collecting across the fleet", () => {
 	})
 
 	it("ages stored artifacts out at the retention cutoff", async () => {
-		const { deps, recorder } = depsFor({})
+		const { deps, recorder } = depsFor()
 
 		const run = await createArtifactCollector(deps)()
 
@@ -160,29 +210,16 @@ describe("collecting across the fleet", () => {
 
 	it("closes the connection even when the sweep threw", async () => {
 		const closed: string[] = []
-		const { deps } = depsFor(
-			{},
-			{
-				connect: async () => {
-					const transport = createFakeTransport({})
-					await transport.connect({
-						hostname: host.hostname,
-						port: host.port,
-						username: host.username,
-						privateKey: "k",
-						expectedFingerprint: "f",
-						timeoutMs: 1,
-					})
-					return {
-						...transport,
-						close: async () => {
-							closed.push(host.id)
-						},
-					}
+		const target = playerListHost(undefined)
+		const { deps } = depsFor(target, {
+			connect: async () => ({
+				...(await connected(target.transport)),
+				close: async () => {
+					closed.push(host.id)
 				},
-				instancesOn: async () => [{ ...instance, id: "not a valid instance id" }],
-			},
-		)
+			}),
+			instancesOn: async () => [{ ...instance, id: "not a valid instance id" }],
+		})
 
 		const run = await createArtifactCollector(deps)()
 
@@ -192,15 +229,12 @@ describe("collecting across the fleet", () => {
 
 	it("counts an unreachable host and carries no host address into the run", async () => {
 		const onError = vi.fn()
-		const { deps } = depsFor(
-			{},
-			{
-				connect: async () => {
-					throw new Error("ssh: connect to host 10.4.5.6 port 22: connection refused")
-				},
-				onError,
+		const { deps } = depsFor(undefined, {
+			connect: async () => {
+				throw new Error("ssh: connect to host 10.4.5.6 port 22: connection refused")
 			},
-		)
+			onError,
+		})
 
 		const run = await createArtifactCollector(deps)()
 
@@ -210,14 +244,11 @@ describe("collecting across the fleet", () => {
 	})
 
 	it("still ages stored artifacts out when every host is unreachable", async () => {
-		const { deps, recorder } = depsFor(
-			{},
-			{
-				connect: async () => {
-					throw new Error("unreachable")
-				},
+		const { deps, recorder } = depsFor(undefined, {
+			connect: async () => {
+				throw new Error("unreachable")
 			},
-		)
+		})
 
 		await createArtifactCollector(deps)()
 
@@ -229,7 +260,7 @@ describe("collecting across the fleet", () => {
 		["that never finished setup", { status: "pending", osRelease: null }],
 	] as const)("skips a host %s, and opens no connection to it", async (_case, state) => {
 		const connect = vi.fn()
-		const { deps } = depsFor({}, { hosts: async () => [{ ...host, ...state }], connect })
+		const { deps } = depsFor(undefined, { hosts: async () => [{ ...host, ...state }], connect })
 
 		const run = await createArtifactCollector(deps)()
 
@@ -238,7 +269,7 @@ describe("collecting across the fleet", () => {
 	})
 
 	it("keeps collecting from a set-up host whose Repair failed", async () => {
-		const { deps } = depsFor({}, { hosts: async () => [{ ...host, status: "error" }] })
+		const { deps } = depsFor(undefined, { hosts: async () => [{ ...host, status: "error" }] })
 
 		const run = await createArtifactCollector(deps)()
 
@@ -253,7 +284,10 @@ describe("collecting across the fleet", () => {
 		"never sweeps a ready host with no %s recorded, and opens no connection to it",
 		async (_field, missing) => {
 			const connect = vi.fn()
-			const { deps } = depsFor({}, { hosts: async () => [{ ...host, ...missing }], connect })
+			const { deps } = depsFor(undefined, {
+				hosts: async () => [{ ...host, ...missing }],
+				connect,
+			})
 
 			const run = await createArtifactCollector(deps)()
 
@@ -272,7 +306,6 @@ describe("reporting a sweep", () => {
 		refused: 0,
 		failed: 0,
 		replaysPruned: 0,
-		cacheDirectoriesPruned: 0,
 		storedPruned: 0,
 		mailerStateOverBudget: 0,
 	}

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import { RECORDING_CACHE_DIRECTORY, REPLAY_DIRECTORY } from "./artifact"
 import { SESSION_CACHE_FILES } from "./authenticate"
-import { CONFIG_PATH_NAME } from "./config-drift"
 import { INSTANCE_LAYOUT } from "./unit"
 
 const unreserved = (names: readonly string[]): readonly string[] =>
@@ -58,14 +57,9 @@ describe("★ every name the manager or the runtime places in the client's worki
 		).toEqual([])
 	})
 
-	it("reserves the config, the session caches and the directories the sweep works in", () => {
+	it("reserves the session caches and the directories the sweep works in", () => {
 		expect(
-			unreserved([
-				CONFIG_PATH_NAME,
-				...SESSION_CACHE_FILES,
-				REPLAY_DIRECTORY,
-				RECORDING_CACHE_DIRECTORY,
-			]),
+			unreserved([...SESSION_CACHE_FILES, REPLAY_DIRECTORY, RECORDING_CACHE_DIRECTORY]),
 		).toEqual([])
 	})
 })

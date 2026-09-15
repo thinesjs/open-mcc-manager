@@ -92,6 +92,9 @@ const INSTANCE: InstanceRow = {
 	liveControlTokenKeyId: null,
 	authClaimId: null,
 	authClaimedAt: null,
+	playerListOffset: "0",
+	playerListFingerprint: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	playerListCursorVersion: "0",
 	createdAt: NOW,
 }
 
@@ -158,6 +161,8 @@ const commandsSweptWith = async (botConfig: Json): Promise<readonly string[]> =>
 			return transport
 		},
 		store: async () => true,
+		storeAndAdvance: async () => undefined,
+		resetCursor: async () => true,
 		deleteBeyondKept: async () => 0,
 		deleteCollectedBefore: async () => 0,
 	})()
@@ -165,7 +170,7 @@ const commandsSweptWith = async (botConfig: Json): Promise<readonly string[]> =>
 }
 
 const readsPlayerList = (commands: readonly string[], name: string): boolean =>
-	commands.some((command) => command.startsWith("head -c") && command.includes(`/'${name}'`))
+	commands.some((command) => command.startsWith("s=$(find") && command.includes(`/state/'${name}'`))
 
 describe("★ the file names the worker hands its artifact collector", () => {
 	it("reads the operator's own player list from a stored config the repository returns as an object", async () => {
@@ -181,7 +186,7 @@ describe("★ the file names the worker hands its artifact collector", () => {
 		expect(readsPlayerList(commands, "playerlog.txt")).toBe(false)
 		expect(
 			commands.some(
-				(command) => command.includes("wc -c < ") && command.includes("/'playerlog.txt'"),
+				(command) => command.startsWith("stat -c") && command.includes("/state/'playerlog.txt'"),
 			),
 		).toBe(true)
 	})

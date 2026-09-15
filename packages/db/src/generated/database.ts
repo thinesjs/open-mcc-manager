@@ -10,6 +10,8 @@ export type Generated<T> =
 		? ColumnType<S, I | undefined, U>
 		: ColumnType<T, T | undefined, T>
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>
+
 export type Json = JsonValue
 
 export type JsonArray = JsonValue[]
@@ -102,6 +104,9 @@ export interface Instance {
 	minecraftUsername: string | null
 	name: string
 	organizationId: string
+	playerListCursorVersion: Generated<Int8>
+	playerListFingerprint: Generated<string>
+	playerListOffset: Generated<Int8>
 	status: Generated<string>
 }
 

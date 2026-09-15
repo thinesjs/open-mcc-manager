@@ -103,7 +103,8 @@ spread over N round trips. The client's wait runs in the tick loop.
 
 Because both bots dispatch their action through the client's **entire** internal command surface,
 and that surface includes loading a script — including a C# script the client compiles at runtime.
-That is arbitrary code execution on the host as the instance user.
+That is arbitrary code execution in the bot's container, as the one account every bot on the
+host runs as.
 
 This repo has deliberately closed that surface, twice:
 

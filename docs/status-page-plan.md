@@ -22,7 +22,7 @@ it with no persisted `afterId`, so every poll restarts from zero. It may *corrob
 event; it must never create or close uptime.
 
 The real evidence is: current process state, incrementally read exit records via the
-existing rootless/system-aware `journalctl` helper, successful session-status reads, host
+existing user-manager `journalctl` helper, successful session-status reads, host
 probe outcomes, and periodic reconciliation.
 
 ## Model

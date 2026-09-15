@@ -146,8 +146,9 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 		await remove(host)
 	}, 300_000)
 
-	it("reads every fact, podman --version among them, leaving no graph root and no run root", async () => {
+	it("reads every fact, podman --version among them, leaving no graph root and no runtime state", async () => {
 		const as = await withUserManager(host, "pod1")
+		const runtimeDir = `/run/user/${uidOf("pod1")}`
 
 		succeeded(await exec(host, as, ["podman", "--version"]), "podman --version")
 		const facts = await factsOf(host, as)
@@ -166,7 +167,22 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 		expect(facts.podman?.major).toBe(target.major)
 		expect(facts.helpers).toContain(target.stack)
 		expect(await exists(host, "/home/pod1/.local/share/containers/storage")).toBe(false)
-		expect(await exists(host, `/run/user/${uidOf("pod1")}/containers`)).toBe(false)
+		expect(
+			succeeded(
+				await shell(
+					host,
+					ROOT,
+					'find "$1/containers" "$1/libpod" -mindepth 1 2>/dev/null || true',
+					runtimeDir,
+				),
+				"listing the account's Podman run root",
+			).trim(),
+		).toBe("")
+
+		const setUp = await shell(host, as, storageStepCommand())
+
+		expect(setUp.stdout.trim(), setUp.stderr).toBe("ready")
+		expect(setUp.status).toBe(0)
 	})
 
 	it("sets up storage on a fresh account, after which Podman reports overlay", async () => {
@@ -176,9 +192,9 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 		expect(ran.stdout.trim(), ran.stderr).toBe("ready")
 		expect(ran.status).toBe(0)
-		expect(await exec(host, ROOT, ["cat", "/home/pod2/.config/containers/storage.conf"])).toMatchObject(
-			{ stdout: STORAGE_CONF },
-		)
+		expect(
+			await exec(host, ROOT, ["cat", "/home/pod2/.config/containers/storage.conf"]),
+		).toMatchObject({ stdout: STORAGE_CONF })
 		expect(
 			succeeded(
 				await exec(host, as, [
@@ -196,7 +212,13 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 	it("refuses an account that already ran Podman with vfs, writing nothing", async () => {
 		const as = await withUserManager(host, "pod3")
 		succeeded(
-			await exec(host, as, ["podman", "--storage-driver=vfs", "info", "--format", "{{.Store.GraphDriverName}}"]),
+			await exec(host, as, [
+				"podman",
+				"--storage-driver=vfs",
+				"info",
+				"--format",
+				"{{.Store.GraphDriverName}}",
+			]),
 			"running Podman with vfs",
 		)
 		expect((await factsOf(host, as)).storage).toBe("used")
@@ -238,12 +260,7 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			expect((await factsOf(host, as)).overrides).toEqual(["rootless_storage_path"])
 		} finally {
 			succeeded(
-				await shell(
-					host,
-					ROOT,
-					kept ? 'mv -f "$1.sandbox-kept" "$1"' : 'rm -f "$1"',
-					systemConf,
-				),
+				await shell(host, ROOT, kept ? 'mv -f "$1.sandbox-kept" "$1"' : 'rm -f "$1"', systemConf),
 				"restoring the system storage.conf",
 			)
 		}
@@ -272,11 +289,14 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 		expect(interrupted.status).not.toBe(0)
 		expect(interrupted.stdout).not.toContain("ready")
-		expect(await exec(host, ROOT, ["cat", "/home/pod6/.config/containers/storage.conf"])).toMatchObject(
-			{ stdout: STORAGE_CONF },
-		)
 		expect(
-			succeeded(await exec(host, ROOT, ["ls", "-A", "/home/pod6/.config/containers"]), "listing").trim(),
+			await exec(host, ROOT, ["cat", "/home/pod6/.config/containers/storage.conf"]),
+		).toMatchObject({ stdout: STORAGE_CONF })
+		expect(
+			succeeded(
+				await exec(host, ROOT, ["ls", "-A", "/home/pod6/.config/containers"]),
+				"listing",
+			).trim(),
 		).toBe("storage.conf")
 
 		const again = await shell(host, as, storageStepCommand())
@@ -302,7 +322,10 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			)
 
 		const manager = async (...args: readonly string[]) =>
-			succeeded(await exec(host, as, ["systemctl", "--user", ...args]), `systemctl --user ${args.join(" ")}`)
+			succeeded(
+				await exec(host, as, ["systemctl", "--user", ...args]),
+				`systemctl --user ${args.join(" ")}`,
+			)
 
 		const property = async (id: string, name: string): Promise<string> =>
 			(await manager("show", "-p", name, "--value", unit(id))).trim()
@@ -382,7 +405,11 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			await start("exits")
 
 			await send("exits", "/exit4")
-			await until("the unit failed", '[ "$(systemctl --user is-active "$1")" = failed ]', unit("exits"))
+			await until(
+				"the unit failed",
+				'[ "$(systemctl --user is-active "$1")" = failed ]',
+				unit("exits"),
+			)
 
 			expect(await property("exits", "ExecMainStatus")).toBe("4")
 			expect(await property("exits", "NRestarts")).toBe("0")
@@ -398,10 +425,14 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			await manager("stop", unit("exits"))
 		})
 
-		it("stops cleanly, leaving no container, helper process or network namespace behind", async () => {
+		it("stops cleanly, leaving no container, helper process, network namespace or cgroup behind", async () => {
 			await start("stops")
+			const cgroup = await property("stops", "ControlGroup")
 
 			await manager("stop", unit("stops"))
+
+			expect(cgroup).not.toBe("")
+			expect(await exists(host, `/sys/fs/cgroup${cgroup}`)).toBe(false)
 
 			expect(await property("stops", "ActiveState")).toBe("inactive")
 			expect(await property("stops", "Result")).toBe("success")
@@ -494,21 +525,34 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 				const inB = async (script: string): Promise<string> =>
 					(await exec(host, as, ["podman", "exec", "iso-b", "sh", "-c", script])).stdout +
-					(await exec(host, as, ["podman", "exec", "iso-b", "sh", "-c", `${script} 2>&1 >/dev/null`])).stdout
+					(
+						await exec(host, as, [
+							"podman",
+							"exec",
+							"iso-b",
+							"sh",
+							"-c",
+							`${script} 2>&1 >/dev/null`,
+						])
+					).stdout
 
 				expect(await inB("ps -o args")).not.toContain("httpd")
 				expect(
-					(await inB("cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n' | grep -c SECRET_A")).trim(),
+					(
+						await inB("cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n' | grep -c SECRET_A")
+					).trim(),
 				).toMatch(/^0/)
-				expect((await inB("find / -name a.txt -not -path '/proc/*' 2>/dev/null | wc -l")).trim()).toMatch(
-					/^0/,
-				)
+				expect(
+					(await inB("find / -name a.txt -not -path '/proc/*' 2>/dev/null | wc -l")).trim(),
+				).toMatch(/^0/)
 				expect(
 					await inB(
-						'gw=$(ip route | awk \'/^default/ {print $3}\'); wget -q -T 3 -O - "http://$gw:18080/"',
+						"gw=$(ip route | awk '/^default/ {print $3}'); wget -q -T 3 -O - \"http://$gw:18080/\"",
 					),
 				).not.toContain("hello-from-A")
-				expect(await inB("wget -q -T 3 -O - http://169.254.1.2:18080/")).not.toContain("hello-from-A")
+				expect(await inB("wget -q -T 3 -O - http://169.254.1.2:18080/")).not.toContain(
+					"hello-from-A",
+				)
 				expect(await inB(`wget -q -T 3 -O - http://${hostAddress}:18080/`)).not.toContain(
 					"hello-from-A",
 				)
@@ -517,12 +561,12 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 						"mkdir -p /tmp/w && echo hijacked-by-B > /tmp/w/index.html && httpd -p 127.0.0.1:18080 -h /tmp/w && echo bound-in-B",
 					),
 				).toContain("bound-in-B")
-				expect((await exec(host, as, ["curl", "-s", "-m", "3", "http://127.0.0.1:18080/"])).stdout).toContain(
-					"hello-from-A",
-				)
-				expect((await exec(host, as, ["curl", "-s", "-m", "3", "http://127.0.0.1:18081/"])).stdout).not.toContain(
-					"hello-from-A",
-				)
+				expect(
+					(await exec(host, as, ["curl", "-s", "-m", "3", "http://127.0.0.1:18080/"])).stdout,
+				).toContain("hello-from-A")
+				expect(
+					(await exec(host, as, ["curl", "-s", "-m", "3", "http://127.0.0.1:18081/"])).stdout,
+				).not.toContain("hello-from-A")
 				expect(
 					(
 						await exec(host, as, [

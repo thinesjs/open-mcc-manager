@@ -1,6 +1,5 @@
 import type { Json } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { MCC_ARCHITECTURES, type MccArchitecture } from "../host/mcc-release"
 import { tearDownHost } from "../host/teardown"
 import { connectFailureReason } from "../host/unreachable"
 import type { RuntimeErrorReporter } from "../log/reporters"
@@ -19,7 +18,6 @@ export type TeardownPayload = {
 	sshKeyId: string
 	hostKeyFingerprint: string
 	organizationId: string
-	architecture: MccArchitecture | undefined
 }
 
 export const readPayload = (payload: object): TeardownPayload | undefined => {
@@ -49,7 +47,6 @@ export const readPayload = (payload: object): TeardownPayload | undefined => {
 		sshKeyId: value("sshKeyId"),
 		hostKeyFingerprint: value("hostKeyFingerprint"),
 		organizationId: value("organizationId"),
-		architecture: MCC_ARCHITECTURES.find((each) => each === record.architecture),
 	}
 }
 
@@ -97,7 +94,7 @@ export const createHostTeardownHandler =
 				privateKey: key.privateKey,
 				expectedFingerprint: payload.hostKeyFingerprint,
 			})
-			const report = await tearDownHost(transport, payload.architecture)
+			const report = await tearDownHost(transport)
 			if (report.remaining.length > 0) {
 				deps.onError?.(`Host ${payload.hostId} was not fully cleaned`, report.remaining.join("; "))
 				await deps.onFailed(payload.hostId, payload.organizationId, NOT_FULLY_CLEANED)

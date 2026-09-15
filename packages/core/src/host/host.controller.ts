@@ -122,7 +122,6 @@ export const createHostController = (deps: HostControllerDeps) => {
 			username: host.username,
 			sshKeyId: host.sshKeyId,
 			hostKeyFingerprint: host.hostKeyFingerprint,
-			...(host.architecture === null ? {} : { architecture: host.architecture }),
 		}
 	}
 

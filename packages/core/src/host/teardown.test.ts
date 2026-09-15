@@ -1,6 +1,7 @@
 import { createFakeTransport, type FakeScript } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import { UNIT_STOP_TIMEOUT_MS } from "../instance/removal"
+import { MCC_ARCHITECTURES } from "./mcc-release"
 import { podmanImageId, runtimeImageFor } from "./runtime-image"
 import { tearDownHost } from "./teardown"
 
@@ -17,6 +18,8 @@ const STOP_BOTS =
 	"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop 'open-mcc@*.service' 'open-mcc-auth@*.service'"
 
 const REMOVE_FILES = `timeout -k 5 50 sh -c '{ [ ! -e "$HOME"/.local/share/open-mcc ] || chmod -R u+rwX -- "$HOME"/.local/share/open-mcc; } && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
+
+const BOTH_IMAGES = `timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor("arm64"))} ${podmanImageId(runtimeImageFor("x64"))}; s=$?; exit $s`
 
 const INSTALLED_UNITS = "open-mcc@.service\nopen-mcc-auth@.service\nsshd.service\n"
 
@@ -54,7 +57,7 @@ describe("cleaning a host when it is removed", () => {
 	it("removes only the units this control plane installed, and reports a clean host as clean", async () => {
 		const transport = await hostHolding(["open-mcc-abc"])
 
-		const report = await tearDownHost(transport, "x64")
+		const report = await tearDownHost(transport)
 
 		expect(report.unitsRemoved).toEqual(["open-mcc@.service", "open-mcc-auth@.service"])
 		expect(transport.commands.some((command) => command.includes("sshd.service"))).toBe(false)
@@ -64,7 +67,7 @@ describe("cleaning a host when it is removed", () => {
 	it("stops each unit through the user manager before deleting its file, so nothing keeps running headless", async () => {
 		const transport = await hostHolding([])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		const stopAt = transport.commands.findIndex((c) => c.includes("systemctl --user disable --now"))
 		const removeAt = transport.commands.findIndex((c) => c.startsWith("rm -f"))
@@ -75,7 +78,7 @@ describe("cleaning a host when it is removed", () => {
 	it("stops every bot and sign-in the manager started, giving them as long as a unit needs to stop", async () => {
 		const transport = await hostHolding(["open-mcc-abc"])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		const stopAt = transport.commands.indexOf(STOP_BOTS)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
@@ -86,7 +89,7 @@ describe("cleaning a host when it is removed", () => {
 	it("removes every container the manager named, and no other, in one exec under a host deadline", async () => {
 		const transport = await hostHolding(["open-mcc-abc", "open-mcc-auth-abc", "someone-else"])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		const removal =
 			"timeout -k 5 50 podman rm -f --ignore open-mcc-abc open-mcc-auth-abc; s=$?; exit $s"
@@ -94,31 +97,23 @@ describe("cleaning a host when it is removed", () => {
 		expect(waitFor(transport, removal)).toBe(60_000)
 	})
 
-	it.each(["x64", "arm64"] as const)(
-		"removes the pinned runtime image for a %s host under a host deadline",
-		async (architecture) => {
-			const transport = await hostHolding([])
-
-			await tearDownHost(transport, architecture)
-
-			const removal = `timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor(architecture))}; s=$?; exit $s`
-			expect(transport.commands.filter((c) => c.includes("podman rmi"))).toEqual([removal])
-			expect(waitFor(transport, removal)).toBe(15_000)
-		},
-	)
-
-	it("leaves the image alone on a host that never recorded its architecture", async () => {
+	it("removes whichever pinned runtime image the host holds, naming every architecture's, under a host deadline", async () => {
 		const transport = await hostHolding([])
 
-		await tearDownHost(transport, undefined)
+		await tearDownHost(transport)
 
-		expect(transport.commands.filter((c) => c.includes("podman rmi"))).toEqual([])
+		const removal = BOTH_IMAGES
+		expect(transport.commands.filter((c) => c.includes("podman rmi"))).toEqual([removal])
+		expect(waitFor(transport, removal)).toBe(15_000)
+		expect(new Set(removal.match(/[0-9a-f]{64}/g))).toEqual(
+			new Set(MCC_ARCHITECTURES.map((each) => podmanImageId(runtimeImageFor(each)))),
+		)
 	})
 
 	it("removes the instances directory under a host deadline, first making anything a bot locked removable", async () => {
 		const transport = await hostHolding([])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		expect(transport.commands).toContain(REMOVE_FILES)
 		expect(waitFor(transport, REMOVE_FILES)).toBe(60_000)
@@ -127,7 +122,7 @@ describe("cleaning a host when it is removed", () => {
 	it("runs every destructive command under a host deadline that ends inside its wait", async () => {
 		const transport = await hostHolding(["open-mcc-abc"])
 
-		await tearDownHost(transport, "arm64")
+		await tearDownHost(transport)
 
 		const destructive = transport.commands
 			.map((command, index) => ({ command, waitMs: transport.timeouts[index] ?? 0 }))
@@ -143,7 +138,7 @@ describe("cleaning a host when it is removed", () => {
 	it("sends no pkill or pgrep, since a containerised client's command line never names the host's path", async () => {
 		const transport = await hostHolding(["open-mcc-abc"])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		expect(transport.commands.filter((command) => /pkill|pgrep/.test(command))).toEqual([])
 	})
@@ -151,7 +146,7 @@ describe("cleaning a host when it is removed", () => {
 	it("never deletes an account, since every bot runs as the one it connects as", async () => {
 		const transport = await hostHolding([])
 
-		await tearDownHost(transport, "x64")
+		await tearDownHost(transport)
 
 		expect(transport.commands.some((command) => /userdel|groupdel/.test(command))).toBe(false)
 	})
@@ -165,7 +160,7 @@ describe("cleaning a host when it is removed", () => {
 		async ({ exitCode }) => {
 			const transport = await hostHolding([], { [REMOVE_FILES]: answer("", exitCode) })
 
-			const report = await tearDownHost(transport, "x64")
+			const report = await tearDownHost(transport)
 
 			expect(report.directoryRemoved).toBe(false)
 			expect(report.remaining).toEqual(["~/.local/share/open-mcc could not be removed"])
@@ -176,7 +171,7 @@ describe("cleaning a host when it is removed", () => {
 	it("reports the files removed when their delete succeeds", async () => {
 		const transport = await hostHolding([])
 
-		const report = await tearDownHost(transport, "x64")
+		const report = await tearDownHost(transport)
 
 		expect(report.directoryRemoved).toBe(true)
 	})
@@ -205,15 +200,14 @@ describe("cleaning a host when it is removed", () => {
 		{
 			named: "the runtime image cannot be removed",
 			script: {
-				[`timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor("x64"))}; s=$?; exit $s`]:
-					answer("", 2),
+				[BOTH_IMAGES]: answer("", 2),
 			},
 			reported: "The runtime image could not be removed",
 		},
 	])("reports it when $named", async ({ script, reported }) => {
 		const transport = await hostHolding([], script)
 
-		const report = await tearDownHost(transport, "x64")
+		const report = await tearDownHost(transport)
 
 		expect(report.remaining).toEqual([reported])
 	})
@@ -221,7 +215,7 @@ describe("cleaning a host when it is removed", () => {
 	it("says lingering is still enabled, since removing it needs root the manager does not have", async () => {
 		const transport = await hostHolding([], { [LINGER]: answer("yes") })
 
-		const report = await tearDownHost(transport, "x64")
+		const report = await tearDownHost(transport)
 
 		expect(report.lingeringLeft).toBe(true)
 	})

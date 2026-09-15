@@ -93,7 +93,7 @@ const longestTeardownDeadlineSeconds = async (): Promise<number> => {
 		expectedFingerprint: "f",
 		timeoutMs: 1,
 	})
-	await tearDownHost(transport, "arm64")
+	await tearDownHost(transport)
 	const deadlines = transport.commands.flatMap((command) => {
 		const found = /^timeout -k (\d+) (\d+) /.exec(command)
 		return found === null ? [] : [Number(found[1]) + Number(found[2])]

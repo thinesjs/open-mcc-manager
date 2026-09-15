@@ -3,7 +3,6 @@ import { isManagedUnit, MANAGED_CONTAINER_PATTERN } from "../instance/reconcile"
 import { UNIT_STOP_TIMEOUT_MS } from "../instance/removal"
 import { RUNNING_UNIT_STATES } from "../instance/unit"
 import { withDeadline } from "./deadline"
-import type { MccArchitecture } from "./mcc-release"
 import { INSTANCES_PATH, INSTANCES_ROOT, podman, systemctl, UNIT_DIR } from "./profile"
 import { podmanImageId, runtimeImageFor } from "./runtime-image"
 
@@ -16,6 +15,10 @@ const IMAGE_TIMEOUT_MS = 15_000
 const FILES_TIMEOUT_MS = 60_000
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
+
+const PINNED_IMAGES = (["arm64", "x64"] as const)
+	.map((architecture) => podmanImageId(runtimeImageFor(architecture)))
+	.join(" ")
 
 const BOT_UNITS = ["open-mcc@*.service", "open-mcc-auth@*.service"].map(shellQuote).join(" ")
 
@@ -54,10 +57,7 @@ const countRunningUnits = async (transport: HostTransport): Promise<number | und
 	return linesOf(result.stdout).filter((line) => isManagedUnit(line.split(/\s+/)[0] ?? "")).length
 }
 
-export const tearDownHost = async (
-	transport: HostTransport,
-	architecture: MccArchitecture | undefined,
-): Promise<TeardownReport> => {
+export const tearDownHost = async (transport: HostTransport): Promise<TeardownReport> => {
 	const remaining: string[] = []
 	const units = await listManagedUnits(transport)
 
@@ -91,13 +91,11 @@ export const tearDownHost = async (
 	await transport.exec(systemctl("daemon-reload"), TEARDOWN_TIMEOUT_MS)
 	await transport.exec(`${systemctl("reset-failed")} || true`, TEARDOWN_TIMEOUT_MS)
 
-	if (architecture !== undefined) {
-		const image = await transport.exec(
-			withDeadline(3, 10, `podman rmi --ignore ${podmanImageId(runtimeImageFor(architecture))}`),
-			IMAGE_TIMEOUT_MS,
-		)
-		if (image.exitCode !== 0) remaining.push("The runtime image could not be removed")
-	}
+	const image = await transport.exec(
+		withDeadline(3, 10, `podman rmi --ignore ${PINNED_IMAGES}`),
+		IMAGE_TIMEOUT_MS,
+	)
+	if (image.exitCode !== 0) remaining.push("The runtime image could not be removed")
 
 	const deleted = await transport.exec(
 		withDeadline(

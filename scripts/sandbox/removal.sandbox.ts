@@ -371,7 +371,7 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 		const image = podmanImageId(runtimeImageFor(ready().architecture))
 		const imageBefore = (await shell(host, as, 'podman image exists "$1"', image)).status
 
-		const report = await tearDownHost(shellTransport(host, as), ready().architecture)
+		const report = await tearDownHost(shellTransport(host, as))
 
 		expect({ containers: running.containers, listener: running.listener }).toEqual({
 			containers: "1",

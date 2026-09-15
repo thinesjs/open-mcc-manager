@@ -1241,7 +1241,11 @@ describe("removing a host that is still in use", () => {
 		const jobs = jobsDouble()
 		const d = deps()
 		d.hosts.findById = vi.fn(async () =>
-			makeHostRow({ hostKeyFingerprint: "SHA256:trusted", osRelease: "systemd 252" }),
+			makeHostRow({
+				hostKeyFingerprint: "SHA256:trusted",
+				osRelease: "systemd 252",
+				architecture: "x64",
+			}),
 		)
 		const controller = createHostController({
 			...d,
@@ -1256,7 +1260,7 @@ describe("removing a host that is still in use", () => {
 			expect.anything(),
 			expect.objectContaining({ hostId: "host-1", username: "mcc", sshKeyId: "key-1" }),
 		)
-		for (const gone of ["mode", "instancesRoot", "unitDir", "instanceIds"]) {
+		for (const gone of ["mode", "instancesRoot", "unitDir", "instanceIds", "architecture"]) {
 			expect(jobs.enqueue).not.toHaveBeenCalledWith(
 				expect.anything(),
 				expect.objectContaining({ [gone]: expect.anything() }),

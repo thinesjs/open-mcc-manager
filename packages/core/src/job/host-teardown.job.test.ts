@@ -65,27 +65,17 @@ const cleaningWith = (transport: HostTransport) => {
 }
 
 describe("what a clean-up needs to know about the host", () => {
-	it.each([
-		{ named: "an arm64 host", given: { architecture: "arm64" }, removed: ["arm64"] },
-		{ named: "a host that recorded no architecture", given: {}, removed: [] },
-		{ named: "an architecture it does not know", given: { architecture: "sparc" }, removed: [] },
-	] as const)(
-		"removes the runtime image its payload names for $named",
-		async ({ given, removed }) => {
-			const transport = createFakeTransport()
-			const { handler, onCleaned } = cleaningWith(transport)
+	it("removes whichever pinned runtime image the host holds, from a payload that names no architecture", async () => {
+		const transport = createFakeTransport()
+		const { handler, onCleaned } = cleaningWith(transport)
 
-			await handler({ ...payload, ...given })
+		await handler(payload)
 
-			expect(transport.commands.filter((command) => command.includes("podman rmi"))).toEqual(
-				removed.map(
-					(architecture) =>
-						`timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor(architecture))}; s=$?; exit $s`,
-				),
-			)
-			expect(onCleaned).toHaveBeenCalledTimes(1)
-		},
-	)
+		expect(transport.commands.filter((command) => command.includes("podman rmi"))).toEqual([
+			`timeout -k 3 10 podman rmi --ignore ${podmanImageId(runtimeImageFor("arm64"))} ${podmanImageId(runtimeImageFor("x64"))}; s=$?; exit $s`,
+		])
+		expect(onCleaned).toHaveBeenCalledTimes(1)
+	})
 
 	it("cleans a host from a payload that names only how to reach it", async () => {
 		const transport = createFakeTransport()

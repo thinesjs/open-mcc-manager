@@ -15,7 +15,7 @@ const PORT = "$${OPEN_MCC_PORT}"
 
 const SLIRP = "slirp4netns:port_handler=slirp4netns"
 
-const PREFLIGHT = String.raw`ExecStartPre=/bin/sh -c 'f="${DIR}/config/MinecraftClient.ini"; [ ! -L "$$f" ] && [ -f "$$f" ] && [ -s "$$f" ] && [ -r "$$f" ] || { echo "open-mcc: the saved settings file is missing or unreadable" >&2; exit 1; }'`
+const PREFLIGHT = `ExecStartPre=/bin/sh -c 'f="${DIR}/config/MinecraftClient.ini"; [ ! -L "$$f" ] && [ -f "$$f" ] && [ -s "$$f" ] && [ -r "$$f" ] || { echo "open-mcc: the saved settings file is missing or unreadable" >&2; exit 1; }'`
 
 const instanceUnit = (network: string): string =>
 	[
@@ -32,10 +32,10 @@ const instanceUnit = (network: string): string =>
 		"Delegate=yes",
 		`EnvironmentFile=${DIR}/unit.env`,
 		`WorkingDirectory=${DIR}`,
-		String.raw`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc-auth@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
+		`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc-auth@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
 		PREFLIGHT,
-		String.raw`ExecStartPre=/usr/bin/flock -w 30 "${DIR}/collect.lock" /bin/sh -c 'rm -rf -- "${DIR}/recording-cache" && mkdir -m 0700 "${DIR}/recording-cache"'`,
-		String.raw`ExecStart=/bin/sh -c 'exec 3<>"${DIR}/control"; exec /usr/bin/podman run --replace --rm -d -i --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges --env-file="${DIR}/env" -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v %h/.local/share/open-mcc/bin:/opt/mcc:ro -v "${DIR}/config":/config:ro -v "${DIR}/state":/data -v "${DIR}/replays":/data/replay_recordings -v "${DIR}/recording-cache":/data/recording_cache -w /data --network=${network} -p 127.0.0.1:${PORT}:${PORT} ${IMAGE} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO <&3'`,
+		`ExecStartPre=/usr/bin/flock -w 30 "${DIR}/collect.lock" /bin/sh -c 'rm -rf -- "${DIR}/recording-cache" && mkdir -m 0700 "${DIR}/recording-cache"'`,
+		`ExecStart=/bin/sh -c 'exec 3<>"${DIR}/control"; exec /usr/bin/podman run --replace --rm -d -i --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges --env-file="${DIR}/env" -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v %h/.local/share/open-mcc/bin:/opt/mcc:ro -v "${DIR}/config":/config:ro -v "${DIR}/state":/data -v "${DIR}/replays":/data/replay_recordings -v "${DIR}/recording-cache":/data/recording_cache -w /data --network=${network} -p 127.0.0.1:${PORT}:${PORT} ${IMAGE} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO <&3'`,
 		String.raw`ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout 5 sh -c "echo /quit > \"${DIR}/control\"" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'`,
 		"StandardOutput=journal",
 		"StandardError=journal",
@@ -59,10 +59,10 @@ const signInUnit = (network: string): string =>
 		"NotifyAccess=all",
 		"Delegate=yes",
 		`WorkingDirectory=${DIR}`,
-		String.raw`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
+		`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
 		PREFLIGHT,
 		`ExecStartPre=/usr/bin/flock -w 30 "${DIR}/collect.lock" /bin/true`,
-		String.raw`ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v %h/.local/share/open-mcc/bin:/opt/mcc:ro -v "${DIR}/config":/config:ro -v "${DIR}/state":/data -w /data --network=${network} ${IMAGE} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'`,
+		`ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v %h/.local/share/open-mcc/bin:/opt/mcc:ro -v "${DIR}/config":/config:ro -v "${DIR}/state":/data -w /data --network=${network} ${IMAGE} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'`,
 		"TimeoutStopSec=10",
 		"",
 	].join("\n")
@@ -91,7 +91,7 @@ describe("the unit that runs a bot in its container", () => {
 
 	it("skips its start while the sign-in unit for the same bot is running", () => {
 		expect(lineOf(instance, "ExecCondition=")).toBe(
-			String.raw`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc-auth@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
+			`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc-auth@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
 		)
 	})
 
@@ -174,7 +174,7 @@ describe("the unit that signs a bot in", () => {
 
 	it("skips its start while the bot itself is running", () => {
 		expect(lineOf(signIn, "ExecCondition=")).toBe(
-			String.raw`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
+			`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value open-mcc@%i.service)" in active|activating|deactivating|reloading) exit 1;; esac'`,
 		)
 	})
 

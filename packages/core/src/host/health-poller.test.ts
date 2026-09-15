@@ -9,6 +9,7 @@ import {
 	readerOver,
 } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
+import { activeCheckCommand } from "../instance/reconcile"
 import { OS_RELEASE_COMMAND } from "./facts"
 import { failedUnitsCommand } from "./health"
 import { isPollable, runHealthPoll } from "./health-poller"
@@ -61,6 +62,13 @@ const leasing =
 		kind: "leased",
 		reader: await readerOver(createFakeTransport(hostScript(failed, os))),
 		host: target,
+		identity: {
+			hostname: target.hostname,
+			port: target.port,
+			username: target.username,
+			sshKeyId: target.sshKeyId ?? "",
+			hostKeyFingerprint: target.hostKeyFingerprint ?? "",
+		},
 	})
 
 const unreachable = async (): Promise<HostReadLease> => {
@@ -423,7 +431,7 @@ describe("the health poller on a shared connection", () => {
 					const leased = await leaseForRead(20_000)
 					if (leased.kind !== "leased") return
 					try {
-						await leased.reader.probePort(33333)
+						await leased.reader.exec(activeCheckCommand(instanceId))
 					} finally {
 						leased.reader.release()
 					}

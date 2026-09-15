@@ -67,15 +67,18 @@ export const WRITE_TOOLS = ["mcc_inventory_drop_item", "mcc_select_item"] as con
 
 export type WriteToolName = (typeof WRITE_TOOLS)[number]
 
-type LiveEndpoint = {
+type LiveRoute = {
 	port: number
 	route: string
-	token: string
 }
+
+type LiveEndpoint = LiveRoute & { token: string }
 
 export type LiveControlTarget = LiveEndpoint & { transport: HostTransport }
 
 export type LiveReadTarget = LiveEndpoint & { reader: HostReader }
+
+export type LiveProbeTarget = LiveRoute & { reader: Pick<HostReader, "forward"> }
 
 type LiveChannels = {
 	open: (port: number) => Promise<ForwardedStream>
@@ -91,20 +94,18 @@ const unavailable = (error: Error): Error =>
 
 const post = async (
 	channels: LiveChannels,
-	endpoint: LiveEndpoint,
-	payload: JsonRpcRequest | JsonRpcNotification,
-	sessionId: string | undefined,
+	endpoint: LiveRoute,
+	body: string,
+	extraHeaders: Record<string, string>,
 ): Promise<HttpReply> => {
 	const channel = await channels.open(endpoint.port)
-	const body = JSON.stringify(payload)
 	const headers: Record<string, string> = {
 		"content-type": "application/json",
 		accept: "application/json, text/event-stream",
-		authorization: `Bearer ${endpoint.token}`,
 		"content-length": String(Buffer.byteLength(body)),
 		host: `127.0.0.1:${endpoint.port}`,
+		...extraHeaders,
 	}
-	if (sessionId !== undefined) headers[MCP_SESSION_HEADER] = sessionId
 
 	return await new Promise<HttpReply>((resolve, reject) => {
 		let settled = false
@@ -169,6 +170,32 @@ const post = async (
 const readSessionHeader = (value: string | string[] | undefined): string | undefined =>
 	Array.isArray(value) ? value[0] : value
 
+const rpc = (
+	channels: LiveChannels,
+	endpoint: LiveEndpoint,
+	payload: JsonRpcRequest | JsonRpcNotification,
+	sessionId: string | undefined,
+): Promise<HttpReply> =>
+	post(channels, endpoint, JSON.stringify(payload), {
+		authorization: `Bearer ${endpoint.token}`,
+		...(sessionId === undefined ? {} : { [MCP_SESSION_HEADER]: sessionId }),
+	})
+
+export const probeListening = async (target: LiveProbeTarget): Promise<boolean> => {
+	try {
+		const reply = await post(
+			{ open: (port) => target.reader.forward(port), answerWithinMs: LIVE_CONTROL_TIMEOUT_MS },
+			target,
+			"",
+			{},
+		)
+		return reply.status === 401
+	} catch (error) {
+		if (error instanceof TransportInterruptedError) throw error
+		return false
+	}
+}
+
 export class LiveControlUnauthorizedError extends Error {}
 
 const ensureAccepted = (reply: HttpReply): void => {
@@ -189,7 +216,7 @@ const callTool = async <T>(
 	read: (response: JsonRpcResponse) => T,
 	args: ToolArguments,
 ): Promise<T> => {
-	const handshake = await post(
+	const handshake = await rpc(
 		channels,
 		endpoint,
 		initializeRequest(1, LIVE_CONTROL_CLIENT),
@@ -199,9 +226,9 @@ const callTool = async <T>(
 	responseFrom(handshake.body)
 
 	const session = handshake.sessionId
-	await post(channels, endpoint, initializedNotification(), session)
+	await rpc(channels, endpoint, initializedNotification(), session)
 
-	const reply = await post(channels, endpoint, callToolRequest(2, tool, args), session)
+	const reply = await rpc(channels, endpoint, callToolRequest(2, tool, args), session)
 	ensureAccepted(reply)
 	return read(responseFrom(reply.body))
 }

@@ -11,6 +11,7 @@ import {
 import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuditRepository } from "../audit/audit.repository"
+import { activeCheckCommand } from "../instance/reconcile"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	seedMember,
@@ -1852,9 +1853,9 @@ describe("shared read connections open, read and close outside every transaction
 						sight("connect")
 						await transport.connect(options)
 					},
-					forwardUntil: async (port: number, signal: AbortSignal) => {
-						sight("forward")
-						return await transport.forwardUntil(port, signal)
+					execUntil: async (command: string, signal: AbortSignal) => {
+						sight("read")
+						return await transport.execUntil(command, signal)
 					},
 					destroy: () => {
 						sight("destroy")
@@ -1874,7 +1875,7 @@ describe("shared read connections open, read and close outside every transaction
 			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000, "setUpOnce")
 			if (leased.kind !== "leased") return leased.kind
 			try {
-				return await leased.reader.probePort(33333)
+				return (await leased.reader.exec(activeCheckCommand("abc123"))).exitCode
 			} finally {
 				leased.reader.release()
 			}
@@ -1895,19 +1896,19 @@ describe("shared read connections open, read and close outside every transaction
 		})
 		const ctx = actorFor(organizationId, memberId)
 
-		expect(await readOnce()).toBe("open")
+		expect(await readOnce()).toBe(0)
 		await controller.retrustHostKey(ctx, hostId, { hostKeyFingerprint: ROTATED_FINGERPRINT })
-		expect(await readOnce()).toBe("open")
+		expect(await readOnce()).toBe(0)
 		await controller.remove(ctx, hostId)
 		expect(await readOnce()).toBe("missing")
 
 		expect(sightings.map((each) => each.what)).toEqual([
 			"connect",
-			"forward",
+			"read",
 			"evict",
 			"destroy",
 			"connect",
-			"forward",
+			"read",
 			"evict",
 			"destroy",
 		])

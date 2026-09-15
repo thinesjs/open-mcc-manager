@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import {
 	describeConfigDrift,
+	describeRuntimeDrift,
 	describeStateDrift,
 	describeUnitDrift,
 	describeUnreachable,
@@ -109,6 +110,11 @@ export const HostDrift = ({ hostId, ready }: HostDriftProps) => {
 							{summary.total} discrepanc{summary.total === 1 ? "y" : "ies"} detected.
 						</Alert>
 						<ul className="divide-y divide-border overflow-hidden rounded-[var(--radius)] border border-border">
+							{summary.runtimeDrift.map((drift) => (
+								<li key={drift.kind} className="px-3 py-2 text-sm text-foreground">
+									{describeRuntimeDrift(drift)}
+								</li>
+							))}
 							{summary.unitDrift.map((drift) => (
 								<li key={`${drift.kind}:${drift.unit}`} className="px-3 py-2 text-sm">
 									<span className="font-mono text-xs text-muted-foreground">{drift.unit}</span>

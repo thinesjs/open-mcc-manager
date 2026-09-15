@@ -3,6 +3,7 @@ import type { InstanceConfigRow, InstanceRow } from "@open-mcc/db"
 import type { HostReader } from "@open-mcc/transport"
 import { LIVE_CONTROL_ROUTE } from "../instance/config"
 import { readSessionStatus } from "../instance/live-control"
+import { activeCheckCommand } from "../instance/reconcile"
 
 export type UsernameDeps = {
 	latestConfig: (instanceId: string) => Promise<InstanceConfigRow | undefined>
@@ -23,16 +24,16 @@ export const resolveMinecraftName = async (
 	const config = instanceConfigStored.safeParse(saved.document)
 	if (!config.success || !config.data.liveControlEnabled) return undefined
 
-	const token = deps.openToken(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId)
 	try {
 		const reader = await deps.reader()
 		if (!reader) return undefined
 		try {
+			if ((await reader.exec(activeCheckCommand(instance.id))).exitCode !== 0) return undefined
 			const status = await readSessionStatus({
 				reader,
 				port: instance.liveControlPort,
 				route: LIVE_CONTROL_ROUTE,
-				token,
+				token: deps.openToken(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId),
 			})
 			return status.username
 		} finally {

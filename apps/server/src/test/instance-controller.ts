@@ -41,4 +41,5 @@ export const createTestInstanceController = async (
 			now: () => Date.now(),
 		}),
 		withTransaction: createInstanceControllerTransaction(db),
+		now: () => Date.now(),
 	})

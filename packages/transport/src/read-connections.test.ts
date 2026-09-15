@@ -1,4 +1,3 @@
-import type { Duplex } from "node:stream"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
 	ChannelQueueExpiredError,
@@ -17,12 +16,7 @@ import {
 	type ReadCommand,
 } from "./read-connections"
 import { ChannelLimitReachedError } from "./ssh/exec"
-import {
-	type ForwardedStream,
-	type HostTransport,
-	LiveChannelUnavailableError,
-	type ReusableTransport,
-} from "./types"
+import { type HostTransport, LiveChannelUnavailableError, type ReusableTransport } from "./types"
 
 const HOST = "org-1:host-1"
 
@@ -391,46 +385,6 @@ describe("deciding what a failure says about the connection", () => {
 		await expect(reader.exec(asReadCommand("uname -m"))).resolves.toMatchObject({ exitCode: 0 })
 		expect(made[1]?.commands).toEqual(["uname -m"])
 		expect(made[0]?.commands).toEqual([])
-		reader.release()
-	})
-
-	it("T15: calls a refused probe refused and keeps the connection, and a probe the deadline cuts a timeout and retires it", async () => {
-		const refusing = harness({}, {}, false)
-		const reader = await refusing.lease()
-		await expect(reader.probePort(33333)).resolves.toBe("refused")
-		reader.release()
-		const again = await refusing.lease()
-		expect(refusing.made).toHaveLength(1)
-		again.release()
-
-		const stalling = harness({}, { stallPorts: [33333] })
-		const probing = await stalling.lease(5_000)
-		const outcome = probing.probePort(33333)
-		await vi.advanceTimersByTimeAsync(5_000)
-		await expect(outcome).resolves.toBe("timeout")
-		probing.release()
-		const next = await stalling.lease()
-		expect(stalling.made).toHaveLength(2)
-		next.release()
-	})
-
-	it("T15: never calls a probe refused once the connection itself is gone, and closes an open probe outright", async () => {
-		const opened: Duplex[] = []
-		const { made, lease } = harness({}, {}, true, (transport) => ({
-			...transport,
-			forwardUntil: async (port: number, signal: AbortSignal): Promise<ForwardedStream> => {
-				const stream = await transport.forwardUntil(port, signal)
-				opened.push(stream.socket)
-				return stream
-			},
-		}))
-		const reader = await lease()
-
-		await expect(reader.probePort(33333)).resolves.toBe("open")
-		expect(opened[0]?.destroyed).toBe(true)
-
-		made[0]?.drop()
-		await expect(reader.probePort(33333)).rejects.toBeInstanceOf(ReadConnectionLostError)
 		reader.release()
 	})
 })

@@ -220,6 +220,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 			},
 		},
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		now: () => Date.now(),
 		...overrides,
 	}
 

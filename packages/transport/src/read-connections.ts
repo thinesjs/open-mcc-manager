@@ -35,12 +35,9 @@ export const sameConnectionIdentity = (a: ConnectionIdentity, b: ConnectionIdent
 	a.sshKeyId === b.sshKeyId &&
 	a.hostKeyFingerprint === b.hostKeyFingerprint
 
-export type ProbeOutcome = "open" | "refused" | "timeout"
-
 export type HostReader = {
 	exec: (command: ReadCommand) => Promise<ExecResult>
 	forward: (port: number) => Promise<ForwardedStream>
-	probePort: (port: number) => Promise<ProbeOutcome>
 	release: () => void
 }
 
@@ -377,41 +374,6 @@ export const createReadConnections = (options: ReadConnectionsOptions) => {
 								op.settled = true
 								finishOp(op)
 								reject(outcomeOf(connection, error))
-							},
-						)
-					})
-				}),
-
-			probePort: (port) =>
-				new Promise<ProbeOutcome>((resolve, reject) => {
-					const op = begin(lease, reject)
-					if (!op) return
-					op.atDeadline = () => {
-						if (!op.settled) {
-							op.settled = true
-							resolve("timeout")
-						}
-						op.controller.abort(deadlinePassed())
-						finishOp(op)
-					}
-					whenAdmitted(op, () => {
-						connection.transport.forwardUntil(port, op.controller.signal).then(
-							(stream) => {
-								stream.close()
-								if (op.settled) return
-								op.settled = true
-								finishOp(op)
-								resolve("open")
-							},
-							() => {
-								if (op.settled) return
-								op.settled = true
-								finishOp(op)
-								if (connection.closed || connection.transport.state() !== "ready") {
-									reject(connectionLost())
-									return
-								}
-								resolve("refused")
 							},
 						)
 					})

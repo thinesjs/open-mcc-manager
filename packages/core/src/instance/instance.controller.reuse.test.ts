@@ -277,6 +277,7 @@ const build = () => {
 		createTransport,
 		readConnections: { lease },
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		now: () => Date.now(),
 	})
 	return { controller, createTransport, readFactory, lease, instances, connections }
 }

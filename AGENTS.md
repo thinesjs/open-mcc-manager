@@ -362,9 +362,10 @@ Dependency direction is one-way: router → controller → repository.
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
   the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
   fifteen 15s commands, the 180s client download, the 180s image pull and the
-  30s client check, 625s against a 900s lease today. The three
-  constants live in three files and nothing but that arithmetic ties them
-  together, so a third provisioning step would silently push the worst case
+  30s client check, 625s against a 900s lease today. The lease, the connect
+  timeout and the three provisioning timeouts live in three files and nothing
+  but that arithmetic ties them together, so one more command, or a longer
+  timeout, would silently push the worst case
   past the lease: attempt A's claim expires mid-flight, a second actor
   legitimately reclaims the host, and A's `finalizeProvisioning` matches no row
   and throws after A has already changed the remote machine. The budget test in

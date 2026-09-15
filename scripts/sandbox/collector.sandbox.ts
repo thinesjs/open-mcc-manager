@@ -118,9 +118,9 @@ const PLANT = [
 
 const NOFILE_DIAGNOSIS = [
 	'echo "caller hard nofile: $(ulimit -H -n)"',
-	'echo "fs.nr_open: $(cat /proc/sys/fs/nr_open)"',
-	"echo \"user service hard nofile: $(systemd-run --user --wait --pipe --quiet sh -c 'ulimit -H -n' 2>&1 | head -n 1)\"",
-	'podman --log-level=debug exec "$1" true 2>&1 | grep -i -E "rlimit|nofile" | head -n 5',
+	'echo "fs.nr_open: $(timeout 5 cat /proc/sys/fs/nr_open)"',
+	"echo \"user service hard nofile: $(timeout 5 systemd-run --user --wait --pipe --quiet sh -c 'ulimit -H -n' 2>&1 | head -n 1)\"",
+	'timeout 5 podman --log-level=debug exec "$1" true 2>&1 | grep -i -E "rlimit|nofile" | head -n 5',
 	"exit 0",
 ].join("\n")
 
@@ -204,17 +204,16 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 		).trim()
 
 	const nofileDiagnosis = async (): Promise<string> =>
-		(await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, CONTAINER)).stdout.slice(
-			0,
-			2000,
+		await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, CONTAINER).then(
+			(ran) => ran.stdout.slice(0, 2000),
+			(error: Error) => `diagnostic unavailable: ${error.message.slice(0, 200)}`,
 		)
 
 	const startBot = async (): Promise<void> => {
 		const started = await shell(host, { ...as, timeoutMs: 120_000 }, startUnitCommand(BOT))
 		if (parseUnitStartState(started.stdout)?.activeState !== "active") {
-			throw new Error(
-				`the bot did not start: ${started.stdout.trim()} ${started.stderr.trim().slice(0, 1000)}\n${await nofileDiagnosis()}`,
-			)
+			const failure = `the bot did not start: ${started.stdout.trim()} ${started.stderr.trim().slice(0, 1000)}`
+			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
 		}
 	}
 
@@ -349,9 +348,8 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			...args,
 		)
 		if (ran.status !== 0) {
-			throw new Error(
-				`${what} exited ${ran.status}: ${ran.stderr.trim().slice(0, 1000)}\n${await nofileDiagnosis()}`,
-			)
+			const failure = `${what} exited ${ran.status}: ${ran.stderr.trim().slice(0, 1000)}`
+			throw new Error(`${failure}\n${await nofileDiagnosis()}`)
 		}
 		return ran.stdout
 	}

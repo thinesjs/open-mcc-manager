@@ -13,11 +13,9 @@ const payload = {
 	organizationId: "org-1",
 }
 
-const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
-
 const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
 
-const REMOVE_FILES = `timeout -k 5 50 sh -c 'chmod -R u+rwX -- "$HOME"/.local/share/open-mcc && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
+const REMOVE_FILES = `timeout -k 5 50 sh -c '{ [ ! -e "$HOME"/.local/share/open-mcc ] || chmod -R u+rwX -- "$HOME"/.local/share/open-mcc; } && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
 
 describe("what a failed host clean-up records for the dashboard", () => {
 	it("records why it could not reach the host without the address the error named", async () => {
@@ -74,9 +72,7 @@ describe("what a clean-up needs to know about the host", () => {
 	] as const)(
 		"removes the runtime image its payload names for $named",
 		async ({ given, removed }) => {
-			const transport = createFakeTransport({
-				[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
-			})
+			const transport = createFakeTransport()
 			const { handler, onCleaned } = cleaningWith(transport)
 
 			await handler({ ...payload, ...given })
@@ -92,9 +88,7 @@ describe("what a clean-up needs to know about the host", () => {
 	)
 
 	it("cleans a host from a payload that names only how to reach it", async () => {
-		const transport = createFakeTransport({
-			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport()
 		const { handler, onCleaned, onFailed } = cleaningWith(transport)
 
 		await handler(payload)
@@ -105,9 +99,7 @@ describe("what a clean-up needs to know about the host", () => {
 	})
 
 	it("cleans the account's own home, never a path an old queued payload still names", async () => {
-		const transport = createFakeTransport({
-			[INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 },
-		})
+		const transport = createFakeTransport()
 		const { handler, onCleaned, onFailed } = cleaningWith(transport)
 
 		await handler({
@@ -131,9 +123,7 @@ describe("what a clean-up needs to know about the host", () => {
 describe("★ what a clean-up that got onto the host records for the dashboard", () => {
 	it("records only its own words when something is left behind, and gives the details to the log", async () => {
 		const { handler, onFailed, onError } = cleaningWith(
-			createFakeTransport({
-				[INSTANCES_LEFT]: { stdout: "present", stderr: "", exitCode: 0 },
-			}),
+			createFakeTransport({ [REMOVE_FILES]: { stdout: "", stderr: "", exitCode: 1 } }),
 		)
 
 		await expect(handler(payload)).rejects.toThrow()
@@ -169,7 +159,7 @@ describe("★ what a clean-up that got onto the host records for the dashboard",
 	it("★ throws when the channel drops while the files are being deleted, leaving the retry to the queue", async () => {
 		const { handler, onFailed, onCleaned } = cleaningWith(
 			createFakeTransport(
-				{ [INSTANCES_LEFT]: { stdout: "gone", stderr: "", exitCode: 0 } },
+				{},
 				{ exec: { [REMOVE_FILES]: new Error("read ECONNRESET 203.0.113.9:2222") } },
 			),
 		)

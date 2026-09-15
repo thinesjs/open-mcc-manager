@@ -53,6 +53,6 @@ export const deleteDirectoryCommand = (instanceId: string): string => {
 	return withDeadline(
 		DIRECTORY_KILL_AFTER_SECONDS,
 		DIRECTORY_DEADLINE_SECONDS,
-		`sh -c '[ ! -e ${directory} ] || { chmod -R u+rwX -- ${directory} && rm -rf -- ${directory}; }'`,
+		`sh -c '{ [ ! -e ${directory} ] || chmod -R u+rwX -- ${directory}; } && rm -rf -- ${directory}'`,
 	)
 }

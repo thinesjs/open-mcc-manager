@@ -6,8 +6,6 @@ import { tearDownHost } from "./teardown"
 
 const LIST_UNITS = 'ls -1 "$HOME"/.config/systemd/user 2>/dev/null || true'
 
-const INSTANCES_LEFT = 'test -e "$HOME"/.local/share/open-mcc && printf present || printf gone'
-
 const LINGER = 'loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf no'
 
 const LIST_CONTAINERS = "XDG_RUNTIME_DIR=/run/user/$(id -u) podman ps -a --format '{{.Names}}'"
@@ -18,14 +16,14 @@ const RUNNING_UNITS =
 const STOP_BOTS =
 	"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop 'open-mcc@*.service' 'open-mcc-auth@*.service'"
 
-const REMOVE_FILES = `timeout -k 5 50 sh -c 'chmod -R u+rwX -- "$HOME"/.local/share/open-mcc && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
+const REMOVE_FILES = `timeout -k 5 50 sh -c '{ [ ! -e "$HOME"/.local/share/open-mcc ] || chmod -R u+rwX -- "$HOME"/.local/share/open-mcc; } && rm -rf -- "$HOME"/.local/share/open-mcc'; s=$?; exit $s`
 
 const INSTALLED_UNITS = "open-mcc@.service\nopen-mcc-auth@.service\nsshd.service\n"
 
 const answer = (stdout: string, exitCode = 0) => ({ stdout, stderr: "", exitCode })
 
 const hostHolding = async (containers: readonly string[], script: FakeScript = {}) => {
-	const transport = createFakeTransport({ [INSTANCES_LEFT]: answer("gone"), ...script })
+	const transport = createFakeTransport(script)
 	await transport.connect({
 		hostname: "h",
 		port: 22,
@@ -158,13 +156,29 @@ describe("cleaning a host when it is removed", () => {
 		expect(transport.commands.some((command) => /userdel|groupdel/.test(command))).toBe(false)
 	})
 
-	it("reports what it could not clean rather than claiming success", async () => {
-		const transport = await hostHolding([], { [INSTANCES_LEFT]: answer("present") })
+	it.each([
+		{ named: "fails", exitCode: 1 },
+		{ named: "runs out of time", exitCode: 124 },
+		{ named: "has to be killed", exitCode: 137 },
+	])(
+		"reports the files as left when their delete $named, rather than asking afterwards",
+		async ({ exitCode }) => {
+			const transport = await hostHolding([], { [REMOVE_FILES]: answer("", exitCode) })
+
+			const report = await tearDownHost(transport, "x64")
+
+			expect(report.directoryRemoved).toBe(false)
+			expect(report.remaining).toEqual(["~/.local/share/open-mcc could not be removed"])
+			expect(transport.commands.filter((command) => command.startsWith("test -e"))).toEqual([])
+		},
+	)
+
+	it("reports the files removed when their delete succeeds", async () => {
+		const transport = await hostHolding([])
 
 		const report = await tearDownHost(transport, "x64")
 
-		expect(report.directoryRemoved).toBe(false)
-		expect(report.remaining.join(" ")).toContain(".local/share/open-mcc")
+		expect(report.directoryRemoved).toBe(true)
 	})
 
 	it.each([

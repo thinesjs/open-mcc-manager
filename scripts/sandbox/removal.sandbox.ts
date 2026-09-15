@@ -2,7 +2,10 @@ import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import { type ProvisionResult, provisionHost } from "../../packages/core/src/host/provision"
 import { podmanImageId, runtimeImageFor } from "../../packages/core/src/host/runtime-image"
 import { tearDownHost } from "../../packages/core/src/host/teardown"
-import { InstanceStillInUseError } from "../../packages/core/src/instance/instance.controller"
+import {
+	InstanceRemovalFailedError,
+	InstanceStillInUseError,
+} from "../../packages/core/src/instance/instance.controller"
 import { deleteDirectoryCommand } from "../../packages/core/src/instance/removal"
 import type { ExecResult } from "../../packages/transport/src/types"
 import { HOST_ID, installStandInClient, memoryManager, owner } from "./memory-manager"
@@ -316,6 +319,49 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 		expect(await exists(`${FILES}/instances/${bot.id}`)).toBe(true)
 		expect(await leftovers(bot)).toEqual(NOTHING_LEFT)
 	}, 300_000)
+
+	it("★ fails removal and keeps the row while the bots' directory cannot be searched, then finishes once it can", async () => {
+		const manager = await managerThrough(as)
+		const bot = await runningBot(manager, "unsearchable-bot")
+		const instances = `${FILES}/instances`
+		const mode = succeeded(
+			await shell(host, as, 'stat -c %a "$1"', instances),
+			"reading the bots' directory mode",
+		).trim()
+		hooks = {
+			before: async (command) => {
+				if (command !== deleteDirectoryCommand(bot.id)) return
+				succeeded(
+					await shell(host, as, 'chmod 000 "$1"', instances),
+					"making the bots' directory unsearchable",
+				)
+			},
+			after: async () => undefined,
+		}
+		let refused: Error | undefined
+		try {
+			refused = await refusalOf(manager.controller.remove(owner, bot.id))
+		} finally {
+			hooks = quiet()
+			succeeded(
+				await shell(host, as, 'chmod "$2" "$1"', instances, mode),
+				"restoring the bots' directory",
+			)
+		}
+		const kept = {
+			row: manager.rows.has(bot.id),
+			token: await exists(`${FILES}/instances/${bot.id}/env`),
+		}
+
+		expect(refused, String(refused)).toBeInstanceOf(InstanceRemovalFailedError)
+		expect(kept).toEqual({ row: true, token: true })
+
+		await manager.controller.remove(owner, bot.id)
+
+		expect(manager.rows.has(bot.id)).toBe(false)
+		expect(await exists(`${FILES}/instances/${bot.id}`)).toBe(false)
+		expect(await leftovers(bot)).toEqual(NOTHING_LEFT)
+	})
 
 	it("★ tears the host down past a directory a bot made unreadable, leaving the spike's leftover list empty", async () => {
 		const manager = await managerThrough(as)

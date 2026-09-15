@@ -4,8 +4,10 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -49,7 +51,7 @@ const REJECTED_IDS = [
 ]
 
 const RENDERED_DELETE =
-	/^timeout -k 5 30 sh -c '\[ ! -e "\$HOME"\/(\S+) \] \|\| \{ chmod -R u\+rwX -- "\$HOME"\/(\S+) && rm -rf -- "\$HOME"\/(\S+); \}'; s=\$\?; exit \$s$/
+	/^timeout -k 5 30 sh -c '\{ \[ ! -e "\$HOME"\/(\S+) \] \|\| chmod -R u\+rwX -- "\$HOME"\/(\S+); \} && rm -rf -- "\$HOME"\/(\S+)'; s=\$\?; exit \$s$/
 
 const SYSTEMCTL_STUB = [
 	"#!/bin/sh",
@@ -149,7 +151,7 @@ describe("the commands a removal runs", () => {
 
 	it("deletes the bot's directory under a host deadline, first making anything the bot locked removable", () => {
 		expect(deleteDirectoryCommand("abc123")).toBe(
-			`timeout -k 5 30 sh -c '[ ! -e "$HOME"/.local/share/open-mcc/instances/abc123 ] || { chmod -R u+rwX -- "$HOME"/.local/share/open-mcc/instances/abc123 && rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123; }'; s=$?; exit $s`,
+			`timeout -k 5 30 sh -c '{ [ ! -e "$HOME"/.local/share/open-mcc/instances/abc123 ] || chmod -R u+rwX -- "$HOME"/.local/share/open-mcc/instances/abc123; } && rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123'; s=$?; exit $s`,
 		)
 	})
 
@@ -237,6 +239,32 @@ describe("the directory an instance removal deletes", () => {
 
 		expect(run(deleteDirectoryCommand("abc123")).status).toBe(0)
 	})
+
+	it("removes a dangling link left where the directory was, following nothing", () => {
+		const { home, run } = stubbedHost()
+		const instances = join(home, ".local", "share", "open-mcc", "instances")
+		mkdirSync(instances, { recursive: true })
+		symlinkSync(join(home, "nowhere"), join(instances, "abc123"))
+
+		expect(run(deleteDirectoryCommand("abc123")).status).toBe(0)
+		expect(readdirSync(instances)).toEqual([])
+	})
+
+	it.runIf(process.platform === "linux")(
+		"fails, keeping the tree and its secrets, when the directory above it cannot be searched",
+		() => {
+			const { home, run } = stubbedHost()
+			const instances = join(home, ".local", "share", "open-mcc", "instances")
+			mkdirSync(join(instances, "abc123", "state"), { recursive: true })
+			writeFileSync(join(instances, "abc123", "env"), "MCC_MCP_AUTH_TOKEN=31337\n")
+			chmodSync(instances, 0o000)
+			const ran = run(deleteDirectoryCommand("abc123"))
+			chmodSync(instances, 0o700)
+
+			expect(ran.status).not.toBe(0)
+			expect(existsSync(join(instances, "abc123", "env"))).toBe(true)
+		},
+	)
 })
 
 describe("verifying that nothing of the bot is left", () => {

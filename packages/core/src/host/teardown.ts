@@ -99,19 +99,15 @@ export const tearDownHost = async (
 		if (image.exitCode !== 0) remaining.push("The runtime image could not be removed")
 	}
 
-	await transport.exec(
+	const deleted = await transport.exec(
 		withDeadline(
 			5,
 			50,
-			`sh -c 'chmod -R u+rwX -- ${INSTANCES_ROOT} && rm -rf -- ${INSTANCES_ROOT}'`,
+			`sh -c '{ [ ! -e ${INSTANCES_ROOT} ] || chmod -R u+rwX -- ${INSTANCES_ROOT}; } && rm -rf -- ${INSTANCES_ROOT}'`,
 		),
 		FILES_TIMEOUT_MS,
 	)
-	const check = await transport.exec(
-		`test -e ${INSTANCES_ROOT} && printf present || printf gone`,
-		TEARDOWN_TIMEOUT_MS,
-	)
-	const directoryRemoved = check.stdout.trim() === "gone"
+	const directoryRemoved = deleted.exitCode === 0
 	if (!directoryRemoved) remaining.push(`~/${INSTANCES_PATH} could not be removed`)
 
 	const leftoverUnits = await listManagedUnits(transport)

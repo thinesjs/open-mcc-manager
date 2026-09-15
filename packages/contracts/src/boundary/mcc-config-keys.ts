@@ -64,6 +64,7 @@ export const COLLECTOR_WINDOW_NAMES = [
 	"auth.log",
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
+	"unit.env",
 ] as const
 
 export const SIGN_IN_PROBE_WINDOW_NAMES = ["SessionCache.ini"] as const

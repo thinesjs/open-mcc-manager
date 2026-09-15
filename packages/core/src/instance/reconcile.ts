@@ -7,9 +7,10 @@ import type {
 	UnitDrift,
 } from "@open-mcc/contracts"
 import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
-import type { HostRow, InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
+import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { asReadCommand, type HostReader, ReadDeadlineExceededError } from "@open-mcc/transport"
 import { journalctl, systemctl, UNIT_DIR } from "../host/profile"
+import type { RuntimeHost } from "../host/runtime-guard"
 import { podmanImageId, runtimeImageFor } from "../host/runtime-image"
 import { renderUnitTemplates, type UnitRuntime } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
@@ -102,14 +103,11 @@ const readFile = async (reader: SetupReader, path: string): Promise<string | und
 }
 
 export const unitRuntimeFor = (
-	host: Pick<HostRow, "networkStack" | "architecture">,
-): UnitRuntime | undefined =>
-	host.networkStack === null || host.architecture === null
-		? undefined
-		: {
-				networkStack: host.networkStack,
-				imageId: podmanImageId(runtimeImageFor(host.architecture)),
-			}
+	host: Pick<RuntimeHost, "networkStack" | "architecture">,
+): UnitRuntime => ({
+	networkStack: host.networkStack,
+	imageId: podmanImageId(runtimeImageFor(host.architecture)),
+})
 
 export const expectedUnits = (
 	instances: readonly InstanceRow[],

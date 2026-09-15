@@ -75,8 +75,8 @@ const hostRow: HostRow = {
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	networkStack: null,
-	architecture: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -570,5 +570,59 @@ describe("stopping the instance before a sign-in", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+})
+
+describe("signing in on a host with no recorded runtime", () => {
+	const SIGN_IN_PATHS = [
+		[
+			"starting",
+			async (deps: InstanceControllerDeps) => {
+				await beginAuthentication(deps, owner, "abc123", FAST_POLL)
+			},
+		],
+		[
+			"completing",
+			async (deps: InstanceControllerDeps) => {
+				await completeAuthentication(deps, owner, "abc123")
+			},
+		],
+		[
+			"cancelling",
+			async (deps: InstanceControllerDeps) => {
+				await cancelAuthentication(deps, owner, "abc123")
+			},
+		],
+	] as const
+
+	describe.each([
+		["no network stack", { networkStack: null }],
+		["no architecture", { architecture: null }],
+	] as const)("recording %s", (_case, missing) => {
+		it.each(SIGN_IN_PATHS)("refuses %s a sign-in before reaching the host", async (_path, run) => {
+			const { deps, transport } = makeDeps("", {
+				hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) },
+			})
+			const connect = vi.spyOn(transport, "connect")
+
+			await expect(run(deps)).rejects.toBeInstanceOf(InstanceHostNotFoundError)
+			expect(connect).not.toHaveBeenCalled()
+			expect(transport.commands).toEqual([])
+		})
+
+		it("lets the sign-in claim go when it refuses to start one", async () => {
+			const { deps, instances } = makeDeps("", {
+				hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) },
+			})
+
+			await expect(beginAuthentication(deps, owner, "abc123", FAST_POLL)).rejects.toBeInstanceOf(
+				InstanceHostNotFoundError,
+			)
+			expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
+				{ organizationId: "org-1" },
+				"abc123",
+				expect.any(String),
+			)
+		})
 	})
 })

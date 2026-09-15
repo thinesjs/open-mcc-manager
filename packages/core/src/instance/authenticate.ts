@@ -7,6 +7,7 @@ import {
 import type { HostRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { systemctl } from "../host/profile"
+import { hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
 	type ActorContext,
@@ -72,9 +73,9 @@ export const startAuthCommand = (instanceId: string): string => {
 	return `rm -f ${instanceDir(instanceId)}/auth.log && ${systemctl(`start ${unit}`)}`
 }
 
-const requireSetUpOnce = (host: Pick<HostRow, "osRelease">): void => {
-	if (host.osRelease === null) {
-		throw new InstanceHostNotFoundError("Host has never finished provisioning")
+const requireRuntime = (host: HostRow): void => {
+	if (!hostMeets(host, "runtime")) {
+		throw new InstanceHostNotFoundError(`Host ${host.id} is not set up to run bots`)
 	}
 }
 
@@ -120,7 +121,10 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 	}
 
-	requireSetUpOnce(host)
+	if (!hostMeets(host, "runtime")) {
+		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
+		throw new InstanceHostNotFoundError(`Host ${instance.hostId} is not set up to run bots`)
+	}
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -197,7 +201,7 @@ export const completeAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireSetUpOnce(host)
+	requireRuntime(host)
 	const dir = instanceDir(instance.id)
 	const transport = deps.createTransport()
 	try {
@@ -263,7 +267,7 @@ export const cancelAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireSetUpOnce(host)
+	requireRuntime(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {

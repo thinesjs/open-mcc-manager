@@ -143,12 +143,6 @@ describe("the runtime the units are rendered for", () => {
 			imageId: "56e3d8542b4091c81816101e95875e32ec981577e669112c479a57d4003e4c29",
 		})
 	})
-
-	it("is unknown when no network stack or no architecture is recorded, never a default", () => {
-		expect(unitRuntimeFor({ networkStack: null, architecture: "x64" })).toBeUndefined()
-		expect(unitRuntimeFor({ networkStack: "pasta", architecture: null })).toBeUndefined()
-		expect(unitRuntimeFor({ networkStack: null, architecture: null })).toBeUndefined()
-	})
 })
 
 describe("reconciling a host", () => {

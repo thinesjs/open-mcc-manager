@@ -9,6 +9,7 @@ import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { CONNECT_TIMEOUT_MS, HostUnreachableError } from "./host.controller"
 import type { HostRepository, OrgScope } from "./host.repository"
+import { type HostNeed, hostMeets } from "./runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "./unreachable"
 
 export type HostReaderDeps = {
@@ -47,11 +48,12 @@ export const leaseHostReader = async (
 	scope: OrgScope,
 	hostId: string,
 	deadlineMs: number,
+	need: HostNeed = "setUpOnce",
 ): Promise<HostReadLease> => {
 	const host = await deps.hosts.findById(scope, hostId)
 	const identity = host ? identityOf(host) : undefined
 	if (!host || !identity) return { kind: "missing" }
-	if (host.osRelease === null) return { kind: "unprovisioned" }
+	if (!hostMeets(host, need)) return { kind: "unprovisioned" }
 
 	let reader: HostReader
 	try {
@@ -91,7 +93,7 @@ export const leaseHostReader = async (
 		throw error
 	}
 	const stillTrusted = current ? identityOf(current) : undefined
-	if (!current || !stillTrusted || current.osRelease === null) {
+	if (!current || !stillTrusted || !hostMeets(current, need)) {
 		reader.release()
 		return { kind: "missing" }
 	}

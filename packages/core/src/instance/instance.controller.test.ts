@@ -915,29 +915,6 @@ describe("reconciliation", () => {
 		if (result.reachable) throw new Error("unreachable expected")
 		expect(result.reason).toBe("unprovisioned")
 	})
-
-	it.each([
-		["no network stack", { networkStack: null }],
-		["no architecture", { architecture: null }],
-	] as const)(
-		"reports a host with %s recorded as not set up, and never connects to it",
-		async (_case, missing) => {
-			const { deps, readTransports } = makeDeps({
-				hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) },
-			})
-			let opened = 0
-			readTransports.next = () => {
-				opened += 1
-				return createFakeTransport()
-			}
-			const controller = createInstanceController(deps)
-
-			const result = await controller.reconcileHost(owner, "host-1")
-
-			expect(result).toEqual({ hostId: "host-1", reachable: false, reason: "unprovisioned" })
-			expect(opened).toBe(0)
-		},
-	)
 })
 
 describe("scheduled commands", () => {
@@ -2068,5 +2045,109 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 			InstanceHostNotProvisionedError,
 		)
 		expect(transport.commands).toEqual([])
+	})
+})
+
+describe("a bot on a host with no recorded runtime", () => {
+	const onHostWithout = (missing: Partial<HostRow>) => {
+		const made = makeDeps({ hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) } })
+		vi.mocked(made.instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const connect = vi.spyOn(made.transport, "connect")
+		return { ...made, connect }
+	}
+
+	type Controller = ReturnType<typeof createInstanceController>
+
+	const RUNTIME_PATHS = [
+		[
+			"a start",
+			async (controller: Controller) => {
+				await controller.start(owner, "abc123")
+			},
+		],
+		[
+			"a restart",
+			async (controller: Controller) => {
+				await controller.restart(owner, "abc123")
+			},
+		],
+		[
+			"a console command",
+			async (controller: Controller) => {
+				await controller.sendCommand(owner, "abc123", "/say hello")
+			},
+		],
+		[
+			"a scheduled command",
+			async (controller: Controller) => {
+				await controller.runScheduledCommand(commandRow())
+			},
+		],
+		[
+			"a console read",
+			async (controller: Controller) => {
+				await controller.readConsole(owner, "abc123", 20)
+			},
+		],
+		[
+			"a new bot",
+			async (controller: Controller) => {
+				await controller.create(owner, {
+					hostId: "host-1",
+					name: "afk-2",
+					accountType: "microsoft",
+					minecraftAccount: "afk@example.com",
+					serverAddress: "play.example.com",
+				})
+			},
+		],
+	] as const
+
+	describe.each([
+		["no network stack", { networkStack: null }],
+		["no architecture", { architecture: null }],
+	] as const)("recording %s", (_case, missing) => {
+		it.each(RUNTIME_PATHS)("refuses %s before connecting to the host", async (_path, run) => {
+			const { deps, transport, connect, instances } = onHostWithout(missing)
+
+			await expect(run(createInstanceController(deps))).rejects.toBeInstanceOf(
+				InstanceHostNotProvisionedError,
+			)
+			expect(connect).not.toHaveBeenCalled()
+			expect(transport.commands).toEqual([])
+			expect(instances.insert).not.toHaveBeenCalled()
+			expect(instances.update).not.toHaveBeenCalled()
+		})
+
+		it("reports the host as not set up to reconcile, and never connects to it", async () => {
+			const { deps, transport, connect } = onHostWithout(missing)
+
+			await expect(createInstanceController(deps).reconcileHost(owner, "host-1")).resolves.toEqual({
+				hostId: "host-1",
+				reachable: false,
+				reason: "unprovisioned",
+			})
+			expect(connect).not.toHaveBeenCalled()
+			expect(transport.commands).toEqual([])
+		})
+
+		it("can still be stopped", async () => {
+			const { deps, transport } = onHostWithout(missing)
+
+			await createInstanceController(deps).stop(owner, "abc123")
+
+			expect(transport.commands.some((each) => each.includes("stop 'open-mcc@abc123'"))).toBe(true)
+		})
+
+		it("can still be removed, its row deleted", async () => {
+			const { deps, transport, instances } = onHostWithout(missing)
+
+			await createInstanceController(deps).remove(owner, "abc123")
+
+			expect(transport.commands).toContain(
+				'rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123',
+			)
+			expect(instances.delete).toHaveBeenCalledTimes(1)
+		})
 	})
 })

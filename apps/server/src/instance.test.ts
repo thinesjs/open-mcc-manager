@@ -690,6 +690,8 @@ const seedReadyInstance = async (
 			hostname: "10.0.0.1",
 			status: "ready",
 			osRelease: "systemd 252",
+			networkStack: "slirp4netns",
+			architecture: "x64",
 			sshKeyId,
 			hostKeyAlgorithm: "ssh-ed25519",
 			hostKeyFingerprint: "SHA256:instancepublicIJKLMNOPQRSTUVWXYZabcdefghijk",

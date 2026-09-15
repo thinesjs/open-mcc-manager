@@ -1,6 +1,7 @@
 import { sql } from "kysely"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { seedMember, seedOrganization, teardownTestDb, testDb, trackHostId } from "../test/db"
+import { isPollable } from "./health-poller"
 import {
 	createHostRepository,
 	type HostKeyTrustUpdate,
@@ -792,5 +793,46 @@ describe("the host table after the single host model (real Postgres)", () => {
 		await expect(
 			sql`update "host" set "networkStack" = 'other' where "id" = ${created.id}`.execute(testDb()),
 		).rejects.toThrow(/host_network_stack_known/)
+	})
+})
+
+describe("which hosts the health poller lists (real Postgres)", () => {
+	it("lists a ready host only with its network stack and architecture recorded, exactly as the poller's own check allows", async () => {
+		const scope = { organizationId: orgB }
+		const made: string[] = []
+		const wanted: string[] = []
+		for (const status of ["pending", "ready", "error"] as const) {
+			for (const networkStack of [null, "pasta"] as const) {
+				for (const architecture of [null, "arm64"] as const) {
+					const created = await repo.insert(scope, {
+						name: `poll-${status}-${networkStack ?? "none"}-${architecture ?? "none"}`,
+						hostname: "10.0.9.1",
+						port: 22,
+						username: "mcc",
+						sshKeyId: null,
+					})
+					trackHostId(created.id)
+					await testDb()
+						.updateTable("host")
+						.set({ status, networkStack, architecture, osRelease: "systemd 257" })
+						.where("id", "=", created.id)
+						.execute()
+					made.push(created.id)
+					if (status === "ready" && networkStack !== null && architecture !== null) {
+						wanted.push(created.id)
+					}
+				}
+			}
+		}
+
+		const listed = (await repo.listPollableAcrossOrganizations())
+			.map((row) => row.id)
+			.filter((id) => made.includes(id))
+		const rows = await Promise.all(made.map((id) => repo.findById(scope, id)))
+		const allowed = rows.flatMap((row) => (row !== undefined && isPollable(row) ? [row.id] : []))
+
+		expect(wanted).toHaveLength(1)
+		expect(listed).toEqual(wanted)
+		expect(allowed).toEqual(wanted)
 	})
 })

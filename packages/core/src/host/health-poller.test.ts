@@ -22,8 +22,8 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	networkStack: null,
-	architecture: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -211,6 +211,31 @@ describe("keeping the panel's view of each host current", () => {
 		expect(isPollable(host({ status: "pending" }))).toBe(false)
 		expect(isPollable(host({ status: "provisioning" }))).toBe(false)
 		expect(isPollable(host({ status: "error" }))).toBe(false)
+	})
+
+	it.each([
+		["network stack", { networkStack: null }],
+		["architecture", { architecture: null }],
+	] as const)(
+		"never polls a ready host with no %s recorded, and never leases it",
+		async (_field, missing) => {
+			const lease = vi.fn(leasing("0"))
+
+			const run = await runHealthPoll({
+				pollableHosts: async () => [host(missing)],
+				lease,
+				recordSeen: async () => undefined,
+				now: () => new Date(),
+			})
+
+			expect(isPollable(host(missing))).toBe(false)
+			expect(run).toEqual({ polled: 0, reached: [], unreachable: [] })
+			expect(lease).not.toHaveBeenCalled()
+		},
+	)
+
+	it("polls a ready host with both its network stack and architecture recorded", () => {
+		expect(isPollable(host({ networkStack: "pasta", architecture: "arm64" }))).toBe(true)
 	})
 
 	it("gives back every lease it takes, including when the write after it fails", async () => {

@@ -52,6 +52,7 @@ import { HostMisconfiguredError, HostUnreachableError } from "../host/host.contr
 import type { HostRepository, OrgScope } from "../host/host.repository"
 import { leaseHostReader } from "../host/host-reader"
 import { systemctl, UNIT_DIR } from "../host/profile"
+import { checkHostRuntime, type HostNeed, hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import { assertExhaustive } from "../lib/exhaustive"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -234,15 +235,19 @@ const startedOrThrow = (instanceId: string, output: string): void => {
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
 
-	const connectToHost = async (scope: OrgScope, hostId: string): Promise<HostTransport> => {
+	const connectToHost = async (
+		scope: OrgScope,
+		hostId: string,
+		need: HostNeed,
+	): Promise<HostTransport> => {
 		const host = await deps.hosts.findById(scope, hostId)
 		if (!host) throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 		if (!host.sshKeyId) throw new InstanceHostNotFoundError(`Host ${hostId} has no ssh key`)
 		if (!host.hostKeyFingerprint) {
 			throw new InstanceHostNotFoundError(`Host ${hostId} has no trusted host key fingerprint`)
 		}
-		if (host.osRelease === null) {
-			throw new InstanceHostNotProvisionedError(`Host ${hostId} has never finished provisioning`)
+		if (!hostMeets(host, need)) {
+			throw new InstanceHostNotProvisionedError(`Host ${hostId} is not set up to run bots`)
 		}
 		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
@@ -270,8 +275,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		scope: OrgScope,
 		hostId: string,
 		deadlineMs: number,
+		need: HostNeed,
 	): Promise<HostReader> => {
-		const leased = await leaseHostReader(deps, scope, hostId, deadlineMs)
+		const leased = await leaseHostReader(deps, scope, hostId, deadlineMs, need)
 		switch (leased.kind) {
 			case "leased":
 				return leased.reader
@@ -292,7 +298,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<InstanceRow> => {
 		const token = randomUUID().replaceAll("-", "")
 		const sealed = deps.secrets.seal(token)
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
 		try {
 			const result = await transport.exec(
 				`(umask 077; cat > ${instanceDir(instance.id)}/env)`,
@@ -402,7 +408,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<void> => {
 		if (document === undefined) return
 
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 		try {
 			const configPath = `${instanceDir(instance.id)}/${CONFIG_FILE_PATH}`
 			const result = await transport.exec(
@@ -442,7 +448,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<LiveReadTarget | undefined> => {
 		const endpoint = await liveEndpointFor(ctx, instanceId)
 		if (!endpoint) return undefined
-		const reader = await leaseHost(scopeOf(ctx), endpoint.hostId, LIVE_CONTROL_TIMEOUT_MS)
+		const reader = await leaseHost(
+			scopeOf(ctx),
+			endpoint.hostId,
+			LIVE_CONTROL_TIMEOUT_MS,
+			"setUpOnce",
+		)
 		return { reader, port: endpoint.port, route: endpoint.route, token: endpoint.token }
 	}
 
@@ -452,7 +463,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<{ target: LiveControlTarget; close: () => Promise<void> } | undefined> => {
 		const endpoint = await liveEndpointFor(ctx, instanceId)
 		if (!endpoint) return undefined
-		const transport = await connectToHost(scopeOf(ctx), endpoint.hostId)
+		const transport = await connectToHost(scopeOf(ctx), endpoint.hostId, "setUpOnce")
 		return {
 			target: { transport, port: endpoint.port, route: endpoint.route, token: endpoint.token },
 			close: async () => {
@@ -528,7 +539,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		window: SleepWindowInput,
 	): Promise<void> => {
 		const timers = renderSleepTimers(window)
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 		try {
 			for (const [name, unit] of Object.entries(timers)) {
 				const write = await transport.exec(
@@ -557,7 +568,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 	const removeSleepTimers = async (ctx: ActorContext, instance: InstanceRow): Promise<void> => {
 		const names = [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 		try {
 			for (const name of names) {
 				await transport.exec(
@@ -576,8 +587,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		ctx: ActorContext,
 		instance: InstanceRow,
 		verb: "start" | "stop",
+		need: HostNeed,
 	): Promise<void> => {
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+		const transport = await connectToHost(scopeOf(ctx), instance.hostId, need)
 		try {
 			const result = await transport.exec(
 				verb === "start"
@@ -610,7 +622,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const input = createInstanceInput.parse(given)
 			const host = await deps.hosts.findById(scopeOf(ctx), input.hostId)
 			if (!host) throw new InstanceHostNotFoundError(`Host not found: ${input.hostId}`)
-			if (host.status !== "ready") {
+			if (host.status !== "ready" || checkHostRuntime(host).kind !== "ready") {
 				throw new InstanceHostNotProvisionedError(`Host ${input.hostId} is not ready for a new bot`)
 			}
 
@@ -618,7 +630,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				(instance) => instance.hostId === input.hostId,
 			)
 			const takenPorts = onHost.map((instance) => instance.liveControlPort)
-			const transport = await connectToHost(scopeOf(ctx), input.hostId)
+			const transport = await connectToHost(scopeOf(ctx), input.hostId, "runtime")
 			let created: InstanceRow
 			try {
 				const liveControlToken = randomUUID().replaceAll("-", "")
@@ -696,7 +708,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const document = await expectedDocumentFor(scopeOf(ctx), instance)
 			const rotated = await rotateLiveControlToken(ctx, instance)
 			await writeConfigDocument(ctx, rotated, document)
-			await unitCommand(ctx, rotated, "start")
+			await unitCommand(ctx, rotated, "start", "runtime")
 
 			const updated = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
@@ -728,10 +740,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			}
 
 			const document = await expectedDocumentFor(scopeOf(ctx), instance)
-			await unitCommand(ctx, instance, "stop")
+			await unitCommand(ctx, instance, "stop", "runtime")
 			const rotated = await rotateLiveControlToken(ctx, instance)
 			await writeConfigDocument(ctx, rotated, document)
-			await unitCommand(ctx, rotated, "start")
+			await unitCommand(ctx, rotated, "start", "runtime")
 
 			const restarted = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
@@ -757,7 +769,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "instance.start")
 			const instance = await requireInstance(ctx, instanceId)
 
-			await unitCommand(ctx, instance, "stop")
+			await unitCommand(ctx, instance, "stop", "setUpOnce")
 
 			const stopped = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "stopped" })
@@ -788,7 +800,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
 			try {
 				await sendCommand(transport, instance.id, command)
 			} finally {
@@ -811,7 +823,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const reader = await leaseHost(scopeOf(ctx), instance.hostId, CONSOLE_READ_DEADLINE_MS)
+			const reader = await leaseHost(
+				scopeOf(ctx),
+				instance.hostId,
+				CONSOLE_READ_DEADLINE_MS,
+				"runtime",
+			)
 			try {
 				return await readConsole(reader, instance.id, lines)
 			} finally {
@@ -971,7 +988,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const checked = instanceConfigInput.parse(config)
 			const instance = await requireInstance(ctx, instanceId)
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 			const settled = { ...checked, liveControlPort: instance.liveControlPort }
 			const document = renderInstanceConfig(settled)
 
@@ -1033,7 +1050,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const reader = await leaseHost(scopeOf(ctx), hostId, HOST_METRICS_TIMEOUT_MS)
+			const reader = await leaseHost(scopeOf(ctx), hostId, HOST_METRICS_TIMEOUT_MS, "setUpOnce")
 			try {
 				return await readHostMetrics(reader)
 			} finally {
@@ -1047,8 +1064,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const scope = scopeOf(ctx)
 			const host = await deps.hosts.findById(scope, hostId)
 			if (!host) return { hostId, reachable: false, reason: "misconfigured" }
-			const runtime = unitRuntimeFor(host)
-			if (runtime === undefined) return { hostId, reachable: false, reason: "unprovisioned" }
+			const ready = checkHostRuntime(host)
+			if (ready.kind !== "ready") return { hostId, reachable: false, reason: "unprovisioned" }
+			const runtime = unitRuntimeFor(ready.host)
 			const instances = (await deps.instances.list(scope)).filter(
 				(instance) => instance.hostId === hostId,
 			)
@@ -1069,7 +1087,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			let reader: HostReader
 			try {
-				reader = await leaseHost(scope, hostId, RECONCILE_DEADLINE_MS)
+				reader = await leaseHost(scope, hostId, RECONCILE_DEADLINE_MS, "runtime")
 			} catch (error) {
 				const reason = error instanceof Error ? reasonFor(error) : "failed"
 				return { hostId, reachable: false, reason }
@@ -1189,7 +1207,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const transport = await connectToHost(scope, instance.hostId)
+			const transport = await connectToHost(scope, instance.hostId, "runtime")
 			try {
 				await sendCommand(transport, instance.id, row.command)
 			} finally {
@@ -1315,7 +1333,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 			try {
 				for (const name of [sleepStopTimer(instance.id), sleepStartTimer(instance.id)]) {
 					await transport.exec(

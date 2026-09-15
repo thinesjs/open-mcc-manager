@@ -25,8 +25,8 @@ const host: HostRow = {
 	port: 22,
 	username: "mcc",
 	status: "ready",
-	networkStack: null,
-	architecture: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:abc",
 	hostKeyAlgorithm: "ssh-ed25519",
@@ -233,6 +233,22 @@ describe("collecting across the fleet", () => {
 		expect(run.hosts).toBe(0)
 		expect(connect).not.toHaveBeenCalled()
 	})
+
+	it.each([
+		["network stack", { networkStack: null }],
+		["architecture", { architecture: null }],
+	] as const)(
+		"never sweeps a ready host with no %s recorded, and opens no connection to it",
+		async (_field, missing) => {
+			const connect = vi.fn()
+			const { deps } = depsFor({}, { hosts: async () => [{ ...host, ...missing }], connect })
+
+			const run = await createArtifactCollector(deps)()
+
+			expect(run.hosts).toBe(0)
+			expect(connect).not.toHaveBeenCalled()
+		},
+	)
 })
 
 describe("reporting a sweep", () => {

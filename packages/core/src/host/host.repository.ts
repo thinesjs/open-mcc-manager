@@ -131,7 +131,13 @@ export const createHostRepository = (db: Executor) => ({
 	},
 
 	listPollableAcrossOrganizations: async (): Promise<HostRow[]> =>
-		db.selectFrom("host").selectAll().where("status", "=", "ready").execute(),
+		db
+			.selectFrom("host")
+			.selectAll()
+			.where("status", "=", "ready")
+			.where("networkStack", "is not", null)
+			.where("architecture", "is not", null)
+			.execute(),
 
 	recordSeen: async (
 		id: string,

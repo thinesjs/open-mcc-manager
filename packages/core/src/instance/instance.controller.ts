@@ -119,11 +119,13 @@ import { createScheduleRepository, type ScheduleRepository } from "./schedule.re
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
 import {
 	CONFIG_FILE_PATH,
+	INSTANCE_LAYOUT,
 	instanceDir,
 	instanceLayoutSteps,
 	parseUnitStartState,
 	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
+	renderUnitEnv,
 	startUnitCommand,
 	unitName,
 } from "./unit"
@@ -371,10 +373,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<InstanceRow> => {
 		const token = randomUUID().replaceAll("-", "")
 		const sealed = deps.secrets.seal(token)
+		const dir = instanceDir(instance.id)
+		const { env, unitEnv } = INSTANCE_LAYOUT
 		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
 		try {
 			const result = await transport.exec(
-				`(umask 077; cat > ${instanceDir(instance.id)}/env)`,
+				`(umask 077; cat > ${dir}/${env} && printf '%s' ${shellQuote(renderUnitEnv(instance.liveControlPort))} > ${dir}/${unitEnv})`,
 				INSTANCE_STEP_TIMEOUT_MS,
 				renderEnvironmentFile({ liveControlToken: token }),
 			)

@@ -322,6 +322,8 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 describe("a bot's files and its start", () => {
 	const DIR = '"$HOME"/.local/share/open-mcc/instances/abc123'
 
+	const ENV_WRITE = `(umask 077; cat > ${DIR}/env && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`
+
 	const RUNNING = { status: "running" }
 
 	const answering = (
@@ -393,15 +395,32 @@ describe("a bot's files and its start", () => {
 		expect(tokens).toHaveLength(2)
 		for (const token of tokens) expect(token).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
 		expect(tokens[0]).not.toBe(tokens[1])
-		expect(
-			transport.commands.filter((command) => command === `(umask 077; cat > ${DIR}/env)`),
-		).toHaveLength(2)
+		expect(transport.commands.filter((command) => command === ENV_WRITE)).toHaveLength(2)
 		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
+	})
+
+	it("rewrites unit.env from the row's port in the exec that writes the token, adding no exec", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const configWrite = `(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`
+
+		await controller.start(owner, "abc123")
+		const started = [...transport.commands]
+		transport.commands.length = 0
+		await controller.restart(owner, "abc123")
+
+		expect(started).toEqual([ENV_WRITE, configWrite, startUnitCommand("abc123")])
+		expect(transport.commands).toEqual([
+			`${SYSTEMCTL} stop 'open-mcc@abc123'`,
+			ENV_WRITE,
+			configWrite,
+			startUnitCommand("abc123"),
+		])
 	})
 
 	it("fails a start into a directory that is gone, before it starts anything", async () => {
 		const { deps, transport } = withSavedConfig()
-		answering(transport, `(umask 077; cat > ${DIR}/env)`, {
+		answering(transport, ENV_WRITE, {
 			stdout: "",
 			stderr: "sh: 1: cannot create env: Directory nonexistent",
 			exitCode: 2,

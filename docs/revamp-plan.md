@@ -141,8 +141,9 @@ assumption here, on three grounds:
    back until something re-issues the command. No reconnect logic fixes that.
 3. MCP is config-driven, so Stage 1 already owns its settings.
 
-**The bind address is rendered as a literal `127.0.0.1` and is never an operator
-field.** MCC's own validation is worse than no validation: `Ipv4Regex` accepts `0.0.0.0` — a valid dotted quad — and accepts `+`
+**The bind address is rendered as a fixed literal and is never an operator
+field.** It was `127.0.0.1`; since bots run in rootless Podman it is `0.0.0.0` inside
+the bot's own network namespace, published on the host's loopback alone. MCC's own validation is worse than no validation: `Ipv4Regex` accepts `0.0.0.0` — a valid dotted quad — and accepts `+`
 and `*` through explicit checks at line 205, all four of which expose the port,
 while rejecting `localhost` and `::1`, the two spellings a careful person reaches
 for. A wildcard bind does not throw, so the error handler at 232-242 never fires,

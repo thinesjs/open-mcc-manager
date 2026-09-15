@@ -5,12 +5,14 @@
 The control plane holds credentials — SSH private keys and, through them, the
 ability to install and start systemd units — for every host it manages. Every
 host is managed the same way. The manager connects as the one account enrolled
-for that host and works only inside that account's home directory, under its
-systemd user manager. It never asks for root, so enrol an ordinary account: a
-stolen key then yields that one unprivileged account rather than the host
-itself. The operator runs `loginctl enable-linger <user>` once, by hand, so
-instances survive logout and start at boot; provisioning refuses to continue
-until they have.
+for that host, works only inside that account's home directory under its
+systemd user manager, and runs each bot in a rootless Podman container as that
+account. It never gains root: the host check, provisioning and the setup script
+all refuse uid 0, and the check and provisioning require Podman to report
+itself rootless. Enrol an ordinary account, so a stolen key yields that one
+unprivileged account rather than the host itself. The operator runs
+`loginctl enable-linger <user>` once, by hand, so instances survive logout and
+start at boot; provisioning refuses to continue until they have.
 
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an
@@ -273,40 +275,48 @@ depth, not a substitute for one.
   dashboard acts at once. To cut access immediately, also remove the host in the
   dashboard.
 - **A managed host holds the Minecraft refresh token for the account running on
-  it.** The client persists its own session cache beside its working directory —
-  which is the instance's own `0700` directory, so the cache is per-instance
-  rather than shared. It uses one of two files, `SessionCache.db` (a serialized
-  form) or `SessionCache.ini` (plaintext, one line per account ending in the
-  refresh token); the shipped client reads both, so treat either as sensitive.
-  The control plane deliberately does not custody the token: moving it into the
-  database would leave it plaintext in the running process anyway, while
-  permanently diverging from upstream's cache handling. A compromised host yields
-  that account's Microsoft refresh token, and hosts should not be shared across
-  trust boundaries an operator cares about keeping separate.
-- **Instances on one host share a user, so their isolation rests entirely on
-  systemd.** Every instance runs as the connecting account, and identical
-  ownership makes `0700`/`0600` no barrier between siblings. The units therefore hide the home
-  directory behind a tmpfs and bind back only the instance's own directory, so
-  an instance cannot see another's Microsoft session cache at all. That holds
-  only where the host's systemd applies it — see the next point — and where it
-  does not, one instance can read every other's files.
-- **systemd's filesystem hardening may be silently discarded.** The instance
-  unit asks for `ProtectSystem=strict`, `PrivateTmp` and a `ReadWritePaths=`
-  scoped to its own directory. Those directives need a
-  mount namespace, and a systemd user manager that cannot set one up ignores
-  them without logging anything. Whether it can depends on the host, not on the
-  unit: the same systemd version was measured enforcing them on one machine and
-  discarding them on another, so the version alone does not tell you, and
-  nothing here measures it. Where they are discarded, an instance is confined
-  only by POSIX ownership — which, per the point above, does not separate it
-  from its siblings. `NoNewPrivileges=yes`, `UMask=0077` and the exit-code
-  restart policy need no namespace and apply either way.
-- **Signing in to Microsoft runs under its own unit, with the same
-  restrictions.** Reading the device code needs the client's output, which the
-  manager takes from a file inside the instance's directory rather than by
-  launching the client outside systemd. Sign-in is therefore confined exactly as
-  a running instance is, and is stopped by unit name rather than by matching
-  process names.
+  it.** The client keeps its session cache, `SessionCache.db`, in its working
+  directory, which is the instance's own `state/` directory, so the cache is
+  per-instance rather than shared. The control plane deliberately does not
+  custody the token: moving it into the database would leave it plaintext in the
+  running process anyway, while permanently diverging from upstream's cache
+  handling. A compromised host yields that account's Microsoft refresh token,
+  and hosts should not be shared across trust boundaries an operator cares about
+  keeping separate.
+- **What holds between bots on one host.** Each bot runs in its own rootless
+  Podman container:
+  - **Separate namespaces.** Each has its own PID, mount and network
+    namespaces, so it cannot see another bot's processes, environment, files or
+    ports.
+  - **No privileges.** It runs with no capabilities, `no-new-privileges` and a
+    read-only root filesystem.
+  - **Narrow host paths.** It can write only its own `state/`, `replays/` and
+    `recording-cache/`. Its config is mounted read-only, and its token file,
+    control FIFO and collector lock are never mounted.
+  - **No host loopback.** Neither network stack lets a bot reach the host's
+    loopback, where every bot's live-control port is published, so no bot can
+    reach another's.
+  - **No bot-written file is read.** The manager reads no file inside a bot's
+    writable directories, and removal deletes them without following links.
+- **What does not hold between bots.**
+  - **One kernel uid.** Every bot runs as the enrolled account: root inside the
+    container maps to it. A container escape, meaning a kernel or container
+    runtime bug, yields the whole account — every bot's session cache and token
+    on that host, the account's `authorized_keys`, and control of every other
+    bot.
+  - **Network reach.** A bot reaches the network like any client, including the
+    host's own non-loopback addresses and a cloud provider's metadata endpoint.
+    Do not attach instance roles or credentials to a bot host. The host check
+    warns when a metadata endpoint answers, and there is no egress filtering.
+- **Signing in to Microsoft runs in its own container.** Reading the device
+  code needs the client's output, which the sign-in unit writes to a file in the
+  instance's directory. It runs the same image with the same restrictions,
+  without the published port or the token file, and is stopped by unit name.
+  The bot and its sign-in each refuse to start while the other is active.
+- **Ubuntu 24.04 is untested on a real Ubuntu host.** CI's x86_64 sandbox job
+  runs rootless Podman on Debian 12, Debian 13 and Ubuntu 24.04, but a
+  container there runs on the runner's kernel: the Ubuntu run proves Ubuntu's
+  Podman packages, not an Ubuntu kernel or its AppArmor.
 - **Drift reporting discloses other organizations' instance ids on a shared
   host.** Reconciliation enumerates the manager's unit files in
   `~/.config/systemd/user` and reports any the requesting organization does not

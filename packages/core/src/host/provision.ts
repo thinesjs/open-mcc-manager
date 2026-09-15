@@ -105,7 +105,7 @@ export const imageIdCommand = (image: RuntimeImage): string =>
 	`podman image inspect --format '{{.Id}}' ${shellQuote(runtimeImageReference(image))}`
 
 export const clientCheckCommand = (image: RuntimeImage): string =>
-	`podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
+	`podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
 
 const step = async (
 	transport: HostTransport,

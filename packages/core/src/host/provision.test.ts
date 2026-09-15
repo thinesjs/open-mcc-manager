@@ -384,8 +384,12 @@ describe("the runtime image", () => {
 describe("checking the client runs", () => {
 	it("runs the installed client in the pinned image by ID, with no network and no pull", () => {
 		expect(clientCheckCommand(ARM64)).toBe(
-			'podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -v "$HOME"/.local/share/open-mcc/bin:/opt/mcc:ro b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9 /opt/mcc/MinecraftClient --help < /dev/null 2>&1',
+			'podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v "$HOME"/.local/share/open-mcc/bin:/opt/mcc:ro b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9 /opt/mcc/MinecraftClient --help < /dev/null 2>&1',
 		)
+	})
+
+	it("unpacks the client into the container's own temporary space, since its root is read-only", () => {
+		expect(clientCheckCommand(ARM64)).toMatch(/--read-only .*-e DOTNET_BUNDLE_EXTRACT_BASE_DIR=\/tmp /)
 	})
 
 	it("never runs the client on the host itself", async () => {

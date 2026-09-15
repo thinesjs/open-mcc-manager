@@ -1144,6 +1144,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			"host-1",
 			"attempt-1",
 			"The server refused the connection",
+			undefined,
 		)
 	})
 
@@ -1170,6 +1171,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			"host-1",
 			"attempt-1",
 			copy,
+			{ step: "Checking systemd", index: 0, total: 15 },
 		)
 		expect(
 			onError.mock.calls.map(([, error]) => (error instanceof Error ? error.message : error)),
@@ -1191,6 +1193,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			"host-1",
 			"attempt-1",
 			"This host's processor could not be read, or has no client build.",
+			{ step: "Reading the host architecture", index: 5, total: 15 },
 		)
 	})
 
@@ -1203,6 +1206,7 @@ describe("what provisioning tells the operator when it fails", () => {
 			"host-1",
 			"attempt-1",
 			expect.stringMatching(/.+/),
+			undefined,
 		)
 	})
 })

@@ -406,6 +406,71 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 		})
 	})
 
+	it("keeps the failure a setup recorded when its progress writes reach the row after it", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-late-progress")
+		const held: (() => Promise<void>)[] = []
+		let replayed = 0
+		const progressAfterFailure: HostRepository = {
+			...hosts,
+			recordProvisioningProgress: async (
+				...args: Parameters<HostRepository["recordProvisioningProgress"]>
+			) => {
+				held.push(() => hosts.recordProvisioningProgress(...args))
+			},
+			recordProvisioningFailure: async (
+				...args: Parameters<HostRepository["recordProvisioningFailure"]>
+			) => {
+				await hosts.recordProvisioningFailure(...args)
+				for (const write of held.splice(0)) {
+					await write()
+					replayed += 1
+				}
+			},
+		}
+		const attempts = [
+			provisionableHost({
+				[imagePullCommand(runtimeImageFor("x64"))]: {
+					stdout: "",
+					stderr: "Error: initializing source: connection refused",
+					exitCode: 125,
+				},
+			}),
+			PROVISIONABLE,
+		]
+		const controller = createHostController({
+			hosts: progressAfterFailure,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+
+		expect(replayed).toBe(10)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: "Downloading the runtime image",
+			provisioningStepIndex: 9,
+			provisioningStepTotal: 15,
+			provisioningError: "The runtime image could not be downloaded.",
+		})
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			provisioningError: null,
+		})
+	})
+
 	it("does not re-claim a host that is already provisioning", async () => {
 		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
 			await seedProvisionableHost("org-lock-stuck")

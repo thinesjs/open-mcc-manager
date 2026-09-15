@@ -215,11 +215,11 @@ export const createHostRepository = (db: Executor) => ({
 				provisioningStep: progress.step,
 				provisioningStepIndex: progress.index,
 				provisioningStepTotal: progress.total,
-				provisioningError: null,
 			})
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("provisioningAttemptId", "=", attemptId)
+			.where("provisioningError", "is", null)
 			.execute()
 	},
 
@@ -228,10 +228,18 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		attemptId: string,
 		reason: string,
+		reached?: { step: string; index: number; total: number },
 	): Promise<void> => {
 		await db
 			.updateTable("host")
-			.set({ provisioningError: reason })
+			.set({
+				provisioningError: reason,
+				...(reached !== undefined && {
+					provisioningStep: reached.step,
+					provisioningStepIndex: reached.index,
+					provisioningStepTotal: reached.total,
+				}),
+			})
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("provisioningAttemptId", "=", attemptId)
@@ -257,6 +265,7 @@ export const createHostRepository = (db: Executor) => ({
 				status: "provisioning",
 				provisioningAttemptId: randomUUID(),
 				provisioningClaimedAt: now,
+				provisioningError: null,
 				organizationId: scope.organizationId,
 			})
 			.where("id", "=", id)

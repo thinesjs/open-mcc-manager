@@ -128,18 +128,11 @@ export {
 	isAuthClaimStale,
 } from "./instance/instance.repository"
 export {
-	callLiveTool,
-	callReadTool,
 	LIVE_CHAT_MAX_LINES,
 	LIVE_CONTROL_TIMEOUT_MS,
 	LIVE_EVENT_MAX,
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
-	readChatHistory,
-	readEntities,
-	readRecentEvents,
-	readSessionStatus,
-	readWorldState,
 } from "./instance/live-control"
 export {
 	calendarWeekdayPrefix,

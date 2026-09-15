@@ -24,6 +24,10 @@ describe("where the exporter is told to send spans", () => {
 		expect(tracesUrl("http://alloy:4318/")).toBe("http://alloy:4318/v1/traces")
 		expect(tracesUrl("  http://alloy:4318//  ")).toBe("http://alloy:4318/v1/traces")
 	})
+
+	it("strips any number of trailing slashes, not just one or two", () => {
+		expect(tracesUrl(`http://alloy:4318${"/".repeat(40)}`)).toBe("http://alloy:4318/v1/traces")
+	})
 })
 
 describe("tracing that has not been switched on", () => {

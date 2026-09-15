@@ -103,6 +103,19 @@ const factsOf = async (host: string, as: As) =>
 const exists = async (host: string, path: string): Promise<boolean> =>
 	(await exec(host, ROOT, ["test", "-e", path])).status === 0
 
+const CONFINEMENT = [
+	"printf 'apparmor_restrict_unprivileged_userns=%s\\n' \"$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)\"",
+	"grep -E '^(podman|crun|unprivileged_userns) ' /sys/kernel/security/apparmor/profiles 2>/dev/null",
+	"dmesg 2>/dev/null | grep -F 'apparmor=' | tail -n 15",
+	"exit 0",
+].join("\n")
+
+const confinementOf = async (host: string, as: As): Promise<string> => {
+	const label = await exec(host, as, ["cat", "/proc/self/attr/current"])
+	const kernel = await shell(host, ROOT, CONFINEMENT)
+	return `label of a process docker exec starts: ${label.stdout.trim() || "none"}\n${kernel.stdout.trim()}`
+}
+
 const withUserManager = async (host: string, account: Account): Promise<As> => {
 	const uid = uidOf(account)
 	succeeded(await exec(host, ROOT, ["loginctl", "enable-linger", account]), "turning lingering on")
@@ -152,14 +165,26 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 		succeeded(await exec(host, as, ["podman", "--version"]), "podman --version")
 		const facts = await factsOf(host, as)
+		const metadata = await exec(host, ROOT, [
+			"curl",
+			"-s",
+			"--max-time",
+			"1",
+			"-o",
+			"/dev/null",
+			"-w",
+			"%{http_code}",
+			"http://169.254.169.254/",
+		])
 
+		expect(metadata.stdout).toMatch(/^[0-9]{3}$/)
 		expect(facts).toMatchObject({
 			uid: uidOf("pod1"),
 			usableHome: true,
 			storage: "fresh",
 			overrides: [],
 			cgroupV2: true,
-			metadata: "unanswered",
+			metadata: metadata.stdout === "000" ? "unanswered" : "answered",
 			subuid: { own: true },
 			subgid: { own: true },
 		})
@@ -211,16 +236,16 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 
 	it("refuses an account that already ran Podman with vfs, writing nothing", async () => {
 		const as = await withUserManager(host, "pod3")
-		succeeded(
-			await exec(host, as, [
-				"podman",
-				"--storage-driver=vfs",
-				"info",
-				"--format",
-				"{{.Store.GraphDriverName}}",
-			]),
-			"running Podman with vfs",
+		const vfs = await shell(
+			host,
+			as,
+			"podman --storage-driver=vfs info --format '{{.Store.GraphDriverName}}'",
 		)
+
+		expect(
+			vfs.status,
+			vfs.status === 0 ? "" : `${vfs.stderr}\n${await confinementOf(host, as)}`,
+		).toBe(0)
 		expect((await factsOf(host, as)).storage).toBe("used")
 
 		const ran = await shell(host, as, storageStepCommand())

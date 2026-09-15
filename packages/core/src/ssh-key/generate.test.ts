@@ -1,6 +1,6 @@
 import sshpk from "sshpk"
 import { describe, expect, it } from "vitest"
-import { generateSshKeyPair } from "./generate"
+import { generateSshKeyPair, keyComment } from "./generate"
 
 describe("generateSshKeyPair", () => {
 	it("produces an OpenSSH-formatted ed25519 public key", () => {
@@ -58,5 +58,9 @@ describe("naming a generated key so it is identifiable in authorized_keys", () =
 		const comment = pair.publicKey.trim().split(" ")[2] ?? ""
 
 		expect(comment.length).toBeLessThanOrEqual("open-mcc:".length + 48)
+	})
+
+	it("drops dashes left and right of the name, however many surround it", () => {
+		expect(keyComment(`${"-".repeat(20)}fleet${"-".repeat(20)}`)).toBe("open-mcc:fleet")
 	})
 })

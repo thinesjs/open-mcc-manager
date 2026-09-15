@@ -1299,8 +1299,9 @@ pinned runtime image, because a real client exits when it has no server to join.
 after it has cut the host off every network and seen an HTTPS attempt to
 Microsoft's sign-in host fail, so no device code is ever requested: the client
 logs a network error and the unit ends with status 4. With a stand-in client that
-waits, it proves a sleep window's start and two racing starts are skipped while
-sign-in runs, and that the bot stays stopped afterwards.
+waits, it proves a sleep window's start is skipped while sign-in runs, that a
+sign-in start and a bot start racing each other both skip, each on seeing the
+other starting, and that the bot stays stopped afterwards.
 Start every Podman command in a sandbox test through `shell`, never a direct
 `exec`: a process started straight from `docker exec` is AppArmor-unconfined, so
 on a kernel with `apparmor_restrict_unprivileged_userns=1`, as on GitHub's Ubuntu

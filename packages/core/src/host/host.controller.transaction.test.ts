@@ -1,5 +1,13 @@
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
-import { createFakeTransport, type HostTransport } from "@open-mcc/transport"
+import {
+	type ConnectOptions,
+	createFakeTransport,
+	createReadConnections,
+	type HostTransport,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+} from "@open-mcc/transport"
 import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createAuditRepository } from "../audit/audit.repository"
@@ -29,6 +37,7 @@ import {
 	type OrgScope,
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
+import { hostReadKey, leaseHostReader } from "./host-reader"
 import { HOME_COMMAND } from "./provision"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
@@ -77,6 +86,7 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 	createTransport: vi.fn(),
+	evictHost: () => undefined,
 	instanceIdsOnHost: vi.fn(async () => []),
 	now: () => new Date(),
 })
@@ -182,6 +192,7 @@ describe("host controller transactional mutations", () => {
 		const controller = createHostController({
 			...baseDeps(),
 			hosts,
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -289,6 +300,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -332,6 +344,7 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -412,6 +425,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -434,6 +448,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -485,6 +500,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -520,6 +536,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -546,6 +563,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
@@ -568,6 +586,7 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
@@ -684,6 +703,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(instrumentedTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction,
@@ -734,6 +754,7 @@ describe("host controller keeps no transaction open across remote provisioning w
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(slowTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: withShortIdleTimeout,
@@ -820,6 +841,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -848,6 +870,7 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -946,6 +969,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			hosts,
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
@@ -963,6 +987,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1045,6 +1070,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1055,6 +1081,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1127,6 +1154,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(recordingTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1193,6 +1221,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1247,6 +1276,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1312,6 +1342,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1370,6 +1401,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport,
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1435,6 +1467,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
 			createTransport: vi.fn(gatedTransport),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1445,6 +1478,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1489,6 +1523,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 					"docker --version": { stdout: "Docker version 27.3.1", stderr: "", exitCode: 0 },
 				}),
 			),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1502,6 +1537,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(db, sendJobDouble),
@@ -1525,6 +1561,7 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
 			createTransport: vi.fn(),
+			evictHost: () => undefined,
 			instanceIdsOnHost: vi.fn(async () => []),
 			now: () => new Date(),
 			withTransaction: createHostControllerTransaction(testDb(), sendJobDouble),
@@ -1537,5 +1574,147 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 		expect(retrusted?.hostKeyFingerprint).toBe(ROTATED_FINGERPRINT)
 		const finalHost = await hosts.findById({ organizationId }, hostId)
 		expect(finalHost?.status).toBe("provisioning")
+	})
+})
+
+describe("shared read connections open, read and close outside every transaction (real Postgres)", () => {
+	afterAll(async () => {
+		await teardownTestDb()
+	})
+
+	const seedReadyHost = async (slugPrefix: string) => {
+		const organizationId = await seedOrganization(slugPrefix)
+		const memberId = await seedMember(organizationId)
+		const db = testDb()
+		const hosts = createHostRepository(db)
+		const sshKeys = createSshKeyRepository(db)
+		const sshKeyRow = await sshKeys.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-key`,
+				publicKey: "ssh-ed25519 AAAA...",
+				privateKeyEncrypted: "sealed",
+				privateKeyKeyId: "k1",
+			},
+		)
+		trackSshKeyId(sshKeyRow.id)
+		const created = await hosts.insert(
+			{ organizationId },
+			{
+				name: `${slugPrefix}-host`,
+				hostname: "10.0.0.95",
+				port: 22,
+				username: "mcc",
+				osRelease: "systemd 252",
+				osId: "debian",
+				osName: "Debian GNU/Linux 12 (bookworm)",
+				failedUnits: null,
+				teardownError: null,
+				teardownRequestedAt: null,
+				sshKeyId: sshKeyRow.id,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: EXPECTED_FINGERPRINT,
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "actor@example.com",
+				hostKeyTrustedAt: new Date(),
+				status: "ready",
+			},
+		)
+		trackHostId(created.id)
+		return { organizationId, memberId, db, hosts, sshKeys, hostId: created.id }
+	}
+
+	it("C8: leases, reads and evicts with no transaction open, and evicts only after each commit", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedReadyHost("org-reuse-sightings")
+		let openTransactions = 0
+		const inner = createHostControllerTransaction(db, sendJobDouble)
+		const withTransaction: WithTransaction = async (fn) => {
+			openTransactions += 1
+			try {
+				return await inner(fn)
+			} finally {
+				openTransactions -= 1
+			}
+		}
+		const sightings: Array<{ what: string; insideTransaction: boolean }> = []
+		const sight = (what: string) =>
+			sightings.push({ what, insideTransaction: openTransactions > 0 })
+		const readConnections = createReadConnections({
+			createTransport: () => {
+				const transport = createFakeTransport()
+				return {
+					...transport,
+					connect: async (options: ConnectOptions) => {
+						sight("connect")
+						await transport.connect(options)
+					},
+					forwardUntil: async (port: number, signal: AbortSignal) => {
+						sight("forward")
+						return await transport.forwardUntil(port, signal)
+					},
+					destroy: () => {
+						sight("destroy")
+						transport.destroy()
+					},
+				}
+			},
+			idleMs: READ_CONNECTION_IDLE_MS,
+			hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+			channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+			now: () => Date.now(),
+		})
+		const secrets = { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() }
+		const readerDeps = { hosts, sshKeys, secrets, readConnections }
+		const scope = { organizationId }
+		const readOnce = async () => {
+			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000)
+			if (leased.kind !== "leased") return leased.kind
+			try {
+				return await leased.reader.probePort(33333)
+			} finally {
+				leased.reader.release()
+			}
+		}
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets,
+			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			createTransport: vi.fn(),
+			evictHost: (evictedOrganization, evictedHost) => {
+				sight("evict")
+				readConnections.evict(hostReadKey(evictedOrganization, evictedHost))
+			},
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction,
+		})
+		const ctx = actorFor(organizationId, memberId)
+
+		expect(await readOnce()).toBe("open")
+		await controller.retrustHostKey(ctx, hostId, { hostKeyFingerprint: ROTATED_FINGERPRINT })
+		expect(await readOnce()).toBe("open")
+		await controller.remove(ctx, hostId)
+		expect(await readOnce()).toBe("missing")
+
+		expect(sightings.map((each) => each.what)).toEqual([
+			"connect",
+			"forward",
+			"evict",
+			"destroy",
+			"connect",
+			"forward",
+			"evict",
+			"destroy",
+		])
+		expect(sightings.every((each) => each.insideTransaction === false)).toBe(true)
+	})
+
+	const actorFor = (organizationId: string, memberId: string): ActorContext => ({
+		organizationId,
+		memberId,
+		actorLabel: "actor@example.com",
+		role: "owner",
 	})
 })

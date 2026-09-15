@@ -1,3 +1,4 @@
+import { CommandTimedOutError } from "../errors"
 import type { ExecResult } from "../types"
 
 export const MAX_STDOUT_BYTES = 1024 * 1024
@@ -59,7 +60,7 @@ const boundedTail = (buffer: Buffer): string => buffer.subarray(-DIAGNOSTIC_TAIL
 export const execViaChannel = (
 	channel: ExecChannel,
 	command: string,
-	timeoutMs: number,
+	timeoutMs: number | undefined,
 	stdin?: string,
 ): Promise<ExecResult> =>
 	new Promise<ExecResult>((resolve, reject) => {
@@ -67,12 +68,15 @@ export const execViaChannel = (
 		let stdout: Buffer = Buffer.alloc(0)
 		let stderr: Buffer = Buffer.alloc(0)
 
-		const timer = setTimeout(() => {
-			if (settled) return
-			settled = true
-			channel.destroy()
-			reject(new Error(`Command timed out: ${command}`))
-		}, timeoutMs)
+		const timer =
+			timeoutMs === undefined
+				? undefined
+				: setTimeout(() => {
+						if (settled) return
+						settled = true
+						channel.destroy()
+						reject(new CommandTimedOutError(`Command timed out: ${command}`))
+					}, timeoutMs)
 
 		const append = (
 			current: Buffer,

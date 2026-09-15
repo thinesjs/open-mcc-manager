@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import {
-	createChannelLimiter,
-	DEFAULT_EXEC_CONCURRENCY,
-	execWithBoundedAcquisition,
-	type RequestChannel,
-} from "./connection"
+import { ChannelOpenTimedOutError } from "../errors"
+import { execWithBoundedAcquisition, type RequestChannel } from "./connection"
 import {
 	ChannelLimitReachedError,
 	CommandAbortedError,
@@ -83,9 +79,11 @@ describe("execWithBoundedAcquisition", () => {
 
 		const resultPromise = execWithBoundedAcquisition(requestChannel, "docker --version", 1000)
 		const assertion = expect(resultPromise).rejects.toThrow(/timed out waiting for a channel/i)
+		const typed = expect(resultPromise).rejects.toBeInstanceOf(ChannelOpenTimedOutError)
 		await vi.advanceTimersByTimeAsync(1000)
 
 		await assertion
+		await typed
 	})
 
 	it("propagates a channel-acquisition error instead of waiting out the timeout", async () => {
@@ -153,54 +151,6 @@ describe("execWithBoundedAcquisition", () => {
 		await vi.advanceTimersByTimeAsync(5000)
 
 		expect(fake.wasDestroyed()).toBe(false)
-	})
-})
-
-describe("bounding how many session channels are open at once", () => {
-	it("lets work through up to the limit without waiting", async () => {
-		const limiter = createChannelLimiter(2)
-
-		await limiter.acquire()
-		await limiter.acquire()
-
-		expect(limiter.active()).toBe(2)
-		expect(limiter.queued()).toBe(0)
-	})
-
-	it("queues past the limit rather than opening a channel the host would refuse", async () => {
-		const limiter = createChannelLimiter(1)
-		await limiter.acquire()
-		let admitted = false
-		const pending = limiter.acquire().then(() => {
-			admitted = true
-		})
-
-		expect(limiter.queued()).toBe(1)
-		expect(admitted).toBe(false)
-
-		limiter.release()
-		await pending
-		expect(admitted).toBe(true)
-		expect(limiter.active()).toBe(1)
-	})
-
-	it("admits waiters in the order they arrived", async () => {
-		const limiter = createChannelLimiter(1)
-		await limiter.acquire()
-		const order: number[] = []
-		const first = limiter.acquire().then(() => order.push(1))
-		const second = limiter.acquire().then(() => order.push(2))
-
-		limiter.release()
-		await first
-		limiter.release()
-		await second
-
-		expect(order).toEqual([1, 2])
-	})
-
-	it("stays well under the ten channels a default sshd allows", () => {
-		expect(DEFAULT_EXEC_CONCURRENCY).toBeLessThan(10)
 	})
 })
 

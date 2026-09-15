@@ -31,4 +31,10 @@ export type HostTransport = {
 	close: () => Promise<void>
 }
 
+export type ReusableTransport = HostTransport & {
+	destroy: () => void
+	execUntil: (command: string, signal: AbortSignal) => Promise<ExecResult>
+	forwardUntil: (port: number, signal: AbortSignal) => Promise<ForwardedStream>
+}
+
 export class LiveChannelUnavailableError extends Error {}

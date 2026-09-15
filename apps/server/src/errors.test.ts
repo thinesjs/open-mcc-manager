@@ -264,6 +264,31 @@ describe("mapKnownError coverage of the error classes it is given", () => {
 		).toMatchObject(interrupted)
 	})
 
+	it("answers a host that stopped answering in one set of words, whichever way it stopped", () => {
+		const notAnswering = {
+			code: "CONFLICT",
+			errorCode: "HOST_NOT_ANSWERING",
+			httpStatus: 409,
+			message: "The host did not answer in time",
+		}
+
+		for (const interrupted of [
+			new transport.ChannelQueueExpiredError("queued too long for 10.42.0.7"),
+			new transport.ReadDeadlineExceededError("deadline passed on 10.42.0.7:22"),
+			new transport.ReadConnectionLostError("Not connected"),
+			new transport.CommandTimedOutError("Command timed out: cat /etc/secret"),
+			new transport.ChannelOpenTimedOutError("Command timed out waiting for a channel: ls"),
+		]) {
+			expect(mapKnownError(interrupted)).toEqual(notAnswering)
+		}
+	})
+
+	it("still calls a forward that timed out an unavailable live channel", () => {
+		expect(mapKnownError(new transport.ForwardTimedOutError("port 33333"))?.errorCode).toBe(
+			"INSTANCE_LIVE_UNAVAILABLE",
+		)
+	})
+
 	it("maps every error class the domain packages export, so a new one cannot become a silent 500", () => {
 		for (const [name, ErrorClass] of wireErrorConstructors) {
 			const mapped = mapKnownError(new ErrorClass(`${name} raised for the coverage check`))

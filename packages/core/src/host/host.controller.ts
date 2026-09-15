@@ -65,6 +65,7 @@ export type HostControllerDeps = {
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
 	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
+	evictHost: (organizationId: string, hostId: string) => void
 	now: () => Date
 	withTransaction: WithTransaction
 	onError?: RuntimeErrorReporter
@@ -395,7 +396,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			}
 			const algorithm = algorithmFromKey(presented)
 
-			return deps.withTransaction(async (repos) => {
+			const retrusted = await deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 
 				const found = await repos.hosts.findById(scope, hostId)
@@ -429,6 +430,8 @@ export const createHostController = (deps: HostControllerDeps) => {
 
 				return toHostPublic(updated)
 			})
+			deps.evictHost(ctx.organizationId, hostId)
+			return retrusted
 		},
 
 		list: async (ctx: ActorContext) => {
@@ -452,7 +455,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 
 			const teardownPayload = teardownPayloadFor(target)
 
-			return deps.withTransaction(async (repos) => {
+			const removed = await deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 				const found = await repos.hosts.findById(scope, hostId)
 				if (!found) return false
@@ -495,6 +498,8 @@ export const createHostController = (deps: HostControllerDeps) => {
 				})
 				return true
 			})
+			deps.evictHost(ctx.organizationId, hostId)
+			return removed
 		},
 	}
 }

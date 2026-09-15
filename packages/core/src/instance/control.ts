@@ -1,10 +1,7 @@
 import type { HostTransport } from "@open-mcc/transport"
-import { journalctl } from "../host/profile"
-import { instanceDir, unitName, validateInstanceId } from "./unit"
+import { instanceDir, validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
-
-const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 const controlPath = (instanceId: string): string => `${instanceDir(instanceId)}/control`
 
@@ -94,25 +91,4 @@ export const sendCommand = async (
 	if (result.exitCode !== 0) {
 		throw new Error(`Failed to send command to instance ${id}: ${result.stderr.trim()}`)
 	}
-}
-
-export const readConsole = async (
-	transport: HostTransport,
-	instanceId: string,
-	lines: number,
-): Promise<string> => {
-	const id = validateInstanceId(instanceId)
-	if (!Number.isInteger(lines) || lines < 1 || lines > 1000) {
-		throw new Error("Console line count must be a whole number between 1 and 1000")
-	}
-	const result = await transport.exec(
-		journalctl(
-			`-u ${shellQuote(`${unitName(id)}.service`)} --lines ${lines} --no-pager --output cat`,
-		),
-		CONTROL_TIMEOUT_MS,
-	)
-	if (result.exitCode !== 0) {
-		throw new Error(`Failed to read console for instance ${id}: ${result.stderr.trim()}`)
-	}
-	return result.stdout
 }

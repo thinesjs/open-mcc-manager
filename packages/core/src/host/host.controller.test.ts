@@ -222,6 +222,7 @@ const deps = (
 				"systemctl --version | head -n 1": { stdout: "systemd 252", stderr: "", exitCode: 0 },
 			}),
 		),
+		evictHost: () => undefined,
 		instanceIdsOnHost: vi.fn(async () => []),
 		now: () => new Date(),
 		withTransaction,
@@ -912,6 +913,92 @@ describe("host controller removal", () => {
 
 		await expect(controller.remove(ctx, "host-1")).resolves.toBe(true)
 		expect(hosts.delete).toHaveBeenCalled()
+	})
+})
+
+describe("dropping a host's shared connections once a trust change commits", () => {
+	const recorded = (d: ReturnType<typeof deps>) => {
+		const events: string[] = []
+		d.withTransaction = async (fn) => {
+			events.push("opened")
+			const result = await fn({ hosts: d.hosts, audit: d.audit, jobs: jobsDouble() })
+			events.push("committed")
+			return result
+		}
+		d.evictHost = (organizationId, hostId) => {
+			events.push(`evicted ${organizationId}:${hostId}`)
+		}
+		return events
+	}
+
+	it("C3: evicts only after the re-trust has committed", async () => {
+		const d = deps()
+		const events = recorded(d)
+
+		await createHostController(d).retrustHostKey(ctx, "host-1", {
+			hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+		})
+
+		expect(events).toEqual(["opened", "committed", "evicted org-1:host-1"])
+	})
+
+	it("C3: evicts nothing when the re-trust does not commit", async () => {
+		const d = deps()
+		const events = recorded(d)
+		vi.mocked(d.hosts.updateHostKeyTrust).mockResolvedValueOnce(undefined)
+
+		await expect(
+			createHostController(d).retrustHostKey(ctx, "host-1", {
+				hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+			}),
+		).rejects.toBeInstanceOf(HostNotFoundError)
+
+		expect(events).toEqual(["opened"])
+	})
+
+	it("C4: evicts after removing a host that had nothing installed", async () => {
+		const d = deps()
+		const events = recorded(d)
+		vi.mocked(d.hosts.findById).mockResolvedValue(makeHostRow({ status: "pending" }))
+
+		await expect(createHostController(d).remove(ctx, "host-1")).resolves.toBe(true)
+
+		expect(d.hosts.delete).toHaveBeenCalled()
+		expect(events).toEqual(["opened", "committed", "evicted org-1:host-1"])
+	})
+
+	it("C4: evicts after requesting the teardown of a provisioned host", async () => {
+		const d = deps()
+		const events = recorded(d)
+		vi.mocked(d.hosts.findById).mockResolvedValue(
+			makeHostRow({
+				sshKeyId: "key-1",
+				hostKeyFingerprint: "SHA256:trusted",
+				osRelease: "Debian GNU/Linux 12 (bookworm)",
+				status: "ready",
+			}),
+		)
+
+		await expect(createHostController(d).remove(ctx, "host-1")).resolves.toBe(true)
+
+		expect(d.hosts.beginTeardown).toHaveBeenCalled()
+		expect(events).toEqual(["opened", "committed", "evicted org-1:host-1"])
+	})
+
+	it("C5: evicts nothing for an organization naming another's host", async () => {
+		const d = deps()
+		const events = recorded(d)
+		vi.mocked(d.hosts.findById).mockResolvedValue(undefined)
+		const outsider = { ...ctx, organizationId: "org-2" }
+
+		await expect(
+			createHostController(d).retrustHostKey(outsider, "host-1", {
+				hostKeyFingerprint: fingerprintFromKey(DEFAULT_HOST_KEY_BLOB),
+			}),
+		).rejects.toBeInstanceOf(HostNotFoundError)
+		await expect(createHostController(d).remove(outsider, "host-1")).resolves.toBe(false)
+
+		expect(events).toEqual([])
 	})
 })
 

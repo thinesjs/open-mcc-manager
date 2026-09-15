@@ -1,17 +1,17 @@
 import { instanceConfigStored, minecraftNameOf } from "@open-mcc/contracts"
 import type { InstanceConfigRow, InstanceRow } from "@open-mcc/db"
-import type { HostTransport } from "@open-mcc/transport"
+import type { HostReader } from "@open-mcc/transport"
 import { LIVE_CONTROL_ROUTE } from "../instance/config"
 import { readSessionStatus } from "../instance/live-control"
 
 export type UsernameDeps = {
 	latestConfig: (instanceId: string) => Promise<InstanceConfigRow | undefined>
 	openToken: (sealed: string, keyId: string) => string
+	reader: () => Promise<HostReader | undefined>
 }
 
 export const resolveMinecraftName = async (
 	instance: InstanceRow,
-	transport: HostTransport,
 	deps: UsernameDeps,
 ): Promise<string | undefined> => {
 	const offline = minecraftNameOf(instance)
@@ -23,14 +23,21 @@ export const resolveMinecraftName = async (
 	const config = instanceConfigStored.safeParse(saved.document)
 	if (!config.success || !config.data.liveControlEnabled) return undefined
 
+	const token = deps.openToken(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId)
 	try {
-		const status = await readSessionStatus({
-			transport,
-			port: instance.liveControlPort,
-			route: LIVE_CONTROL_ROUTE,
-			token: deps.openToken(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId),
-		})
-		return status.username
+		const reader = await deps.reader()
+		if (!reader) return undefined
+		try {
+			const status = await readSessionStatus({
+				reader,
+				port: instance.liveControlPort,
+				route: LIVE_CONTROL_ROUTE,
+				token,
+			})
+			return status.username
+		} finally {
+			reader.release()
+		}
 	} catch {
 		return undefined
 	}

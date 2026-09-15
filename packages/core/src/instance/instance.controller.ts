@@ -39,15 +39,23 @@ import {
 	type InstanceRow,
 	type InstanceScheduleRow,
 } from "@open-mcc/db"
-import { type HostTransport, LiveChannelUnavailableError } from "@open-mcc/transport"
+import {
+	type HostReader,
+	type HostTransport,
+	LiveChannelUnavailableError,
+	type ReadConnections,
+	TransportInterruptedError,
+} from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
+import { leaseHostReader } from "../host/host-reader"
 import { systemctl, UNIT_DIR } from "../host/profile"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
+import { assertExhaustive } from "../lib/exhaustive"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
-import { type HostMetrics, readHostMetrics } from "../system/host-metrics"
+import { HOST_METRICS_TIMEOUT_MS, type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
 import {
 	defaultInstanceConfig,
@@ -57,7 +65,8 @@ import {
 	renderInstanceConfig,
 } from "./config"
 import { CONFIG_PATH_NAME } from "./config-drift"
-import { readConsole, sendCommand } from "./control"
+import { CONSOLE_READ_DEADLINE_MS, readConsole } from "./console"
+import { sendCommand } from "./control"
 import {
 	createInstanceRepository,
 	type InstanceRepository,
@@ -65,7 +74,9 @@ import {
 } from "./instance.repository"
 import {
 	dropInventoryItem as dropItemOverChannel,
+	LIVE_CONTROL_TIMEOUT_MS,
 	type LiveControlTarget,
+	type LiveReadTarget,
 	readChatHistory,
 	readEntities,
 	readInventory,
@@ -82,6 +93,7 @@ import {
 	expectedUnits,
 	type HostReconciliation,
 	type HostUnreachableReason,
+	RECONCILE_DEADLINE_MS,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 } from "./reconcile"
@@ -141,6 +153,7 @@ export type InstanceControllerDeps = {
 	sshKeys: Pick<SshKeyRepository, "findById">
 	secrets: SecretStore
 	createTransport: () => HostTransport
+	readConnections: Pick<ReadConnections, "lease">
 	withTransaction: WithInstanceTransaction
 }
 
@@ -229,6 +242,26 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			)
 		}
 		return transport
+	}
+
+	const leaseHost = async (
+		scope: OrgScope,
+		hostId: string,
+		deadlineMs: number,
+	): Promise<HostReader> => {
+		const leased = await leaseHostReader(deps, scope, hostId, deadlineMs)
+		switch (leased.kind) {
+			case "leased":
+				return leased.reader
+			case "missing":
+				throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
+			case "unprovisioned":
+				throw new InstanceHostNotProvisionedError(`Host ${hostId} has never finished provisioning`)
+			case "changed":
+				throw new HostUnreachableError(COULD_NOT_CONNECT)
+			default:
+				return assertExhaustive(leased)
+		}
 	}
 
 	const rotateLiveControlToken = async (
@@ -363,32 +396,66 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		}
 	}
 
-	const liveControlTargetFor = async (
+	const liveEndpointFor = async (
 		ctx: ActorContext,
 		instanceId: string,
-	): Promise<{ target: LiveControlTarget; close: () => Promise<void> } | undefined> => {
+	): Promise<{ hostId: string; port: number; route: string; token: string } | undefined> => {
 		const instance = await requireInstance(ctx, instanceId)
 		if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
 		const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
 		if (!saved) return undefined
 		const config = instanceConfigStored.safeParse(saved.document)
 		if (!config.success || !config.data.liveControlEnabled) return undefined
-
-		const token = deps.secrets.open(
-			instance.liveControlTokenEncrypted,
-			instance.liveControlTokenKeyId,
-		)
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId)
 		return {
-			target: {
-				transport,
-				port: instance.liveControlPort,
-				route: LIVE_CONTROL_ROUTE,
-				token,
-			},
+			hostId: instance.hostId,
+			port: instance.liveControlPort,
+			route: LIVE_CONTROL_ROUTE,
+			token: deps.secrets.open(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId),
+		}
+	}
+
+	const liveReadTargetFor = async (
+		ctx: ActorContext,
+		instanceId: string,
+	): Promise<LiveReadTarget | undefined> => {
+		const endpoint = await liveEndpointFor(ctx, instanceId)
+		if (!endpoint) return undefined
+		const reader = await leaseHost(scopeOf(ctx), endpoint.hostId, LIVE_CONTROL_TIMEOUT_MS)
+		return { reader, port: endpoint.port, route: endpoint.route, token: endpoint.token }
+	}
+
+	const liveWriteTargetFor = async (
+		ctx: ActorContext,
+		instanceId: string,
+	): Promise<{ target: LiveControlTarget; close: () => Promise<void> } | undefined> => {
+		const endpoint = await liveEndpointFor(ctx, instanceId)
+		if (!endpoint) return undefined
+		const transport = await connectToHost(scopeOf(ctx), endpoint.hostId)
+		return {
+			target: { transport, port: endpoint.port, route: endpoint.route, token: endpoint.token },
 			close: async () => {
 				await transport.close().catch(() => undefined)
 			},
+		}
+	}
+
+	const readLive = async <T>(
+		ctx: ActorContext,
+		instanceId: string,
+		read: (target: LiveReadTarget) => Promise<T>,
+	): Promise<T | undefined> => {
+		try {
+			const target = await liveReadTargetFor(ctx, instanceId)
+			if (!target) return undefined
+			try {
+				return await read(target)
+			} finally {
+				target.reader.release()
+			}
+		} catch (error) {
+			if (error instanceof LiveChannelUnavailableError) return undefined
+			if (error instanceof TransportInterruptedError) return undefined
+			throw error
 		}
 	}
 
@@ -732,11 +799,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId)
+			const reader = await leaseHost(scopeOf(ctx), instance.hostId, CONSOLE_READ_DEADLINE_MS)
 			try {
-				return await readConsole(transport, instance.id, lines)
+				return await readConsole(reader, instance.id, lines)
 			} finally {
-				await transport.close().catch(() => undefined)
+				reader.release()
 			}
 		},
 
@@ -745,16 +812,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpSessionStatus | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readSessionStatus(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readSessionStatus)
 		},
 
 		readLiveChat: async (
@@ -762,16 +820,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpChatEntry[] | undefined> => {
 			requireCapabilityFor(ctx.role, "console.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readChatHistory(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readChatHistory)
 		},
 
 		readLiveEvents: async (
@@ -779,16 +828,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpEventPage | undefined> => {
 			requireCapabilityFor(ctx.role, "console.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readRecentEvents(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readRecentEvents)
 		},
 
 		readLiveWorld: async (
@@ -796,16 +836,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpWorldState | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readWorldState(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readWorldState)
 		},
 
 		readLiveEntities: async (
@@ -813,16 +844,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpEntityList | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readEntities(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readEntities)
 		},
 
 		readLiveInventory: async (
@@ -830,16 +852,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpInventory | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readInventory(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readInventory)
 		},
 
 		readLivePlayerStats: async (
@@ -847,16 +860,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpPlayerStats | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readPlayerStats(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readPlayerStats)
 		},
 
 		readLiveStatusEffects: async (
@@ -864,16 +868,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpStatusEffect[] | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readStatusEffects(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readStatusEffects)
 		},
 
 		readLiveBots: async (
@@ -881,16 +876,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<McpLoadedBot[] | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readLoadedBots(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readLoadedBots)
 		},
 
 		readLivePlayers: async (
@@ -898,16 +884,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			instanceId: string,
 		): Promise<string[] | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const target = await liveControlTargetFor(ctx, instanceId)
-			if (!target) return undefined
-			try {
-				return await readPlayersList(target.target)
-			} catch (error) {
-				if (error instanceof LiveChannelUnavailableError) return undefined
-				throw error
-			} finally {
-				await target.close()
-			}
+			return await readLive(ctx, instanceId, readPlayersList)
 		},
 
 		dropInventoryItem: async (
@@ -917,7 +894,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			count: number,
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "console.write")
-			const target = await liveControlTargetFor(ctx, instanceId)
+			const target = await liveWriteTargetFor(ctx, instanceId)
 			if (!target) throw new LiveChannelUnavailableError("Live view is not open for this instance")
 			try {
 				await dropItemOverChannel(target.target, itemType, count)
@@ -942,7 +919,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			itemType: string,
 		): Promise<void> => {
 			requireCapabilityFor(ctx.role, "console.write")
-			const target = await liveControlTargetFor(ctx, instanceId)
+			const target = await liveWriteTargetFor(ctx, instanceId)
 			if (!target) throw new LiveChannelUnavailableError("Live view is not open for this instance")
 			try {
 				await selectItemOverChannel(target.target, itemType)
@@ -1044,11 +1021,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
 			requireCapabilityFor(ctx.role, "instance.read")
-			const transport = await connectToHost(scopeOf(ctx), hostId)
+			const reader = await leaseHost(scopeOf(ctx), hostId, HOST_METRICS_TIMEOUT_MS)
 			try {
-				return await readHostMetrics(transport)
+				return await readHostMetrics(reader)
 			} finally {
-				await transport.close().catch(() => undefined)
+				reader.release()
 			}
 		},
 
@@ -1062,66 +1039,63 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const schedules = (await deps.schedules.list(scope)).filter((schedule) =>
 				instances.some((instance) => instance.id === schedule.instanceId),
 			)
-			let transport: HostTransport
+			const expectedConfigs = new Map<string, string>()
+			const unusable: string[] = []
+			for (const instance of instances) {
+				try {
+					const stored = await storedConfigFor(scope, instance)
+					if (stored !== undefined) expectedConfigs.set(instance.id, renderInstanceConfig(stored))
+				} catch (error) {
+					if (!(error instanceof InstanceConfigUnusableError)) throw error
+					unusable.push(instance.id)
+				}
+			}
+
+			let reader: HostReader
 			try {
-				transport = await connectToHost(scopeOf(ctx), hostId)
+				reader = await leaseHost(scope, hostId, RECONCILE_DEADLINE_MS)
 			} catch (error) {
 				const reason = error instanceof Error ? reasonFor(error) : "failed"
 				return { hostId, reachable: false, reason }
 			}
 
 			const expected = expectedUnits(instances, schedules, renderScheduleUnits)
-
+			let observed: Awaited<ReturnType<typeof reconcileHostOverTransport>>
 			try {
-				const expectedConfigs = new Map<string, string>()
-				const unusable: string[] = []
-				for (const instance of instances) {
-					try {
-						const stored = await storedConfigFor(scope, instance)
-						if (stored !== undefined) expectedConfigs.set(instance.id, renderInstanceConfig(stored))
-					} catch (error) {
-						if (!(error instanceof InstanceConfigUnusableError)) throw error
-						unusable.push(instance.id)
-					}
-				}
-
-				let observed: Awaited<ReturnType<typeof reconcileHostOverTransport>>
-				try {
-					observed = await reconcileHostOverTransport(
-						transport,
-						hostId,
-						instances,
-						expected,
-						expectedConfigs,
-					)
-				} catch {
-					return { hostId, reachable: false, reason: "interrupted" }
-				}
-				for (const [id, player] of observed.seenPlayers) {
-					const known = instances.find((each) => each.id === id)
-					if (known && known.minecraftUsername !== player) {
-						await deps.instances
-							.update(scope, id, { minecraftUsername: player })
-							.catch(() => undefined)
-					}
-				}
-				const reconciliation = observed.reconciliation
-				if (!reconciliation.reachable || unusable.length === 0) return reconciliation
-				return {
-					...reconciliation,
-					configDrift: [
-						...reconciliation.configDrift,
-						...unusable.map((instanceId) => ({
-							instanceId,
-							kind: "unreadable" as const,
-							key: CONFIG_PATH_NAME,
-							expected: null,
-							actual: null,
-						})),
-					],
-				}
+				observed = await reconcileHostOverTransport(
+					reader,
+					hostId,
+					instances,
+					expected,
+					expectedConfigs,
+				)
+			} catch {
+				return { hostId, reachable: false, reason: "interrupted" }
 			} finally {
-				await transport.close().catch(() => undefined)
+				reader.release()
+			}
+			for (const [id, player] of observed.seenPlayers) {
+				const known = instances.find((each) => each.id === id)
+				if (known && known.minecraftUsername !== player) {
+					await deps.instances
+						.update(scope, id, { minecraftUsername: player })
+						.catch(() => undefined)
+				}
+			}
+			const reconciliation = observed.reconciliation
+			if (!reconciliation.reachable || unusable.length === 0) return reconciliation
+			return {
+				...reconciliation,
+				configDrift: [
+					...reconciliation.configDrift,
+					...unusable.map((instanceId) => ({
+						instanceId,
+						kind: "unreadable" as const,
+						key: CONFIG_PATH_NAME,
+						expected: null,
+						actual: null,
+					})),
+				],
 			}
 		},
 

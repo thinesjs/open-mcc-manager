@@ -1,54 +1,26 @@
-import { Client } from "ssh2"
+import { Client, type ClientChannel } from "ssh2"
+import {
+	ChannelOpenTimedOutError,
+	ForwardTimedOutError,
+	ReadConnectionLostError,
+	TransportInterruptedError,
+} from "../errors"
 import {
 	type ConnectionState,
 	type ConnectOptions,
 	type ExecResult,
 	type ForwardedStream,
-	type HostTransport,
 	LiveChannelUnavailableError,
+	type ReusableTransport,
 } from "../types"
 import { type ExecChannel, execViaChannel, namedChannelError } from "./exec"
+import { createChannelLimiter, DEFAULT_EXEC_CONCURRENCY } from "./limiter"
 import { verifyHostKey } from "./verify"
 
 export type RequestChannel = (
 	command: string,
 	callback: (error: Error | undefined, channel: ExecChannel | undefined) => void,
 ) => void
-
-export const DEFAULT_EXEC_CONCURRENCY = 6
-
-export type ChannelLimiter = {
-	acquire: () => Promise<void>
-	release: () => void
-	active: () => number
-	queued: () => number
-}
-
-export const createChannelLimiter = (limit: number): ChannelLimiter => {
-	let active = 0
-	const waiting: Array<() => void> = []
-	return {
-		acquire: () =>
-			new Promise<void>((resolve) => {
-				if (active < limit) {
-					active += 1
-					resolve()
-					return
-				}
-				waiting.push(() => {
-					active += 1
-					resolve()
-				})
-			}),
-		release: () => {
-			active -= 1
-			const next = waiting.shift()
-			if (next) next()
-		},
-		active: () => active,
-		queued: () => waiting.length,
-	}
-}
 
 export const execWithBoundedAcquisition = (
 	requestChannel: RequestChannel,
@@ -62,7 +34,7 @@ export const execWithBoundedAcquisition = (
 		const timer = setTimeout(() => {
 			if (settled) return
 			settled = true
-			reject(new Error(`Command timed out waiting for a channel: ${command}`))
+			reject(new ChannelOpenTimedOutError(`Command timed out waiting for a channel: ${command}`))
 		}, timeoutMs)
 
 		requestChannel(command, (error, channel) => {
@@ -94,10 +66,45 @@ export const execWithBoundedAcquisition = (
 		})
 	})
 
-export const createSshTransport = (): HostTransport => {
+const channelFrom = (stream: ClientChannel): ExecChannel => ({
+	write: (chunk) => {
+		stream.write(chunk)
+	},
+	end: () => {
+		stream.end()
+	},
+	onStdout: (listener) => {
+		stream.on("data", listener)
+	},
+	onStderr: (listener) => {
+		stream.stderr.on("data", listener)
+	},
+	onClose: (listener) => {
+		stream.on("close", listener)
+	},
+	destroy: () => {
+		stream.destroy()
+	},
+})
+
+const abandonedBy = (signal: AbortSignal): Error =>
+	signal.reason instanceof Error
+		? signal.reason
+		: new TransportInterruptedError("The channel was abandoned")
+
+const connectionLost = (): Error =>
+	new ReadConnectionLostError("The connection to the host is closed")
+
+export const createSshTransport = (): ReusableTransport => {
 	let client: Client | undefined
 	let state: ConnectionState = "disconnected"
 	const limiter = createChannelLimiter(DEFAULT_EXEC_CONCURRENCY)
+
+	const lose = (conn: Client): void => {
+		if (client !== conn) return
+		client = undefined
+		state = "disconnected"
+	}
 
 	return {
 		state: () => state,
@@ -127,6 +134,8 @@ export const createSshTransport = (): HostTransport => {
 						resolve()
 					})
 					.on("error", fail)
+					.on("end", () => lose(conn))
+					.on("close", () => lose(conn))
 
 				try {
 					conn.connect({
@@ -173,7 +182,7 @@ export const createSshTransport = (): HostTransport => {
 				const timer = setTimeout(() => {
 					if (settled) return
 					settled = true
-					reject(new LiveChannelUnavailableError(`Forwarding to port ${port} timed out`))
+					reject(new ForwardTimedOutError(`Forwarding to port ${port} timed out`))
 				}, timeoutMs)
 				conn.forwardOut("127.0.0.1", 0, "127.0.0.1", port, (error, stream) => {
 					if (settled) {
@@ -206,26 +215,7 @@ export const createSshTransport = (): HostTransport => {
 								callback(error, undefined)
 								return
 							}
-							callback(undefined, {
-								write: (chunk) => {
-									stream.write(chunk)
-								},
-								end: () => {
-									stream.end()
-								},
-								onStdout: (listener) => {
-									stream.on("data", listener)
-								},
-								onStderr: (listener) => {
-									stream.stderr.on("data", listener)
-								},
-								onClose: (listener) => {
-									stream.on("close", listener)
-								},
-								destroy: () => {
-									stream.destroy()
-								},
-							})
+							callback(undefined, channelFrom(stream))
 						}),
 					command,
 					timeoutMs,
@@ -236,10 +226,96 @@ export const createSshTransport = (): HostTransport => {
 			}
 		},
 
+		execUntil: (command: string, signal: AbortSignal) =>
+			new Promise<ExecResult>((resolve, reject) => {
+				const conn = client
+				if (!conn) return reject(connectionLost())
+				if (signal.aborted) return reject(abandonedBy(signal))
+				let settled = false
+				let channel: ExecChannel | undefined
+				const settle = (outcome: () => void): void => {
+					if (settled) return
+					settled = true
+					signal.removeEventListener("abort", abandon)
+					outcome()
+				}
+				const abandon = (): void =>
+					settle(() => {
+						channel?.destroy()
+						reject(abandonedBy(signal))
+					})
+				signal.addEventListener("abort", abandon, { once: true })
+				try {
+					conn.exec(command, (error, stream) => {
+						if (settled) {
+							stream?.destroy()
+							return
+						}
+						if (error) {
+							settle(() => reject(namedChannelError(error, command)))
+							return
+						}
+						channel = channelFrom(stream)
+						execViaChannel(channel, command, undefined).then(
+							(result) => settle(() => resolve(result)),
+							(failure) => settle(() => reject(failure)),
+						)
+					})
+				} catch {
+					lose(conn)
+					settle(() => reject(connectionLost()))
+				}
+			}),
+
+		forwardUntil: (port: number, signal: AbortSignal) =>
+			new Promise<ForwardedStream>((resolve, reject) => {
+				const conn = client
+				if (!conn) return reject(connectionLost())
+				if (signal.aborted) return reject(abandonedBy(signal))
+				let settled = false
+				const abandon = (): void => {
+					if (settled) return
+					settled = true
+					reject(abandonedBy(signal))
+				}
+				signal.addEventListener("abort", abandon, { once: true })
+				try {
+					conn.forwardOut("127.0.0.1", 0, "127.0.0.1", port, (error, stream) => {
+						signal.removeEventListener("abort", abandon)
+						if (settled) {
+							stream?.destroy()
+							return
+						}
+						settled = true
+						if (error) {
+							reject(
+								new LiveChannelUnavailableError(
+									namedChannelError(error, `forward to ${port}`).message,
+								),
+							)
+							return
+						}
+						resolve({ socket: stream, close: () => stream.destroy() })
+					})
+				} catch {
+					signal.removeEventListener("abort", abandon)
+					lose(conn)
+					settled = true
+					reject(connectionLost())
+				}
+			}),
+
 		close: async () => {
 			client?.end()
 			client = undefined
 			state = "disconnected"
+		},
+
+		destroy: () => {
+			const conn = client
+			client = undefined
+			state = "disconnected"
+			conn?.destroy()
 		},
 	}
 }

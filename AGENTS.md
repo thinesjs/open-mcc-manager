@@ -162,7 +162,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Thirteen rules stated further down this document are enforced too, and are listed
+Fourteen rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -177,6 +177,7 @@ have:
 | The provisioning claim conditioned on the status read before the lock | `packages/core/src/host/host.controller.transaction.test.ts` — substituting the row read under the lock makes the claim always succeed, and fails the test named for it |
 | Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |
 | The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
+| Only reviewed read builders turning text into a command a shared connection runs | `packages/core/src/instance/read-command-allowlist.test.ts` — every source file naming `asReadCommand` is compared against an exact list, so a new caller fails. It proves who can mint a read command, NOT that the command only reads: `asReadCommand` accepts any string, so a write minted inside an allowlisted file passes, and `HostReader.forward` is not covered at all |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
 | Registration closed to every authentication method once a user exists | `apps/server/src/registration-gate.test.ts` — the gate is driven with a `create-user` source for each method better-auth can report as well as over HTTP, so unwiring it from `createAuth` or making it always admit both fail it |
 | No sandbox container is given a host path, home directory, `~/.ssh` or the Docker socket | `scripts/sandbox/sandbox.test.ts` — every `docker` call the sandbox suite makes goes through one guard, which refuses, among the arguments of a `run` or `create` up to a `--` (a bind mount can only come from a docker-level flag before the image, never from the command run inside a container; every harness `run` builder passes `--` right before its image, and a call without `--` is scanned to its end, so a `v`-flag after the image is refused there too), any argument that is a short-flag group containing `v`, `--volume`, `--mount` or `--volumes-from`; refuses any argument naming `docker.sock` anywhere; and refuses every `docker cp` or `docker container cp` in either direction. So an in-container `grep -v` or `tar -xvf` under `docker exec` is allowed, while `run -dv /host:/c img` is not. Files reach a container on `docker exec` stdin. A direct `spawn("docker", ...)` would go around it |
@@ -395,6 +396,8 @@ Dependency direction is one-way: router → controller → repository.
   `provision` claims the host with a leased status update, does the SSH work
   entirely outside any transaction, then finalizes in a second transaction —
   a crash mid-attempt leaves a recoverable claim, not a hung lock.
+  Evicting a host's shared read connections is network I/O too, so re-trust
+  and host removal evict only after their transaction commits.
   `member.router.ts`'s `acceptInvitation` calls better-auth's `signUpEmail`
   (a connection this codebase does not control) before opening the
   transaction that inserts the member row and audits it. When that
@@ -625,6 +628,73 @@ summary drifts and the files do not.
    `apps/server` runs its files sequentially and some assert a table is
    globally empty.
 
+## Reusing SSH connections for reads
+
+Every live readout used to open its own SSH login, so one open instance page cost
+about 114 logins a minute. The server now shares one connection per host for
+reads. The worker does not: its jobs run hourly or once per removal, so a cache
+there would never be hit.
+
+- **Readers only.** `createReadConnections`
+  (`packages/transport/src/read-connections.ts`) hands out a `HostReader`, never a
+  `HostTransport`. A reader can `exec` a `ReadCommand` with no stdin, `forward`,
+  `probePort` and `release`, and nothing else. Every write stays on a fresh
+  connection: start, stop, restart, create, send command, config save, sleep
+  window, instance removal, inventory drop and select, scheduled commands,
+  sign-in, host check, provisioning, teardown and the collector.
+- **What the types do not prove.** `asReadCommand` accepts any string. What keeps
+  a write off a shared connection is the allowlist test: only the reviewed read
+  builders may name it, and `control.ts`, which holds `sendCommand`, is not one
+  of them. `HostReader.forward` can post any MCP tool. The mitigation is the split
+  in `live-control.ts`: the read side takes a `LiveReadTarget` and a
+  `ReadToolName`, and both inventory writes take a `LiveControlTarget` built on a
+  fresh `HostTransport`. Reviewing a change to either is the last line of defence.
+- **Trust.** There is one entry per `organizationId:hostId`, holding the hostname,
+  port, username, `sshKeyId` and fingerprint the connection was opened with.
+  Re-trust and host removal call `evictHost` only after their transaction
+  commits. Eviction bumps a generation, destroys every connection under the key,
+  and refuses any connection still opening. After a lease is taken and before it
+  is used, `leaseHostReader` (`packages/core/src/host/host-reader.ts`) re-reads
+  the organization-scoped host row and gives the lease back if the row is gone,
+  has teardown requested, or names a different identity. The health poller leases
+  through it too, so it never connects on its fleet-list copy of a row.
+- **Lifetime.** A connection ends with `end()` 10 seconds after its last lease,
+  and with `destroy()` 2 minutes after it became ready, whatever leases remain.
+  A lease reuses a connection only if its deadline ends before that hard age;
+  otherwise a replacement opens and becomes the connection later reads use.
+- **One deadline per read.** A read's deadline starts once the read has its
+  connection, and covers the local queue, the channel open and every MCP phase:
+  10 seconds for a live readout and the poller's username read, 15 for the
+  console, server usage and host facts, 20 for a bot's journal, and 60 for the
+  setup check. Opening a connection is bounded separately, by the 10-second
+  connect timeout, so a read that has to open one can take its deadline plus up
+  to 10 seconds: about 20 seconds for a live readout, and about 70 for the setup
+  check. A deadline at or past the hard age is refused, and `reconcile.test.ts`
+  keeps the setup check's below the hard age less a full connect.
+- **Channels.** A connection allows 6 channels in total, counting execs, forwards
+  and probes together, and a forward holds its slot until it closes. A read that
+  expires while it is still waiting in that local queue fails with
+  `ChannelQueueExpiredError` and leaves the connection alone. A read whose
+  deadline passes while a channel is requested from sshd or open retires the
+  connection: it takes no new lease, and the next read opens a new one. The
+  wrapper decides which happened from its own state, never from an error message.
+- **Failures a readout swallows.** `TransportInterruptedError` is the base class
+  for every way a shared read is cut short (queue expiry, deadline, a connection
+  lost or evicted mid-read) and for a fresh transport's own timeouts. A readout
+  returns nothing for it, as it does for `LiveChannelUnavailableError`. Anywhere
+  else it maps to `HOST_NOT_ANSWERING`.
+- **What a stalled client costs.** MCC runs each tool call on its main thread and
+  waits for the result with no timeout. When a client's update loop stalls, every
+  readout on its page hangs until its deadline, and each deadline retires the
+  connection: about 6 logins a minute while that page stays open. The hung
+  forwards also hold the connection's slots, so another bot's readouts on the
+  same host can run up to one deadline late. If that starvation is ever seen, the
+  fallback is a forward share per instance, not per kind of channel. It is not
+  built.
+- **No SSH inside a transaction** still holds. Leasing, reading and evicting all
+  happen outside every transaction, and `host.controller.transaction.test.ts`
+  watches both leasing and eviction for it.
+
 ## Live control
 
 The control plane reads state from a running client over SSH. No MCC port is
@@ -632,7 +702,7 @@ reachable from any network, and nothing here may change that.
 
 | Piece | File |
 | --- | --- |
-| `forwardOut` to the instance's loopback port | `packages/transport/src/ssh/connection.ts` |
+| `forwardOut` to the instance's loopback port | `packages/transport/src/ssh/connection.ts`, shared for reads by `packages/transport/src/read-connections.ts` |
 | HTTP over that duplex, MCP handshake, bearer auth | `packages/core/src/instance/live-control.ts` |
 | Wire parsing: SSE frames, JSON-RPC, MCC's `{success,data}` envelope | `packages/contracts/src/boundary/mcp.ts` |
 | The rendered `[ChatBot.McpServer]` block | `packages/core/src/instance/config.ts` |

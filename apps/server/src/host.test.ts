@@ -103,6 +103,7 @@ beforeAll(async () => {
 								exitCode: 0,
 							},
 						}),
+					evictHost: () => undefined,
 					instanceIdsOnHost: async () => [],
 					now: () => new Date(),
 					withTransaction: createHostControllerTransaction(db, async () => null),

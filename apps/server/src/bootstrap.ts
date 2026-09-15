@@ -4,7 +4,6 @@ import {
 	adminFor,
 	attachQueueWarning,
 	type BuildInfo,
-	CONNECT_TIMEOUT_MS,
 	createCommandRepository,
 	createDestinationController,
 	createDestinationControllerTransaction,
@@ -29,7 +28,11 @@ import {
 	type HealthPollerHandle,
 	HOST_TEARDOWN_QUEUE,
 	hostList,
+	hostReadKey,
+	JOURNAL_READ_TIMEOUT_MS,
+	LIVE_CONTROL_TIMEOUT_MS,
 	type Logger,
+	leaseHostReader,
 	lockLostHandler,
 	readBuildInfo,
 	readConnectionChanges,
@@ -46,7 +49,14 @@ import {
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
 import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
-import { createSshTransport, probeHostKey } from "@open-mcc/transport"
+import {
+	createReadConnections,
+	createSshTransport,
+	probeHostKey,
+	READ_CONNECTION_CHANNEL_LIMIT,
+	READ_CONNECTION_HARD_AGE_MS,
+	READ_CONNECTION_IDLE_MS,
+} from "@open-mcc/transport"
 import { Hono } from "hono"
 import { PgBoss } from "pg-boss"
 import { createAuth } from "./auth"
@@ -146,6 +156,13 @@ export const startServer = async (
 
 	const hosts = createHostRepository(db)
 	const sshKeys = createSshKeyRepository(db)
+	const readConnections = createReadConnections({
+		createTransport: createSshTransport,
+		idleMs: READ_CONNECTION_IDLE_MS,
+		hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
+		channelLimit: READ_CONNECTION_CHANNEL_LIMIT,
+		now: () => Date.now(),
+	})
 	const hostController = createHostController({
 		hosts,
 		sshKeys,
@@ -153,6 +170,8 @@ export const startServer = async (
 		probeHostKey,
 		createTransport: createSshTransport,
 		now: () => new Date(),
+		evictHost: (organizationId, hostId) =>
+			readConnections.evict(hostReadKey(organizationId, hostId)),
 		instanceIdsOnHost: async (scope, hostId) =>
 			(await createInstanceRepository(db).list(scope))
 				.filter((instance) => instance.hostId === hostId)
@@ -182,6 +201,7 @@ export const startServer = async (
 		sshKeys,
 		secrets,
 		createTransport: createSshTransport,
+		readConnections,
 		withTransaction: createInstanceControllerTransaction(db),
 	})
 	const destinationController = createDestinationController({
@@ -268,25 +288,11 @@ export const startServer = async (
 		onError: runtimeErrorReporter(logger),
 	})
 
+	const readerDeps = { hosts, sshKeys, secrets, readConnections }
 	const healthPoller = startHealthPoller({
 		pollableHosts: () => hosts.listPollableAcrossOrganizations(),
-		connect: async (host) => {
-			if (!host.sshKeyId || !host.hostKeyFingerprint) {
-				throw new Error(`Host ${host.id} is not ready to be polled`)
-			}
-			const key = await sshKeys.findById({ organizationId: host.organizationId }, host.sshKeyId)
-			if (!key) throw new Error(`Ssh key missing for host ${host.id}`)
-			const transport = createSshTransport()
-			await transport.connect({
-				hostname: host.hostname,
-				port: host.port,
-				username: host.username,
-				privateKey: secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
-				expectedFingerprint: host.hostKeyFingerprint,
-				timeoutMs: CONNECT_TIMEOUT_MS,
-			})
-			return transport
-		},
+		lease: (host, deadlineMs) =>
+			leaseHostReader(readerDeps, { organizationId: host.organizationId }, host.id, deadlineMs),
 		recordSeen: (host, seenAt, observed) =>
 			hosts.recordSeen(host.id, host.organizationId, seenAt, observed),
 		recordReachability: (host, reached) =>
@@ -294,7 +300,7 @@ export const startServer = async (
 				{ organizationId: host.organizationId },
 				{ hostId: host.id, hostName: host.name, reached },
 			),
-		observeInstances: async (host, transport) => {
+		observeInstances: async (host, lease) => {
 			const scope = { organizationId: host.organizationId }
 			const onHost = (await createInstanceRepository(db).list(scope)).filter(
 				(instance) => instance.hostId === host.id && instance.status !== "needs_auth",
@@ -302,7 +308,14 @@ export const startServer = async (
 			for (const instance of onHost) {
 				const cursor = await statusController.connectionCursor(scope, instance.id)
 				const current = await statusController.currentConnection(scope, instance.id)
-				const reading = await readConnectionChanges(transport, instance.id, current, cursor)
+				const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
+				if (journal.kind !== "leased") return
+				let reading: Awaited<ReturnType<typeof readConnectionChanges>>
+				try {
+					reading = await readConnectionChanges(journal.reader, instance.id, current, cursor)
+				} finally {
+					journal.reader.release()
+				}
 				await statusController.recordInstanceConnection(
 					scope,
 					{ id: instance.id, name: instance.name },
@@ -311,9 +324,13 @@ export const startServer = async (
 				if (reading.cursor !== null && reading.cursor !== cursor) {
 					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
 				}
-				const resolved = await resolveMinecraftName(instance, transport, {
+				const resolved = await resolveMinecraftName(instance, {
 					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
 					openToken: (sealed, keyId) => secrets.open(sealed, keyId),
+					reader: async () => {
+						const leased = await lease(LIVE_CONTROL_TIMEOUT_MS)
+						return leased.kind === "leased" ? leased.reader : undefined
+					},
 				})
 				if (resolved !== undefined && resolved !== instance.minecraftUsername) {
 					await createInstanceRepository(db)

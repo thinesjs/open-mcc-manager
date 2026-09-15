@@ -1,7 +1,7 @@
 export type { HealthInput, HostHealth } from "@open-mcc/contracts"
 export { HEALTH_POLL_MS, HOST_HEALTH, healthFor, OFFLINE_AFTER_MS } from "@open-mcc/contracts"
 
-import type { HostTransport } from "@open-mcc/transport"
+import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { OS_RELEASE_COMMAND, parseOsRelease } from "./facts"
 import { systemctl } from "./profile"
 
@@ -22,9 +22,11 @@ export type HostObservationResult = {
 	osName: string | null
 }
 
-export const observeHost = async (transport: HostTransport): Promise<HostObservationResult> => {
-	const failed = await transport.exec(failedUnitsCommand(), HEALTH_TIMEOUT_MS)
-	const os = await transport.exec(OS_RELEASE_COMMAND, HEALTH_TIMEOUT_MS)
+export const observeHost = async (
+	reader: Pick<HostReader, "exec">,
+): Promise<HostObservationResult> => {
+	const failed = await reader.exec(asReadCommand(failedUnitsCommand()))
+	const os = await reader.exec(asReadCommand(OS_RELEASE_COMMAND))
 	return {
 		reachable: true,
 		failedUnits: parseFailedUnits(failed.stdout),

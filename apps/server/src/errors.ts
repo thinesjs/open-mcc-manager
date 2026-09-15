@@ -50,6 +50,7 @@ import {
 	CommandAbortedError,
 	LiveChannelUnavailableError,
 	StreamOverflowError,
+	TransportInterruptedError,
 } from "@open-mcc/transport"
 import { isAPIError } from "better-auth/api"
 
@@ -281,6 +282,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"INSTANCE_LIVE_UNAVAILABLE",
 			"The client's live channel is not available right now",
 		)
+	}
+	if (cause instanceof TransportInterruptedError) {
+		return mapped("CONFLICT", "HOST_NOT_ANSWERING", "The host did not answer in time")
 	}
 	if (cause instanceof CommandAbortedError || cause instanceof StreamOverflowError) {
 		return mapped(

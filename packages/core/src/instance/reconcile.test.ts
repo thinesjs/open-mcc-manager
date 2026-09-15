@@ -1,6 +1,12 @@
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import {
+	createFakeTransport,
+	type FakeFailures,
+	READ_CONNECTION_HARD_AGE_MS,
+	readerOver,
+} from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
+import { CONNECT_TIMEOUT_MS } from "../host/host.controller"
 import { renderUnitTemplates } from "../host/unit-template"
 import { renderInstanceConfig } from "./config"
 import {
@@ -10,6 +16,7 @@ import {
 	looksStuck,
 	parseObservedState,
 	playerNameFrom,
+	RECONCILE_DEADLINE_MS,
 	reconcileHostOverTransport,
 	renderScheduleUnits,
 	STUCK_MARKERS,
@@ -50,8 +57,9 @@ const schedule = (overrides: Partial<InstanceScheduleRow> = {}): InstanceSchedul
 
 const connected = async (
 	script: Record<string, { stdout: string; stderr: string; exitCode: number }>,
+	failures: FakeFailures = {},
 ) => {
-	const transport = createFakeTransport(script)
+	const transport = createFakeTransport(script, failures)
 	await transport.connect({
 		hostname: "h",
 		port: 22,
@@ -60,7 +68,7 @@ const connected = async (
 		expectedFingerprint: "f",
 		timeoutMs: 1000,
 	})
-	return transport
+	return await readerOver(transport)
 }
 
 const listingOf = (names: string[]) => ({
@@ -803,23 +811,26 @@ describe("comparing a host's client config", () => {
 			advancedKeys: {},
 			botConfig: {},
 		})
-		const transport = await connected({
-			...fileReplies(expected),
-			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
-				{
-					stdout: "active",
-					stderr: "",
-					exitCode: 0,
-				},
-			[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
-				{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
-			'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
-				{
-					stdout: document,
-					stderr: "",
-					exitCode: 0,
-				},
-		})
+		const transport = await connected(
+			{
+				...fileReplies(expected),
+				"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true":
+					{
+						stdout: "active",
+						stderr: "",
+						exitCode: 0,
+					},
+				[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
+					{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
+				'cat "$HOME"/.local/share/open-mcc/instances/abc123/MinecraftClient.ini 2>/dev/null || true':
+					{
+						stdout: document,
+						stderr: "",
+						exitCode: 0,
+					},
+			},
+			{ refusePorts: [33401] },
+		)
 
 		const { reconciliation } = await reconcileHostOverTransport(
 			transport,
@@ -887,5 +898,11 @@ describe("comparing a host's client config", () => {
 
 		if (!reconciliation.reachable) throw new Error("expected a reachable host")
 		expect(reconciliation.configDrift).toEqual([])
+	})
+})
+
+describe("how long a setup check may run on a shared connection", () => {
+	it("ends before the connection's hard age even after a full connect, so a check can always fit", () => {
+		expect(RECONCILE_DEADLINE_MS).toBeLessThan(READ_CONNECTION_HARD_AGE_MS - CONNECT_TIMEOUT_MS)
 	})
 })

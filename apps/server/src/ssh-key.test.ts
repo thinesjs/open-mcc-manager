@@ -62,6 +62,7 @@ beforeAll(async () => {
 		secrets,
 		probeHostKey: async () => PRESENTED_HOST_KEY,
 		createTransport: () => createFakeTransport(),
+		evictHost: () => undefined,
 		instanceIdsOnHost: async () => [],
 		now: () => new Date(),
 		withTransaction: createHostControllerTransaction(db, async () => null),

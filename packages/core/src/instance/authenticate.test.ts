@@ -209,6 +209,11 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 			activeKeyId: "k1",
 		},
 		createTransport: () => transport,
+		readConnections: {
+			lease: async () => {
+				throw new Error("signing in must never take a shared read lease")
+			},
+		},
 		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
 		...overrides,
 	}

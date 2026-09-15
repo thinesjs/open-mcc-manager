@@ -242,25 +242,29 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 	it("fails sign-in with a network error and status 4, only after proving the host has no network", async () => {
 		await goOffline()
 
-		const started = await shell(host, as, startAuthCommand(BOT))
-		const ended = await shell(host, { ...as, timeoutMs: 200_000 }, UNTIL_ENDED, SIGN_IN)
-		const log = succeeded(
-			await shell(host, as, 'cat "$1/auth.log"', BOT_DIR),
-			"reading the sign-in log",
-		)
+		try {
+			const started = await shell(host, as, startAuthCommand(BOT))
+			const ended = await shell(host, { ...as, timeoutMs: 200_000 }, UNTIL_ENDED, SIGN_IN)
+			const log = succeeded(
+				await shell(host, as, 'cat "$1/auth.log"', BOT_DIR),
+				"reading the sign-in log",
+			)
 
-		expect(ended.status, `the start exited ${started.status}: ${started.stderr}\n${log}`).toBe(0)
-		expect(log).toContain("Login failed : Network error.")
-		expect(DEVICE_CODE_PATTERN.test(log)).toBe(false)
-		expect([await property(SIGN_IN, "Result"), await property(SIGN_IN, "ExecMainStatus")]).toEqual([
-			"exit-code",
-			"4",
-		])
-		succeeded(await shell(host, as, stopAuthCommand(BOT)), "clearing the ended sign-in")
+			expect(ended.status, `the start exited ${started.status}: ${started.stderr}\n${log}`).toBe(0)
+			expect(log).toContain("Login failed : Network error.")
+			expect(DEVICE_CODE_PATTERN.test(log)).toBe(false)
+			expect([
+				await property(SIGN_IN, "Result"),
+				await property(SIGN_IN, "ExecMainStatus"),
+			]).toEqual(["exit-code", "4"])
+		} finally {
+			succeeded(await shell(host, as, stopAuthCommand(BOT)), "clearing the ended sign-in")
+		}
 	})
 
 	it("skips a sleep window's start while sign-in runs, without failing the window, and the bot stays stopped after", async () => {
 		await goOffline()
+		expect([await property(SIGN_IN, "ActiveState"), await running()]).toEqual(["inactive", ""])
 		await installWaitingClient()
 		succeeded(await shell(host, as, startAuthCommand(BOT)), "starting sign-in")
 
@@ -291,6 +295,7 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 
 	it("skips both starts when sign-in and the bot check each other at the same moment, and the bot stays stopped", async () => {
 		await goOffline()
+		expect([await property(SIGN_IN, "ActiveState"), await running()]).toEqual(["inactive", ""])
 		await installWaitingClient()
 		succeeded(
 			await shell(

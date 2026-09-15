@@ -1400,8 +1400,9 @@ no real boot or login session, and linger is observed through logind alone.
 tests that need a finished run put a stand-in `docker` on `PATH`. Real
 reachability from the manager's container to its host is exercised by nothing
 here. Only the setup script's `apt` path for Podman runs, on Debian 12; a
-distribution without `apt` is refused. A container runs on this machine's kernel, so the
-Ubuntu target proves Ubuntu's packages, not an Ubuntu kernel or its AppArmor.
+distribution without `apt` is refused. A container runs on this machine's
+kernel, so the Ubuntu target proves Ubuntu's packages, not an Ubuntu kernel or
+its AppArmor.
 
 The installer test is a full run: it builds the images, starts the stack with
 its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,

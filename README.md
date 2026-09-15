@@ -25,11 +25,11 @@ Each host it manages needs:
 - systemd with the account's user manager and lingering on, and SSH. Live
   control also needs SSH port forwarding.
 
-The manager signs in over SSH as one ordinary account and never gains root. It
+The manager connects over SSH as one ordinary account and never gains root. It
 refuses uid 0. When you enrol a host, the dashboard gives you a setup script to
-run once with `sudo`, and **Check host** names anything still missing with the
-command that fixes it. [SECURITY.md](./SECURITY.md) says what that account can
-reach.
+run once with `sudo`, and **Check host** names anything still missing, with a
+command to fix it where there is one. [SECURITY.md](./SECURITY.md) says what
+that account can reach.
 
 ## Development
 

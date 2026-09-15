@@ -270,8 +270,9 @@ depth, not a substitute for one.
   hosts, outside `pnpm test`.
 - **Removing a host cleans up what the manager installed, and nothing else.** A
   queued job stops every bot and sign-in, removes the manager's units,
-  containers and runtime image, and deletes `~/.local/share/open-mcc`, each
-  delete under a host deadline. The host's record is deleted only once nothing
+  containers and runtime image, and deletes `~/.local/share/open-mcc`; the
+  container, image and directory deletes each run under a host deadline. The
+  host's record is deleted only once nothing
   is left; otherwise the job retries twice, a minute apart, each retry starting
   after the last attempt's deadlines have ended (`teardown.test.ts`,
   `queue-setup.test.ts`). It leaves the account, the manager's key in

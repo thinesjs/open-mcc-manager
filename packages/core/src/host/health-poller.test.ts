@@ -61,6 +61,13 @@ const leasing =
 		kind: "leased",
 		reader: await readerOver(createFakeTransport(hostScript(failed, os))),
 		host: target,
+		identity: {
+			hostname: target.hostname,
+			port: target.port,
+			username: target.username,
+			sshKeyId: target.sshKeyId ?? "",
+			hostKeyFingerprint: target.hostKeyFingerprint ?? "",
+		},
 	})
 
 const unreachable = async (): Promise<HostReadLease> => {

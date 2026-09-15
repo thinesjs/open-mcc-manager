@@ -40,6 +40,7 @@ import {
 	type InstanceScheduleRow,
 } from "@open-mcc/db"
 import {
+	type ConnectionIdentity,
 	type HostReader,
 	type HostTransport,
 	LiveChannelUnavailableError,
@@ -51,7 +52,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { HostMisconfiguredError, HostUnreachableError } from "../host/host.controller"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { leaseHostReader } from "../host/host-reader"
+import { type HostReadLease, leaseHostReader } from "../host/host-reader"
 import { systemctl, UNIT_DIR } from "../host/profile"
 import { checkHostRuntime, type HostNeed, hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
@@ -247,30 +248,51 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const activeReadAt = new Map<string, number>()
 	const activeChecks = new Map<string, Promise<boolean>>()
 
+	const activeKey = (instanceId: string, identity: ConnectionIdentity): string =>
+		`${instanceId}\n${JSON.stringify([
+			identity.hostname,
+			identity.port,
+			identity.username,
+			identity.sshKeyId,
+			identity.hostKeyFingerprint,
+		])}`
+
+	const forgetActive = (instanceId: string): void => {
+		for (const key of [...activeReadAt.keys(), ...activeChecks.keys()]) {
+			if (!key.startsWith(`${instanceId}\n`)) continue
+			activeReadAt.delete(key)
+			activeChecks.delete(key)
+		}
+	}
+
 	const requireRunning = async (
 		instanceId: string,
+		identity: ConnectionIdentity,
 		isActive: () => Promise<boolean>,
 	): Promise<void> => {
-		const readAt = activeReadAt.get(instanceId)
+		const key = activeKey(instanceId, identity)
+		const readAt = activeReadAt.get(key)
 		if (readAt !== undefined && deps.now() - readAt < ACTIVE_RESULT_MAX_AGE_MS) return
-		activeReadAt.delete(instanceId)
-		const check =
-			activeChecks.get(instanceId) ??
+		activeReadAt.delete(key)
+		const check: Promise<boolean> =
+			activeChecks.get(key) ??
 			isActive()
 				.then((active) => {
-					if (active) activeReadAt.set(instanceId, deps.now())
+					if (active && activeChecks.get(key) === check) activeReadAt.set(key, deps.now())
 					return active
 				})
-				.finally(() => activeChecks.delete(instanceId))
-		activeChecks.set(instanceId, check)
+				.finally(() => {
+					if (activeChecks.get(key) === check) activeChecks.delete(key)
+				})
+		activeChecks.set(key, check)
 		if (!(await check)) throw new LiveChannelUnavailableError("The bot is not running")
 	}
 
-	const connectToHost = async (
+	const openHost = async (
 		scope: OrgScope,
 		hostId: string,
 		need: HostNeed,
-	): Promise<HostTransport> => {
+	): Promise<{ transport: HostTransport; identity: ConnectionIdentity }> => {
 		const host = await deps.hosts.findById(scope, hostId)
 		if (!host) throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 		if (!host.sshKeyId) throw new InstanceHostNotFoundError(`Host ${hostId} has no ssh key`)
@@ -279,6 +301,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		}
 		if (!hostMeets(host, need)) {
 			throw new InstanceHostNotProvisionedError(`Host ${hostId} is not set up to run bots`)
+		}
+		const identity: ConnectionIdentity = {
+			hostname: host.hostname,
+			port: host.port,
+			username: host.username,
+			sshKeyId: host.sshKeyId,
+			hostKeyFingerprint: host.hostKeyFingerprint,
 		}
 		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
@@ -299,19 +328,25 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 			)
 		}
-		return transport
+		return { transport, identity }
 	}
 
-	const leaseHost = async (
+	const connectToHost = async (
+		scope: OrgScope,
+		hostId: string,
+		need: HostNeed,
+	): Promise<HostTransport> => (await openHost(scope, hostId, need)).transport
+
+	const leaseTrustedHost = async (
 		scope: OrgScope,
 		hostId: string,
 		deadlineMs: number,
 		need: HostNeed,
-	): Promise<HostReader> => {
+	): Promise<Extract<HostReadLease, { kind: "leased" }>> => {
 		const leased = await leaseHostReader(deps, scope, hostId, deadlineMs, need)
 		switch (leased.kind) {
 			case "leased":
-				return leased.reader
+				return leased
 			case "missing":
 				throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 			case "unprovisioned":
@@ -322,6 +357,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return assertExhaustive(leased)
 		}
 	}
+
+	const leaseHost = async (
+		scope: OrgScope,
+		hostId: string,
+		deadlineMs: number,
+		need: HostNeed,
+	): Promise<HostReader> => (await leaseTrustedHost(scope, hostId, deadlineMs, need)).reader
 
 	const rotateLiveControlToken = async (
 		ctx: ActorContext,
@@ -479,7 +521,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<LiveReadTarget | undefined> => {
 		const endpoint = await liveEndpointFor(ctx, instanceId)
 		if (!endpoint) return undefined
-		const reader = await leaseHost(
+		const { reader, identity } = await leaseTrustedHost(
 			scopeOf(ctx),
 			endpoint.hostId,
 			LIVE_CONTROL_TIMEOUT_MS,
@@ -488,6 +530,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		try {
 			await requireRunning(
 				instanceId,
+				identity,
 				async () => (await reader.exec(activeCheckCommand(instanceId))).exitCode === 0,
 			)
 		} catch (error) {
@@ -503,10 +546,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<{ target: LiveControlTarget; close: () => Promise<void> } | undefined> => {
 		const endpoint = await liveEndpointFor(ctx, instanceId)
 		if (!endpoint) return undefined
-		const transport = await connectToHost(scopeOf(ctx), endpoint.hostId, "setUpOnce")
+		const { transport, identity } = await openHost(scopeOf(ctx), endpoint.hostId, "setUpOnce")
 		try {
 			await requireRunning(
 				instanceId,
+				identity,
 				async () =>
 					(
 						await transport.exec(
@@ -796,6 +840,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 			const document = await expectedDocumentFor(scopeOf(ctx), instance)
 			await unitCommand(ctx, instance, "stop", "runtime")
+			forgetActive(instance.id)
 			const rotated = await rotateLiveControlToken(ctx, instance)
 			await writeConfigDocument(ctx, rotated, document)
 			await unitCommand(ctx, rotated, "start", "runtime")
@@ -825,6 +870,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const instance = await requireInstance(ctx, instanceId)
 
 			await unitCommand(ctx, instance, "stop", "setUpOnce")
+			forgetActive(instance.id)
 
 			const stopped = await deps.withTransaction(async (repos) => {
 				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "stopped" })
@@ -1410,6 +1456,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					)
 
 				await stopUnits()
+				forgetActive(instance.id)
 				const quiet = await transport.exec(
 					processesGoneCommand(instance.id),
 					INSTANCE_STEP_TIMEOUT_MS,

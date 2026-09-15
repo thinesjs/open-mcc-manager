@@ -2365,4 +2365,55 @@ describe("the token goes only to a bot seen running", () => {
 		expect(checks).toEqual(["shared", "fresh"])
 		expect(opened).toEqual(["shared:33350", "fresh:33350"])
 	})
+
+	it.each([
+		{ named: "its host key", changed: { hostKeyFingerprint: "SHA256:replaced" } },
+		{ named: "its address", changed: { hostname: "10.0.0.2" } },
+		{ named: "its SSH port", changed: { port: 2222 } },
+		{ named: "its account", changed: { username: "other" } },
+		{ named: "its SSH key", changed: { sshKeyId: "key-2" } },
+	])("asks again within 5 seconds once the host changes $named", async ({ changed }) => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks, deps } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		deps.hosts.findById = async () => ({ ...hostRow, ...changed })
+		clock.at += 1_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
+	})
+
+	type LiveController = ReturnType<typeof createInstanceController>
+
+	it.each([
+		{
+			named: "a stop",
+			run: async (controller: LiveController) => {
+				await controller.stop(owner, "abc123")
+			},
+		},
+		{
+			named: "a restart",
+			run: async (controller: LiveController) => {
+				await controller.restart(owner, "abc123")
+			},
+		},
+		{
+			named: "a removal",
+			run: async (controller: LiveController) => {
+				await controller.remove(owner, "abc123")
+			},
+		},
+	])("asks again within 5 seconds after $named", async ({ run }) => {
+		const clock = { at: 1_000_000 }
+		const { controller, checks } = liveBot({ exitCode: 0 }, clock)
+
+		await controller.readLivePlayerStats(owner, "abc123")
+		await run(controller)
+		clock.at += 1_000
+		await controller.readLivePlayerStats(owner, "abc123")
+
+		expect(checks).toEqual(["shared", "shared"])
+	})
 })

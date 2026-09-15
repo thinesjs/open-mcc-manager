@@ -20,7 +20,7 @@ export type HostReaderDeps = {
 }
 
 export type HostReadLease =
-	| { kind: "leased"; reader: HostReader; host: HostRow }
+	| { kind: "leased"; reader: HostReader; host: HostRow; identity: ConnectionIdentity }
 	| { kind: "missing" }
 	| { kind: "unprovisioned" }
 	| { kind: "changed" }
@@ -101,5 +101,5 @@ export const leaseHostReader = async (
 		reader.release()
 		return { kind: "changed" }
 	}
-	return { kind: "leased", reader, host: current }
+	return { kind: "leased", reader, host: current, identity: stillTrusted }
 }

@@ -13,6 +13,7 @@ import {
 } from "../../packages/core/src/host/provision"
 import { podmanImageId, runtimeImageFor } from "../../packages/core/src/host/runtime-image"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../../packages/core/src/host/unit-template"
+import { sessionCacheProbeCommand } from "../../packages/core/src/instance/authenticate"
 import { controlLine } from "../../packages/core/src/instance/control"
 import {
 	type ActorContext,
@@ -504,6 +505,40 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		expect(Date.now() - began).toBeLessThan(40_000)
 		expect(await property(unitOf(botId), "ActiveState")).toBe("inactive")
 		expect(await containers()).toBe("")
+	})
+
+	it("answers the sign-in check from state/ alone: a cache is 0, none, an empty file or a link is 1, an unreadable state/ is 2", async () => {
+		const state = `${botDir(botId)}/state`
+		const cache = `${state}/SessionCache.db`
+		const elsewhere = `${botDir(botId)}/elsewhere.db`
+		const probe = async (): Promise<number | null> =>
+			(await shell(host, as, sessionCacheProbeCommand(botId))).status
+		const arrange = async (script: string, what: string): Promise<void> => {
+			succeeded(await shell(host, as, script, cache, elsewhere, state), what)
+		}
+
+		await arrange('rm -f -- "$1" "$2"', "clearing the cache")
+		const missing = await probe()
+		await arrange(': > "$1"', "leaving an empty cache")
+		const empty = await probe()
+		await arrange(
+			'rm -f -- "$1" && printf cache > "$2" && ln -s "$2" "$1"',
+			"planting a link to a full file",
+		)
+		const linked = await probe()
+		await arrange('rm -f -- "$1" "$2" && printf cache > "$1"', "writing a cache")
+		const written = await probe()
+		await arrange('chmod 000 "$3"', "making state unreadable")
+		const unreadable = await probe()
+		await arrange('chmod 700 "$3" && rm -f -- "$1"', "restoring state")
+
+		expect({ written, missing, empty, linked, unreadable }).toEqual({
+			written: 0,
+			missing: 1,
+			empty: 1,
+			linked: 1,
+			unreadable: 2,
+		})
 	})
 
 	it("fails a sleep window's start with the settings file missing, starting no container (C8)", async () => {

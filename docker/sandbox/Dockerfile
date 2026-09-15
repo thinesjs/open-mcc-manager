@@ -43,6 +43,7 @@ RUN apt-get update \
 		curl \
 		iproute2 \
 		procps \
+		busybox-static \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& systemctl mask podman.service podman.socket podman-restart.service podman-auto-update.service podman-auto-update.timer podman-clean-transient.service
 

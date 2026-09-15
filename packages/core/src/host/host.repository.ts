@@ -75,7 +75,7 @@ const requireConsistentTrustTuple = (values: HostCreateValues): void => {
 	}
 }
 
-export const PROVISIONING_LEASE_MS = 10 * 60 * 1000
+export const PROVISIONING_LEASE_MS = 15 * 60 * 1000
 
 export const isProvisioningClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
 	claimedAt === null || now.getTime() - claimedAt.getTime() > PROVISIONING_LEASE_MS
@@ -131,7 +131,14 @@ export const createHostRepository = (db: Executor) => ({
 	},
 
 	listPollableAcrossOrganizations: async (): Promise<HostRow[]> =>
-		db.selectFrom("host").selectAll().where("status", "=", "ready").execute(),
+		db
+			.selectFrom("host")
+			.selectAll()
+			.where("status", "<>", "removing")
+			.where("osRelease", "is not", null)
+			.where("networkStack", "is not", null)
+			.where("architecture", "is not", null)
+			.execute(),
 
 	recordSeen: async (
 		id: string,
@@ -215,11 +222,11 @@ export const createHostRepository = (db: Executor) => ({
 				provisioningStep: progress.step,
 				provisioningStepIndex: progress.index,
 				provisioningStepTotal: progress.total,
-				provisioningError: null,
 			})
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("provisioningAttemptId", "=", attemptId)
+			.where("provisioningError", "is", null)
 			.execute()
 	},
 
@@ -228,10 +235,18 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		attemptId: string,
 		reason: string,
+		reached?: { step: string; index: number; total: number },
 	): Promise<void> => {
 		await db
 			.updateTable("host")
-			.set({ provisioningError: reason })
+			.set({
+				provisioningError: reason,
+				...(reached !== undefined && {
+					provisioningStep: reached.step,
+					provisioningStepIndex: reached.index,
+					provisioningStepTotal: reached.total,
+				}),
+			})
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("provisioningAttemptId", "=", attemptId)
@@ -257,6 +272,10 @@ export const createHostRepository = (db: Executor) => ({
 				status: "provisioning",
 				provisioningAttemptId: randomUUID(),
 				provisioningClaimedAt: now,
+				provisioningError: null,
+				provisioningStep: null,
+				provisioningStepIndex: null,
+				provisioningStepTotal: null,
 				organizationId: scope.organizationId,
 			})
 			.where("id", "=", id)
@@ -281,12 +300,15 @@ export const createHostRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		attemptId: string,
-		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName">,
+		patch: Pick<HostUpdateValues, "status" | "osRelease" | "osId" | "osName"> &
+			Partial<Pick<HostRow, "networkStack" | "architecture">>,
 	): Promise<HostRow | undefined> =>
 		db
 			.updateTable("host")
 			.set({
 				...whitelistHostUpdate(patch),
+				...(patch.networkStack !== undefined && { networkStack: patch.networkStack }),
+				...(patch.architecture !== undefined && { architecture: patch.architecture }),
 				provisioningAttemptId: null,
 				provisioningClaimedAt: null,
 				organizationId: scope.organizationId,

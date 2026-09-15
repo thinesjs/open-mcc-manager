@@ -11,8 +11,7 @@ import {
 	createSshKeyRepository,
 	generateKeyPair,
 	generateSshKeyPair,
-	HOME_COMMAND,
-	LINGER_COMMAND,
+	provisionableHost,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { createFakeTransport } from "@open-mcc/transport"
@@ -69,16 +68,7 @@ beforeAll(async () => {
 		evictHost: () => undefined,
 		instanceIdsOnHost: async () => [],
 		now: () => new Date(),
-		createTransport: () =>
-			createFakeTransport({
-				[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
-				[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
-				['"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1']: {
-					stdout: "Minecraft Console Client v26.2",
-					stderr: "",
-					exitCode: 0,
-				},
-			}),
+		createTransport: () => createFakeTransport(provisionableHost()),
 		withTransaction: createHostControllerTransaction(db, async () => null),
 	})
 	const sshKeyController = createSshKeyController({

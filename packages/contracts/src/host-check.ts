@@ -14,7 +14,6 @@ export const HOST_CHECK_NAMES = [
 	"storage",
 	"tcp-forwarding",
 	"cloud-metadata",
-	"client-runtime",
 ] as const
 
 export type HostCheckName = (typeof HOST_CHECK_NAMES)[number]
@@ -63,7 +62,6 @@ export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {
 	storage: "Container storage",
 	"tcp-forwarding": "SSH port forwarding",
 	"cloud-metadata": "Cloud metadata",
-	"client-runtime": "Client dependencies",
 }
 
 export const isBlocking = (check: HostCheckResult): boolean => check.outcome === "fail"

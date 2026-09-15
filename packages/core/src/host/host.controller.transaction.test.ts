@@ -20,7 +20,6 @@ import {
 	trackHostId,
 	trackSshKeyId,
 } from "../test/db"
-import { LINGER_COMMAND } from "./check"
 import {
 	type ActorContext,
 	createHostController,
@@ -28,6 +27,7 @@ import {
 	HostConcurrentlyModifiedError,
 	type HostControllerDeps,
 	HostMisconfiguredError,
+	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
@@ -38,21 +38,18 @@ import {
 	PROVISIONING_LEASE_MS,
 } from "./host.repository"
 import { hostReadKey, leaseHostReader } from "./host-reader"
-import { HOME_COMMAND } from "./provision"
+import { HOST_FACTS_COMMAND } from "./podman-facts"
+import { imagePullCommand, SYSTEM_COMMAND } from "./provision"
+import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
+import { runtimeImageFor } from "./runtime-image"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
 const sendJobDouble = async () => null
 
-const PROVISIONABLE = {
-	[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
-	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
-	'"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1': {
-		stdout: "Minecraft Console Client v26.2",
-		stderr: "",
-		exitCode: 0,
-	},
-}
+const answer = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
+
+const PROVISIONABLE = provisionableHost()
 
 const encodeAlgorithmBlob = (algorithm: string, extra: Buffer = Buffer.alloc(0)): Buffer => {
 	const name = Buffer.from(algorithm, "ascii")
@@ -324,6 +321,212 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 
 		const final = await hosts.findById({ organizationId }, hostId)
 		expect(final?.status).toBe("ready")
+		expect(final?.networkStack).toBe("slirp4netns")
+	})
+
+	it("keeps what setup recorded when a Repair fails, and records Podman 5's stack when one succeeds", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-repair-facts")
+		const ubuntu = {
+			[SYSTEM_COMMAND]: answer(
+				systemOutput({
+					systemd: "systemd 255 (255.4-1ubuntu8)",
+					"os-id": "ubuntu",
+					"os-name": "Ubuntu 24.04.3 LTS",
+				}),
+			),
+		}
+		const attempts = [
+			provisionableHost(ubuntu),
+			provisionableHost({
+				[SYSTEM_COMMAND]: answer(
+					systemOutput({
+						systemd: "systemd 257 (257.7-1)",
+						"os-id": "debian",
+						"os-name": "Debian GNU/Linux 13 (trixie)",
+					}),
+				),
+				[imagePullCommand(runtimeImageFor("x64"))]: {
+					stdout: "",
+					stderr: "Error: initializing source: connection refused",
+					exitCode: 125,
+				},
+			}),
+			provisionableHost({
+				...ubuntu,
+				[HOST_FACTS_COMMAND]: answer(
+					factsOutput({ podman: "podman version 5.4.2" }, [
+						"subuid=own",
+						"subuid-end=231072",
+						"subgid=own",
+						"subgid-end=231072",
+						"helper=pasta",
+					]),
+				),
+			}),
+		]
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+		const recorded = {
+			networkStack: "slirp4netns",
+			architecture: "x64",
+			osRelease: "systemd 255 (255.4-1ubuntu8)",
+			osId: "ubuntu",
+			osName: "Ubuntu 24.04.3 LTS",
+		}
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			...recorded,
+		})
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			...recorded,
+		})
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			...recorded,
+			networkStack: "pasta",
+		})
+	})
+
+	it("keeps the failure a setup recorded when its progress writes reach the row after it", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-late-progress")
+		const held: (() => Promise<void>)[] = []
+		let replayed = 0
+		const progressAfterFailure: HostRepository = {
+			...hosts,
+			recordProvisioningProgress: async (
+				...args: Parameters<HostRepository["recordProvisioningProgress"]>
+			) => {
+				held.push(() => hosts.recordProvisioningProgress(...args))
+			},
+			recordProvisioningFailure: async (
+				...args: Parameters<HostRepository["recordProvisioningFailure"]>
+			) => {
+				await hosts.recordProvisioningFailure(...args)
+				for (const write of held.splice(0).reverse()) {
+					await write()
+					replayed += 1
+				}
+			},
+		}
+		const attempts = [
+			provisionableHost({
+				[imagePullCommand(runtimeImageFor("x64"))]: {
+					stdout: "",
+					stderr: "Error: initializing source: connection refused",
+					exitCode: 125,
+				},
+			}),
+			PROVISIONABLE,
+		]
+		const controller = createHostController({
+			hosts: progressAfterFailure,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+
+		expect(replayed).toBe(10)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: "Downloading the runtime image",
+			provisioningStepIndex: 9,
+			provisioningStepTotal: 15,
+			provisioningError: "The runtime image could not be downloaded.",
+		})
+
+		await controller.provision(ctx, hostId)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "ready",
+			provisioningError: null,
+		})
+	})
+
+	it("shows none of an earlier setup's steps when a Repair cannot connect", async () => {
+		const { organizationId, memberId, db, hosts, sshKeys, hostId } =
+			await seedProvisionableHost("org-repair-connect")
+		const transports = [
+			createFakeTransport(
+				provisionableHost({
+					[imagePullCommand(runtimeImageFor("x64"))]: {
+						stdout: "",
+						stderr: "Error: initializing source: connection refused",
+						exitCode: 125,
+					},
+				}),
+			),
+			createFakeTransport(
+				{},
+				{
+					connect: Object.assign(new Error("connect ECONNREFUSED 10.0.0.90:22"), {
+						code: "ECONNREFUSED",
+					}),
+				},
+			),
+		]
+		const controller = createHostController({
+			hosts,
+			sshKeys,
+			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
+			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			createTransport: vi.fn(() => transports.shift() ?? createFakeTransport()),
+			evictHost: () => undefined,
+			instanceIdsOnHost: vi.fn(async () => []),
+			now: () => new Date(),
+			withTransaction: createHostControllerTransaction(db, sendJobDouble),
+		})
+		const ctx = actorFor(organizationId, memberId)
+
+		await expect(controller.provision(ctx, hostId)).rejects.toBeInstanceOf(
+			HostProvisioningFailedError,
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: "Downloading the runtime image",
+			provisioningStepIndex: 9,
+			provisioningStepTotal: 15,
+		})
+
+		await expect(controller.provision(ctx, hostId)).rejects.toThrow(
+			"The server refused the connection",
+		)
+		expect(await hosts.findById({ organizationId }, hostId)).toMatchObject({
+			status: "error",
+			provisioningStep: null,
+			provisioningStepIndex: null,
+			provisioningStepTotal: null,
+			provisioningError: "The server refused the connection",
+		})
 	})
 
 	it("does not re-claim a host that is already provisioning", async () => {
@@ -1668,7 +1871,7 @@ describe("shared read connections open, read and close outside every transaction
 		const readerDeps = { hosts, sshKeys, secrets, readConnections }
 		const scope = { organizationId }
 		const readOnce = async () => {
-			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000)
+			const leased = await leaseHostReader(readerDeps, scope, hostId, 10_000, "setUpOnce")
 			if (leased.kind !== "leased") return leased.kind
 			try {
 				return await leased.reader.probePort(33333)

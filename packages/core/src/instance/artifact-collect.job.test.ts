@@ -25,7 +25,8 @@ const host: HostRow = {
 	port: 22,
 	username: "mcc",
 	status: "ready",
-	networkStack: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	sshKeyId: "key-1",
 	hostKeyFingerprint: "SHA256:abc",
 	hostKeyAlgorithm: "ssh-ed25519",
@@ -223,15 +224,43 @@ describe("collecting across the fleet", () => {
 		expect(recorder.retention).toHaveLength(1)
 	})
 
-	it("skips a host that is not ready to be reached", async () => {
+	it.each([
+		["being removed", { status: "removing" }],
+		["that never finished setup", { status: "pending", osRelease: null }],
+	] as const)("skips a host %s, and opens no connection to it", async (_case, state) => {
 		const connect = vi.fn()
-		const { deps } = depsFor({}, { hosts: async () => [{ ...host, status: "error" }], connect })
+		const { deps } = depsFor({}, { hosts: async () => [{ ...host, ...state }], connect })
 
 		const run = await createArtifactCollector(deps)()
 
 		expect(run.hosts).toBe(0)
 		expect(connect).not.toHaveBeenCalled()
 	})
+
+	it("keeps collecting from a set-up host whose Repair failed", async () => {
+		const { deps } = depsFor({}, { hosts: async () => [{ ...host, status: "error" }] })
+
+		const run = await createArtifactCollector(deps)()
+
+		expect(run.hosts).toBe(1)
+		expect(run.unreachable).toBe(0)
+	})
+
+	it.each([
+		["network stack", { networkStack: null }],
+		["architecture", { architecture: null }],
+	] as const)(
+		"never sweeps a ready host with no %s recorded, and opens no connection to it",
+		async (_field, missing) => {
+			const connect = vi.fn()
+			const { deps } = depsFor({}, { hosts: async () => [{ ...host, ...missing }], connect })
+
+			const run = await createArtifactCollector(deps)()
+
+			expect(run.hosts).toBe(0)
+			expect(connect).not.toHaveBeenCalled()
+		},
+	)
 })
 
 describe("reporting a sweep", () => {

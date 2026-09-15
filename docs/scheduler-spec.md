@@ -139,10 +139,10 @@ This keeps native execution and the closed surface at the same time.
 ## Rendering and delivery
 
 Config delivery today writes exactly one file:
-`(umask 077; cat > '<dir>/MinecraftClient.ini')` plus a `chown` when
-`usesPerInstanceUsers(profile)`, in `writeSavedConfig`
-(`packages/core/src/instance/instance.controller.ts:261`, and again at `:522` and `:848`). There is
-no SFTP; the document is piped over stdin into `cat` through `HostTransport.exec`.
+`(umask 077; cat > <dir>/config/MinecraftClient.ini)`, into the `config/` directory `create`
+made, in `writeConfigDocument` (`packages/core/src/instance/instance.controller.ts`). The unit
+mounts `config/` read-only at `/config`. There is no SFTP; the document is piped over stdin
+into `cat` through `HostTransport.exec`.
 `renderInstanceConfig` (`config.ts:159`) hand-builds the whole document line by line from a fixed
 template; there is no arbitrary-key mechanism and no multi-file support.
 
@@ -155,7 +155,10 @@ This feature needs three artifacts, so the renderer grows a document set rather 
    any delay. **`.txt` only. The renderer must never emit a `.cs` file**, and must reject a
    trigger id that is not `[a-z0-9-]+`, since the id becomes a filename.
 
-All three go through the same `umask 077` + `chown` path. Delivery is unchanged in mechanism.
+All three would go through the same `umask 077` write into `config/`, which the unit mounts
+read-only at `/config`. The client resolves a relative file name against its working
+directory, `/data`, so the rendered documents must name the matches file and the scripts by
+their `/config/…` paths.
 
 ### The array-of-tables problem, and what to do about it
 
@@ -485,7 +488,7 @@ test may assume a table is globally empty**, and cleanup must run on the failure
 15. A capture group renders only into an argument position, never a command name — asserted on the
     rendered text.
 16. `expectedDocumentsFor` is the single source for both the save path and the reconcile path:
-    given one row set, `writeSavedConfig` and `reconcileHost` produce byte-identical document sets.
+    given one row set, `writeConfigDocument` and `reconcileHost` produce byte-identical document sets.
     This is the regression test for the class of bug AGENTS.md:539 describes.
 17. Rendering is deterministic — same rows, same bytes, twice — or drift will flap.
 18. **A config with no triggers renders byte-identically to today's output.** This proves the

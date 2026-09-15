@@ -1,9 +1,16 @@
+import type { HostArchitecture } from "@open-mcc/db"
 import { hostFact, UNKNOWN_HOST_FACT } from "./facts"
 export const MCC_VERSION = "20260829-511"
 
 export const MCC_ARCHITECTURES = ["x64", "arm64"] as const
 
 export type MccArchitecture = (typeof MCC_ARCHITECTURES)[number]
+
+type RefinementOf<Narrowed extends Base, Base> = Narrowed
+
+type _StoredArchitectureIsMccArchitecture = RefinementOf<HostArchitecture, MccArchitecture>
+
+type _MccArchitectureIsStoredArchitecture = RefinementOf<MccArchitecture, HostArchitecture>
 
 export type MccRelease = {
 	architecture: MccArchitecture

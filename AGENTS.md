@@ -360,10 +360,12 @@ Dependency direction is one-way: router → controller → repository.
   Hono, no tRPC, no HTTP types.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
-  one `PROVISION_STEP_TIMEOUT_MS` (`provision.ts`) for every command
-  `provisionHost` runs — 10s + 2 x 120s against a 300s lease today. The three
-  constants live in three files and nothing but that arithmetic ties them
-  together, so a third provisioning step would silently push the worst case
+  the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
+  fifteen 15s commands, the 180s client download, the 180s image pull and the
+  30s client check, 625s against a 900s lease today. The lease, the connect
+  timeout and the three provisioning timeouts live in three files and nothing
+  but that arithmetic ties them together, so one more command, or a longer
+  timeout, would silently push the worst case
   past the lease: attempt A's claim expires mid-flight, a second actor
   legitimately reclaims the host, and A's `finalizeProvisioning` matches no row
   and throws after A has already changed the remote machine. The budget test in
@@ -732,9 +734,10 @@ reachable from any network, and nothing here may change that.
   The re-audit is the only thing that closes that gap.
 - **A registered key must refuse any value the client would rewrite.** Each
   `ChatBot` module's `OnSettingUpdate()` clamps its own fields, and
-  `Program.cs` calls `WriteBackSettings(true)` right after loading, so a clamped
-  value is persisted to the host's file. An out-of-range value would therefore
-  drift forever and "Restart to fix" would never fix it. 18 of the 59 keys carry
+  the clamped value is what the client runs with. Its write-back fails against the
+  read-only `config/` mount, so the host file keeps the saved value and no drift
+  check can see the clamp: an out-of-range value would run as something the
+  saved settings do not say, and nothing would show it. 18 of the 59 keys carry
   such a bound; `ChatBot.AutoAttack.Cooldown_Time.Min`/`.Max` are swapped rather
   than clamped, so their order is checked across rows instead. This is the same
   rule `DELAY_SECONDS_MINIMUM` already follows for AntiAFK.
@@ -811,13 +814,18 @@ reachable from any network, and nothing here may change that.
   the cost per toggle, and the read-only summary names whichever are on so the
   grant is visible without opening the editor. `mcc_world_state` is gated by
   `SessionStatus` instead, so world data costs no write surface at all.
-- `BindHost` is rendered as the literal `127.0.0.1` and is never an operator
-  field. MCC's own validation accepts `0.0.0.0`, `+` and `*` while rejecting
-  `localhost` and `::1`, and a wildcard bind fails silently.
+- `BindHost` is rendered as the literal `0.0.0.0` and is never an operator
+  field. The client listens inside its own network namespace, and the unit
+  publishes the row's port on the host's loopback alone
+  (`-p 127.0.0.1:<port>:<port>`); a publish cannot reach a listener on the
+  container's own loopback. A host file still saying `127.0.0.1` is `fixed`
+  drift, and leaves the client unreachable, not exposed. MCC's own validation
+  accepts `0.0.0.0`, `+` and `*` while rejecting `localhost` and `::1`.
 - **The row owns the port.** `instance.liveControlPort` is a real column with a
   unique constraint per host. Anything that renders an instance's expected
   config takes the port from the row, never from the stored config document —
-  `expectedDocumentFor` exists so `writeSavedConfig` and `reconcileHost` cannot
+  `storedConfigFor` does that once, and both the start path (`expectedDocumentFor`,
+  then `writeConfigDocument`) and `reconcileHost` render from it, so they cannot
   disagree. Four separate bugs came from reading a port out of a stale config;
   all four typechecked and passed tests.
 - `create` probes the host with `canForward` before claiming a port, then
@@ -825,11 +833,14 @@ reachable from any network, and nothing here may change that.
   which conflates "the host permits forwarding" with "something is listening";
   for allocation that is the behaviour wanted.
 - The token is minted fresh on **every start**, sealed in the store, and reaches
-  MCC only through the unit's `EnvironmentFile`. It must never enter
-  `MinecraftClient.ini`, which MCC rewrites and which drift reads back.
-- MCC rewrites its config on load *and* on clean exit, so a save made while an
-  instance runs is discarded by the next stop. `start` re-renders the saved
-  config immediately before launching the unit; that ordering is load-bearing.
+  MCC only through `podman run --env-file`, from the instance's `env` file: one
+  unquoted `MCC_MCP_AUTH_TOKEN=<32 lowercase hex>` line, because Podman keeps
+  quotes as part of the value. It must never enter `MinecraftClient.ini`, which
+  drift reads back.
+- The config is mounted read-only at `/config`, so the client's write-back on
+  load and on clean exit fails and is logged. `start` re-renders the saved
+  config immediately before launching the unit, so a save made while an
+  instance runs takes effect at its next start.
 - Connection-refused means "not joined yet", never failure — MCP listens only
   between `AfterGameJoined` and disconnect. A live endpoint that never answered
   *after* joining is reported as `unreachable` drift, because MCC swallows its
@@ -1278,7 +1289,18 @@ the `BASE_IMAGE` argument: `scripts/sandbox/podman-host.sandbox.ts` runs it on
 Debian 12, Debian 13 and Ubuntu 24.04. It masks Podman's own system units, which
 fail in a container and leave the host `degraded`. Its accounts `pod1` to `pod6`
 each get a `--tmpfs` over `~/.local/share/containers`, because rootless overlay
-cannot nest on Docker's overlayfs. `SANDBOX_PLATFORM=linux/amd64` builds and boots
+cannot nest on Docker's overlayfs. `scripts/sandbox/provision.sandbox.ts` provisions
+`pod1` on each target through `provisionHost`, and `scripts/sandbox/runtime.sandbox.ts`
+drives a bot through the instance controller: create, start, the console, a
+scheduled command, restart, a sleep window, a stop, both missing-settings refusals
+and a start refused while sign-in runs. Its client is a stand-in script inside the
+pinned runtime image, because a real client exits when it has no server to join.
+Start every Podman command in a sandbox test through `shell`, never a direct
+`exec`: a process started straight from `docker exec` is AppArmor-unconfined, so
+on a kernel with `apparmor_restrict_unprivileged_userns=1`, as on GitHub's Ubuntu
+runners, the account's first Podman command cannot create its user namespace.
+Never set that sysctl to 0 to get past it; real Ubuntu hosts keep it.
+`SANDBOX_PLATFORM=linux/amd64` builds and boots
 every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
 rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.
 

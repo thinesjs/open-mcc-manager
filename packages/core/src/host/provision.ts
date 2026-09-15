@@ -1,12 +1,30 @@
 import {
 	LINGER_STEP_LABEL,
+	type NetworkStack,
 	PROVISION_STEP_LABELS,
 	type ProvisionStepLabel,
 } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
-import { hostFact, OS_RELEASE_COMMAND, parseOsRelease, UNKNOWN_HOST_FACT } from "./facts"
-import { mccReleaseForMachine } from "./mcc-release"
+import { ROOT_REFUSAL } from "./check"
+import { hostFact, UNKNOWN_HOST_FACT } from "./facts"
+import { type MccArchitecture, mccReleaseForMachine } from "./mcc-release"
+import {
+	formatPodmanVersion,
+	HOST_FACTS_COMMAND,
+	type HostPodmanFacts,
+	meetsPodmanFloor,
+	PODMAN_FLOOR,
+	parseHostFacts,
+	requiredStackFor,
+	storageStepCommand,
+} from "./podman-facts"
 import { INSTANCES_ROOT, isUsableHome, systemctl, UNIT_DIR } from "./profile"
+import {
+	podmanImageId,
+	type RuntimeImage,
+	runtimeImageFor,
+	runtimeImageReference,
+} from "./runtime-image"
 import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "./unit-template"
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
@@ -23,6 +41,8 @@ export type ProvisionResult = {
 	osRelease: string
 	osId: string | null
 	osName: string | null
+	networkStack: NetworkStack
+	architecture: MccArchitecture
 }
 
 export type ProvisionProgress = {
@@ -41,13 +61,36 @@ export const CLIENT_PROBE_TIMEOUT_MS = 30_000
 
 export const CLIENT_BANNER = "Minecraft Console Client"
 
-export const HOME_COMMAND =
-	'printf \'%s\\n%s\' "$HOME" "$(getent passwd "$(id -un)" | cut -d: -f6)"'
+export const SYSTEM_COMMAND = [
+	`printf 'uid=%s\\n' "$(id -u)"`,
+	`printf 'home=%s\\n' "$(printf '%s' "$HOME" | tr -c '[:print:]' ' ')"`,
+	`printf 'passwd-home=%s\\n' "$(getent passwd "$(id -un)" | cut -d: -f6 | head -n 1)"`,
+	`printf 'systemd=%s\\n' "$(systemctl --version 2>/dev/null | head -n 1)"`,
+	`(. /etc/os-release 2>/dev/null && printf 'os-id=%s\\nos-name=%s\\n' "$ID" "$PRETTY_NAME")`,
+	"exit 0",
+].join("\n")
+
+const UID = /^[0-9]{1,10}$/
+
+const lineValue = (lines: readonly string[], key: string): string | null => {
+	const line = lines.find((each) => each.startsWith(`${key}=`))
+	return line === undefined ? null : line.slice(key.length + 1)
+}
+
+export const parseSystem = (output: string) => {
+	const lines = output.split("\n")
+	const uid = lineValue(lines, "uid") ?? ""
+	return {
+		uid: UID.test(uid) ? Number(uid) : null,
+		home: lineValue(lines, "home") ?? "",
+		passwdHome: lineValue(lines, "passwd-home") ?? "",
+		systemd: hostFact(lineValue(lines, "systemd") ?? ""),
+		osId: hostFact(lineValue(lines, "os-id") ?? ""),
+		osName: hostFact(lineValue(lines, "os-name") ?? ""),
+	}
+}
 
 export const explainClientFailure = (output: string): string => {
-	if (/ICU/i.test(output)) {
-		return "The client needs the libicu library, which this host does not have. Install it (Debian and Ubuntu: libicu; Alpine: icu-libs; RHEL and Fedora: libicu) and provision again."
-	}
 	const firstLine = output.trim().split("\n")[0] ?? ""
 	return firstLine.length > 0
 		? `The installed client could not start: ${firstLine}`
@@ -55,6 +98,15 @@ export const explainClientFailure = (output: string): string => {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
+
+export const imagePullCommand = (image: RuntimeImage): string =>
+	`podman pull ${shellQuote(runtimeImageReference(image))}`
+
+export const imageIdCommand = (image: RuntimeImage): string =>
+	`podman image inspect --format '{{.Id}}' ${shellQuote(runtimeImageReference(image))}`
+
+export const clientCheckCommand = (image: RuntimeImage): string =>
+	`podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
 
 const step = async (
 	transport: HostTransport,
@@ -68,20 +120,21 @@ const step = async (
 	return result.stdout.trim()
 }
 
-const assertUsableHome = async (transport: HostTransport): Promise<void> => {
-	const read = await transport.exec(HOME_COMMAND, PROVISION_STEP_TIMEOUT_MS)
+const readSystem = async (transport: HostTransport) => {
+	const read = await transport.exec(SYSTEM_COMMAND, PROVISION_STEP_TIMEOUT_MS)
 	if (read.exitCode !== 0) {
-		throw new Error(
-			`Failed to read the home directory of the connecting user: ${read.stderr.trim()}`,
-		)
+		throw new Error(`Failed to read systemd and the connecting account: ${read.stderr.trim()}`)
 	}
-	const lines = read.stdout.split("\n")
-	const [home = "", passwdHome = ""] = lines
-	if (lines.length !== 2 || !isUsableHome(home, passwdHome)) {
+	const system = parseSystem(read.stdout)
+	if (system.uid === null) throw new Error("Couldn't read this account's user id.")
+	if (system.uid === 0) throw new Error(ROOT_REFUSAL)
+	if (system.systemd === null) throw new Error("systemd is not available on this host")
+	if (!isUsableHome(system.home, system.passwdHome)) {
 		throw new Error(
 			"The remote home directory must be an absolute path containing only letters, digits, '.', '_', '-', and '/', and must be the account's own home",
 		)
 	}
+	return { osRelease: system.systemd, osId: system.osId, osName: system.osName }
 }
 
 const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
@@ -99,6 +152,20 @@ const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
 	)
 }
 
+const networkStackFor = (facts: HostPodmanFacts): NetworkStack => {
+	if (facts.uid === null || facts.uid === 0) throw new Error(ROOT_REFUSAL)
+	if (facts.podman === null || !meetsPodmanFloor(facts.podman)) {
+		throw new Error(`Needs Podman ${formatPodmanVersion(PODMAN_FLOOR)} or newer.`)
+	}
+	if (!facts.cgroupV2) throw new Error("This server's system is too old for Podman.")
+	if (!facts.subuid.own || !facts.subgid.own) {
+		throw new Error("This account can't run containers yet.")
+	}
+	const stack = requiredStackFor(facts.podman.major)
+	if (!facts.helpers.includes(stack)) throw new Error("A Podman network helper is missing.")
+	return stack
+}
+
 export const provisionHost = async (
 	transport: HostTransport,
 	options: ProvisionOptions = {},
@@ -111,33 +178,35 @@ export const provisionHost = async (
 	}
 
 	advance()
-	const osRelease =
-		hostFact(
-			await step(
-				transport,
-				"systemctl --version | head -n 1",
-				"systemd is not available on this host",
-			),
-		) ?? UNKNOWN_HOST_FACT
-
-	const osRead = await transport.exec(OS_RELEASE_COMMAND, PROVISION_STEP_TIMEOUT_MS)
-	const { osId, osName } = parseOsRelease(osRead.stdout)
-
-	await assertUsableHome(transport)
+	const { osRelease, osId, osName } = await readSystem(transport)
 
 	advance()
 	await assertLingerEnabled(transport)
 
 	advance()
+	const networkStack = networkStackFor(
+		parseHostFacts(await step(transport, HOST_FACTS_COMMAND, "Failed to read Podman's facts")),
+	)
+
+	advance()
+	const storage = await transport.exec(storageStepCommand(), PROVISION_STEP_TIMEOUT_MS)
+	if (storage.exitCode !== 0 || storage.stdout.trim() !== "ready") {
+		throw new Error(
+			`Failed to set up container storage: ${storage.stdout.trim()} ${storage.stderr.trim()}`,
+		)
+	}
+
+	advance()
 	await step(
 		transport,
-		`install -d -m 0711 ${INSTANCES_ROOT}/instances`,
+		`install -d -m 0700 ${INSTANCES_ROOT} ${INSTANCES_ROOT}/bin ${INSTANCES_ROOT}/instances`,
 		"Failed to create instances directory",
 	)
 
 	advance()
 	const machine = await step(transport, "uname -m", "Failed to read the host machine architecture")
 	const release = mccReleaseForMachine(machine)
+	const image = runtimeImageFor(release.architecture)
 
 	advance()
 	const workDir = await step(
@@ -168,16 +237,29 @@ export const provisionHost = async (
 	}
 
 	advance()
-	const probe = await transport.exec(
-		`${INSTANCES_ROOT}/bin/MinecraftClient --help < /dev/null 2>&1`,
-		CLIENT_PROBE_TIMEOUT_MS,
+	await step(
+		transport,
+		imagePullCommand(image),
+		"Failed to download the runtime image",
+		PROVISION_DOWNLOAD_TIMEOUT_MS,
 	)
+
+	advance()
+	const pulled = await step(transport, imageIdCommand(image), "Failed to read the runtime image")
+	if (pulled !== podmanImageId(image)) {
+		throw new Error(
+			`The runtime image is ${hostFact(pulled) ?? UNKNOWN_HOST_FACT}, not ${podmanImageId(image)}`,
+		)
+	}
+
+	advance()
+	const probe = await transport.exec(clientCheckCommand(image), CLIENT_PROBE_TIMEOUT_MS)
 	const probeOutput = `${probe.stdout}\n${probe.stderr}`
 	if (!probeOutput.includes(CLIENT_BANNER)) {
 		throw new Error(explainClientFailure(probeOutput))
 	}
 
-	const templates = renderUnitTemplates()
+	const templates = renderUnitTemplates({ networkStack, imageId: podmanImageId(image) })
 
 	advance()
 	await step(
@@ -202,7 +284,7 @@ export const provisionHost = async (
 	advance()
 	await step(transport, systemctl("daemon-reload"), "Failed to reload systemd")
 
-	return { osRelease, osId, osName }
+	return { osRelease, osId, osName, networkStack, architecture: release.architecture }
 }
 
 export { LINGER_STEP_LABEL }

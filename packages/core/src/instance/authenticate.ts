@@ -6,7 +6,8 @@ import {
 } from "@open-mcc/contracts"
 import type { HostRow } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
-import { systemctl } from "../host/profile"
+import { INSTANCES_PATH, systemctl } from "../host/profile"
+import { hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
 	type ActorContext,
@@ -18,7 +19,14 @@ import {
 	InstanceNotFoundError,
 } from "./instance.controller"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
-import { authUnitName, instanceDir, stopAuthCommand, unitName } from "./unit"
+import {
+	authUnitName,
+	INSTANCE_LAYOUT,
+	instanceDir,
+	stopAuthCommand,
+	unitName,
+	validateInstanceId,
+} from "./unit"
 
 const connectForSignIn = async (
 	transport: HostTransport,
@@ -45,7 +53,10 @@ export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
 
 export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
 
-export const SESSION_CACHE_FILES = ["SessionCache.db", "SessionCache.ini"] as const
+export const SESSION_CACHE_FILES = ["SessionCache.db"] as const
+
+export const sessionCacheProbeCommand = (instanceId: string): string =>
+	`out=$(find "$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1`
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -72,9 +83,9 @@ export const startAuthCommand = (instanceId: string): string => {
 	return `rm -f ${instanceDir(instanceId)}/auth.log && ${systemctl(`start ${unit}`)}`
 }
 
-const requireSetUpOnce = (host: Pick<HostRow, "osRelease">): void => {
-	if (host.osRelease === null) {
-		throw new InstanceHostNotFoundError("Host has never finished provisioning")
+const requireRuntime = (host: HostRow): void => {
+	if (!hostMeets(host, "runtime")) {
+		throw new InstanceHostNotFoundError(`Host ${host.id} is not set up to run bots`)
 	}
 }
 
@@ -120,7 +131,10 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 	}
 
-	requireSetUpOnce(host)
+	if (!hostMeets(host, "runtime")) {
+		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
+		throw new InstanceHostNotFoundError(`Host ${instance.hostId} is not set up to run bots`)
+	}
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {
@@ -197,7 +211,7 @@ export const completeAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireSetUpOnce(host)
+	requireRuntime(host)
 	const dir = instanceDir(instance.id)
 	const transport = deps.createTransport()
 	try {
@@ -211,10 +225,13 @@ export const completeAuthentication = async (
 		})
 
 		const probe = await transport.exec(
-			SESSION_CACHE_FILES.map((name) => `test -s ${dir}/${name}`).join(" || "),
+			sessionCacheProbeCommand(instance.id),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
-		if (probe.exitCode !== 0) return { authenticated: false, status: instance.status }
+		if (probe.exitCode === 1) return { authenticated: false, status: instance.status }
+		if (probe.exitCode !== 0) {
+			throw new Error(`Could not read whether instance ${instance.id} has signed in`)
+		}
 
 		await stopAuthSession(transport, instance.id)
 		await transport.exec(`rm -f ${dir}/auth.log`, AUTH_SESSION_TIMEOUT_MS)
@@ -263,7 +280,7 @@ export const cancelAuthentication = async (
 	const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 	if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${instance.hostId}`)
 
-	requireSetUpOnce(host)
+	requireRuntime(host)
 	const transport = deps.createTransport()
 	try {
 		await connectForSignIn(transport, {

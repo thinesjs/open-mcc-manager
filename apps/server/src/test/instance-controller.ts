@@ -14,12 +14,17 @@ import type { Db } from "@open-mcc/db"
 import {
 	createFakeTransport,
 	createReadConnections,
+	type FakeScript,
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
 } from "@open-mcc/transport"
 
-export const createTestInstanceController = async (db: Db, secrets?: SecretStore) =>
+export const createTestInstanceController = async (
+	db: Db,
+	secrets?: SecretStore,
+	script: FakeScript = {},
+) =>
 	createInstanceController({
 		instances: createInstanceRepository(db),
 		schedules: createScheduleRepository(db),
@@ -27,7 +32,7 @@ export const createTestInstanceController = async (db: Db, secrets?: SecretStore
 		hosts: createHostRepository(db),
 		sshKeys: createSshKeyRepository(db),
 		secrets: secrets ?? (await createSecretStore(await generateKeyPair("k1"))),
-		createTransport: () => createFakeTransport(),
+		createTransport: () => createFakeTransport(script),
 		readConnections: createReadConnections({
 			createTransport: () => createFakeTransport(),
 			idleMs: READ_CONNECTION_IDLE_MS,

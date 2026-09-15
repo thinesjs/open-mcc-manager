@@ -20,6 +20,7 @@ const row = (overrides: Partial<HostRow> = {}): HostRow => ({
 	port: 22,
 	username: "mcc",
 	networkStack: null,
+	architecture: null,
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -103,7 +104,7 @@ describe("leasing a reader on a host's current trust", () => {
 	it("hands out a reader on the row it re-read, and releases cleanly", async () => {
 		const { deps, readConnections } = harness(() => row())
 
-		const leased = await leaseHostReader(deps, SCOPE, "host-1", 10_000)
+		const leased = await leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")
 
 		expect(leased.kind).toBe("leased")
 		if (leased.kind !== "leased") return
@@ -121,7 +122,7 @@ describe("leasing a reader on a host's current trust", () => {
 			return row({ hostKeyFingerprint: "SHA256:second" })
 		})
 
-		const leased = await leaseHostReader(deps, SCOPE, "host-1", 10_000)
+		const leased = await leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")
 
 		expect(leased).toEqual({ kind: "changed" })
 		expect(expectedFingerprints).toEqual(["SHA256:first"])
@@ -132,7 +133,7 @@ describe("leasing a reader on a host's current trust", () => {
 	it("C4: refuses a host whose removal was requested, without opening anything", async () => {
 		const { deps, made } = harness(() => row({ teardownRequestedAt: new Date() }))
 
-		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000)).resolves.toEqual({
+		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")).resolves.toEqual({
 			kind: "missing",
 		})
 		expect(made).toHaveLength(0)
@@ -143,7 +144,7 @@ describe("leasing a reader on a host's current trust", () => {
 			call === 1 ? row() : row({ teardownRequestedAt: new Date() }),
 		)
 
-		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000)).resolves.toEqual({
+		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")).resolves.toEqual({
 			kind: "missing",
 		})
 		expect(readConnections.activeLeases()).toBe(0)
@@ -153,7 +154,7 @@ describe("leasing a reader on a host's current trust", () => {
 		const { deps, made, sshKeys } = harness(() => row())
 
 		await expect(
-			leaseHostReader(deps, { organizationId: "org-2" }, "host-1", 10_000),
+			leaseHostReader(deps, { organizationId: "org-2" }, "host-1", 10_000, "setUpOnce"),
 		).resolves.toEqual({ kind: "missing" })
 		expect(made).toHaveLength(0)
 		expect(sshKeys.findById).not.toHaveBeenCalled()
@@ -162,7 +163,7 @@ describe("leasing a reader on a host's current trust", () => {
 	it("tells a host that never finished provisioning apart from a missing one", async () => {
 		const { deps, made } = harness(() => row({ osRelease: null }))
 
-		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000)).resolves.toEqual({
+		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")).resolves.toEqual({
 			kind: "unprovisioned",
 		})
 		expect(made).toHaveLength(0)
@@ -171,7 +172,7 @@ describe("leasing a reader on a host's current trust", () => {
 	it("calls a host whose SSH key is gone missing, and leaves no connection behind", async () => {
 		const { deps, made } = harness(() => row(), { key: undefined })
 
-		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000)).resolves.toEqual({
+		await expect(leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce")).resolves.toEqual({
 			kind: "missing",
 		})
 		expect(made[0]?.destroyCount()).toBe(1)
@@ -182,7 +183,7 @@ describe("leasing a reader on a host's current trust", () => {
 			connectFailure: new Error("connect EHOSTUNREACH 10.0.0.1:22"),
 		})
 
-		const failure = await leaseHostReader(deps, SCOPE, "host-1", 10_000).then(
+		const failure = await leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce").then(
 			() => undefined,
 			(error: Error) => error,
 		)

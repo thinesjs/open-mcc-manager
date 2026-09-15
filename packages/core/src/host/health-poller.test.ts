@@ -22,7 +22,8 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	networkStack: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -205,11 +206,60 @@ describe("keeping the panel's view of each host current", () => {
 		)
 	})
 
-	it("polls only hosts that finished provisioning", () => {
-		expect(isPollable(host())).toBe(true)
-		expect(isPollable(host({ status: "pending" }))).toBe(false)
-		expect(isPollable(host({ status: "provisioning" }))).toBe(false)
-		expect(isPollable(host({ status: "error" }))).toBe(false)
+	it.each(["ready", "error", "provisioning", "unreachable"] as const)(
+		"keeps polling a set-up host whose status is %s, so a failed or running Repair freezes nothing",
+		(status) => {
+			expect(isPollable(host({ status }))).toBe(true)
+		},
+	)
+
+	it("polls a host whose Repair failed, leasing it like any other", async () => {
+		const lease = vi.fn(leasing("0"))
+
+		const run = await runHealthPoll({
+			pollableHosts: async () => [host({ status: "error" })],
+			lease,
+			recordSeen: async () => undefined,
+			now: () => new Date(),
+		})
+
+		expect(run.reached).toEqual(["host-1"])
+		expect(lease).toHaveBeenCalledTimes(1)
+	})
+
+	it("never polls a host that never finished setup, whatever its status says", () => {
+		expect(isPollable(host({ status: "pending", osRelease: null }))).toBe(false)
+		expect(isPollable(host({ status: "provisioning", osRelease: null }))).toBe(false)
+		expect(isPollable(host({ osRelease: null }))).toBe(false)
+	})
+
+	it("never polls a host being removed, which teardown is emptying", () => {
+		expect(isPollable(host({ status: "removing" }))).toBe(false)
+	})
+
+	it.each([
+		["network stack", { networkStack: null }],
+		["architecture", { architecture: null }],
+	] as const)(
+		"never polls a ready host with no %s recorded, and never leases it",
+		async (_field, missing) => {
+			const lease = vi.fn(leasing("0"))
+
+			const run = await runHealthPoll({
+				pollableHosts: async () => [host(missing)],
+				lease,
+				recordSeen: async () => undefined,
+				now: () => new Date(),
+			})
+
+			expect(isPollable(host(missing))).toBe(false)
+			expect(run).toEqual({ polled: 0, reached: [], unreachable: [] })
+			expect(lease).not.toHaveBeenCalled()
+		},
+	)
+
+	it("polls a ready host with both its network stack and architecture recorded", () => {
+		expect(isPollable(host({ networkStack: "pasta", architecture: "arm64" }))).toBe(true)
 	})
 
 	it("gives back every lease it takes, including when the write after it fails", async () => {
@@ -298,7 +348,13 @@ describe("the health poller on a shared connection", () => {
 			readConnections,
 		}
 		const lease = (target: HostRow, deadlineMs: number) =>
-			leaseHostReader(readerDeps, { organizationId: target.organizationId }, target.id, deadlineMs)
+			leaseHostReader(
+				readerDeps,
+				{ organizationId: target.organizationId },
+				target.id,
+				deadlineMs,
+				"runtime",
+			)
 		return { readConnections, lease, expectedFingerprints }
 	}
 

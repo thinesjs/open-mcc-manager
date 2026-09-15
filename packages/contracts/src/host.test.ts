@@ -99,7 +99,6 @@ describe("what a host check reports", () => {
 			"storage",
 			"tcp-forwarding",
 			"cloud-metadata",
-			"client-runtime",
 		])
 	})
 

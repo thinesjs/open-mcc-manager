@@ -73,12 +73,13 @@ import {
 	InstanceNotFoundError,
 	InstanceNotRunningError,
 	InstanceRemovalFailedError,
+	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	scheduledRunFailure,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
-import { instanceDir, unitName } from "./unit"
+import { instanceDir, instanceLayoutSteps, startUnitCommand, unitName } from "./unit"
 
 const owner: ActorContext = {
 	organizationId: "org-1",
@@ -113,6 +114,11 @@ const instanceRow = (overrides: Partial<InstanceRow> = {}): InstanceRow => ({
 	...overrides,
 })
 
+const UNIT_RUNTIME = {
+	networkStack: "slirp4netns",
+	imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+} as const
+
 const hostRow: HostRow = {
 	id: "host-1",
 	organizationId: "org-1",
@@ -120,7 +126,8 @@ const hostRow: HostRow = {
 	hostname: "10.0.0.1",
 	port: 22,
 	username: "mcc",
-	networkStack: null,
+	networkStack: "slirp4netns",
+	architecture: "x64",
 	osId: "debian",
 	osName: "Debian GNU/Linux 12 (bookworm)",
 	failedUnits: null,
@@ -230,7 +237,13 @@ const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceComman
 })
 
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
-	const transport = createFakeTransport()
+	const transport = createFakeTransport({
+		[startUnitCommand("abc123")]: {
+			stdout: "ActiveState=active\nResult=success\nSignIn=inactive\n",
+			stderr: "",
+			exitCode: 0,
+		},
+	})
 	const readTransports: { next: () => ReusableTransport } = { next: () => transport }
 	const readConnections = createReadConnections({
 		createTransport: () => readTransports.next(),
@@ -292,6 +305,171 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	}
 	return { transport, audit, instances, deps, readTransports, readConnections }
 }
+
+describe("a bot's files and its start", () => {
+	const DIR = '"$HOME"/.local/share/open-mcc/instances/abc123'
+
+	const RUNNING = { status: "running" }
+
+	const answering = (
+		transport: ReturnType<typeof makeDeps>["transport"],
+		command: string,
+		answer: { stdout: string; stderr: string; exitCode: number },
+	) => {
+		const original = transport.exec
+		transport.exec = async (issued: string, timeoutMs: number, stdin?: string) =>
+			issued === command ? answer : await original(issued, timeoutMs, stdin)
+	}
+
+	const withSavedConfig = () => {
+		const made = makeDeps()
+		made.deps.instances.latestConfig = async () => configRow({ document: { ...SAVED_DOCUMENT } })
+		return made
+	}
+
+	it("makes the whole layout at create, each directory before anything written into it", async () => {
+		const { deps, transport } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.example.com",
+		})
+
+		const port = vi.mocked(deps.instances.insert).mock.calls[0]?.[1].liveControlPort ?? 0
+		expect(port).toBeGreaterThan(0)
+		expect(transport.commands.filter((command) => command.includes("/instances/abc123"))).toEqual(
+			instanceLayoutSteps({
+				instanceId: "abc123",
+				liveControlPort: port,
+				liveControlToken: "0".repeat(32),
+				configDocument: "",
+			}).map((step) => step.command),
+		)
+	})
+
+	it("writes into what create made on start and restart, and never makes a directory", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.start(owner, "abc123")
+		await controller.restart(owner, "abc123")
+
+		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
+		expect(
+			transport.commands.filter(
+				(command) => command === `(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`,
+			),
+		).toHaveLength(2)
+		expect(
+			transport.commands.filter((command) => command === startUnitCommand("abc123")),
+		).toHaveLength(2)
+	})
+
+	it("rotates the live control token into the env file create made, unquoted and exact", async () => {
+		const { deps, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+
+		await controller.start(owner, "abc123")
+		await controller.restart(owner, "abc123")
+
+		const tokens = transport.stdins.filter((stdin) => stdin.startsWith("MCC_MCP_AUTH_TOKEN="))
+		expect(tokens).toHaveLength(2)
+		for (const token of tokens) expect(token).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
+		expect(tokens[0]).not.toBe(tokens[1])
+		expect(
+			transport.commands.filter((command) => command === `(umask 077; cat > ${DIR}/env)`),
+		).toHaveLength(2)
+		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
+	})
+
+	it("fails a start into a directory that is gone, before it starts anything", async () => {
+		const { deps, transport } = withSavedConfig()
+		answering(transport, `(umask 077; cat > ${DIR}/env)`, {
+			stdout: "",
+			stderr: "sh: 1: cannot create env: Directory nonexistent",
+			exitCode: 2,
+		})
+		const controller = createInstanceController(deps)
+
+		const started = controller.start(owner, "abc123")
+
+		await expect(started).rejects.toThrow(/environment/)
+		await expect(started).rejects.not.toBeInstanceOf(InstanceSignInRunningError)
+		expect(transport.commands.some((command) => command.includes("systemctl --user start"))).toBe(
+			false,
+		)
+		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+	})
+
+	it.each([
+		[
+			"on systemd 252, which reports the skip as a success",
+			"ActiveState=inactive\nResult=success\nSignIn=active\n",
+		],
+		[
+			"while sign-in is still starting",
+			"ActiveState=inactive\nResult=success\nSignIn=activating\n",
+		],
+		[
+			"where systemd names the skip",
+			"ActiveState=inactive\nResult=exec-condition\nSignIn=inactive\n",
+		],
+	])(
+		"says a start was skipped because sign-in is running %s, on start and on restart",
+		async (_case, stdout) => {
+			const { deps, transport } = withSavedConfig()
+			answering(transport, startUnitCommand("abc123"), { stdout, stderr: "", exitCode: 0 })
+			const controller = createInstanceController(deps)
+
+			await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(
+				InstanceSignInRunningError,
+			)
+			await expect(controller.restart(owner, "abc123")).rejects.toBeInstanceOf(
+				InstanceSignInRunningError,
+			)
+			expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+		},
+	)
+
+	it.each([
+		["a unit that failed", "ActiveState=failed\nResult=exit-code\nSignIn=inactive\n"],
+		[
+			"a unit left stopped with no sign-in running",
+			"ActiveState=inactive\nResult=success\nSignIn=inactive\n",
+		],
+		["output it cannot read", "ActiveState=active\r\nResult=success\r\nSignIn=inactive\r\n"],
+		["no output at all", ""],
+	])("reports %s as a start that failed, never as a success", async (_case, stdout) => {
+		const { deps, transport } = withSavedConfig()
+		answering(transport, startUnitCommand("abc123"), { stdout, stderr: "", exitCode: 0 })
+		const controller = createInstanceController(deps)
+
+		const started = controller.start(owner, "abc123")
+
+		await expect(started).rejects.toThrow(/start/i)
+		await expect(started).rejects.not.toBeInstanceOf(InstanceSignInRunningError)
+		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+	})
+
+	it("reports a start systemctl itself refused as the start failure it always was", async () => {
+		const { deps, transport } = withSavedConfig()
+		answering(transport, startUnitCommand("abc123"), {
+			stdout: "",
+			stderr: "Job for open-mcc@abc123.service failed",
+			exitCode: 1,
+		})
+		const controller = createInstanceController(deps)
+
+		await expect(controller.start(owner, "abc123")).rejects.toThrow(
+			/Failed to start instance abc123/,
+		)
+		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+	})
+})
 
 describe("instance controller authorization", () => {
 	it("refuses a viewer's attempt to start an instance without touching the host", async () => {
@@ -986,7 +1164,7 @@ describe("removing an instance", () => {
 	it("gives each unit longer to stop than the unit itself waits before killing it", async () => {
 		const transport = createFakeTransport()
 		await removeOn(hostRow, transport).outcome
-		const templates = renderUnitTemplates()
+		const templates = renderUnitTemplates(UNIT_RUNTIME)
 		const stopSeconds = (unit: string) =>
 			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
 		const timeoutFor = (command: string) => transport.timeouts[transport.commands.indexOf(command)]
@@ -1024,7 +1202,7 @@ describe("running several instances on one host", () => {
 	})
 
 	it("keeps the port the row owns, whatever a config save asks for", async () => {
-		const { deps } = makeDeps()
+		const { deps, transport } = makeDeps()
 		const documents: string[] = []
 		deps.instances.insertConfigVersion = async (_scope, _id, document) => {
 			documents.push(document)
@@ -1052,6 +1230,10 @@ describe("running several instances on one host", () => {
 
 		expect(documents).toHaveLength(1)
 		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33333)
+		expect(transport.commands).toContain(
+			'(umask 077; cat > "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini)',
+		)
+		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
 	})
 
 	it("rewrites the config before starting, because the client clobbers it on exit", async () => {
@@ -1191,7 +1373,7 @@ describe("running several instances on one host", () => {
 
 		const wroteEnv = transport.stdins.filter((each) => each.includes("MCC_MCP_AUTH_TOKEN="))
 		expect(wroteEnv).toHaveLength(1)
-		expect(wroteEnv[0]).toMatch(/MCC_MCP_AUTH_TOKEN="[0-9a-f]{32}"/)
+		expect(wroteEnv[0]).toMatch(/^MCC_MCP_AUTH_TOKEN=[0-9a-f]{32}\n$/)
 	})
 
 	it("seals the rotated token rather than writing it to the database in the clear", async () => {
@@ -1830,7 +2012,9 @@ describe("stopping an instance", () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
 		const stopSeconds = Number(
-			/^TimeoutStopSec=(\d+)$/m.exec(renderUnitTemplates()[INSTANCE_UNIT_NAME] ?? "")?.[1],
+			/^TimeoutStopSec=(\d+)$/m.exec(
+				renderUnitTemplates(UNIT_RUNTIME)[INSTANCE_UNIT_NAME] ?? "",
+			)?.[1],
 		)
 
 		await controller.stop(owner, "abc123")
@@ -1894,5 +2078,109 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 			InstanceHostNotProvisionedError,
 		)
 		expect(transport.commands).toEqual([])
+	})
+})
+
+describe("a bot on a host with no recorded runtime", () => {
+	const onHostWithout = (missing: Partial<HostRow>) => {
+		const made = makeDeps({ hosts: { findById: vi.fn(async () => ({ ...hostRow, ...missing })) } })
+		vi.mocked(made.instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const connect = vi.spyOn(made.transport, "connect")
+		return { ...made, connect }
+	}
+
+	type Controller = ReturnType<typeof createInstanceController>
+
+	const RUNTIME_PATHS = [
+		[
+			"a start",
+			async (controller: Controller) => {
+				await controller.start(owner, "abc123")
+			},
+		],
+		[
+			"a restart",
+			async (controller: Controller) => {
+				await controller.restart(owner, "abc123")
+			},
+		],
+		[
+			"a console command",
+			async (controller: Controller) => {
+				await controller.sendCommand(owner, "abc123", "/say hello")
+			},
+		],
+		[
+			"a scheduled command",
+			async (controller: Controller) => {
+				await controller.runScheduledCommand(commandRow())
+			},
+		],
+		[
+			"a console read",
+			async (controller: Controller) => {
+				await controller.readConsole(owner, "abc123", 20)
+			},
+		],
+		[
+			"a new bot",
+			async (controller: Controller) => {
+				await controller.create(owner, {
+					hostId: "host-1",
+					name: "afk-2",
+					accountType: "microsoft",
+					minecraftAccount: "afk@example.com",
+					serverAddress: "play.example.com",
+				})
+			},
+		],
+	] as const
+
+	describe.each([
+		["no network stack", { networkStack: null }],
+		["no architecture", { architecture: null }],
+	] as const)("recording %s", (_case, missing) => {
+		it.each(RUNTIME_PATHS)("refuses %s before connecting to the host", async (_path, run) => {
+			const { deps, transport, connect, instances } = onHostWithout(missing)
+
+			await expect(run(createInstanceController(deps))).rejects.toBeInstanceOf(
+				InstanceHostNotProvisionedError,
+			)
+			expect(connect).not.toHaveBeenCalled()
+			expect(transport.commands).toEqual([])
+			expect(instances.insert).not.toHaveBeenCalled()
+			expect(instances.update).not.toHaveBeenCalled()
+		})
+
+		it("reports the host as not set up to reconcile, and never connects to it", async () => {
+			const { deps, transport, connect } = onHostWithout(missing)
+
+			await expect(createInstanceController(deps).reconcileHost(owner, "host-1")).resolves.toEqual({
+				hostId: "host-1",
+				reachable: false,
+				reason: "unprovisioned",
+			})
+			expect(connect).not.toHaveBeenCalled()
+			expect(transport.commands).toEqual([])
+		})
+
+		it("can still be stopped", async () => {
+			const { deps, transport } = onHostWithout(missing)
+
+			await createInstanceController(deps).stop(owner, "abc123")
+
+			expect(transport.commands.some((each) => each.includes("stop 'open-mcc@abc123'"))).toBe(true)
+		})
+
+		it("can still be removed, its row deleted", async () => {
+			const { deps, transport, instances } = onHostWithout(missing)
+
+			await createInstanceController(deps).remove(owner, "abc123")
+
+			expect(transport.commands).toContain(
+				'rm -rf -- "$HOME"/.local/share/open-mcc/instances/abc123',
+			)
+			expect(instances.delete).toHaveBeenCalledTimes(1)
+		})
 	})
 })

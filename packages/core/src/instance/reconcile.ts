@@ -10,7 +10,9 @@ import { readMccConfigKeys } from "@open-mcc/contracts/boundary/mcc-config"
 import type { InstanceRow, InstanceScheduleRow } from "@open-mcc/db"
 import { asReadCommand, type HostReader, ReadDeadlineExceededError } from "@open-mcc/transport"
 import { journalctl, systemctl, UNIT_DIR } from "../host/profile"
-import { renderUnitTemplates } from "../host/unit-template"
+import type { RuntimeHost } from "../host/runtime-guard"
+import { podmanImageId, runtimeImageFor } from "../host/runtime-image"
+import { renderUnitTemplates, type UnitRuntime } from "../host/unit-template"
 import type { ConfigDrift } from "./config-drift"
 import {
 	CONFIG_PATH_NAME,
@@ -20,7 +22,7 @@ import {
 	isSecretKey,
 } from "./config-drift"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
-import { instanceDir, unitName } from "./unit"
+import { CONFIG_FILE_PATH, instanceDir, unitName } from "./unit"
 
 export type {
 	ConfigDriftPublic,
@@ -100,13 +102,21 @@ const readFile = async (reader: SetupReader, path: string): Promise<string | und
 	return result.stdout === MISSING_MARKER ? undefined : result.stdout
 }
 
+export const unitRuntimeFor = (
+	host: Pick<RuntimeHost, "networkStack" | "architecture">,
+): UnitRuntime => ({
+	networkStack: host.networkStack,
+	imageId: podmanImageId(runtimeImageFor(host.architecture)),
+})
+
 export const expectedUnits = (
 	instances: readonly InstanceRow[],
 	schedules: readonly InstanceScheduleRow[],
 	renderWindow: (schedule: InstanceScheduleRow) => Record<string, string>,
+	runtime: UnitRuntime,
 ): Map<string, string> => {
 	const expected = new Map<string, string>()
-	for (const [name, contents] of Object.entries(renderUnitTemplates())) {
+	for (const [name, contents] of Object.entries(renderUnitTemplates(runtime))) {
 		expected.set(name, contents)
 	}
 	const known = new Set(instances.map((instance) => instance.id))
@@ -144,7 +154,7 @@ const readInstanceConfig = async (
 	reader: SetupReader,
 	instanceId: string,
 ): Promise<string | undefined> => {
-	const path = `${instanceDir(instanceId)}/${CONFIG_PATH_NAME}`
+	const path = `${instanceDir(instanceId)}/${CONFIG_FILE_PATH}`
 	const result = await reader.exec(asReadCommand(`cat ${path} 2>/dev/null || true`))
 	const text = result.stdout
 	return text.trim().length === 0 ? undefined : text

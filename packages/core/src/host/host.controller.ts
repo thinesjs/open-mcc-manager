@@ -4,7 +4,6 @@ import {
 	can,
 	type HostCheckReport,
 	type HostPublic,
-	type ProvisionStepLabel,
 	type Role,
 } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
@@ -23,7 +22,7 @@ import {
 	type HostRepository,
 	isProvisioningClaimStale,
 } from "./host.repository"
-import { type ProvisionResult, provisionHost } from "./provision"
+import { type ProvisionProgress, type ProvisionResult, provisionHost } from "./provision"
 import { provisioningFailureFor } from "./provision-failure"
 import { COULD_NOT_CONNECT, connectFailureReason } from "./unreachable"
 
@@ -283,7 +282,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 				}
 			}
 
-			let reached: ProvisionStepLabel | undefined
+			let reached: ProvisionProgress | undefined
 
 			const runProvision = async (): Promise<ProvisionResult> => {
 				const transport = deps.createTransport()
@@ -308,7 +307,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					}
 					return await provisionHost(transport, {
 						onProgress: (progress) => {
-							reached = progress.step
+							reached = progress
 							void deps.hosts
 								.recordProvisioningProgress(scope, hostId, attemptId, progress)
 								.catch(() => undefined)
@@ -324,13 +323,15 @@ export const createHostController = (deps: HostControllerDeps) => {
 					return await runProvision()
 				} catch (error) {
 					const failure =
-						error instanceof HostUnreachableError ? error.message : provisioningFailureFor(reached)
+						error instanceof HostUnreachableError
+							? error.message
+							: provisioningFailureFor(reached?.step)
 					deps.onError?.(
 						`Provisioning host ${hostId} did not finish`,
 						error instanceof Error ? error : String(error),
 					)
 					try {
-						await deps.hosts.recordProvisioningFailure(scope, hostId, attemptId, failure)
+						await deps.hosts.recordProvisioningFailure(scope, hostId, attemptId, failure, reached)
 						await deps.withTransaction(async (repos) => {
 							await repos.hosts.lockHost(scope, hostId)
 							await repos.hosts.finalizeProvisioning(scope, hostId, attemptId, { status: "error" })
@@ -356,6 +357,8 @@ export const createHostController = (deps: HostControllerDeps) => {
 					osRelease: result.osRelease,
 					osId: result.osId,
 					osName: result.osName,
+					networkStack: result.networkStack,
+					architecture: result.architecture,
 				})
 				if (!updated) {
 					throw new HostConcurrentlyModifiedError(

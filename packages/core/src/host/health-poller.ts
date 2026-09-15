@@ -6,6 +6,7 @@ import {
 	observeHost,
 } from "./health"
 import type { HostReadLease } from "./host-reader"
+import { hostMeets } from "./runtime-guard"
 
 export type LeaseHost = (deadlineMs: number) => Promise<HostReadLease>
 
@@ -25,7 +26,8 @@ export type HealthPollRun = {
 	unreachable: string[]
 }
 
-export const isPollable = (host: HostRow): boolean => host.status === "ready"
+export const isPollable = (host: HostRow): boolean =>
+	host.status !== "removing" && hostMeets(host, "runtime")
 
 export const runHealthPoll = async (deps: HealthPollerDeps): Promise<HealthPollRun> => {
 	const hosts = (await deps.pollableHosts()).filter(isPollable)

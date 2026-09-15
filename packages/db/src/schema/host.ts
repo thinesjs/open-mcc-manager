@@ -14,10 +14,18 @@ type _NetworkStackRefinesGeneratedColumn = RefinementOf<
 	SelectType<DB["host"]["networkStack"]>
 >
 
+export type HostArchitecture = "x64" | "arm64"
+
+type _HostArchitectureRefinesGeneratedColumn = RefinementOf<
+	HostArchitecture | null,
+	SelectType<DB["host"]["architecture"]>
+>
+
 export type HostTable = Omit<
 	DB["host"],
 	| "status"
 	| "networkStack"
+	| "architecture"
 	| "osId"
 	| "failedUnits"
 	| "teardownError"
@@ -37,6 +45,7 @@ export type HostTable = Omit<
 > & {
 	status: Generated<HostStatus>
 	networkStack: Generated<NetworkStack | null>
+	architecture: Generated<HostArchitecture | null>
 	osId: Generated<DB["host"]["osId"]>
 	failedUnits: Generated<DB["host"]["failedUnits"]>
 	teardownError: Generated<DB["host"]["teardownError"]>

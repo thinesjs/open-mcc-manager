@@ -292,7 +292,13 @@ export const startServer = async (
 	const healthPoller = startHealthPoller({
 		pollableHosts: () => hosts.listPollableAcrossOrganizations(),
 		lease: (host, deadlineMs) =>
-			leaseHostReader(readerDeps, { organizationId: host.organizationId }, host.id, deadlineMs),
+			leaseHostReader(
+				readerDeps,
+				{ organizationId: host.organizationId },
+				host.id,
+				deadlineMs,
+				"runtime",
+			),
 		recordSeen: (host, seenAt, observed) =>
 			hosts.recordSeen(host.id, host.organizationId, seenAt, observed),
 		recordReachability: (host, reached) =>

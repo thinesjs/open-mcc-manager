@@ -57,11 +57,11 @@ export type { HostReaderDeps, HostReadLease } from "./host/host-reader"
 export { hostReadKey, leaseHostReader } from "./host/host-reader"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
-	HOME_COMMAND,
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
 } from "./host/provision"
+export { provisionableHost } from "./host/provisionable-host"
 export type {
 	ArtifactRepository,
 	ArtifactSummary,
@@ -113,6 +113,7 @@ export {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	scheduledRunFailure,
 } from "./instance/instance.controller"
@@ -158,7 +159,7 @@ export {
 	SCHEDULER_TICK_MS,
 	startScheduler,
 } from "./instance/scheduler"
-export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
+export { renderEnvironmentFile, startUnitCommand, validateInstanceId } from "./instance/unit"
 export type { SqlRunner } from "./job/executor-adapter"
 export { asSqlRunner } from "./job/executor-adapter"
 export { createHostTeardownHandler } from "./job/host-teardown.job"

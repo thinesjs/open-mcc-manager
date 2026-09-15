@@ -331,18 +331,20 @@ describe("the negative the client keeps, and means something by", () => {
 })
 
 const GOLDEN_RESERVED: readonly string[] = [
+	"MinecraftClient",
+	"Sentry",
+	"SessionCache.db",
+	"ProfileKeyCache.ini",
+	"Rendered_Maps",
+	"lang",
+	"replay_recordings",
+	"recording_cache",
 	"env",
 	"control",
 	"auth.log",
 	"MinecraftClient.ini",
 	"MinecraftClient.backup.ini",
-	"SessionCache.db",
-	"SessionCache.ini",
-	"ProfileKeyCache.ini",
-	"replay_recordings",
-	"recording_cache",
-	"Rendered_Maps",
-	"lang",
+	"unit.env",
 ]
 
 const CLIENT_FILE = "The client already uses that file name"
@@ -376,6 +378,21 @@ describe("★ a bot file name the client or this manager already keeps in the in
 	it("★ saves any other name ending in .collecting, which nothing on the host uses", () => {
 		expect(fileKeysSaying("daily.collecting", "")).toEqual(FILE_KEYS)
 		expect(fileKeysSaying("playerlog.txt.collecting", "")).toEqual(FILE_KEYS)
+	})
+
+	it.each(["MinecraftClient", "Sentry"])(
+		"refuses %s, which the client places in its working directory",
+		(value) => {
+			expect(fileKeysSaying(value, CLIENT_FILE)).toEqual(FILE_KEYS)
+		},
+	)
+
+	it("saves SessionCache.ini, which nothing on the host reads any more", () => {
+		expect(fileKeysSaying("SessionCache.ini", CLIENT_FILE)).toEqual([])
+	})
+
+	it("refuses unit.env, the port file the collector would otherwise drain empty", () => {
+		expect(fileKeysSaying("unit.env", CLIENT_FILE)).toEqual(FILE_KEYS)
 	})
 
 	it("refuses the name exactly as the host spells it, and not a case variant of it", () => {

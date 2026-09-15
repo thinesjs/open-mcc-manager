@@ -35,6 +35,7 @@ import {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	LastOwnerError,
 	LiveControlUnauthorizedError,
@@ -326,6 +327,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_AUTH_IN_PROGRESS",
 			"This instance is being signed in to Microsoft; wait for that to finish",
+		)
+	}
+	if (cause instanceof InstanceSignInRunningError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_SIGN_IN_RUNNING",
+			"Sign-in is running for this instance; try again when it is done",
 		)
 	}
 	if (cause instanceof InstanceConcurrentlyModifiedError) {

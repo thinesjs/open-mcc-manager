@@ -12,8 +12,7 @@ import {
 	createSshKeyRepository,
 	generateKeyPair,
 	generateSshKeyPair,
-	HOME_COMMAND,
-	LINGER_COMMAND,
+	provisionableHost,
 	type SecretStore,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
@@ -43,8 +42,6 @@ const encodeAlgorithmBlob = (algorithm: string, extra: Buffer): Buffer => {
 
 const PRESENTED_HOST_KEY = encodeAlgorithmBlob("ssh-ed25519", Buffer.from("host-public-test-key"))
 const PRESENTED_FINGERPRINT = fingerprintFromKey(PRESENTED_HOST_KEY)
-
-const CLIENT_PROBE = '"$HOME"/.local/share/open-mcc/bin/MinecraftClient --help < /dev/null 2>&1'
 
 const STALE_CLAIM_AGE_MS = 60 * 60 * 1000
 
@@ -93,16 +90,7 @@ beforeAll(async () => {
 					sshKeys,
 					secrets,
 					probeHostKey: async () => PRESENTED_HOST_KEY,
-					createTransport: () =>
-						createFakeTransport({
-							[HOME_COMMAND]: { stdout: "/home/mcc\n/home/mcc", stderr: "", exitCode: 0 },
-							[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
-							[CLIENT_PROBE]: {
-								stdout: "Minecraft Console Client v26.2",
-								stderr: "",
-								exitCode: 0,
-							},
-						}),
+					createTransport: () => createFakeTransport(provisionableHost()),
 					evictHost: () => undefined,
 					instanceIdsOnHost: async () => [],
 					now: () => new Date(),

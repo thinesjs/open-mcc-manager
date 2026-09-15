@@ -31,6 +31,7 @@ export type ArtifactCollectRun = {
 export type ArtifactCollectDeps = {
 	readonly organizationIds: () => Promise<readonly string[]>
 	readonly hosts: (scope: OrgScope) => Promise<readonly HostRow[]>
+	readonly host: (scope: OrgScope, hostId: string) => Promise<HostRow | undefined>
 	readonly instancesOn: (scope: OrgScope, hostId: string) => Promise<readonly InstanceRow[]>
 	readonly savedDocument: (scope: OrgScope, instanceId: string) => Promise<string | undefined>
 	readonly connect: (host: HostRow) => Promise<HostTransport>
@@ -93,19 +94,27 @@ export const createArtifactCollector =
 				const instances = await deps.instancesOn(scope, host.id)
 				const documents = await documentsFor(deps, scope, instances)
 
+				const stillCollecting = async (): Promise<boolean> =>
+					(await deps.host(scope, host.id))?.teardownRequestedAt === null
 				let sweeps: readonly InstanceArtifactSweep[] = []
 				let transport: HostTransport | undefined
 				try {
 					transport = await deps.connect(host)
-					sweeps = await sweepHostArtifacts(transport, instances, documents, {
-						keep: async (instanceId, artifact) => {
-							await deps.store(scope, valuesOf(instanceId, artifact))
+					sweeps = await sweepHostArtifacts(
+						transport,
+						instances,
+						documents,
+						{
+							keep: async (instanceId, artifact) => {
+								await deps.store(scope, valuesOf(instanceId, artifact))
+							},
+							storeAndAdvance: async (instanceId, artifact, advance) =>
+								await deps.storeAndAdvance(scope, valuesOf(instanceId, artifact), advance),
+							resetCursor: async (instanceId, version) =>
+								await deps.resetCursor(scope, instanceId, version),
 						},
-						storeAndAdvance: async (instanceId, artifact, advance) =>
-							await deps.storeAndAdvance(scope, valuesOf(instanceId, artifact), advance),
-						resetCursor: async (instanceId, version) =>
-							await deps.resetCursor(scope, instanceId, version),
-					})
+						stillCollecting,
+					)
 				} catch (error) {
 					unreachable += 1
 					deps.onError?.(

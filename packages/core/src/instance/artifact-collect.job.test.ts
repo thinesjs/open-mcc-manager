@@ -117,6 +117,7 @@ const depsFor = (
 	const deps: ArtifactCollectDeps = {
 		organizationIds: async () => ["org-1"],
 		hosts: async () => [host],
+		host: async () => host,
 		instancesOn: async () => [instance],
 		savedDocument: async () => undefined,
 		connect: async () => await connected(target.transport),
@@ -187,6 +188,26 @@ describe("collecting across the fleet", () => {
 		await createArtifactCollector(deps)()
 
 		expect(events).toEqual(["read", "commit begins", "commit ends", "truncate", "reset"])
+	})
+
+	it("★ touches the host no more once its removal is requested mid-sweep: no truncate, no replay, no Mailer, no next bot", async () => {
+		const target = playerListHost("alice\n", "inactive", "inactive")
+		let teardownRequestedAt: Date | null = null
+		let commandsBeforeRemoval = -1
+		const { deps } = depsFor(target, {
+			instancesOn: async () => [instance, { ...instance, id: "afk2" }],
+			host: async () => ({ ...host, teardownRequestedAt }),
+			storeAndAdvance: async () => {
+				teardownRequestedAt = NOW
+				commandsBeforeRemoval = target.transport.commands.length
+			},
+		})
+
+		await createArtifactCollector(deps)()
+
+		expect(commandsBeforeRemoval).toBe(1)
+		expect(target.transport.commands).toHaveLength(commandsBeforeRemoval)
+		expect(target.truncations()).toBe(0)
 	})
 
 	it("does not bound a kind it collected nothing of", async () => {

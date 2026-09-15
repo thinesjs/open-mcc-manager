@@ -228,6 +228,7 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 	const collectArtifacts = createArtifactCollector({
 		organizationIds: async () => await createOrganizationRepository(db).listIds(),
 		hosts: async (scope) => await hosts.list(scope),
+		host: async (scope, hostId) => await hosts.findById(scope, hostId),
 		instancesOn: async (scope, hostId) =>
 			(await instances.list(scope)).filter((row) => row.hostId === hostId),
 		savedDocument: async (scope, instanceId) => {

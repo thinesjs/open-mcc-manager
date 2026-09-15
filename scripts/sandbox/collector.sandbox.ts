@@ -222,6 +222,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			],
 			new Map(),
 			store,
+			async () => true,
 		)
 		return { swept: sweeps[0], elapsed: Date.now() - began }
 	}

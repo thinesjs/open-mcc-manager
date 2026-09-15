@@ -17,9 +17,10 @@ import {
 	generateKeyPair,
 	generateSshKeyPair,
 	type SecretStore,
+	startUnitCommand,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import { createFakeTransport, type FakeScript } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -35,6 +36,7 @@ import { createTestSelfHostController } from "./test/self-host-controller"
 import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
+const hostScript: FakeScript = {}
 
 let db: Db
 let app: Hono
@@ -84,7 +86,7 @@ beforeAll(async () => {
 				},
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
-				instanceController: await createTestInstanceController(db, secrets),
+				instanceController: await createTestInstanceController(db, secrets, hostScript),
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController: createSshKeyController({
@@ -715,6 +717,11 @@ const seedReadyInstance = async (
 		})
 		.execute()
 	seededInstanceIds.push(instanceId)
+	hostScript[startUnitCommand(instanceId)] = {
+		stdout: "ActiveState=active\nResult=success\n",
+		stderr: "",
+		exitCode: 0,
+	}
 	return { hostId, instanceId }
 }
 

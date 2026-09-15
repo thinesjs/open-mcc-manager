@@ -159,7 +159,7 @@ export {
 	SCHEDULER_TICK_MS,
 	startScheduler,
 } from "./instance/scheduler"
-export { renderEnvironmentFile, validateInstanceId } from "./instance/unit"
+export { renderEnvironmentFile, startUnitCommand, validateInstanceId } from "./instance/unit"
 export type { SqlRunner } from "./job/executor-adapter"
 export { asSqlRunner } from "./job/executor-adapter"
 export { createHostTeardownHandler } from "./job/host-teardown.job"

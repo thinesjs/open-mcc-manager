@@ -106,16 +106,19 @@ export const instanceLayoutSteps = ({
 	]
 }
 
+export const RUNNING_UNIT_STATES = ["active", "activating", "deactivating", "reloading"] as const
+
 export const startUnitCommand = (instanceId: string): string => {
 	const unit = shellQuote(unitName(instanceId))
-	return `${systemctl(`start ${unit}`)} && ${systemctl(`show -p ActiveState -p Result ${unit}`)}`
+	const signIn = shellQuote(authUnitName(instanceId))
+	return `${systemctl(`start ${unit}`)} && ${systemctl(`show -p ActiveState -p Result ${unit}`)} && printf 'SignIn=%s\\n' "$(${systemctl(`show -p ActiveState --value ${signIn}`)})"`
 }
 
-const UNIT_START_LINE = /^(ActiveState|Result)=([a-z][a-z-]*)$/
+const UNIT_START_LINE = /^(ActiveState|Result|SignIn)=([a-z][a-z-]*)$/
 
 export const parseUnitStartState = (output: string) => {
 	const lines = (output.endsWith("\n") ? output.slice(0, -1) : output).split("\n")
-	if (lines.length !== 2) return undefined
+	if (lines.length !== 3) return undefined
 	const values = new Map<string, string>()
 	for (const line of lines) {
 		const match = UNIT_START_LINE.exec(line)
@@ -126,5 +129,8 @@ export const parseUnitStartState = (output: string) => {
 	}
 	const activeState = values.get("ActiveState")
 	const result = values.get("Result")
-	return activeState === undefined || result === undefined ? undefined : { activeState, result }
+	const signIn = values.get("SignIn")
+	return activeState === undefined || result === undefined || signIn === undefined
+		? undefined
+		: { activeState, result, signIn }
 }

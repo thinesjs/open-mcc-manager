@@ -119,6 +119,7 @@ import {
 	instanceDir,
 	instanceLayoutSteps,
 	parseUnitStartState,
+	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
 	startUnitCommand,
 	unitName,
@@ -226,7 +227,10 @@ const startedOrThrow = (instanceId: string, output: string): void => {
 		throw new Error(`Could not read whether instance ${instanceId} started`)
 	}
 	if (state.activeState === "active") return
-	if (state.result === "exec-condition") {
+	if (
+		state.result === "exec-condition" ||
+		RUNNING_UNIT_STATES.some((running) => running === state.signIn)
+	) {
 		throw new InstanceSignInRunningError(`Sign-in is running for instance ${instanceId}`)
 	}
 	throw new Error(`Failed to start instance ${instanceId}: ${state.activeState} ${state.result}`)

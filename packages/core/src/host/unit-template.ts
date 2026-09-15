@@ -1,5 +1,5 @@
 import type { NetworkStack } from "@open-mcc/contracts"
-import { INSTANCE_LAYOUT } from "../instance/unit"
+import { INSTANCE_LAYOUT, RUNNING_UNIT_STATES } from "../instance/unit"
 import { INSTANCES_PATH } from "./profile"
 
 export const INSTANCE_UNIT_NAME = "open-mcc@.service"
@@ -42,7 +42,7 @@ const PODMAN_IMAGE_ID = /^[0-9a-f]{64}$/
 const PORT = "$${OPEN_MCC_PORT}"
 
 const skipWhileActive = (unit: string): string =>
-	`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value ${unit})" in active|activating|deactivating|reloading) exit 1;; esac'`
+	`ExecCondition=/bin/sh -c 'case "$$(systemctl --user show -p ActiveState --value ${unit})" in ${RUNNING_UNIT_STATES.join("|")}) exit 1;; esac'`
 
 const CONFIG_PREFLIGHT = `ExecStartPre=/bin/sh -c 'f="${DIR}/${config}/MinecraftClient.ini"; [ ! -L "$$f" ] && [ -f "$$f" ] && [ -s "$$f" ] && [ -r "$$f" ] || { echo "open-mcc: the saved settings file is missing or unreadable" >&2; exit 1; }'`
 

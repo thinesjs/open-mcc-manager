@@ -720,7 +720,7 @@ const seedReadyInstance = async (
 		.execute()
 	seededInstanceIds.push(instanceId)
 	hostScript[startUnitCommand(instanceId)] = {
-		stdout: "ActiveState=active\nResult=success\n",
+		stdout: "ActiveState=active\nResult=success\nSignIn=inactive\n",
 		stderr: "",
 		exitCode: 0,
 	}

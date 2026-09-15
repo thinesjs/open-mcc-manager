@@ -239,7 +239,7 @@ const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceComman
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({
 		[startUnitCommand("abc123")]: {
-			stdout: "ActiveState=active\nResult=success\n",
+			stdout: "ActiveState=active\nResult=success\nSignIn=inactive\n",
 			stderr: "",
 			exitCode: 0,
 		},
@@ -405,27 +405,43 @@ describe("a bot's files and its start", () => {
 		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
 	})
 
-	it("says a start was skipped because sign-in is running, on start and on restart", async () => {
-		const { deps, transport } = withSavedConfig()
-		answering(transport, startUnitCommand("abc123"), {
-			stdout: "ActiveState=inactive\nResult=exec-condition\n",
-			stderr: "",
-			exitCode: 0,
-		})
-		const controller = createInstanceController(deps)
+	it.each([
+		[
+			"on systemd 252, which reports the skip as a success",
+			"ActiveState=inactive\nResult=success\nSignIn=active\n",
+		],
+		[
+			"while sign-in is still starting",
+			"ActiveState=inactive\nResult=success\nSignIn=activating\n",
+		],
+		[
+			"where systemd names the skip",
+			"ActiveState=inactive\nResult=exec-condition\nSignIn=inactive\n",
+		],
+	])(
+		"says a start was skipped because sign-in is running %s, on start and on restart",
+		async (_case, stdout) => {
+			const { deps, transport } = withSavedConfig()
+			answering(transport, startUnitCommand("abc123"), { stdout, stderr: "", exitCode: 0 })
+			const controller = createInstanceController(deps)
 
-		await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(
-			InstanceSignInRunningError,
-		)
-		await expect(controller.restart(owner, "abc123")).rejects.toBeInstanceOf(
-			InstanceSignInRunningError,
-		)
-		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
-	})
+			await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(
+				InstanceSignInRunningError,
+			)
+			await expect(controller.restart(owner, "abc123")).rejects.toBeInstanceOf(
+				InstanceSignInRunningError,
+			)
+			expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+		},
+	)
 
 	it.each([
-		["a unit that failed", "ActiveState=failed\nResult=exit-code\n"],
-		["output it cannot read", "ActiveState=active\r\nResult=success\r\n"],
+		["a unit that failed", "ActiveState=failed\nResult=exit-code\nSignIn=inactive\n"],
+		[
+			"a unit left stopped with no sign-in running",
+			"ActiveState=inactive\nResult=success\nSignIn=inactive\n",
+		],
+		["output it cannot read", "ActiveState=active\r\nResult=success\r\nSignIn=inactive\r\n"],
 		["no output at all", ""],
 	])("reports %s as a start that failed, never as a success", async (_case, stdout) => {
 		const { deps, transport } = withSavedConfig()

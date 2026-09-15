@@ -95,32 +95,41 @@ describe("making a bot's directory", () => {
 })
 
 describe("starting a bot and reading what systemd made of it", () => {
-	it("starts the unit and reads its state and result in the same command", () => {
+	it("starts the unit and reads its state, its result and its sign-in's state in the same command", () => {
 		expect(startUnitCommand("abc123")).toBe(
-			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start 'open-mcc@abc123' && XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState -p Result 'open-mcc@abc123'",
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start 'open-mcc@abc123' && XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState -p Result 'open-mcc@abc123' && printf 'SignIn=%s\\n' \"$(XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState --value 'open-mcc-auth@abc123.service')\"",
 		)
 	})
 
-	it("reads the two properties in either order", () => {
-		expect(parseUnitStartState("ActiveState=active\nResult=success\n")).toEqual({
+	it("reads the three properties in any order", () => {
+		expect(parseUnitStartState("ActiveState=active\nResult=success\nSignIn=inactive\n")).toEqual({
 			activeState: "active",
 			result: "success",
+			signIn: "inactive",
 		})
-		expect(parseUnitStartState("Result=exec-condition\nActiveState=inactive")).toEqual({
+		expect(parseUnitStartState("SignIn=active\nResult=success\nActiveState=inactive")).toEqual({
 			activeState: "inactive",
-			result: "exec-condition",
+			result: "success",
+			signIn: "active",
 		})
 	})
 
 	it.each([
 		["nothing", ""],
-		["no result", "ActiveState=active\n"],
-		["no state", "Result=success\n"],
-		["an extra property", "ActiveState=active\nResult=success\nSubState=running\n"],
-		["Windows line endings", "ActiveState=active\r\nResult=success\r\n"],
-		["a repeated property", "ActiveState=active\nActiveState=failed\nResult=success\n"],
-		["an empty value", "ActiveState=\nResult=success\n"],
-		["both on one line", "ActiveState=active Result=success"],
+		["no result", "ActiveState=active\nSignIn=inactive\n"],
+		["no state", "Result=success\nSignIn=inactive\n"],
+		["no sign-in state", "ActiveState=active\nResult=success\n"],
+		[
+			"an extra property",
+			"ActiveState=active\nResult=success\nSignIn=inactive\nSubState=running\n",
+		],
+		["Windows line endings", "ActiveState=active\r\nResult=success\r\nSignIn=inactive\r\n"],
+		[
+			"a repeated property",
+			"ActiveState=active\nActiveState=failed\nResult=success\nSignIn=inactive\n",
+		],
+		["an empty value", "ActiveState=active\nResult=success\nSignIn=\n"],
+		["both on one line", "ActiveState=active Result=success SignIn=inactive"],
 	])("refuses output with %s rather than guess", (_case, output) => {
 		expect(parseUnitStartState(output)).toBeUndefined()
 	})

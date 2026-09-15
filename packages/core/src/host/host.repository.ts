@@ -258,6 +258,16 @@ export const createHostRepository = (db: Executor) => ({
 		await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(db)
 	},
 
+	instanceCount: async (scope: OrgScope, id: string): Promise<number> => {
+		const row = await db
+			.selectFrom("instance")
+			.select((eb) => eb.fn.countAll<string>().as("count"))
+			.where("hostId", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.executeTakeFirst()
+		return Number(row?.count ?? 0)
+	},
+
 	claimForProvisioning: async (
 		scope: OrgScope,
 		id: string,

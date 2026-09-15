@@ -63,7 +63,6 @@ export type HostControllerDeps = {
 	secrets: SecretStore
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	createTransport: () => HostTransport
-	instanceIdsOnHost: (scope: { organizationId: string }, hostId: string) => Promise<string[]>
 	evictHost: (organizationId: string, hostId: string) => void
 	now: () => Date
 	withTransaction: WithTransaction
@@ -449,19 +448,18 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const target = await deps.hosts.findById(scope, hostId)
 			if (!target) return false
 
-			const instanceIds = await deps.instanceIdsOnHost(scope, hostId)
-			if (instanceIds.length > 0) {
-				throw new HostHasInstancesError(
-					`Host ${hostId} still has ${instanceIds.length} instance(s); remove them first`,
-				)
-			}
-
 			const teardownPayload = teardownPayloadFor(target)
 
 			const removed = await deps.withTransaction(async (repos) => {
 				await repos.hosts.lockHost(scope, hostId)
 				const found = await repos.hosts.findById(scope, hostId)
 				if (!found) return false
+				const instances = await repos.hosts.instanceCount(scope, hostId)
+				if (instances > 0) {
+					throw new HostHasInstancesError(
+						`Host ${hostId} still has ${instances} instance(s); remove them first`,
+					)
+				}
 				if (
 					found.status === "provisioning" &&
 					!isProvisioningClaimStale(found.provisioningClaimedAt)

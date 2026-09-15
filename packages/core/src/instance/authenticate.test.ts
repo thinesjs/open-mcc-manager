@@ -219,7 +219,14 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 				throw new Error("signing in must never take a shared read lease")
 			},
 		},
-		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		withTransaction: async (fn) =>
+			await fn({
+				instances,
+				schedules,
+				commands,
+				audit,
+				hosts: { ...hosts, lockHost: vi.fn(async () => undefined) },
+			}),
 		now: () => Date.now(),
 		...overrides,
 	}

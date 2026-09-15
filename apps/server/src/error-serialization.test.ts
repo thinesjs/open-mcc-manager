@@ -52,6 +52,7 @@ const hosts: HostRepository = {
 	beginTeardown: vi.fn(async () => true),
 	recordTeardownFailure: vi.fn(async () => undefined),
 	deleteAfterTeardown: vi.fn(async () => true),
+	instanceCount: vi.fn(async () => 0),
 	listPollableAcrossOrganizations: vi.fn(async () => []),
 	recordSeen: vi.fn(async () => undefined),
 	updateHostKeyTrust: vi.fn(async () => undefined),
@@ -80,7 +81,6 @@ const hostControllerDeps: HostControllerDeps = {
 	probeHostKey: probeHostKeyMock,
 	createTransport: () => createFakeTransport(),
 	evictHost: () => undefined,
-	instanceIdsOnHost: vi.fn(async () => []),
 	now: () => new Date(),
 	withTransaction,
 }

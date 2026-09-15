@@ -322,7 +322,14 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		},
 		createTransport: () => transport,
 		readConnections,
-		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		withTransaction: async (fn) =>
+			await fn({
+				instances,
+				schedules,
+				commands,
+				audit,
+				hosts: { ...hosts, lockHost: vi.fn(async () => undefined) },
+			}),
 		now: () => Date.now(),
 		...overrides,
 	}

@@ -273,6 +273,7 @@ const managerFor = async (host: string, as: As, provisioned: ProvisionResult) =>
 				instances,
 				schedules,
 				commands,
+				hosts: { findById: async () => hostRow, lockHost: async () => undefined },
 				audit: {
 					record: async (_scope, entry) => ({
 						id: randomUUID(),

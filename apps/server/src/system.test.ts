@@ -38,7 +38,6 @@ const hostController = createHostController({
 	},
 	createTransport: () => createFakeTransport(),
 	evictHost: () => undefined,
-	instanceIdsOnHost: async () => [],
 	now: () => new Date(),
 	withTransaction: createHostControllerTransaction(db, async () => null),
 })

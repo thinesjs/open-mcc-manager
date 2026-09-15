@@ -172,10 +172,6 @@ export const startServer = async (
 		now: () => new Date(),
 		evictHost: (organizationId, hostId) =>
 			readConnections.evict(hostReadKey(organizationId, hostId)),
-		instanceIdsOnHost: async (scope, hostId) =>
-			(await createInstanceRepository(db).list(scope))
-				.filter((instance) => instance.hostId === hostId)
-				.map((instance) => instance.id),
 		withTransaction: createHostControllerTransaction(db, sendJob),
 		onError: runtimeErrorReporter(logger),
 	})

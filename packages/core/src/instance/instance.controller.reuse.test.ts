@@ -276,7 +276,14 @@ const build = () => {
 		},
 		createTransport,
 		readConnections: { lease },
-		withTransaction: async (fn) => await fn({ instances, schedules, commands, audit }),
+		withTransaction: async (fn) =>
+			await fn({
+				instances,
+				schedules,
+				commands,
+				audit,
+				hosts: { findById: hostsFindById, lockHost: async () => undefined },
+			}),
 		now: () => Date.now(),
 	})
 	return { controller, createTransport, readFactory, lease, instances, connections }

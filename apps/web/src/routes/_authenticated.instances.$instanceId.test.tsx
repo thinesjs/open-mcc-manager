@@ -38,6 +38,8 @@ const server = {
 	readsFail: false,
 }
 
+const issued: string[] = []
+
 const live = (reading: object): object => {
 	if (server.readsFail) throw new Error("The bot's live view is not available right now.")
 	return reading
@@ -61,6 +63,7 @@ const answer = async (procedure: string): Promise<object | null> => {
 }
 
 const outcome = async (procedure: string): Promise<object | null> => {
+	issued.push(procedure)
 	switch (procedure) {
 		case "authenticate":
 			return {
@@ -70,6 +73,9 @@ const outcome = async (procedure: string): Promise<object | null> => {
 			}
 		case "cancelAuthentication":
 			return { authenticated: false, status: "needs_auth" }
+		case "completeAuthentication":
+			server.instance = { ...BOT, status: "stopped" }
+			return { authenticated: true, status: "stopped" }
 		default:
 			return null
 	}
@@ -111,6 +117,7 @@ beforeEach(() => {
 	server.instance = BOT
 	server.config = { liveControlEnabled: true, entityDataEnabled: true }
 	server.readsFail = false
+	issued.length = 0
 })
 
 afterEach(cleanup)
@@ -196,5 +203,16 @@ describe("a Microsoft sign-in code", () => {
 
 		await waitFor(() => expect(screen.queryByText(SIGN_IN_CODE)).toBeNull())
 		expect(screen.queryByRole("button", { name: "I finished signing in" })).toBeNull()
+	})
+
+	it("leaves the bot stopped once signed in, with the normal Start button", async () => {
+		await requestCode()
+
+		fireEvent.click(await screen.findByRole("button", { name: "I finished signing in" }))
+
+		expect(await screen.findByText("Signed in. Start the bot when you're ready.")).toBeDefined()
+		const start = await screen.findByRole("button", { name: "Start" })
+		await waitFor(() => expect(start.hasAttribute("disabled")).toBe(false))
+		expect(issued).not.toContain("start")
 	})
 })

@@ -7,7 +7,10 @@ id = "private-key"
   [[rules.allowlists]]
   condition = "AND"
   paths = [
-    '''packages/core/src/notification/fixtures/smtp-test-key\.pem''',
+    '''^packages/core/src/notification/fixtures/smtp-test-key\.pem$''',
+  ]
+  regexes = [
+    '''C5nhLVuCyesE5fsO7Orjsdw9SOKpi29Q''',
   ]
 
 [[rules]]
@@ -16,35 +19,35 @@ id = "generic-api-key"
   [[rules.allowlists]]
   condition = "AND"
   paths = [
-    '''packages/core/src/notification/sender\.test\.ts''',
+    '''^packages/core/src/notification/sender\.test\.ts$''',
   ]
   regexes = [
-    '''whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw''',
+    '''^whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw$''',
   ]
 
   [[rules.allowlists]]
   condition = "AND"
   paths = [
-    '''packages/core/src/notification/signature\.test\.ts''',
+    '''^packages/core/src/notification/signature\.test\.ts$''',
   ]
   regexes = [
-    '''whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw''',
+    '''^whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw$''',
   ]
 
   [[rules.allowlists]]
   condition = "AND"
   paths = [
-    '''packages/contracts/src/notification\.test\.ts''',
+    '''^packages/contracts/src/notification\.test\.ts$''',
   ]
   regexes = [
-    '''whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw''',
+    '''^whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw$''',
   ]
 
   [[rules.allowlists]]
   condition = "AND"
   paths = [
-    '''packages/core/src/instance/authenticate\.test\.ts''',
+    '''^packages/core/src/instance/authenticate\.test\.ts$''',
   ]
   regexes = [
-    '''eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9''',
+    '''^eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9$''',
   ]

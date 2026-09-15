@@ -296,10 +296,16 @@ depth, not a substitute for one.
   - **No host loopback.** Neither network stack lets a bot reach the host's
     loopback, where every bot's live-control port is published, so no bot can
     reach another's.
-  - **No planted link is followed.** The manager's one look inside a bot's
-    writable directories is the sign-in check: `find`, following no link, asks
-    whether `state/SessionCache.db` is a non-empty regular file, and reads
-    nothing from it. Removal deletes those directories without following links.
+  - **No planted link is followed, and no planted FIFO is waited on.** The
+    manager looks inside a bot's writable directories in two places. The
+    sign-in check asks `find`, following no link, whether
+    `state/SessionCache.db` is a non-empty regular file, and reads nothing from
+    it. The collector takes only regular files from `state/` and `replays/`,
+    opens each with `nofollow` and `nonblock`, and sizes Mailer's files with
+    `stat`, which opens nothing. It writes into `state/` only to empty a player
+    list it has fully stored, once the bot and its sign-in have both stopped,
+    under the lock a start takes. Removal deletes those directories without
+    following links.
 - **What does not hold between bots.**
   - **One kernel uid.** Every bot runs as the enrolled account: root inside the
     container maps to it. A container escape, meaning a kernel or container

@@ -856,25 +856,38 @@ transport reconciliation uses and takes those files back, and
 `INSTANCE_ARTIFACT_QUEUE`. Each writer is handled by what the file *is*, not by
 what it is called:
 
-- `ChatBot.PlayerListLogger.File` is append-only text. The sweep reads up to
-  `MAX_ARTIFACT_BYTES`, stores those bytes, and only then removes exactly that
-  many from the head of the file. The order is load-bearing: storing first
-  risks a duplicate if the drain fails, draining first loses the rows outright,
-  and the digest unique constraint makes the duplicate free. The bytes removed
-  are counted from the buffer actually received, never from a size the host
-  reported, so a drain can never discard more than was collected.
+- `ChatBot.PlayerListLogger.File` is append-only text in the bot's `state/`,
+  and the collector never writes into it while either of the bot's units runs.
+  Each instance row keeps a cursor: `playerListOffset`, `playerListFingerprint`
+  (the sha256 of the up-to-64 bytes before the offset, `EMPTY_FINGERPRINT` at
+  0) and `playerListCursorVersion`. One exec per sweep prints the file's size
+  (a regular file only), the `ActiveState` of both units, the fingerprint before
+  the stored offset, the next chunk of up to `MAX_ARTIFACT_BYTES`, and the
+  fingerprint where that chunk ends. `storeAndAdvance` inserts the chunk and
+  moves the offset by the bytes actually received in one transaction, as a
+  compare-and-set on the version, so a commit read before any other cursor
+  change matches no row and its artifact rolls back. A chunk shorter than the
+  exec announced is not stored. A size below the offset, or a fingerprint that
+  no longer matches (a truncate and regrow in the same file), resets the cursor
+  to 0, and the same sweep reads again. Once both units are `inactive` or
+  `failed` and the whole file is stored, one exec empties it under
+  `collect.lock` and `withDeadline(2, 10, …)`, re-checking both units, the size
+  and the fingerprint inside the lock; the cursor then resets. The unit's
+  `ExecStartPre` takes the same lock, so a start cannot pass it while the
+  truncate runs, and a start that passed first is `activating`. Every SSH step
+  stays outside the transaction: read, then commit, then truncate.
 - `ChatBot.ReplayCapture` writes finished `.mcpr` archives to
-  `replay_recordings/` and a raw packet stream to
-  `recording_cache/<run>/recording.tmcpr`. The archives are collected whole and
-  deleted; a prefix of a ZIP is worthless, so one over `MAX_ARTIFACT_BYTES` is
-  left alone, counted as oversize, and removed by age after
-  `REPLAY_KEEP_DAYS` — the host stops growing either way, and the drop is
-  reported rather than silent. The cache is **never** collected: it is scratch
-  that the client deletes on a clean shutdown and leaks on every hard kill, so
-  the sweep prunes files in it untouched for `ORPHANED_CACHE_MINUTES` and then
-  the directories they left empty. Prune by file mtime, not directory mtime —
-  a directory's mtime does not move while a recording writes into it, so
-  pruning by directory would delete a live recording.
+  `replay_recordings/`, mounted from the instance's `replays/`, and a raw
+  packet stream to `recording_cache/<run>/recording.tmcpr`, mounted from
+  `recording-cache/`. The archives are listed as regular files only, read with
+  `dd iflag=nofollow,nonblock`, collected whole and deleted; a prefix of a ZIP
+  is worthless, so one over `MAX_ARTIFACT_BYTES` is left alone, counted as
+  oversize, and removed by age after `REPLAY_KEEP_DAYS` — the host stops
+  growing either way, and the drop is reported rather than silent. The cache is
+  **never** collected, and the sweep does not touch it: it is scratch that the
+  client deletes on a clean shutdown and leaks on every hard kill, and the
+  unit's `ExecStartPre` empties it under `collect.lock` before a container
+  exists to race it.
 - **A `.mcpr` that looks finished may still be being written, and taking it
   destroys it.** `ReplayHandler.WriteReplayArchiveUnsafe` opens the FINAL path
   with `FileMode.Create` and streams the whole raw recording through Deflate
@@ -885,8 +898,8 @@ what it is called:
   holds, so the client finishes writing into an inode with no name and the
   operator is left with a recording that reported success and does not exist.
   So an archive is collectable only once its own mtime has been still for
-  `REPLAY_SETTLE_MINUTES`, which `find -mmin` applies on the host — the same
-  file-mtime rule the recording cache uses, for the same reason. That is enough
+  `REPLAY_SETTLE_MINUTES`, which `find -mmin` applies on the host to the
+  archive's own mtime. That is enough
   on its own because `GetReplayDefaultName()` stamps a UTC millisecond, the pid
   and a random token into every name, so a path is never written twice and the
   only race is with the write in flight. **The margin is not derivable from MCC

@@ -573,6 +573,48 @@ describe("host repository provisioning finalisation (real Postgres)", () => {
 		)
 		expect(freshFinalise?.status).toBe("ready")
 	})
+
+	it("records a new attempt's progress after an earlier attempt failed", async () => {
+		const scope = { organizationId: orgA }
+		const created = await repo.insert(scope, {
+			name: "vps-repair-progress",
+			hostname: "10.0.0.124",
+			port: 22,
+			username: "mcc",
+			sshKeyId: null,
+		})
+		trackHostId(created.id)
+		const failed = await repo.claimForProvisioning(scope, created.id, "pending")
+		const failedAttemptId = failed?.provisioningAttemptId
+		if (!failedAttemptId) throw new Error("expected a claimed attempt id")
+		await repo.recordProvisioningFailure(
+			scope,
+			created.id,
+			failedAttemptId,
+			"The runtime image could not be downloaded.",
+			{ step: "Downloading the runtime image", index: 9, total: 15 },
+		)
+		await repo.finalizeProvisioning(scope, created.id, failedAttemptId, { status: "error" })
+
+		const repair = await repo.claimForProvisioning(scope, created.id, "error")
+		const repairAttemptId = repair?.provisioningAttemptId
+		if (!repairAttemptId) throw new Error("expected a claimed attempt id")
+		expect(repairAttemptId).not.toBe(failedAttemptId)
+		await repo.recordProvisioningProgress(scope, created.id, repairAttemptId, {
+			step: "Checking systemd",
+			index: 0,
+			total: 15,
+		})
+
+		expect(await repo.findById(scope, created.id)).toMatchObject({
+			status: "provisioning",
+			provisioningAttemptId: repairAttemptId,
+			provisioningStep: "Checking systemd",
+			provisioningStepIndex: 0,
+			provisioningStepTotal: 15,
+			provisioningError: null,
+		})
+	})
 })
 
 describe("host provisioning lease invariant (real Postgres)", () => {

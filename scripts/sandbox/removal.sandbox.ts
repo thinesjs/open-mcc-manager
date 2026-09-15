@@ -8,6 +8,7 @@ import type { ExecResult } from "../../packages/transport/src/types"
 import { HOST_ID, installStandInClient, memoryManager, owner } from "./memory-manager"
 import {
 	HOME,
+	inContainer,
 	PODMAN_TARGETS,
 	shellTransport,
 	startPodmanHost,
@@ -28,7 +29,7 @@ const HELD_CHMOD = ["#!/bin/sh", 'touch "$(dirname "$0")/reached"', "exec sleep 
 )
 
 const LOCK_A_DIRECTORY =
-	'podman exec "$1" /opt/mcc/busybox sh -c "mkdir -p /data/locked/inside && echo kept > /data/locked/inside/file && chmod 000 /data/locked"'
+	"mkdir -p /data/locked/inside && echo kept > /data/locked/inside/file && chmod 000 /data/locked && echo locked"
 
 const LEFTOVERS = [
 	'count() { pgrep -u "$(id -u)" -f "$1" | wc -l | tr -d " "; }',
@@ -124,6 +125,26 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 
 	const exists = async (path: string): Promise<boolean> =>
 		(await shell(host, as, 'test -e "$1"', path)).status === 0
+
+	const lockADirectoryIn = async (bot: { id: string }): Promise<void> => {
+		const said = await inContainer(
+			host,
+			as,
+			`open-mcc-${bot.id}`,
+			"making a directory the account cannot read, from inside the bot",
+			["/opt/mcc/busybox", "sh", "-c", LOCK_A_DIRECTORY],
+		)
+		const onTheHost = await shell(
+			host,
+			as,
+			'[ -d "$1/locked" ] && ! ls "$1/locked" >/dev/null 2>&1',
+			`${FILES}/instances/${bot.id}/state`,
+		)
+		expect(
+			{ said, unreadableOnTheHost: onTheHost.status === 0 },
+			`the bot's own exec must land first: ${said}${onTheHost.stderr}`,
+		).toEqual({ said: "locked\n", unreadableOnTheHost: true })
+	}
 
 	const refusalOf = async (removal: Promise<void>): Promise<Error | undefined> =>
 		await removal.then(
@@ -257,15 +278,10 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 	it("★ removes a bot whose state/ holds a directory the bot made unreadable", async () => {
 		const manager = await managerThrough(as)
 		const bot = await runningBot(manager, "locked-bot")
-		succeeded(
-			await shell(host, as, LOCK_A_DIRECTORY, `open-mcc-${bot.id}`),
-			"making a directory the account cannot read",
-		)
-		const unreadable = await shell(host, as, 'ls "$1/locked"', `${FILES}/instances/${bot.id}/state`)
+		await lockADirectoryIn(bot)
 
 		const refused = await refusalOf(manager.controller.remove(owner, bot.id))
 
-		expect(unreadable.status).not.toBe(0)
 		expect(refused).toBeUndefined()
 		expect(manager.rows.has(bot.id)).toBe(false)
 		expect(await exists(`${FILES}/instances/${bot.id}`)).toBe(false)
@@ -304,10 +320,7 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 	it("★ tears the host down past a directory a bot made unreadable, leaving the spike's leftover list empty", async () => {
 		const manager = await managerThrough(as)
 		const bot = await runningBot(manager, "last-bot")
-		succeeded(
-			await shell(host, as, LOCK_A_DIRECTORY, `open-mcc-${bot.id}`),
-			"making a directory the account cannot read",
-		)
+		await lockADirectoryIn(bot)
 		const running = await leftovers(bot)
 		const image = podmanImageId(runtimeImageFor(ready().architecture))
 		const imageBefore = (await shell(host, as, 'podman image exists "$1"', image)).status

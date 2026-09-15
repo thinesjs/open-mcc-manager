@@ -57,6 +57,42 @@ export const withUserManager = async (host: string): Promise<As> => {
 	}
 }
 
+const NOFILE_DIAGNOSIS = [
+	'echo "caller hard nofile: $(ulimit -H -n)"',
+	'echo "fs.nr_open: $(timeout 5 cat /proc/sys/fs/nr_open)"',
+	"echo \"user service hard nofile: $(timeout 5 systemd-run --user --wait --pipe --quiet sh -c 'ulimit -H -n' 2>&1 | head -n 1)\"",
+	'timeout 5 podman --log-level=debug exec "$1" true 2>&1 | grep -i -E "rlimit|nofile" | head -n 5',
+	"exit 0",
+].join("\n")
+
+export const nofileDiagnosis = async (host: string, as: As, container: string): Promise<string> =>
+	await shell(host, { ...as, timeoutMs: 30_000 }, NOFILE_DIAGNOSIS, container).then(
+		(ran) => ran.stdout.slice(0, 2000),
+		(error) =>
+			`diagnostic unavailable: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`,
+	)
+
+export const inContainer = async (
+	host: string,
+	as: As,
+	container: string,
+	what: string,
+	command: readonly string[],
+): Promise<string> => {
+	const ran = await shell(
+		host,
+		{ ...as, timeoutMs: 60_000 },
+		'systemd-run --user --wait --pipe --quiet podman exec "$@"',
+		container,
+		...command,
+	)
+	if (ran.status !== 0) {
+		const failure = `${what} exited ${ran.status}: ${ran.stderr.trim().slice(0, 1000)}`
+		throw new Error(`${failure}\n${await nofileDiagnosis(host, as, container)}`)
+	}
+	return ran.stdout
+}
+
 export const shellTransport = (host: string, as: As): ReturnType<typeof createFakeTransport> => {
 	const transport = createFakeTransport()
 	const run = async (command: string, timeoutMs?: number, stdin?: string) => {

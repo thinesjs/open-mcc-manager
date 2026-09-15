@@ -230,6 +230,11 @@ export const configDriftSchema = z.discriminatedUnion("kind", [
 ])
 export type ConfigDriftPublic = z.infer<typeof configDriftSchema>
 
+export const runtimeDriftSchema = z.object({
+	kind: z.literal("network-stack"),
+})
+export type RuntimeDrift = z.infer<typeof runtimeDriftSchema>
+
 export const hostUnreachableReasonSchema = z.enum([
 	"misconfigured",
 	"unprovisioned",
@@ -248,6 +253,7 @@ export const hostReconciliationSchema = z.union([
 	z.object({
 		hostId: z.string(),
 		reachable: z.literal(true),
+		runtimeDrift: z.array(runtimeDriftSchema),
 		unitDrift: z.array(unitDriftSchema),
 		stateDrift: z.array(stateDriftSchema),
 		configDrift: z.array(configDriftSchema),

@@ -6,6 +6,7 @@ import { LIVE_CONTROL_ROUTE } from "./config"
 import {
 	type LiveControlTarget,
 	type LiveReadTarget,
+	probeListening,
 	READ_TOOLS,
 	type ReadToolName,
 	readLoadedBots,
@@ -208,5 +209,60 @@ describe("T17: the read side cannot name a write, checked by the compiler", () =
 		]).toEqual([false, false, false, false, false])
 		const readable = new Set<string>(READ_TOOLS)
 		expect(WRITE_TOOLS.filter((write) => readable.has(write))).toEqual([])
+	})
+})
+
+describe("checking that a client listens without saying who is asking", () => {
+	const seen: {
+		method: string | undefined
+		url: string | undefined
+		authorization: string | undefined
+	}[] = []
+	const answer = { status: 401 }
+	let probed: Server
+	let probedPort = 0
+
+	beforeAll(async () => {
+		probed = createServer((request, response) => {
+			seen.push({
+				method: request.method,
+				url: request.url,
+				authorization: request.headers.authorization,
+			})
+			request.resume()
+			request.on("end", () => response.writeHead(answer.status).end("Unauthorized"))
+		})
+		await new Promise<void>((resolve) => probed.listen(0, "127.0.0.1", resolve))
+		const address = probed.address()
+		probedPort = address !== null && typeof address === "object" ? address.port : 0
+	})
+
+	afterAll(async () => {
+		await new Promise<void>((resolve) => probed.close(() => resolve()))
+	})
+
+	const probeTarget = () => ({
+		reader: {
+			forward: async () => {
+				const socket = connect(probedPort, "127.0.0.1")
+				return { socket, close: () => socket.destroy() }
+			},
+		},
+		port: probedPort,
+		route: LIVE_CONTROL_ROUTE,
+	})
+
+	it("sends one request with no Authorization header, and takes a 401 as listening", async () => {
+		seen.length = 0
+		answer.status = 401
+
+		expect(await probeListening(probeTarget())).toBe(true)
+		expect(seen).toEqual([{ method: "POST", url: LIVE_CONTROL_ROUTE, authorization: undefined }])
+	})
+
+	it("takes no other answer as listening", async () => {
+		answer.status = 200
+
+		expect(await probeListening(probeTarget())).toBe(false)
 	})
 })

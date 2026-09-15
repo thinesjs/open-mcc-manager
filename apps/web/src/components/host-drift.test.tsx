@@ -16,6 +16,7 @@ const INSTANCES = [
 const RECONCILIATION: HostReconciliation = {
 	hostId: "host-1",
 	reachable: true,
+	runtimeDrift: [{ kind: "network-stack" }],
 	unitDrift: [],
 	stateDrift: [],
 	configDrift: ["parked", "busy", "other"].map((instanceId) => ({
@@ -100,5 +101,13 @@ describe("fixing a bot whose config drifted", () => {
 
 		expect(await busy.findByRole("button", { name: "Restarting" })).toBeDefined()
 		expect(other.getByRole("button", { name: "Restart to fix" })).toHaveProperty("disabled", false)
+	})
+})
+
+describe("a host whose Podman changed under it", () => {
+	it("says so among what differs", async () => {
+		mount()
+
+		expect(await screen.findByText("Podman was upgraded. Repair setup to update it.")).toBeDefined()
 	})
 })

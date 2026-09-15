@@ -16,3 +16,5 @@ const RUNTIME_DIR_PREFIX = "XDG_RUNTIME_DIR=/run/user/$(id -u) "
 export const systemctl = (args: string): string => `${RUNTIME_DIR_PREFIX}systemctl --user ${args}`
 
 export const journalctl = (args: string): string => `${RUNTIME_DIR_PREFIX}journalctl --user ${args}`
+
+export const podman = (args: string): string => `${RUNTIME_DIR_PREFIX}podman ${args}`

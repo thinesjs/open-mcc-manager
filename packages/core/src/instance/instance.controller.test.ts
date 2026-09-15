@@ -78,6 +78,7 @@ import {
 	scheduledRunFailure,
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
+import { reconcileFactsCommand } from "./reconcile"
 import type { ScheduleRepository } from "./schedule.repository"
 import { instanceDir, instanceLayoutSteps, startUnitCommand, unitName } from "./unit"
 
@@ -236,6 +237,13 @@ const commandRow = (overrides: Partial<InstanceCommandRow> = {}): InstanceComman
 	...overrides,
 })
 
+const HOST_FACTS = reconcileFactsCommand(
+	"56e3d8542b4091c81816101e95875e32ec981577e669112c479a57d4003e4c29",
+)
+
+const factsSaying = (version: string) =>
+	`open-mcc/units\nopen-mcc/podman\n${version}\nopen-mcc/containers\nopen-mcc/image\n0\nopen-mcc/end\n`
+
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({
 		[startUnitCommand("abc123")]: {
@@ -243,6 +251,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 			stderr: "",
 			exitCode: 0,
 		},
+		[HOST_FACTS]: { stdout: factsSaying("podman version 4.3.1"), stderr: "", exitCode: 0 },
 	})
 	const readTransports: { next: () => ReusableTransport } = { next: () => transport }
 	const readConnections = createReadConnections({
@@ -892,7 +901,7 @@ describe("reconciliation", () => {
 		const { deps, transport } = makeDeps()
 		const original = transport.execUntil
 		transport.execUntil = async (command: string, signal: AbortSignal) =>
-			command.startsWith("ls -1")
+			command.includes("ls -1")
 				? { stdout: "", stderr: "Permission denied", exitCode: 2 }
 				: await original(command, signal)
 		const controller = createInstanceController(deps)
@@ -932,6 +941,21 @@ describe("reconciliation", () => {
 
 		expect(JSON.stringify(result)).not.toContain("10.4.5.6")
 		expect(result).toEqual({ hostId: "host-1", reachable: false, reason: "unreachable" })
+	})
+
+	it("reads the stack the host's live Podman needs against the one its setup recorded", async () => {
+		const { deps, transport } = makeDeps()
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
+			command === HOST_FACTS
+				? { stdout: factsSaying("podman version 5.4.2"), stderr: "", exitCode: 0 }
+				: await original(command, signal)
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		if (!result.reachable) throw new Error("expected a reachable host")
+		expect(result.runtimeDrift).toEqual([{ kind: "network-stack" }])
 	})
 
 	it("★ tells a host that was never finished apart from one that did not answer", async () => {

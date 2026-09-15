@@ -1103,6 +1103,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				observed = await reconcileHostOverTransport(
 					reader,
 					hostId,
+					runtime,
 					instances,
 					expected,
 					expectedConfigs,

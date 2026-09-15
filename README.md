@@ -6,10 +6,30 @@ A centralised control plane for managing Minecraft Console Client instances acro
 
 ## Requirements
 
+The control plane needs:
+
 - Node 22
 - pnpm 10.22
 - Docker
 - Postgres 17
+
+Each host it manages needs:
+
+- Debian 12 (Raspberry Pi OS on it too), Debian 13 or Ubuntu 24.04. Ubuntu is
+  untested on a real Ubuntu host. Ubuntu 22.04 is refused: its Podman is older
+  than 4.3.1 and lacks the log driver bots need.
+- An x86_64 or aarch64 machine. CI runs the Podman runtime on x86_64 only inside
+  sandbox containers; no real x86_64 host has run it yet.
+- Rootless Podman 4.3.1 or later, cgroup v2, subordinate uid and gid ranges for
+  the account, and overlay storage.
+- systemd with the account's user manager and lingering on, and SSH. Live
+  control also needs SSH port forwarding.
+
+The manager signs in over SSH as one ordinary account and never gains root. It
+refuses uid 0. When you enrol a host, the dashboard gives you a setup script to
+run once with `sudo`, and **Check host** names anything still missing with the
+command that fixes it. [SECURITY.md](./SECURITY.md) says what that account can
+reach.
 
 ## Development
 
@@ -217,8 +237,8 @@ the simpler choice unless you need names.
 The control plane holds the SSH credentials for every host it manages, so a
 compromise of the control plane is a compromise of the entire fleet. On every
 host the manager works as the one account enrolled for it, inside that
-account's home directory and under its systemd user manager, and never asks for
-root. See
+account's home directory, and runs each bot in a rootless Podman container under
+that account's systemd user manager. It never gains root. See
 [SECURITY.md](./SECURITY.md) for the full trust boundary,
 supported deployment model, current controls, and known limitations, and for
 how to report a vulnerability.

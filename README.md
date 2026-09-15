@@ -22,8 +22,9 @@ Each host it manages needs:
   sandbox containers; no real x86_64 host has run it yet.
 - Rootless Podman 4.3.1 or later, cgroup v2, subordinate uid and gid ranges for
   the account, and overlay storage.
-- systemd with the account's user manager and lingering on, and SSH. Live
-  control also needs SSH port forwarding.
+- systemd with the account's user manager and lingering on, SSH, and `curl`,
+  which provisioning uses to download the client. Live control also needs SSH
+  port forwarding.
 
 The manager connects over SSH as one ordinary account and never gains root. It
 refuses uid 0. When you enrol a host, the dashboard gives you a setup script to

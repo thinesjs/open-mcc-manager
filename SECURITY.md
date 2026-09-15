@@ -266,18 +266,21 @@ depth, not a substitute for one.
   The container removal and the directory delete run under a deadline on the
   host that ends before the manager stops waiting, so a hung delete is killed
   rather than left running. `instance.controller.test.ts` proves the order and
-  `removal.test.ts` the commands; `removal.sandbox.ts` runs them on real Podman
-  hosts, outside `pnpm test`.
-- **Removing a host cleans up what the manager installed, and nothing else.** A
-  queued job stops every bot and sign-in, removes the manager's units,
-  containers and runtime image, and deletes `~/.local/share/open-mcc`; the
-  container, image and directory deletes each run under a host deadline. The
-  host's record is deleted only once nothing
-  is left; otherwise the job retries twice, a minute apart, each retry starting
-  after the last attempt's deadlines have ended (`teardown.test.ts`,
+  `removal.test.ts` the commands; `removal.sandbox.ts` runs them against
+  rootless Podman in sandbox containers, outside `pnpm test`.
+- **Removing a host cleans up what the manager installed.** A queued job stops
+  every bot and sign-in, removes the manager's units, containers and runtime
+  image, and deletes `~/.local/share/open-mcc`; the container, image and
+  directory deletes each run under a host deadline. It finds units and
+  containers by name, so any other unit or container in that account named the
+  way the manager names its own goes too. The host's record is deleted only once
+  nothing is left; otherwise the job retries twice, a minute apart, each retry
+  starting after the last attempt's deadlines have ended (`teardown.test.ts`,
   `queue-setup.test.ts`). It leaves the account, the manager's key in
-  `authorized_keys`, lingering and Podman. Remove those by hand when you retire
-  the host.
+  `authorized_keys`, lingering, Podman with this account's Podman settings and
+  storage (`~/.config/containers/storage.conf`, `~/.local/share/containers`),
+  and the subordinate ids and packages the setup script added. Remove those by
+  hand when you retire the host.
 - **Audited enrollment with attribution surviving member deletion.** Enrollment,
   provisioning, and removal are recorded as audit events carrying both the
   actor's id and a non-blank actor label captured at the time of the action.
@@ -330,7 +333,7 @@ depth, not a substitute for one.
     list it has fully stored, once the bot and its sign-in have both stopped,
     under the lock a start takes. Removal deletes those directories without
     following links. `artifact.test.ts` and `collector.sandbox.ts` prove the
-    collector's half, and `removal.test.ts` the removal's.
+    collector's half.
 - **What does not hold between bots.**
   - **One kernel uid.** Every bot runs as the enrolled account: root inside the
     container maps to it. A container escape, meaning a kernel or container

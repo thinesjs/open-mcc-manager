@@ -937,10 +937,11 @@ what it is called:
   the growth is visible rather than silent.
 
 The sweep re-reads the host before each bot, and again before that bot's
-truncate, replays and Mailer, and stops once the host's removal is requested, so
-it cannot recreate a file inside a folder teardown is deleting
-(`artifact-collect.job.test.ts`). A single bot's removal that races a sweep can
-still fail once; its retry succeeds.
+truncate, replays and Mailer, and stops touching a host once its removal is
+requested (`artifact-collect.job.test.ts`). One exec already under way can still
+land inside teardown's delete, such as a truncate whose `flock` recreates
+`collect.lock`; that teardown attempt then fails, and its retry covers it. A
+single bot's removal that races a sweep can still fail once; its retry succeeds.
 
 A file on a host is attacker-influenced — a player's chat reaches
 `PlayerListLogger` through the tab list and `Mailer` through a private message —
@@ -987,8 +988,8 @@ uninterruptible sleep can outlive both signals.
   retry starts only after the last attempt's deadlines have ended. It stops
   every bot and sign-in by unit pattern, removes the containers
   `MANAGED_CONTAINER_PATTERN` matches, both pinned runtime images and the
-  instances directory, and leaves lingering on, since turning it off needs
-  root. The host row is deleted only when nothing is left.
+  instances directory, and leaves lingering on, since turning it off cannot be
+  relied on without root. The host row is deleted only when nothing is left.
 
 ## Checking for a newer release
 
@@ -1399,10 +1400,11 @@ no real boot or login session, and linger is observed through logind alone.
 `self-host.sh`'s probe needs Docker, which the sandbox does not have, so the
 tests that need a finished run put a stand-in `docker` on `PATH`. Real
 reachability from the manager's container to its host is exercised by nothing
-here. Only the setup script's `apt` path for Podman runs, on Debian 12; a
-distribution without `apt` is refused. A container runs on this machine's
-kernel, so the Ubuntu target proves Ubuntu's packages, not an Ubuntu kernel or
-its AppArmor.
+here. Only the setup script's `apt` path for Podman runs, on Debian 12. The
+script installs Podman only when it is missing, and refuses a host that has
+neither Podman nor `apt`; nothing else gates on the distribution. A container
+runs on this machine's kernel, so the Ubuntu target proves Ubuntu's packages,
+not an Ubuntu kernel or its AppArmor.
 
 The installer test is a full run: it builds the images, starts the stack with
 its own Postgres, and waits for `/healthz`. It runs as root inside `docker:dind`,

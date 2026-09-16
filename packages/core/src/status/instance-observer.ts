@@ -22,7 +22,7 @@ export const journalSince = (cursor: string | null): string =>
 export const journalCommand = (instanceId: string, cursor: string | null): string => {
 	const window = `-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager`
 	if (cursor === null) return journalctl(`${window} -n ${JOURNAL_MAX_LINES}`)
-	return `{ ${journalctl(window)} || true; } | head -n ${JOURNAL_MAX_LINES}`
+	return `{ ${journalctl(window)} || true; } | head -n ${JOURNAL_MAX_LINES + 1}`
 }
 
 export const journalLineCount = (raw: string): number => {
@@ -45,10 +45,12 @@ export const readConnectionChanges = async (
 	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
 	if (result.exitCode !== 0) return { changes: [], cursor, full: false }
 
-	const full = cursor !== null && journalLineCount(result.stdout) >= JOURNAL_MAX_LINES
+	const full = cursor !== null && journalLineCount(result.stdout) > JOURNAL_MAX_LINES
 	const parsed = parseJournal(result.stdout)
 	const lines = full ? parsed.slice(0, -1) : parsed
-	const signals = connectionSignals(lines)
+	const beyond = connectionSignals(full ? parsed.slice(-1) : []).length
+	const sighted = connectionSignals(parsed)
+	const signals = sighted.slice(0, sighted.length - beyond)
 	const last = lines.at(-1)
 	const nextCursor = last === undefined ? cursor : last.at.toISOString()
 
@@ -97,6 +99,7 @@ export type JournalDrain = {
 	lease: () => Promise<JournalLease | undefined>
 	record: (changes: ConnectionChange[]) => Promise<void>
 	saveCursor: (cursor: string) => Promise<void>
+	onSkipped: (second: string) => void
 }
 
 export type DrainOutcome = "drained" | "unleased"
@@ -141,7 +144,9 @@ export const drainConnectionChanges = async (
 			return "drained"
 		}
 
-		const resume = next === at ? secondAfter(next) : next
+		const escaped = next === at
+		if (escaped) drain.onSkipped(next)
+		const resume = escaped ? secondAfter(next) : next
 		await drain.saveCursor(resume)
 		seen = connectionAfter(seen, reading.changes)
 		at = resume

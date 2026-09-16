@@ -322,6 +322,12 @@ export const startServer = async (
 								changes,
 							),
 						saveCursor: (next) => statusController.saveConnectionCursor(scope, instance.id, next),
+						onSkipped: (second) =>
+							logger.warn("Journal second over the read cap, its remaining lines were skipped", {
+								instanceId: instance.id,
+								instanceName: instance.name,
+								second,
+							}),
 					},
 					instance.id,
 					current,

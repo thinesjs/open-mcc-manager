@@ -59,8 +59,14 @@ export const DEVICE_CODE_TTL_MS = 15 * 60 * 1000
 
 export const SESSION_CACHE_FILES = ["SessionCache.db"] as const
 
+export const SESSION_CACHE_ABSENT_EXIT = 1
+
+export const SESSION_CACHE_UNREADABLE_EXIT = 2
+
+export const SESSION_CACHE_NO_STATE_DIR_EXIT = 3
+
 export const sessionCacheProbeCommand = (instanceId: string): string =>
-	`out=$(find "$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1`
+	`d="$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}"; [ -d "$d" ] || exit ${SESSION_CACHE_NO_STATE_DIR_EXIT}; out=$(find "$d" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit ${SESSION_CACHE_UNREADABLE_EXIT}; [ -n "$out" ] || exit ${SESSION_CACHE_ABSENT_EXIT}`
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -255,7 +261,12 @@ export const completeAuthentication = async (
 			sessionCacheProbeCommand(instance.id),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
-		if (probe.exitCode === 1) return { authenticated: false, status: instance.status }
+		if (
+			probe.exitCode === SESSION_CACHE_ABSENT_EXIT ||
+			probe.exitCode === SESSION_CACHE_NO_STATE_DIR_EXIT
+		) {
+			return { authenticated: false, status: instance.status }
+		}
 		if (probe.exitCode !== 0) {
 			throw new Error(`Could not read whether instance ${instance.id} has signed in`)
 		}

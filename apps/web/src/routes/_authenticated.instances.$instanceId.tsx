@@ -33,6 +33,7 @@ import {
 	noteSignInNotYet,
 	SIGN_IN_CHECK_INTERVAL_MS,
 	type SignInWait,
+	signInWaitFor,
 } from "~/lib/sign-in-wait"
 import { useTRPC } from "~/lib/trpc"
 
@@ -48,6 +49,7 @@ function InstanceDetailPage() {
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 	const [signInWait, setSignInWait] = useState<SignInWait | undefined>(undefined)
+	const [checkingByHand, setCheckingByHand] = useState(false)
 
 	const instanceQuery = useSuspenseQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
@@ -141,10 +143,11 @@ function InstanceDetailPage() {
 	)
 	const completeMutation = useMutation(
 		trpc.instance.completeAuthentication.mutationOptions({
-			onSuccess: async (result) => {
+			onSuccess: async (result, variables) => {
 				setActionError(undefined)
+				setCheckingByHand(false)
 				if (result?.authenticated !== true) {
-					setSignInWait((current) => noteSignInNotYet(current, Date.now()))
+					setSignInWait((current) => noteSignInNotYet(current, variables.instanceId, Date.now()))
 					return
 				}
 				setSignInWait(undefined)
@@ -152,7 +155,8 @@ function InstanceDetailPage() {
 				await invalidate()
 			},
 			onError: (error: TRPCErrorLike) => {
-				setSignInWait(undefined)
+				setCheckingByHand(false)
+				setSignInWait(endSignInWait)
 				onError(error)
 			},
 		}),
@@ -173,16 +177,33 @@ function InstanceDetailPage() {
 
 	const checkSignIn = completeMutation.mutate
 	const checkingSignIn = completeMutation.isPending
+	const resetComplete = completeMutation.reset
+	const resetAuthenticate = authenticateMutation.reset
+	const wait = signInWaitFor(signInWait, instanceId)
+	const handCheckPending = checkingByHand && checkingSignIn
+	const signedIn = completeMutation.data
 
 	useEffect(() => {
-		if (signInWait === undefined || signInWait.ended || checkingSignIn) return
-		if (Date.now() >= signInWait.until) {
+		setSignInWait((current) => signInWaitFor(current, instanceId))
+		setCheckingByHand(false)
+		resetComplete()
+		resetAuthenticate()
+	}, [instanceId, resetComplete, resetAuthenticate])
+
+	useEffect(() => {
+		if (wait === undefined || wait.ended) return
+		const remaining = wait.until - Date.now()
+		if (remaining <= 0) {
 			setSignInWait(endSignInWait)
 			return
 		}
+		if (checkingSignIn || remaining <= SIGN_IN_CHECK_INTERVAL_MS) {
+			const deadline = setTimeout(() => setSignInWait(endSignInWait), remaining)
+			return () => clearTimeout(deadline)
+		}
 		const timer = setTimeout(() => checkSignIn({ instanceId }), SIGN_IN_CHECK_INTERVAL_MS)
 		return () => clearTimeout(timer)
-	}, [signInWait, checkingSignIn, checkSignIn, instanceId])
+	}, [wait, checkingSignIn, checkSignIn, instanceId])
 
 	const instance = instanceQuery.data
 	const interactive = needsInteractiveSignIn(instance.accountType)
@@ -205,7 +226,7 @@ function InstanceDetailPage() {
 		restartMutation.isPending ||
 		cancelAuthMutation.isPending ||
 		authenticateMutation.isPending ||
-		completeMutation.isPending ||
+		handCheckPending ||
 		removeMutation.isPending
 
 	return (
@@ -242,9 +263,12 @@ function InstanceDetailPage() {
 					hasChallenge={challenge !== undefined}
 					busy={busy}
 					authenticatePending={authenticateMutation.isPending}
-					completePending={completeMutation.isPending}
+					completePending={handCheckPending}
 					onAuthenticate={() => authenticateMutation.mutate({ instanceId })}
-					onComplete={() => completeMutation.mutate({ instanceId })}
+					onComplete={() => {
+						setCheckingByHand(true)
+						completeMutation.mutate({ instanceId })
+					}}
 					onStart={() => startMutation.mutate({ instanceId })}
 					onStop={() => stopMutation.mutate({ instanceId })}
 				/>
@@ -256,20 +280,22 @@ function InstanceDetailPage() {
 				</Alert>
 			) : null}
 
-			{completeMutation.data?.authenticated === true ? (
+			{signedIn?.authenticated === true ? (
 				<Alert variant="success" icon={<KeyRound />}>
-					Signed in. Start the bot when you're ready.
+					{signedIn.status === "running"
+						? "Signed in."
+						: "Signed in. Start the bot when you're ready."}
 				</Alert>
 			) : null}
 
-			{signInWait !== undefined && !signInWait.ended ? (
+			{wait !== undefined && !wait.ended ? (
 				<Alert variant="info" icon={<KeyRound />}>
 					Waiting for the client to record the sign-in. It takes a few seconds — no need to press
 					again.
 				</Alert>
 			) : null}
 
-			{signInWait?.ended === true ? (
+			{wait?.ended === true ? (
 				<Alert variant="warning" icon={<CircleAlert />}>
 					Still no sign-in after {describeSignInWaitWindow()}. Press “I finished signing in” to
 					check again, or get a new code.

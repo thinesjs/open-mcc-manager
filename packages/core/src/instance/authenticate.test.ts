@@ -21,7 +21,10 @@ import {
 	cancelAuthentication,
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
+	SESSION_CACHE_ABSENT_EXIT,
 	SESSION_CACHE_FILES,
+	SESSION_CACHE_NO_STATE_DIR_EXIT,
+	SESSION_CACHE_UNREADABLE_EXIT,
 	sessionCacheProbeCommand,
 	VERIFICATION_URI_PATTERN,
 } from "./authenticate"
@@ -443,9 +446,9 @@ describe("beginAuthentication", () => {
 
 describe("completeAuthentication", () => {
 	const STATE_PROBE =
-		'out=$(find "$HOME/.local/share/open-mcc/instances/abc123/state" -maxdepth 1 -name SessionCache.db -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1'
+		'd="$HOME/.local/share/open-mcc/instances/abc123/state"; [ -d "$d" ] || exit 3; out=$(find "$d" -maxdepth 1 -name SessionCache.db -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1'
 
-	const withProbe = (status: 0 | 1 | 2) => {
+	const withProbe = (status: 0 | 1 | 2 | 3) => {
 		const made = makeDeps("")
 		const original = made.transport.exec
 		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
@@ -563,19 +566,45 @@ describe("completeAuthentication", () => {
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
-	it("asks the host about every status, because a status is not a record of a sign-in", async () => {
-		const seen: string[] = []
+	it("★ answers from the probe and never from the status, in both directions, for every status", async () => {
+		const answered: string[] = []
+		const asked: string[] = []
 		for (const status of ["created", "stopped", "running", "error"] as const) {
-			const { deps, transport, instances } = withProbe(1)
-			vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status }))
+			for (const [exitCode, authenticated] of [
+				[1, false],
+				[0, true],
+			] as const) {
+				const { deps, transport, instances } = withProbe(exitCode)
+				vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status }))
 
-			const state = await completeAuthentication(deps, owner, "abc123")
+				const state = await completeAuthentication(deps, owner, "abc123")
 
-			expect(state).toEqual({ authenticated: false, status })
-			if (transport.commands.includes(STATE_PROBE)) seen.push(status)
+				expect(state).toEqual({ authenticated, status })
+				answered.push(`${status}:${exitCode}:${state.authenticated}`)
+				if (transport.commands.includes(STATE_PROBE)) asked.push(`${status}:${exitCode}`)
+			}
 		}
 
-		expect(seen).toEqual(["created", "stopped", "running", "error"])
+		expect(asked).toEqual(answered.map((each) => each.split(":").slice(0, 2).join(":")))
+		expect(answered).toHaveLength(8)
+	})
+
+	it("reports no sign-in rather than throwing when the state directory is not there yet", async () => {
+		const { deps, instances } = withProbe(3)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: false, status: "needs_auth" })
+		expect(instances.update).not.toHaveBeenCalled()
+	})
+
+	it("tells a missing state directory apart from one it could not read", () => {
+		expect(SESSION_CACHE_NO_STATE_DIR_EXIT).not.toBe(SESSION_CACHE_UNREADABLE_EXIT)
+		expect(SESSION_CACHE_NO_STATE_DIR_EXIT).not.toBe(SESSION_CACHE_ABSENT_EXIT)
+		expect(sessionCacheProbeCommand("abc123")).toContain(
+			`|| exit ${SESSION_CACHE_NO_STATE_DIR_EXIT}`,
+		)
 	})
 })
 

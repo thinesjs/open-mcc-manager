@@ -3,6 +3,7 @@ import {
 	deliveryIdInput,
 	destinationIdInput,
 	editDestinationInput,
+	failuresInput,
 	setDestinationEnabledInput,
 } from "@open-mcc/contracts"
 import { protectedProcedure, requireCapability, router } from "../trpc"
@@ -56,9 +57,9 @@ export const notificationRouter = router({
 		return { deliveryId }
 	}),
 
-	failures: protectedProcedure.query(({ ctx }) => {
+	failures: protectedProcedure.input(failuresInput).query(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "notification.read")
-		return ctx.destinationController.failures(ctx.actor)
+		return ctx.destinationController.failures(ctx.actor, input)
 	}),
 
 	retry: protectedProcedure.input(deliveryIdInput).mutation(async ({ ctx, input }) => {

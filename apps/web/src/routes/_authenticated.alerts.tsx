@@ -2,6 +2,7 @@ import {
 	type CreatableDestinationKind,
 	canBeCreated,
 	type DestinationView,
+	FAILURES_PAGE_SIZE,
 	SUBSCRIPTION_LABELS,
 	type SubscriptionKind,
 } from "@open-mcc/contracts"
@@ -105,6 +106,7 @@ function AlertsPage() {
 	const [revealed, setRevealed] = useState<string | undefined>(undefined)
 	const [testing, setTesting] = useState<string | undefined>(undefined)
 	const [waitedLongEnough, setWaitedLongEnough] = useState(false)
+	const [failuresOffset, setFailuresOffset] = useState(0)
 
 	const me = useQuery(trpc.member.me.queryOptions())
 	const may = (control: AlertControl): boolean => mayUseAlertControl(me.data?.role, control)
@@ -116,7 +118,7 @@ function AlertsPage() {
 	const setEnabled = useMutation(trpc.notification.setEnabled.mutationOptions())
 	const rotate = useMutation(trpc.notification.rotateSecret.mutationOptions())
 	const test = useMutation(trpc.notification.test.mutationOptions())
-	const failures = useQuery(trpc.notification.failures.queryOptions())
+	const failures = useQuery(trpc.notification.failures.queryOptions({ offset: failuresOffset }))
 	const retry = useMutation(trpc.notification.retry.mutationOptions())
 	const dismiss = useMutation(trpc.notification.dismiss.mutationOptions())
 
@@ -146,6 +148,13 @@ function AlertsPage() {
 		queryClient.invalidateQueries({ queryKey: trpc.notification.list.queryKey() })
 		queryClient.invalidateQueries({ queryKey: trpc.notification.failures.queryKey() })
 	}, [queryClient, trpc])
+
+	const refreshFailures = () => {
+		if (failuresOffset > 0 && failures.data?.items.length === 1) {
+			setFailuresOffset((current) => Math.max(0, current - FAILURES_PAGE_SIZE))
+		}
+		refresh()
+	}
 
 	useEffect(() => {
 		if (testing === undefined) return
@@ -374,11 +383,14 @@ function AlertsPage() {
 				))}
 			</div>
 
-			{failures.data && failures.data.length > 0 ? (
+			{failures.data && failures.data.total > 0 ? (
 				<section className="space-y-2">
-					<h2 className="text-sm font-medium text-foreground">Alerts that did not arrive</h2>
+					<div className="flex items-center gap-2">
+						<h2 className="text-sm font-medium text-foreground">Alerts that did not arrive</h2>
+						<Badge variant="error">{failures.data.total}</Badge>
+					</div>
 					<div className="divide-y divide-border rounded-[var(--radius)] border border-border bg-card">
-						{failures.data.map((failure) => (
+						{failures.data.items.map((failure) => (
 							<div key={failure.deliveryId} className="flex items-start justify-between gap-4 p-3">
 								<div className="min-w-0 space-y-0.5">
 									<p className="truncate text-sm text-foreground">{failure.title}</p>
@@ -395,7 +407,10 @@ function AlertsPage() {
 											variant="outline"
 											disabled={retry.isPending}
 											onClick={() =>
-												retry.mutate({ deliveryId: failure.deliveryId }, { onSuccess: refresh })
+												retry.mutate(
+													{ deliveryId: failure.deliveryId },
+													{ onSuccess: refreshFailures },
+												)
 											}
 										>
 											Send again
@@ -407,7 +422,10 @@ function AlertsPage() {
 											variant="ghost"
 											disabled={dismiss.isPending}
 											onClick={() =>
-												dismiss.mutate({ deliveryId: failure.deliveryId }, { onSuccess: refresh })
+												dismiss.mutate(
+													{ deliveryId: failure.deliveryId },
+													{ onSuccess: refreshFailures },
+												)
 											}
 										>
 											Dismiss
@@ -417,6 +435,34 @@ function AlertsPage() {
 							</div>
 						))}
 					</div>
+					{failures.data.total > FAILURES_PAGE_SIZE ? (
+						<div className="flex items-center justify-between gap-2 px-1">
+							<p className="text-xs text-muted-foreground">
+								{failuresOffset + 1}–{failuresOffset + failures.data.items.length} of{" "}
+								{failures.data.total}
+							</p>
+							<div className="flex gap-2">
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={failuresOffset === 0}
+									onClick={() =>
+										setFailuresOffset((current) => Math.max(0, current - FAILURES_PAGE_SIZE))
+									}
+								>
+									Previous
+								</Button>
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={failuresOffset + failures.data.items.length >= failures.data.total}
+									onClick={() => setFailuresOffset((current) => current + FAILURES_PAGE_SIZE)}
+								>
+									Next
+								</Button>
+							</div>
+						</div>
+					) : null}
 				</section>
 			) : null}
 

@@ -322,7 +322,7 @@ describe("alerts that did not arrive", () => {
 			attempts: 8,
 		})
 
-		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+		const found = await repo.recentFailures({ organizationId: orgA }, 20, 0)
 
 		expect(found.map((row) => row.deliveryId)).toContain(delivery)
 		const failure = found.find((row) => row.deliveryId === delivery)
@@ -340,7 +340,7 @@ describe("alerts that did not arrive", () => {
 			lastError: "this destination was turned off before it could be sent",
 		})
 
-		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+		const found = await repo.recentFailures({ organizationId: orgA }, 20, 0)
 
 		expect(found.map((row) => row.deliveryId)).not.toContain(delivery)
 	})
@@ -355,9 +355,57 @@ describe("alerts that did not arrive", () => {
 			settledAt: daysAgo(1),
 		})
 
-		const found = await repo.recentFailures({ organizationId: orgB }, 20)
+		const found = await repo.recentFailures({ organizationId: orgB }, 20, 0)
 
 		expect(found.map((row) => row.deliveryId)).not.toContain(delivery)
+	})
+})
+
+describe("paginating alerts that did not arrive", () => {
+	it("pages through failures with no gap or overlap and counts only its own organization", async () => {
+		const org = await seedOrganization("alerts-page")
+		const destination = await seedDestination(org)
+		for (let i = 0; i < 25; i += 1) {
+			const created = await seedNotification(org, daysAgo(1))
+			await seedDelivery(org, {
+				notificationId: created,
+				destinationId: destination,
+				state: "failed",
+				settledAt: new Date(Date.now() - i * 1000),
+			})
+		}
+
+		const other = await seedOrganization("alerts-page-other")
+		const otherDestination = await seedDestination(other)
+		const otherCreated = await seedNotification(other, daysAgo(1))
+		const otherDelivery = await seedDelivery(other, {
+			notificationId: otherCreated,
+			destinationId: otherDestination,
+			state: "failed",
+			settledAt: daysAgo(1),
+		})
+
+		const firstPage = await repo.recentFailures({ organizationId: org }, 20, 0)
+		const secondPage = await repo.recentFailures({ organizationId: org }, 20, 20)
+		const total = await repo.failureCount({ organizationId: org })
+
+		expect(firstPage).toHaveLength(20)
+		expect(secondPage).toHaveLength(5)
+		expect(total).toBe(25)
+
+		const firstIds = firstPage.map((row) => row.deliveryId)
+		const secondIds = secondPage.map((row) => row.deliveryId)
+		expect(firstIds.some((id) => secondIds.includes(id))).toBe(false)
+		expect(new Set([...firstIds, ...secondIds]).size).toBe(25)
+
+		const settledInOrder = [...firstPage, ...secondPage]
+			.map((row) => row.settledAt ?? "")
+			.every((value, index, all) => index === 0 || (all[index - 1] ?? "") >= value)
+		expect(settledInOrder).toBe(true)
+
+		expect(firstIds).not.toContain(otherDelivery)
+		expect(secondIds).not.toContain(otherDelivery)
+		expect(await repo.failureCount({ organizationId: other })).toBe(1)
 	})
 })
 
@@ -381,7 +429,7 @@ describe("dismissing an alert that did not arrive", () => {
 		expect(row?.settledAt).toEqual(at)
 		expect(row?.lastError).toBe("Server refused with 404")
 
-		const found = await repo.recentFailures({ organizationId: orgA }, 20)
+		const found = await repo.recentFailures({ organizationId: orgA }, 20, 0)
 		expect(found.map((entry) => entry.deliveryId)).not.toContain(delivery)
 	})
 

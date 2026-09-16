@@ -29,7 +29,7 @@ const seedEventAt = async (organizationId: string, id: string, createdAt: Date):
 			organizationId,
 			actorId: null,
 			actorLabel: "system",
-			action: "host.create",
+			action: "host.enroll",
 			subjectType: "host",
 			subjectId: id,
 			createdAt,
@@ -60,7 +60,7 @@ describe("audit repository organization scoping", () => {
 			{
 				actorId: null,
 				actorLabel: "",
-				action: "host.create",
+				action: "host.enroll",
 				subjectType: "host",
 				subjectId: "n/a",
 				detail: {},

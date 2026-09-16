@@ -24,7 +24,7 @@ const storedRow = (index: number): AuditEventRow => ({
 	organizationId: "org-1",
 	actorId: null,
 	actorLabel: "system",
-	action: "host.create",
+	action: "host.enroll",
 	subjectType: "host",
 	subjectId: `host-${index}`,
 	detail: { hostname: `box-${index}` },

@@ -1,3 +1,4 @@
+import type { AuditAction } from "@open-mcc/contracts"
 import type { AuditEventRow, Executor } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
@@ -5,7 +6,7 @@ import type { OrgScope } from "../host/host.repository"
 export type AuditEntry = {
 	actorId: string | null
 	actorLabel: string
-	action: string
+	action: AuditAction
 	subjectType: string
 	subjectId: string
 	detail: Record<string, string>

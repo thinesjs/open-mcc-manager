@@ -9,6 +9,7 @@ import { Button } from "~/components/ui/button"
 import { LoadingBlock } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
 import { describeAuditEvent } from "~/lib/audit-events"
+import { auditNextDisabled, auditPagerVisible, lastAuditOffset } from "~/lib/audit-paging"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
@@ -47,7 +48,7 @@ function AuditPage() {
 
 	useEffect(() => {
 		if (total === undefined) return
-		const lastPage = total === 0 ? 0 : Math.floor((total - 1) / AUDIT_PAGE_SIZE) * AUDIT_PAGE_SIZE
+		const lastPage = lastAuditOffset(total)
 		if (offset > lastPage) setOffset(lastPage)
 	}, [total, offset])
 	const header = (
@@ -113,7 +114,7 @@ function AuditPage() {
 				</ul>
 			) : null}
 
-			{page.data && (page.data.total > AUDIT_PAGE_SIZE || offset > 0) ? (
+			{page.data && auditPagerVisible(page.data.total, offset) ? (
 				<div className="flex items-center justify-end gap-2">
 					<Button
 						variant="outline"
@@ -126,7 +127,7 @@ function AuditPage() {
 					<Button
 						variant="outline"
 						size="sm"
-						disabled={offset + page.data.items.length >= page.data.total}
+						disabled={auditNextDisabled(page.data.total, offset, page.data.items.length)}
 						onClick={() => setOffset(offset + AUDIT_PAGE_SIZE)}
 					>
 						Next

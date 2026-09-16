@@ -7,30 +7,42 @@ import { Route } from "./_authenticated.audit"
 
 type Input = { offset: number }
 
-type PageState = { role: Role; total: number; action: string; holdOffset: number | undefined }
+type ShortPage = { offset: number; items: number }
+
+type PageState = {
+	role: Role
+	total: number
+	action: string
+	holdOffset: number | undefined
+	shortPage: ShortPage | undefined
+}
 
 const state: PageState = {
 	role: "owner",
 	total: 137,
 	action: "instance.start",
 	holdOffset: undefined,
+	shortPage: undefined,
 }
 const gate: { release: (() => void) | undefined } = { release: undefined }
 const asked: number[] = []
 
+const shownAt = (offset: number): number => {
+	const whole = Math.min(AUDIT_PAGE_SIZE, Math.max(0, state.total - offset))
+	const short = state.shortPage
+	return short !== undefined && short.offset === offset ? Math.min(short.items, whole) : whole
+}
+
 const pageAt = (offset: number): AuditPage => ({
-	items: Array.from(
-		{ length: Math.min(AUDIT_PAGE_SIZE, Math.max(0, state.total - offset)) },
-		(_entry, index) => ({
-			id: `evt-${offset + index}`,
-			actorLabel: "owner@example.com",
-			action: state.action,
-			subjectType: "instance",
-			subjectId: `inst-${offset + index}`,
-			detail: { name: `bot-${offset + index}` },
-			createdAt: "2026-09-06T12:00:00.000Z",
-		}),
-	),
+	items: Array.from({ length: shownAt(offset) }, (_entry, index) => ({
+		id: `evt-${offset + index}`,
+		actorLabel: "owner@example.com",
+		action: state.action,
+		subjectType: "instance",
+		subjectId: `inst-${offset + index}`,
+		detail: { name: `bot-${offset + index}` },
+		createdAt: "2026-09-06T12:00:00.000Z",
+	})),
 	total: state.total,
 })
 
@@ -77,6 +89,7 @@ beforeEach(() => {
 	state.total = 137
 	state.action = "instance.start"
 	state.holdOffset = undefined
+	state.shortPage = undefined
 	gate.release = undefined
 	asked.length = 0
 })
@@ -253,6 +266,19 @@ describe("walking back through the trail", () => {
 		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
 		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
 		expect(screen.queryByText(/bot-/)).toBeNull()
+	})
+
+	it("keeps Next reachable when a page comes back shorter than the total says remains", async () => {
+		state.total = 60
+		state.shortPage = { offset: AUDIT_PAGE_SIZE, items: 5 }
+		await mount()
+
+		await waitFor(() => expect(screen.getByText(/bot-0\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+
+		expect(screen.queryByText(/bot-55\./)).toBeNull()
+		expect(screen.getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(false)
 	})
 
 	it("offers no pager at all when everything already fits on one page", async () => {

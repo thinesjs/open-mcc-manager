@@ -52,72 +52,73 @@ function InstanceDetailPage() {
 	const [checkingByHand, setCheckingByHand] = useState(false)
 
 	const instanceQuery = useSuspenseQuery(trpc.instance.get.queryOptions({ instanceId }))
+	const running = instanceQuery.data.status === "running"
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
 	const liveChatQuery = useQuery({
 		...trpc.instance.readLiveChat.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 3000,
 	})
 	const liveWorldQuery = useQuery({
 		...trpc.instance.readLiveWorld.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.worldDataEnabled === true,
+		enabled: running && configQuery.data?.config.worldDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveEntitiesQuery = useQuery({
 		...trpc.instance.readLiveEntities.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.entityDataEnabled === true,
+		enabled: running && configQuery.data?.config.entityDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveInventoryQuery = useQuery({
 		...trpc.instance.readLiveInventory.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.inventoryDataEnabled === true,
+		enabled: running && configQuery.data?.config.inventoryDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const livePlayerStatsQuery = useQuery({
 		...trpc.instance.readLivePlayerStats.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveStatusEffectsQuery = useQuery({
 		...trpc.instance.readLiveStatusEffects.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveBotsQuery = useQuery({
 		...trpc.instance.readLiveBots.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const livePlayersQuery = useQuery({
 		...trpc.instance.readLivePlayers.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveEventsQuery = useQuery({
 		...trpc.instance.readLiveEvents.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveStatusQuery = useQuery({
 		...trpc.instance.readLiveStatus.queryOptions({ instanceId }),
-		enabled: configQuery.data?.config.liveControlEnabled === true,
+		enabled: running && configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const consoleQuery = useQuery({
 		...trpc.instance.readConsole.queryOptions({ instanceId, lines: 200 }),
 		retry: false,
-		refetchInterval: instanceQuery.data.status === "running" ? 3000 : false,
+		refetchInterval: running ? 3000 : false,
 	})
 
 	const invalidate = async () => {
@@ -208,7 +209,6 @@ function InstanceDetailPage() {
 	const instance = instanceQuery.data
 	const interactive = needsInteractiveSignIn(instance.accountType)
 	const challenge = authenticateMutation.data
-	const running = instance?.status === "running"
 	const config = configQuery.data?.config
 	const liveOn = running && config?.liveControlEnabled === true
 	const liveStatus = liveReading(liveStatusQuery, liveOn)
@@ -494,7 +494,7 @@ function InstanceDetailPage() {
 						)}
 						<ConsoleComposer
 							instanceId={instanceId}
-							running={instance?.status === "running"}
+							running={running}
 							players={livePlayersQuery.data}
 							onSent={async () => {
 								await consoleQuery.refetch()

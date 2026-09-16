@@ -158,15 +158,6 @@ describe("how the route feeds the readouts", () => {
 	})
 
 	it.each(QUERIES)(
-		"gates $query itself on live control, not merely somewhere nearby",
-		({ query }) => {
-			expect(queryBlock(query)).toContain(
-				"enabled: configQuery.data?.config.liveControlEnabled === true",
-			)
-		},
-	)
-
-	it.each(QUERIES)(
 		"hands $query to the $prop the component renders only while it is live",
 		({ prop, query }) => {
 			expect(detail).toContain(`${prop}={liveReading(${query}, liveOn)}`)

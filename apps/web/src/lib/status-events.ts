@@ -26,3 +26,6 @@ const TEMPLATES: Record<string, (subject: string) => string> = {
 
 export const describeStatusEvent = (kind: string, subject: string): string =>
 	TEMPLATES[kind]?.(subject) ?? `${subject}: ${kind.replaceAll(".", " ").replaceAll("_", " ")}`
+
+export const describeEventCount = (total: number): string =>
+	total === 1 ? "1 event" : `${total} events`

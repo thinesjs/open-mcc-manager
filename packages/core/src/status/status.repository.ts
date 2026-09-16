@@ -1,3 +1,4 @@
+import type { StatusEventCursor } from "@open-mcc/contracts/boundary/status-cursor"
 import type {
 	Executor,
 	StatusConditionRow,
@@ -29,6 +30,18 @@ const subjectColumns = (subject: SubjectRef) => ({
 	hostId: subject.hostId ?? null,
 	instanceId: subject.instanceId ?? null,
 })
+
+export type EventFilter = { since: Date; hostId?: string; instanceId?: string }
+
+const eventsMatching = (db: Executor, scope: OrgScope, filter: EventFilter) => {
+	let query = db
+		.selectFrom("statusEvent")
+		.where("organizationId", "=", scope.organizationId)
+		.where("occurredAt", ">=", filter.since)
+	if (filter.hostId !== undefined) query = query.where("hostId", "=", filter.hostId)
+	if (filter.instanceId !== undefined) query = query.where("instanceId", "=", filter.instanceId)
+	return query
+}
 
 export const createStatusRepository = (db: Executor) => ({
 	findCondition: async (
@@ -231,22 +244,30 @@ export const createStatusRepository = (db: Executor) => ({
 
 	listEvents: async (
 		scope: OrgScope,
-		options: { since: Date; limit: number; hostId?: string; instanceId?: string },
+		options: EventFilter & { limit: number; cursor?: StatusEventCursor },
 	): Promise<StatusEventRow[]> => {
-		let query = db
-			.selectFrom("statusEvent")
-			.selectAll()
-			.where("organizationId", "=", scope.organizationId)
-			.where("occurredAt", ">=", options.since)
-		if (options.hostId !== undefined) query = query.where("hostId", "=", options.hostId)
-		if (options.instanceId !== undefined) {
-			query = query.where("instanceId", "=", options.instanceId)
+		let query = eventsMatching(db, scope, options).selectAll()
+		const cursor = options.cursor
+		if (cursor !== undefined) {
+			query = query.where((eb) =>
+				eb.or([
+					eb("occurredAt", "<", cursor.occurredAt),
+					eb.and([eb("occurredAt", "=", cursor.occurredAt), eb("id", "<", cursor.id)]),
+				]),
+			)
 		}
 		return await query
 			.orderBy("occurredAt", "desc")
 			.orderBy("id", "desc")
 			.limit(options.limit)
 			.execute()
+	},
+
+	countEvents: async (scope: OrgScope, options: EventFilter): Promise<number> => {
+		const rows = await eventsMatching(db, scope, options)
+			.select(({ fn }) => fn.countAll<string>().as("total"))
+			.execute()
+		return Number(rows[0]?.total ?? "0")
 	},
 
 	listIntervals: async (

@@ -291,8 +291,9 @@ describe("collecting across the fleet", () => {
 		expect(connect).not.toHaveBeenCalled()
 	})
 
-	it("★ names every bot a sweep could not finish, so the run is not a bare count", async () => {
+	it("★ names the bots a sweep could not finish and no others, so the run is not a bare count", async () => {
 		const { deps } = depsFor(playerListHost("alice\n"), {
+			instancesOn: async () => [instance, { ...instance, id: "spawn", playerListOffset: "bad" }],
 			storeAndAdvance: async () => {
 				throw new Error("the cursor moved")
 			},
@@ -300,8 +301,9 @@ describe("collecting across the fleet", () => {
 
 		const run = await createArtifactCollector(deps)()
 
-		expect({ failed: run.failed, named: run.failedInstanceIds }).toEqual({
+		expect({ failed: run.failed, refused: run.refused, named: run.failedInstanceIds }).toEqual({
 			failed: 1,
+			refused: 1,
 			named: ["afk"],
 		})
 	})

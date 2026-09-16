@@ -4,7 +4,7 @@ import {
 	type HostCheckReport,
 } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { EnrollHostSteps, STALE_COMMAND_NOTICE } from "./enroll-host-steps"
@@ -193,6 +193,14 @@ const chooseAccountMode = (value: string) => {
 	if (option) fireEvent.click(option)
 }
 
+const prepareStep = (): HTMLElement => {
+	const heading = screen.getAllByText("Prepare the host").at(-1)
+	const panel = heading?.closest("div.space-y-4")
+
+	expect(panel).toBeInstanceOf(HTMLElement)
+	return panel instanceof HTMLElement ? panel : document.body
+}
+
 const copySetupCommand = async () => {
 	writeText.mockClear()
 	const copies = screen.getAllByRole("button", { name: /setup command/i })
@@ -368,7 +376,14 @@ describe("changing an input after the setup command was copied", () => {
 		type("Account name", "bots")
 		next()
 
-		expect(screen.getAllByText(STALE_COMMAND_NOTICE).length).toBeGreaterThan(0)
+		expect(within(prepareStep()).getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+	})
+
+	it("says nothing on that step while the copied command is still the one shown", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+
+		expect(within(prepareStep()).queryByText(STALE_COMMAND_NOTICE)).toBeNull()
 	})
 
 	it("says nothing when no command has been copied", async () => {

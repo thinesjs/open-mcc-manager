@@ -3487,6 +3487,23 @@ describe("creating a bot under its claim", () => {
 		expect(made.transport.commands).toHaveLength(LAYOUT.length)
 	})
 
+	it("opens one transaction, for the insert, and finalizes on the pool beside it", async () => {
+		const made = makeDeps()
+		let opened = 0
+		const deps: InstanceControllerDeps = {
+			...made.deps,
+			withTransaction: async (fn) => {
+				opened += 1
+				return await made.deps.withTransaction(fn)
+			},
+		}
+
+		await createInstanceController(deps).create(owner, NEW_BOT)
+
+		expect(opened).toBe(1)
+		expect(made.instances.finalizeConfigClaim).toHaveBeenCalledTimes(1)
+	})
+
 	it("mints a claim of its own for each bot, so two creations cannot share one", async () => {
 		const first = makeDeps()
 		const second = makeDeps()

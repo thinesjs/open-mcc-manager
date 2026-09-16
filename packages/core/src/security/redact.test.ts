@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { redact } from "./redact"
+import { redact, redactCommand } from "./redact"
 
 describe("redact", () => {
 	it("masks a bearer token", () => {
@@ -103,5 +103,56 @@ describe("secrets a connector could leak into a log line", () => {
 
 	it("leaves an ordinary address alone", () => {
 		expect(redact("https://hooks.example.com/notify")).toBe("https://hooks.example.com/notify")
+	})
+})
+
+describe("a console command that carries a player's password", () => {
+	it("keeps the verb and drops what follows it", () => {
+		expect(redactCommand("/login hunter2")).toBe("/login [redacted]")
+		expect(redactCommand("/register hunter2 hunter2")).toBe("/register [redacted]")
+	})
+
+	it("masks the aliases and the other credential verbs", () => {
+		for (const [command, expected] of [
+			["/l hunter2", "/l [redacted]"],
+			["/reg hunter2 hunter2", "/reg [redacted]"],
+			["/changepassword hunter2 hunter3", "/changepassword [redacted]"],
+			["/changepass hunter2 hunter3", "/changepass [redacted]"],
+			["/unregister hunter2", "/unregister [redacted]"],
+		] as const) {
+			expect(redactCommand(command)).toBe(expected)
+		}
+	})
+
+	it("masks one typed without the leading slash", () => {
+		expect(redactCommand("login hunter2")).toBe("login [redacted]")
+	})
+
+	it("masks one typed in any case, keeping the verb as it was typed", () => {
+		expect(redactCommand("/LOGIN hunter2")).toBe("/LOGIN [redacted]")
+		expect(redactCommand("/Register hunter2 hunter2")).toBe("/Register [redacted]")
+	})
+
+	it("masks every line of a command that spans more than one", () => {
+		const masked = redactCommand("/say hello\n/login hunter2")
+		expect(masked).toBe("/say hello\n/login [redacted]")
+		expect(masked).not.toContain("hunter2")
+	})
+
+	it("leaves an ordinary command alone", () => {
+		for (const command of [
+			"/say hello everyone",
+			"/tp 100 64 -200",
+			"/gamemode creative",
+			"/give @p minecraft:stone 64",
+			"/logout",
+			"/list",
+		]) {
+			expect(redactCommand(command)).toBe(command)
+		}
+	})
+
+	it("leaves a credential verb with nothing after it alone", () => {
+		expect(redactCommand("/login")).toBe("/login")
 	})
 })

@@ -20,8 +20,19 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/(?<![A-Za-z0-9_-])(re_)[A-Za-z0-9]{16,}/g, "$1[redacted]"],
 ]
 
-export const redact = (value: string): string =>
-	PATTERNS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), value)
+const COMMAND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	[
+		/^([ \t]*\/?(?:changepassword|changepass|unregister|register|login|reg|l))[ \t]+\S[^\r\n]*/gim,
+		"$1 [redacted]",
+	],
+]
+
+const apply = (patterns: ReadonlyArray<readonly [RegExp, string]>, value: string): string =>
+	patterns.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), value)
+
+export const redact = (value: string): string => apply(PATTERNS, value)
+
+export const redactCommand = (command: string): string => apply(COMMAND_PATTERNS, redact(command))
 
 export const redactError = (error: Error | string): string =>
 	redact(typeof error === "string" ? error : (error.stack ?? `${error.name}: ${error.message}`))

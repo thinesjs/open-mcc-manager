@@ -1,5 +1,6 @@
 import {
 	instanceConfigInput,
+	instanceIdInput,
 	type UpdateInstanceConfigInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
@@ -7,6 +8,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+	describeSignInWaitWindow,
+	SIGN_IN_CHECK_INTERVAL_MS,
+	SIGN_IN_WAIT_WINDOW_MS,
+} from "~/lib/sign-in-wait"
 import { Route } from "./_authenticated.instances.$instanceId"
 
 const BOT = {
@@ -67,6 +73,28 @@ const heldSave: { release: ((result: { version: number }) => void) | undefined; 
 	hold: false,
 }
 
+const signIn: {
+	recordAfter: number
+	rejectFrom: number
+	landsAs: "stopped" | "running"
+	calls: number
+	targets: string[]
+	inFlight: number
+	peak: number
+	hold: boolean
+	release: (() => void) | undefined
+} = {
+	recordAfter: 1,
+	rejectFrom: Number.MAX_SAFE_INTEGER,
+	landsAs: "stopped",
+	calls: 0,
+	targets: [],
+	inFlight: 0,
+	peak: 0,
+	hold: false,
+	release: undefined,
+}
+
 const live = (reading: object): object => {
 	if (server.readsFail) throw new Error("The bot's live view is not available right now.")
 	return reading
@@ -107,9 +135,29 @@ const outcome = async (procedure: string, input: object): Promise<object | null>
 			}
 		case "cancelAuthentication":
 			return { authenticated: false, status: "needs_auth" }
-		case "completeAuthentication":
-			server.instance = { ...BOT, status: "stopped" }
-			return { authenticated: true, status: "stopped" }
+		case "completeAuthentication": {
+			signIn.calls += 1
+			signIn.targets.push(instanceIdInput.parse(input).instanceId)
+			signIn.inFlight += 1
+			signIn.peak = Math.max(signIn.peak, signIn.inFlight)
+			try {
+				if (signIn.hold) {
+					await new Promise<void>((resolve) => {
+						signIn.release = resolve
+					})
+				}
+				if (signIn.calls >= signIn.rejectFrom) {
+					throw new Error("The bot's host could not be reached.")
+				}
+				if (signIn.calls < signIn.recordAfter) {
+					return { authenticated: false, status: "needs_auth" }
+				}
+				server.instance = { ...BOT, status: signIn.landsAs }
+				return { authenticated: true, status: signIn.landsAs }
+			} finally {
+				signIn.inFlight -= 1
+			}
+		}
 		default:
 			return null
 	}
@@ -151,6 +199,16 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+	vi.useRealTimers()
+	signIn.recordAfter = 1
+	signIn.rejectFrom = Number.MAX_SAFE_INTEGER
+	signIn.landsAs = "stopped"
+	signIn.calls = 0
+	signIn.targets.length = 0
+	signIn.inFlight = 0
+	signIn.peak = 0
+	signIn.hold = false
+	signIn.release = undefined
 	server.instance = BOT
 	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
@@ -161,7 +219,10 @@ beforeEach(() => {
 	heldSave.hold = false
 })
 
-afterEach(cleanup)
+afterEach(() => {
+	vi.useRealTimers()
+	cleanup()
+})
 
 const mount = async () => {
 	const Page = Route.options.component
@@ -309,5 +370,277 @@ describe("a settings save still in flight when the operator moves to another bot
 
 		expect(saves.map((each) => each.instanceId)).toEqual(["bot-1", "bot-2"])
 		expect(saves.map((each) => each.expectedVersion)).toEqual([3, 3])
+	})
+})
+
+describe("waiting for a sign-in to land after Microsoft says it is done", () => {
+	const WAITING = /no need to press again/
+	const GAVE_UP = new RegExp(`Still no sign-in after ${describeSignInWaitWindow()}`)
+
+	const settle = async () => {
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1)
+		})
+	}
+
+	const advance = async (ms: number) => {
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(ms)
+		})
+	}
+
+	const tree = (client: QueryClient) => (
+		<QueryClientProvider client={client}>
+			<Suspense fallback={null}>{page()}</Suspense>
+		</QueryClientProvider>
+	)
+
+	const finish = () => screen.getByRole("button", { name: "I finished signing in" })
+
+	const getCode = () => screen.getByRole("button", { name: "Get a sign-in code" })
+
+	const startSignIn = async () => {
+		server.instance = { ...BOT, status: "needs_auth" }
+		server.config = { config: { liveControlEnabled: false, entityDataEnabled: false }, version: 1 }
+		const Page = Route.options.component
+		if (Page === undefined) throw new Error("the instance route renders no page")
+		await Page.preload?.()
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		})
+		const { rerender } = render(tree(client))
+		await screen.findByRole("tab", { name: "Overview" }, { timeout: 10_000 })
+		fireEvent.click(await screen.findByRole("button", { name: "Get a sign-in code" }))
+		expect(await screen.findByText(SIGN_IN_CODE)).toBeDefined()
+		vi.useFakeTimers()
+		return { client, rerender }
+	}
+
+	const press = async () => {
+		fireEvent.click(finish())
+		await settle()
+	}
+
+	const release = async () => {
+		signIn.hold = false
+		const open = signIn.release
+		if (open === undefined) throw new Error("no check was ever held in flight")
+		signIn.release = undefined
+		await act(async () => {
+			open()
+		})
+		await settle()
+	}
+
+	it("★ keeps checking on its own until the sign-in lands, on a single press", async () => {
+		signIn.recordAfter = 3
+		await startSignIn()
+
+		await press()
+		expect(signIn.calls).toBe(1)
+		expect(screen.getByText(WAITING)).toBeDefined()
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		expect(signIn.calls).toBe(2)
+		expect(screen.getByText(WAITING)).toBeDefined()
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+
+		expect(signIn.calls).toBe(3)
+		expect(screen.getByText("Signed in. Start the bot when you're ready.")).toBeDefined()
+		expect(screen.queryByText(WAITING)).toBeNull()
+	})
+
+	it("★ stops checking once the window passes and says what to do next", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+
+		await advance(SIGN_IN_WAIT_WINDOW_MS + SIGN_IN_CHECK_INTERVAL_MS)
+
+		const cadence = SIGN_IN_WAIT_WINDOW_MS / SIGN_IN_CHECK_INTERVAL_MS
+		expect(signIn.calls).toBeGreaterThanOrEqual(cadence - 1)
+		expect(signIn.calls).toBeLessThanOrEqual(cadence + 2)
+		expect(screen.getByText(GAVE_UP)).toBeDefined()
+		expect(screen.queryByText(WAITING)).toBeNull()
+
+		const stopped = signIn.calls
+		await advance(SIGN_IN_WAIT_WINDOW_MS)
+
+		expect(signIn.calls).toBe(stopped)
+	})
+
+	it("★ never lets two checks run at once", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+
+		signIn.hold = true
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		expect(signIn.inFlight).toBe(1)
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS * 4)
+
+		expect(signIn.calls).toBe(2)
+		expect(signIn.peak).toBe(1)
+
+		await release()
+
+		expect(signIn.peak).toBe(1)
+	})
+
+	it("★ checks by hand without doubling the checks or moving the deadline", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+
+		await advance(SIGN_IN_WAIT_WINDOW_MS / 2)
+		const automatic = signIn.calls
+
+		fireEvent.click(finish())
+		await settle()
+		expect(signIn.calls).toBe(automatic + 1)
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		expect(signIn.calls).toBe(automatic + 2)
+		expect(screen.getByText(WAITING)).toBeDefined()
+
+		await advance(SIGN_IN_WAIT_WINDOW_MS / 2)
+
+		expect(screen.getByText(GAVE_UP)).toBeDefined()
+	})
+
+	it("says nothing about waiting until a check has answered “not yet”", async () => {
+		signIn.recordAfter = 1
+		await startSignIn()
+
+		expect(screen.queryByText(WAITING)).toBeNull()
+		expect(screen.queryByText(GAVE_UP)).toBeNull()
+
+		await press()
+
+		expect(screen.queryByText(WAITING)).toBeNull()
+		expect(screen.queryByText(GAVE_UP)).toBeNull()
+		expect(screen.getByText("Signed in. Start the bot when you're ready.")).toBeDefined()
+	})
+
+	it("★ never carries a wait over to the bot the operator moves to", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		const { client, rerender } = await startSignIn()
+		await press()
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		const beforeSwitch = [...signIn.targets]
+
+		params.instanceId = "bot-2"
+		client.setQueryData(["instance", "get", { instanceId: "bot-2" }], {
+			...BOT,
+			id: "bot-2",
+			status: "stopped",
+		})
+		client.setQueryData(["instance", "getConfig", { instanceId: "bot-2" }], {
+			config: { liveControlEnabled: false, entityDataEnabled: false },
+			version: 1,
+		})
+		await act(async () => {
+			rerender(tree(client))
+		})
+		await advance(SIGN_IN_CHECK_INTERVAL_MS * 3)
+
+		expect(beforeSwitch).toEqual(["bot-1", "bot-1"])
+		expect(signIn.targets.slice(beforeSwitch.length)).toEqual([])
+		expect(screen.queryByText(WAITING)).toBeNull()
+		expect(screen.queryByText(GAVE_UP)).toBeNull()
+	})
+
+	it("★ leaves every control alive while it checks on its own, and only greys them out by hand", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+
+		signIn.hold = true
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		await settle()
+		expect(signIn.inFlight).toBe(1)
+
+		expect(getCode().hasAttribute("disabled")).toBe(false)
+		expect(finish().hasAttribute("disabled")).toBe(false)
+
+		await release()
+
+		signIn.hold = true
+		fireEvent.click(finish())
+		await settle()
+		expect(signIn.inFlight).toBe(1)
+
+		expect(getCode().hasAttribute("disabled")).toBe(true)
+		expect(screen.queryByRole("button", { name: "I finished signing in" })).toBeNull()
+
+		await release()
+	})
+
+	it("★ ends the wait on the clock even when a check never comes back", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+
+		signIn.hold = true
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		expect(signIn.inFlight).toBe(1)
+
+		await advance(SIGN_IN_WAIT_WINDOW_MS)
+
+		expect(signIn.inFlight).toBe(1)
+		expect(screen.queryByText(WAITING)).toBeNull()
+		expect(screen.getByText(GAVE_UP)).toBeDefined()
+
+		await release()
+	})
+
+	it("★ stops checking the moment one fails, and still says what to do", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		signIn.rejectFrom = 2
+		await startSignIn()
+		await press()
+		expect(screen.getByText(WAITING)).toBeDefined()
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		const afterFailure = signIn.calls
+		expect(afterFailure).toBe(2)
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS * 4)
+
+		expect(signIn.calls).toBe(afterFailure)
+		expect(screen.queryByText(WAITING)).toBeNull()
+		expect(screen.getByText(GAVE_UP)).toBeDefined()
+	})
+
+	it("★ waits again when the operator presses after the window ended", async () => {
+		signIn.recordAfter = Number.MAX_SAFE_INTEGER
+		await startSignIn()
+		await press()
+		await advance(SIGN_IN_WAIT_WINDOW_MS + SIGN_IN_CHECK_INTERVAL_MS)
+		expect(screen.getByText(GAVE_UP)).toBeDefined()
+		const ended = signIn.calls
+
+		await press()
+
+		expect(signIn.calls).toBe(ended + 1)
+		expect(screen.getByText(WAITING)).toBeDefined()
+		expect(screen.queryByText(GAVE_UP)).toBeNull()
+
+		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+
+		expect(signIn.calls).toBe(ended + 2)
+	})
+
+	it("does not tell the operator to start a bot that is already running", async () => {
+		signIn.recordAfter = 1
+		signIn.landsAs = "running"
+		await startSignIn()
+
+		await press()
+
+		expect(screen.getByText("Signed in.")).toBeDefined()
+		expect(screen.queryByText("Signed in. Start the bot when you're ready.")).toBeNull()
 	})
 })

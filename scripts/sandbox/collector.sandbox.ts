@@ -215,8 +215,15 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 
 	const sweep = async (store: ArtifactStore, cursor: PlayerListCursor, through: As = as) => {
 		const began = Date.now()
+		const commands: string[] = []
+		const transport = shellTransport(host, through)
+		const exec = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			commands.push(command)
+			return await exec(command, timeoutMs, stdin)
+		}
 		const sweeps = await sweepHostArtifacts(
-			shellTransport(host, through),
+			transport,
 			[
 				{
 					...ROW,
@@ -229,7 +236,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			store,
 			async () => true,
 		)
-		return { swept: sweeps[0], elapsed: Date.now() - began }
+		return { swept: sweeps[0], elapsed: Date.now() - began, commands }
 	}
 
 	const decoyDigest = async (): Promise<string> =>
@@ -384,6 +391,10 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 				"checking what the sweep left",
 			)
 
+			const replayReadRan = swapped.commands.some(
+				(command) => command.startsWith("dd if=") && command.includes(REPLAY),
+			)
+
 			expect({
 				kept: memory.state.kept.length,
 				decoy: await decoyDigest(),
@@ -391,6 +402,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 				swappedWaited: swapped.elapsed >= ARTIFACT_STEP_TIMEOUT_MS / 2,
 				mailerBytes: [selected.swept?.mailerStateBytes, swapped.swept?.mailerStateBytes],
 				left,
+				replayReadRan,
 			}).toEqual({
 				kept: 0,
 				decoy: before,
@@ -398,6 +410,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 				swappedWaited: false,
 				mailerBytes: [0, 0],
 				left: "",
+				replayReadRan: true,
 			})
 		},
 	)

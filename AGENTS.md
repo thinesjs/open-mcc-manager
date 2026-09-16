@@ -186,9 +186,10 @@ have:
 | A host-side deadline on removal's and teardown's deletes, ending inside the manager's wait | `packages/core/src/instance/removal.test.ts` and `packages/core/src/host/teardown.test.ts` — each reads `timeout -k <k> <n>` off the commands a removal renders or a real `tearDownHost` issues, and requires `n + k` below that exec's wait; `packages/core/src/host/deadline.test.ts` pins the wrapper's shape. It proves the arithmetic, NOT that a host kills anything: `removal.sandbox.ts` and `collector.sandbox.ts` prove that, outside `pnpm test` |
 | The teardown queue retrying only after its longest host deadline | `packages/core/src/job/queue-setup.test.ts` — reads `retryLimit` 2 and `retryDelay` 60 off the reconciled queue and takes the longest deadline from the commands a real `tearDownHost` issues, so a deadline longer than the delay fails it |
 | A config claim taken before the version it guards is read | `packages/core/src/instance/instance.repository.test.ts` — on a real database a finalize is held open on the row while `takeConfigClaim` runs against it, so comparing before claiming reads the version that finalize is replacing and fails the test |
-| No repository call on the pool while a transaction is open, for either save and for a removal | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
-| No connect, exec or port probe while a transaction is open, for either save and for a removal | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
-| A save's and a removal's claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, or connecting before the claim, fails it |
+| No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart and a stop | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
+| No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart and a stop | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
+| Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart and a stop, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
+| A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -382,7 +383,16 @@ Dependency direction is one-way: router → controller → repository.
 - `CONFIG_CLAIM_LEASE_MS` (`instance.repository.ts`) leases one bot's config
   claim for 180s. `claimForConfig` and `claimForLifecycle` take it — the second
   also refuses a live sign-in claim, because start, restart, stop and remove
-  must not run under one — and `claimForAuth` refuses a live config claim and
+  must not run under one. **That refusal lasts the sign-in's own lease, 15
+  minutes** (`AUTH_LEASE_MS`), and a sign-in whose SSH work ended uncertainly
+  keeps its claim for all of it rather than release a stop that may still be
+  landing. An operator whose sign-in died can therefore be told a bot is busy
+  for up to fifteen minutes and be unable to start, restart, stop or remove it.
+  Cancel sign-in is the way out, but only when the host answers: it releases the
+  claim *after* its connect and its two execs, so on an unreachable host it
+  throws first and the operator waits the lease out. Saves are deliberately
+  still allowed through, on `claimForConfig`.
+  `claimForAuth` refuses a live config claim and
   clears a stale one it takes over, so the superseded flow's
   `finalizeConfigClaim` matches nothing rather than writing a status nothing
   else repairs. `writeTokenUnderClaim` renews the lease, so the SSH work still
@@ -410,15 +420,35 @@ Dependency direction is one-way: router → controller → repository.
   `claimForLifecycle`: the claim commits before the host is touched, all six
   removal steps run under it, and `deleteUnderClaim` carries the claim away with
   the row, so no save and no sign-in can slip between the stop and the second
-  verify. Start, restart and stop take no claim yet — they still run unclaimed,
-  so a start issued mid-removal is not refused, and what keeps it from
-  outliving the removal is unchanged: the timer step, the stop that cancels a
-  `Restart=on-failure`, and the second verify. They move onto
-  `claimForLifecycle` with the slice that claims them.
-  A removal refused with no live sign-in is `InstanceBusyError`;
-  one refused by a live sign-in is `InstanceAuthInProgressError`, and that split
-  is decided by a re-read because `UPDATE ... RETURNING` cannot tell a gone row
-  from a held one. A failure the manager can see the end of releases
+  verify. Start, restart and stop take it through `claimForLifecycle` as well:
+  one connection serves the whole operation, every exec runs under the claim,
+  and the status is part of the same `UPDATE` that gives the claim back, so a
+  manager stop and a manager start can no longer leave the row saying `running`
+  over a stopped unit. A start issued while a removal holds the claim is
+  refused as busy. What the claim excludes is every other *manager* actor, not
+  the host's own systemd — a sleep timer or a `Restart=on-failure` start is
+  still unclaimed — which is why a removal goes on relying on the timer step,
+  the stop that cancels a `Restart=on-failure`, and the second verify.
+  A start rewrites `env` only when the host reports the unit stopped: the same
+  exec that would write the file first reads `ActiveState` against
+  `RUNNING_UNIT_STATES`, answers `kept` for any running state — `activating`
+  included, so a client systemd is still starting keeps the token it read — and
+  the row's token is written only on a `written` answer, so a `kept` answer can
+  never leave the row holding a token the host does not have. The opposite
+  direction — the host holding a token the row lacks, which makes live control
+  401 until the next Restart — is **not** closed, and there are four ways to
+  reach it, all of them around the env exec: it resolves non-zero after the
+  rename; it rejects, so whether it landed is unknown; it resolves but prints
+  neither `kept` nor `written`; or it prints `written` and
+  `writeTokenUnderClaim` then matches nothing because another actor took the
+  claim. The first three leave `env` old, new or torn and the row's token old;
+  the fourth leaves `env` new and the row's token old. All four refuse the
+  start rather than report success, and the recovery is a Restart.
+  A lifecycle operation refused with no live sign-in is `InstanceBusyError`;
+  one refused by a live sign-in is `InstanceAuthInProgressError`. `remove`,
+  `start`, `restart` and `stop` all take that split through
+  `takeLifecycleClaim`, and it is decided by a re-read because
+  `UPDATE ... RETURNING` cannot tell a gone row from a held one. A failure the manager can see the end of releases
   the claim; one that could still be running on the host keeps it until the
   lease expires, because releasing it would let a second writer race a command
   that has not finished.

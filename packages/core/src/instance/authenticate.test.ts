@@ -6,7 +6,11 @@ import type {
 	InstanceScheduleRow,
 	SshKeyRow,
 } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import {
+	ChannelLimitReachedError,
+	ChannelOpenTimedOutError,
+	createFakeTransport,
+} from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
@@ -34,6 +38,7 @@ import {
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
+import { stopAuthCommand } from "./unit"
 
 const FAST_POLL = { attempts: 2, intervalMs: 1 }
 
@@ -378,6 +383,61 @@ describe("beginAuthentication", () => {
 		const { deps, instances } = makeDeps(DEVICE_CODE_OUTPUT)
 		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
 		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+	})
+
+	it("holds the claim when the stop it sent may still be running on the host", async () => {
+		const { deps, transport, instances } = makeDeps(DEVICE_CODE_OUTPUT)
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (command.includes("systemctl --user stop")) {
+				throw new ChannelOpenTimedOutError("the channel opened too late")
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(ChannelOpenTimedOutError)
+
+		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+	})
+
+	it("holds the claim when the cleanup stop it sent may still be running on the host", async () => {
+		const { deps, transport, instances } = makeDeps("no code here at all")
+		const cleanup = stopAuthCommand("abc123")
+		let seen = 0
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (command === cleanup) {
+				seen += 1
+				if (seen > 1) throw new ChannelOpenTimedOutError("too slow")
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow(/device code/i)
+
+		expect(seen).toBe(2)
+		expect(instances.releaseAuthClaim).not.toHaveBeenCalled()
+	})
+
+	it("gives the claim back when the host refused the session channel outright", async () => {
+		const { deps, transport, instances } = makeDeps(DEVICE_CODE_OUTPUT)
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (command.includes("systemctl --user stop")) {
+				throw new ChannelLimitReachedError("no channel")
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(ChannelLimitReachedError)
+
+		expect(instances.releaseAuthClaim).toHaveBeenCalled()
 	})
 })
 

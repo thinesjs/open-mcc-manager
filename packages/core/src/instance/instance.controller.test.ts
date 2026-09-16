@@ -102,7 +102,10 @@ import {
 import type { ScheduleRepository } from "./schedule.repository"
 import {
 	configWriteCommand,
+	ENV_KEPT,
+	ENV_WRITTEN,
 	envWriteCommand,
+	envWriteUnlessRunningCommand,
 	instanceDir,
 	instanceLayoutSteps,
 	renderEnvironmentFile,
@@ -277,6 +280,12 @@ const HOST_FACTS = reconcileFactsCommand(
 const factsSaying = (version: string) =>
 	`open-mcc/units\nopen-mcc/podman\n${version}\nopen-mcc/containers\nopen-mcc/image\n0\nopen-mcc/end\n`
 
+const ROTATES_TOKEN = envWriteUnlessRunningCommand(
+	"abc123",
+	renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
+	33333,
+)
+
 const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const transport = createFakeTransport({
 		[startUnitCommand("abc123")]: {
@@ -284,6 +293,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 			stderr: "",
 			exitCode: 0,
 		},
+		[ROTATES_TOKEN]: { stdout: `${ENV_WRITTEN}\n`, stderr: "", exitCode: 0 },
 		[HOST_FACTS]: { stdout: factsSaying("podman version 4.3.1"), stderr: "", exitCode: 0 },
 	})
 	const readTransports: { next: () => ReusableTransport } = { next: () => transport }
@@ -363,18 +373,12 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 }
 
 describe("a bot's files and its start", () => {
-	const ENV_WRITE = envWriteCommand(
-		"abc123",
-		renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
-		33333,
-	)
+	const ENV_WRITE = ROTATES_TOKEN
 
 	const CONFIG_WRITE = configWriteCommand(
 		"abc123",
 		renderInstanceConfig(instanceConfigInput.parse({ ...SAVED_DOCUMENT, liveControlPort: 33333 })),
 	)
-
-	const RUNNING = { status: "running" }
 
 	const answering = (
 		transport: ReturnType<typeof makeDeps>["transport"],
@@ -465,6 +469,156 @@ describe("a bot's files and its start", () => {
 		])
 	})
 
+	it("stores the token it minted once the host says it wrote the file", async () => {
+		const { deps, instances } = withSavedConfig()
+
+		await createInstanceController(deps).start(owner, "abc123")
+
+		expect(instances.writeTokenUnderClaim).toHaveBeenCalledTimes(1)
+		expect(vi.mocked(instances.writeTokenUnderClaim).mock.calls[0]?.[2]).toBe(
+			vi.mocked(instances.claimForLifecycle).mock.calls[0]?.[2],
+		)
+	})
+
+	it("leaves a running bot's token alone, and still rewrites its config and starts it", async () => {
+		const { deps, transport, instances } = withSavedConfig()
+		answering(transport, ENV_WRITE, { stdout: `${ENV_KEPT}\n`, stderr: "", exitCode: 0 })
+
+		await createInstanceController(deps).start(owner, "abc123")
+
+		expect(instances.writeTokenUnderClaim).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([CONFIG_WRITE, startUnitCommand("abc123")])
+		expect(instances.finalizeConfigClaim).toHaveBeenCalledWith(
+			expect.anything(),
+			"abc123",
+			expect.any(String),
+			{ status: "running" },
+		)
+	})
+
+	const STOP_COMMAND = `${SYSTEMCTL} stop 'open-mcc@abc123'`
+
+	const UNCERTAIN = [
+		{ named: "a command that timed out", error: () => new CommandTimedOutError("too slow") },
+		{ named: "ssh2's Unable to exec", error: () => new Error("Unable to exec") },
+		{
+			named: "a channel that opened too late",
+			error: () => new ChannelOpenTimedOutError("too slow"),
+		},
+	]
+
+	const LIFECYCLE_EXECS = [
+		{ verb: "start" as const, step: "its env exec", command: () => ENV_WRITE },
+		{ verb: "start" as const, step: "its config write", command: () => CONFIG_WRITE },
+		{ verb: "start" as const, step: "its start", command: () => startUnitCommand("abc123") },
+		{ verb: "restart" as const, step: "its stop", command: () => STOP_COMMAND },
+		{ verb: "stop" as const, step: "its stop", command: () => STOP_COMMAND },
+	]
+
+	it.each(
+		LIFECYCLE_EXECS.flatMap(({ verb, step, command }) =>
+			UNCERTAIN.map(({ named, error }) => ({ verb, step, command, named, error })),
+		),
+	)(
+		"keeps the claim when $verb meets $named at $step, because the command may still land",
+		async ({ verb, command, error }) => {
+			const { deps, transport, instances } = withSavedConfig()
+			const failing = command()
+			const inner = transport.exec
+			transport.exec = async (issued, timeoutMs, stdin) => {
+				if (issued === failing) throw error()
+				return await inner(issued, timeoutMs, stdin)
+			}
+
+			await expect(createInstanceController(deps)[verb](owner, "abc123")).rejects.toThrow()
+
+			expect(instances.releaseConfigClaim).not.toHaveBeenCalled()
+			expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		},
+	)
+
+	it.each(LIFECYCLE_EXECS)(
+		"gives the claim back when $verb is refused a session channel at $step, because nothing was sent",
+		async ({ verb, command }) => {
+			const { deps, transport, instances } = withSavedConfig()
+			const failing = command()
+			const inner = transport.exec
+			transport.exec = async (issued, timeoutMs, stdin) => {
+				if (issued === failing) throw new ChannelLimitReachedError("no channel")
+				return await inner(issued, timeoutMs, stdin)
+			}
+
+			await expect(createInstanceController(deps)[verb](owner, "abc123")).rejects.toBeInstanceOf(
+				ChannelLimitReachedError,
+			)
+
+			expect(instances.releaseConfigClaim).toHaveBeenCalled()
+			expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		},
+	)
+
+	it.each(["start", "restart", "stop"] as const)(
+		"gives the claim back when %s cannot reach the host at all",
+		async (verb) => {
+			const made = withSavedConfig()
+			const deps: InstanceControllerDeps = {
+				...made.deps,
+				createTransport: () => ({
+					...made.transport,
+					connect: async () => {
+						throw new Error("Connection refused")
+					},
+				}),
+			}
+
+			await expect(createInstanceController(deps)[verb](owner, "abc123")).rejects.toBeInstanceOf(
+				HostUnreachableError,
+			)
+
+			expect(made.instances.releaseConfigClaim).toHaveBeenCalled()
+		},
+	)
+
+	it.each(["start", "restart"] as const)(
+		"never starts a bot on the settings it already had when a %s's config write is refused",
+		async (verb) => {
+			const { deps, transport, instances } = withSavedConfig()
+			const inner = transport.exec
+			transport.exec = async (command, timeoutMs, stdin) => {
+				const result = await inner(command, timeoutMs, stdin)
+				return command === CONFIG_WRITE
+					? { stdout: "", stderr: "No space left on device", exitCode: 1 }
+					: result
+			}
+
+			await expect(createInstanceController(deps)[verb](owner, "abc123")).rejects.toThrow(
+				/Failed to write instance config/,
+			)
+
+			expect(transport.commands.some((command) => command.includes("systemctl --user start"))).toBe(
+				false,
+			)
+			expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+			expect(instances.releaseConfigClaim).toHaveBeenCalled()
+		},
+	)
+
+	it("refuses a start it cannot tell the answer of, before starting anything", async () => {
+		const { deps, transport, instances } = withSavedConfig()
+		answering(transport, ENV_WRITE, { stdout: "maybe\n", stderr: "", exitCode: 0 })
+
+		await expect(createInstanceController(deps).start(owner, "abc123")).rejects.toThrow(
+			/Could not read whether instance abc123 is running/,
+		)
+
+		expect(instances.writeTokenUnderClaim).not.toHaveBeenCalled()
+		expect(transport.commands.some((command) => command.includes("systemctl --user start"))).toBe(
+			false,
+		)
+		expect(instances.releaseConfigClaim).toHaveBeenCalled()
+		expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+	})
+
 	it("fails a start into a directory that is gone, before it starts anything", async () => {
 		const { deps, transport } = withSavedConfig()
 		answering(transport, ENV_WRITE, {
@@ -481,7 +635,8 @@ describe("a bot's files and its start", () => {
 		expect(transport.commands.some((command) => command.includes("systemctl --user start"))).toBe(
 			false,
 		)
-		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+		expect(deps.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		expect(deps.instances.releaseConfigClaim).toHaveBeenCalled()
 	})
 
 	it.each([
@@ -510,7 +665,8 @@ describe("a bot's files and its start", () => {
 			await expect(controller.restart(owner, "abc123")).rejects.toBeInstanceOf(
 				InstanceSignInRunningError,
 			)
-			expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+			expect(deps.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+			expect(deps.instances.releaseConfigClaim).toHaveBeenCalled()
 		},
 	)
 
@@ -531,7 +687,8 @@ describe("a bot's files and its start", () => {
 
 		await expect(started).rejects.toThrow(/start/i)
 		await expect(started).rejects.not.toBeInstanceOf(InstanceSignInRunningError)
-		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+		expect(deps.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		expect(deps.instances.releaseConfigClaim).toHaveBeenCalled()
 	})
 
 	it("reports a start systemctl itself refused as the start failure it always was", async () => {
@@ -546,7 +703,8 @@ describe("a bot's files and its start", () => {
 		await expect(controller.start(owner, "abc123")).rejects.toThrow(
 			/Failed to start instance abc123/,
 		)
-		expect(deps.instances.update).not.toHaveBeenCalledWith(expect.anything(), "abc123", RUNNING)
+		expect(deps.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		expect(deps.instances.releaseConfigClaim).toHaveBeenCalled()
 	})
 })
 
@@ -1611,7 +1769,9 @@ describe("running several instances on one host", () => {
 		const wroteAt = transport.commands.findIndex((command) =>
 			command.includes("MinecraftClient.ini"),
 		)
-		const startedAt = transport.commands.findIndex((command) => command.includes("systemctl"))
+		const startedAt = transport.commands.findIndex((command) =>
+			command.includes("systemctl --user start"),
+		)
 		expect(wroteAt).toBeGreaterThanOrEqual(0)
 		expect(startedAt).toBeGreaterThan(wroteAt)
 	})
@@ -1705,20 +1865,17 @@ describe("running several instances on one host", () => {
 	})
 
 	it("seals the rotated token rather than writing it to the database in the clear", async () => {
-		const { deps } = makeDeps()
+		const { deps, instances } = makeDeps()
 		deps.instances.latestConfig = async () => configRow({ document: { ...SAVED_DOCUMENT } })
-		const sealedTokens: string[] = []
-		deps.instances.update = vi.fn(async (_scope, _id, patch) => {
-			if (patch.liveControlTokenEncrypted !== undefined) {
-				sealedTokens.push(patch.liveControlTokenEncrypted)
-			}
-			return instanceRow({ status: "running" })
-		})
 		const controller = createInstanceController(deps)
 		await controller.start(owner, "abc123")
 
+		const sealedTokens = vi
+			.mocked(instances.writeTokenUnderClaim)
+			.mock.calls.map(([, , , sealed]) => sealed.ciphertext)
 		expect(sealedTokens).toHaveLength(1)
 		expect(sealedTokens[0]).not.toMatch(/^[0-9a-f]{32}$/)
+		expect(instances.update).not.toHaveBeenCalled()
 	})
 
 	it("does not hand out a port something on the host is already listening on", async () => {
@@ -2227,12 +2384,15 @@ describe("saving the client's own bots, which reuses the config write", () => {
 	})
 
 	it("★ checks the saved settings BEFORE rotating the live-control token", async () => {
-		const { deps, instances } = withUnusableSavedConfig()
+		const { deps, transport, instances } = withUnusableSavedConfig()
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "stopped" }))
 		const controller = createInstanceController(deps)
 
 		await expect(controller.start(owner, "abc123")).rejects.toThrow(InstanceConfigUnusableError)
-		expect(instances.update).not.toHaveBeenCalled()
+		expect(instances.claimForLifecycle).not.toHaveBeenCalled()
+		expect(instances.writeTokenUnderClaim).not.toHaveBeenCalled()
+		expect(transport.commands.filter((command) => command.includes("/env"))).toEqual([])
+		expect(transport.stdins.filter((stdin) => stdin.includes("MCC_MCP_AUTH_TOKEN="))).toEqual([])
 	})
 
 	it("★ checks the saved settings BEFORE stopping a running unit on restart", async () => {
@@ -2375,6 +2535,77 @@ describe("stopping an instance", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+
+	it("refuses a stop while another change holds the bot, without reaching its host", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.claimForLifecycle).mockResolvedValue(undefined)
+		const connect = vi.spyOn(transport, "connect")
+
+		await expect(createInstanceController(deps).stop(owner, "abc123")).rejects.toBeInstanceOf(
+			InstanceBusyError,
+		)
+
+		expect(connect).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+	})
+
+	it("says the bot is stopped in the same statement that gives its claim back", async () => {
+		const { deps, instances } = makeDeps()
+
+		await createInstanceController(deps).stop(owner, "abc123")
+
+		expect(instances.claimForLifecycle).toHaveBeenCalledTimes(1)
+		expect(instances.finalizeConfigClaim).toHaveBeenCalledWith(
+			expect.anything(),
+			"abc123",
+			vi.mocked(instances.claimForLifecycle).mock.calls[0]?.[2],
+			{ status: "stopped" },
+		)
+		expect(instances.update).not.toHaveBeenCalled()
+	})
+
+	it("never says a bot is stopped when systemd refused to stop it", async () => {
+		const { deps, transport, instances } = makeDeps()
+		const stop = `${SYSTEMCTL} stop 'open-mcc@abc123'`
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			const result = await inner(command, timeoutMs, stdin)
+			return command === stop
+				? { stdout: "", stderr: "Job for open-mcc@abc123.service failed", exitCode: 1 }
+				: result
+		}
+
+		await expect(createInstanceController(deps).stop(owner, "abc123")).rejects.toThrow(
+			/Failed to stop instance abc123/,
+		)
+
+		expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalled()
+	})
+
+	it("never rewrites a bot's token when the stop a restart begins with was refused", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(deps.instances.latestConfig).mockResolvedValue(
+			configRow({ document: { ...SAVED_DOCUMENT } }),
+		)
+		const stop = `${SYSTEMCTL} stop 'open-mcc@abc123'`
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			const result = await inner(command, timeoutMs, stdin)
+			return command === stop
+				? { stdout: "", stderr: "Job for open-mcc@abc123.service failed", exitCode: 1 }
+				: result
+		}
+
+		await expect(createInstanceController(deps).restart(owner, "abc123")).rejects.toThrow(
+			/Failed to stop instance abc123/,
+		)
+
+		expect(transport.commands).toEqual([stop])
+		expect(instances.writeTokenUnderClaim).not.toHaveBeenCalled()
+		expect(instances.finalizeConfigClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalled()
 	})
 })
 
@@ -2795,6 +3026,24 @@ describe("saving settings under a claim", () => {
 				await controller.remove(owner, "abc123")
 			},
 		},
+		{
+			named: "a start",
+			run: async (controller) => {
+				await controller.start(owner, "abc123")
+			},
+		},
+		{
+			named: "a restart",
+			run: async (controller) => {
+				await controller.restart(owner, "abc123")
+			},
+		},
+		{
+			named: "a stop",
+			run: async (controller) => {
+				await controller.stop(owner, "abc123")
+			},
+		},
 	]
 
 	const recordingInstances = (inner: InstanceRepository, note: () => void): InstanceRepository => ({
@@ -2937,13 +3186,21 @@ describe("saving settings under a claim", () => {
 		expect(sightings.filter((inside) => inside)).toEqual([])
 	})
 
-	it("spends far less than the lease between taking the claim and finalizing it", async () => {
+	const remoteWaitsUnderClaim = async (
+		run: (controller: ReturnType<typeof createInstanceController>) => Promise<void>,
+	): Promise<number[]> => {
 		const made = savedDeps()
 		let claimed = false
 		const waits: number[] = []
-		const claim = made.instances.claimForConfig
+		const config = made.instances.claimForConfig
 		made.instances.claimForConfig = async (...args) => {
-			const row = await claim(...args)
+			const row = await config(...args)
+			claimed = true
+			return row
+		}
+		const lifecycle = made.instances.claimForLifecycle
+		made.instances.claimForLifecycle = async (...args) => {
+			const row = await lifecycle(...args)
 			claimed = true
 			return row
 		}
@@ -2968,11 +3225,63 @@ describe("saving settings under a claim", () => {
 			}),
 		}
 
-		await createInstanceController(deps).updateSettings(owner, "abc123", SETTINGS, 1)
+		await run(createInstanceController(deps))
+		return waits
+	}
 
-		const budget = waits.reduce((total, wait) => total + wait, 0)
-		expect(budget).toBe(25_000)
-		expect(budget).toBeLessThan(CONFIG_CLAIM_LEASE_MS)
+	it.each([
+		{
+			named: "a settings save",
+			budget: 25_000,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await controller.updateSettings(owner, "abc123", SETTINGS, 1)
+			},
+		},
+		{
+			named: "a start",
+			budget: 55_000,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await controller.start(owner, "abc123")
+			},
+		},
+		{
+			named: "a stop",
+			budget: 55_000,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await controller.stop(owner, "abc123")
+			},
+		},
+		{
+			named: "a restart",
+			budget: 100_000,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await controller.restart(owner, "abc123")
+			},
+		},
+	])(
+		"spends $budget ms of remote work under the claim during $named, far less than the lease",
+		async ({ budget, run }) => {
+			const waits = await remoteWaitsUnderClaim(run)
+
+			const spent = waits.reduce((total, wait) => total + wait, 0)
+			expect(spent).toBe(budget)
+			expect(spent).toBeLessThan(CONFIG_CLAIM_LEASE_MS)
+		},
+	)
+
+	it("waits longer for a restart's stop than the unit waits before killing the client", async () => {
+		const stopSeconds = Number(
+			/^TimeoutStopSec=(\d+)$/m.exec(
+				renderUnitTemplates(UNIT_RUNTIME)[INSTANCE_UNIT_NAME] ?? "",
+			)?.[1],
+		)
+
+		const waits = await remoteWaitsUnderClaim(async (controller) => {
+			await controller.restart(owner, "abc123")
+		})
+
+		expect(stopSeconds).toBeGreaterThan(0)
+		expect(Math.max(...waits)).toBeGreaterThan(2 * stopSeconds * 1000)
 	})
 
 	const failingWrite = (

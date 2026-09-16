@@ -11,6 +11,8 @@ import { hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import {
 	type ActorContext,
+	claimedExec,
+	type ExecFlight,
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
@@ -144,6 +146,8 @@ export const beginAuthentication = async (
 		throw new InstanceHostNotFoundError(`Host ${instance.hostId} is not set up to run bots`)
 	}
 	const transport = deps.createTransport()
+	const flight: ExecFlight = { inFlight: false }
+	let connected = false
 	try {
 		await connectForSignIn(transport, {
 			hostname: host.hostname,
@@ -153,8 +157,11 @@ export const beginAuthentication = async (
 			expectedFingerprint: host.hostKeyFingerprint,
 			timeoutMs: AUTH_SESSION_TIMEOUT_MS,
 		})
+		connected = true
 
-		await transport.exec(
+		await claimedExec(
+			flight,
+			transport,
 			`${systemctl(`stop ${shellQuote(unitName(instance.id))}`)} || true`,
 			UNIT_STOP_TIMEOUT_MS,
 		)
@@ -162,12 +169,17 @@ export const beginAuthentication = async (
 
 		const log = `${instanceDir(instance.id)}/auth.log`
 
-		await stopAuthSession(transport, instance.id)
+		await claimedExec(flight, transport, stopAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
 
-		await transport.exec(startAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
+		await claimedExec(flight, transport, startAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
-			const read = await transport.exec(`cat ${log} 2>/dev/null || true`, AUTH_SESSION_TIMEOUT_MS)
+			const read = await claimedExec(
+				flight,
+				transport,
+				`cat ${log} 2>/dev/null || true`,
+				AUTH_SESSION_TIMEOUT_MS,
+			)
 			const challenge = extractChallenge(read.stdout)
 			if (challenge) {
 				await deps.withTransaction(async (repos) => {
@@ -192,8 +204,17 @@ export const beginAuthentication = async (
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {
-		await stopAuthSession(transport, instance.id).catch(() => undefined)
-		await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
+		if (connected) {
+			await claimedExec(
+				flight,
+				transport,
+				stopAuthCommand(instance.id),
+				AUTH_SESSION_TIMEOUT_MS,
+			).catch(() => undefined)
+		}
+		if (!flight.inFlight) {
+			await deps.instances.releaseAuthClaim(scope, instanceId, attemptId)
+		}
 		throw error
 	} finally {
 		await transport.close().catch(() => undefined)

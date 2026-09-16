@@ -130,8 +130,10 @@ import { createScheduleRepository, type ScheduleRepository } from "./schedule.re
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
 import {
 	configWriteCommand,
-	envWriteCommand,
+	ENV_WRITTEN,
+	envWriteUnlessRunningCommand,
 	instanceLayoutSteps,
+	parseEnvWriteAnswer,
 	parseUnitStartState,
 	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
@@ -465,34 +467,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		need: HostNeed,
 	): Promise<HostReader> => (await leaseTrustedHost(scope, hostId, deadlineMs, need)).reader
 
-	const rotateLiveControlToken = async (
-		ctx: ActorContext,
-		instance: InstanceRow,
-	): Promise<InstanceRow> => {
-		const token = randomUUID().replaceAll("-", "")
-		const sealed = deps.secrets.seal(token)
-		const environment = renderEnvironmentFile({ liveControlToken: token })
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
-		try {
-			const result = await transport.exec(
-				envWriteCommand(instance.id, environment, instance.liveControlPort),
-				INSTANCE_STEP_TIMEOUT_MS,
-				environment,
-			)
-			if (result.exitCode !== 0) {
-				throw new Error(`Failed to write the instance environment: ${result.stderr.trim()}`)
-			}
-		} finally {
-			await transport.close().catch(() => undefined)
-		}
-
-		const updated = await deps.instances.update(scopeOf(ctx), instance.id, {
-			liveControlTokenEncrypted: sealed.ciphertext,
-			liveControlTokenKeyId: sealed.keyId,
-		})
-		return updated ?? instance
-	}
-
 	const insertWithFreePort = async (attempt: () => Promise<InstanceRow>): Promise<InstanceRow> => {
 		for (let tries = 0; tries < LIVE_PORT_CLAIM_ATTEMPTS; tries += 1) {
 			try {
@@ -519,11 +493,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		)
 	}
 
-	const storedConfigFor = async (
-		scope: OrgScope,
+	const storedFrom = (
 		instance: InstanceRow,
-	): Promise<InstanceConfigInput | undefined> => {
-		const saved = await deps.instances.latestConfig(scope, instance.id)
+		saved: InstanceConfigRow | undefined,
+	): InstanceConfigInput | undefined => {
 		if (!saved) return undefined
 		const parsed = instanceConfigStored.safeParse(saved.document)
 		if (!parsed.success) {
@@ -533,6 +506,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		}
 		return { ...parsed.data, liveControlPort: instance.liveControlPort }
 	}
+
+	const storedConfigFor = async (
+		scope: OrgScope,
+		instance: InstanceRow,
+	): Promise<InstanceConfigInput | undefined> =>
+		storedFrom(instance, await deps.instances.latestConfig(scope, instance.id))
 
 	const usableBots = (instanceId: string, stored: InstanceBotsInput): InstanceBotsInput => {
 		const bots = instanceBotsInput.safeParse({
@@ -547,11 +526,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return bots.data
 	}
 
-	const expectedDocumentFor = async (
-		scope: OrgScope,
+	const documentFrom = (
 		instance: InstanceRow,
-	): Promise<string | undefined> => {
-		const stored = await storedConfigFor(scope, instance)
+		saved: InstanceConfigRow | undefined,
+	): string | undefined => {
+		const stored = storedFrom(instance, saved)
 		if (stored === undefined) return undefined
 		usableBots(instance.id, stored)
 		const usable = instanceConfigInput.safeParse(stored)
@@ -563,6 +542,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return renderInstanceConfig(usable.data)
 	}
 
+	const expectedDocumentFor = async (
+		scope: OrgScope,
+		instance: InstanceRow,
+	): Promise<string | undefined> =>
+		documentFrom(instance, await deps.instances.latestConfig(scope, instance.id))
+
 	const storedDocument = (instanceId: string, row: InstanceConfigRow): InstanceConfigStored => {
 		const parsed = instanceConfigStored.safeParse(row.document)
 		if (!parsed.success) {
@@ -571,28 +556,6 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			)
 		}
 		return parsed.data
-	}
-
-	const writeConfigDocument = async (
-		ctx: ActorContext,
-		instance: InstanceRow,
-		document: string | undefined,
-	): Promise<void> => {
-		if (document === undefined) return
-
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
-		try {
-			const result = await transport.exec(
-				configWriteCommand(instance.id, document),
-				INSTANCE_STEP_TIMEOUT_MS,
-				document,
-			)
-			if (result.exitCode !== 0) {
-				throw new Error(`Failed to write instance config: ${result.stderr.trim()}`)
-			}
-		} finally {
-			await transport.close().catch(() => undefined)
-		}
 	}
 
 	const liveEndpointFor = async (
@@ -780,27 +743,154 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		}
 	}
 
-	const unitCommand = async (
-		ctx: ActorContext,
-		instance: InstanceRow,
-		verb: "start" | "stop",
-		need: HostNeed,
+	const stopUnitUnderClaim = async (
+		flight: ExecFlight,
+		transport: HostTransport,
+		instanceId: string,
 	): Promise<void> => {
-		const transport = await connectToHost(scopeOf(ctx), instance.hostId, need)
-		try {
-			const result = await transport.exec(
-				verb === "start"
-					? startUnitCommand(instance.id)
-					: systemctl(`${verb} ${shellQuote(unitName(instance.id))}`),
-				verb === "stop" ? UNIT_STOP_TIMEOUT_MS : INSTANCE_STEP_TIMEOUT_MS,
-			)
-			if (result.exitCode !== 0) {
-				throw new Error(`Failed to ${verb} instance ${instance.id}: ${result.stderr.trim()}`)
-			}
-			if (verb === "start") startedOrThrow(instance.id, result.stdout)
-		} finally {
-			await transport.close().catch(() => undefined)
+		const result = await claimedExec(
+			flight,
+			transport,
+			systemctl(`stop ${shellQuote(unitName(instanceId))}`),
+			UNIT_STOP_TIMEOUT_MS,
+		)
+		if (result.exitCode !== 0) {
+			throw new Error(`Failed to stop instance ${instanceId}: ${result.stderr.trim()}`)
 		}
+		forgetActive(instanceId)
+	}
+
+	const releasingClaim = async <T>(
+		scope: OrgScope,
+		instanceId: string,
+		claimId: string,
+		flight: ExecFlight,
+		run: () => Promise<T>,
+	): Promise<T> => {
+		try {
+			return await run()
+		} catch (error) {
+			if (!flight.inFlight) {
+				await deps.instances.releaseConfigClaim(scope, instanceId, claimId).catch(() => undefined)
+			}
+			throw error
+		}
+	}
+
+	const finalizeLifecycle = async (
+		ctx: ActorContext,
+		instanceId: string,
+		claimId: string,
+		status: "running" | "stopped",
+		action: "instance.start" | "instance.restart" | "instance.stop",
+	): Promise<InstanceRow> =>
+		await deps.withTransaction(async (repos) => {
+			const scope = scopeOf(ctx)
+			const finalized = await repos.instances.finalizeConfigClaim(scope, instanceId, claimId, {
+				status,
+			})
+			if (!finalized) {
+				throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+			}
+			await repos.audit.record(scope, {
+				actorId: ctx.memberId,
+				actorLabel: ctx.actorLabel,
+				action,
+				subjectType: "instance",
+				subjectId: instanceId,
+				detail: {},
+			})
+			return finalized
+		})
+
+	const startUnderClaim = async (
+		ctx: ActorContext,
+		instanceId: string,
+		verb: "start" | "restart",
+	): Promise<InstancePublic> => {
+		const scope = scopeOf(ctx)
+		const instance = await requireInstance(ctx, instanceId)
+		if (instance.status === "needs_auth") {
+			throw new InstanceAuthInProgressError(
+				`Instance ${instanceId} has not completed its microsoft sign-in`,
+			)
+		}
+		await expectedDocumentFor(scope, instance)
+
+		const loaded = await loadHost(scope, instance.hostId, "runtime")
+		const token = randomUUID().replaceAll("-", "")
+		const sealed = deps.secrets.seal(token)
+		const environment = renderEnvironmentFile({ liveControlToken: token })
+		const claimId = randomUUID()
+		const flight: ExecFlight = { inFlight: false }
+
+		return await releasingClaim(scope, instanceId, claimId, flight, async () => {
+			const { claimed, document } = await deps.withTransaction(async (repos) => {
+				const row = await takeLifecycleClaim(repos, scope, instanceId, claimId)
+				const saved = await repos.instances.latestConfig(scope, instanceId)
+				return { claimed: row, document: documentFrom(row, saved) }
+			})
+
+			const transport = await connectLoaded(loaded)
+			try {
+				if (verb === "restart") await stopUnitUnderClaim(flight, transport, claimed.id)
+
+				const wrote = await claimedExec(
+					flight,
+					transport,
+					envWriteUnlessRunningCommand(claimed.id, environment, claimed.liveControlPort),
+					INSTANCE_STEP_TIMEOUT_MS,
+					environment,
+				)
+				if (wrote.exitCode !== 0) {
+					throw new Error(`Failed to write the instance environment: ${wrote.stderr.trim()}`)
+				}
+				const answer = parseEnvWriteAnswer(wrote.stdout)
+				if (answer === undefined) {
+					throw new Error(`Could not read whether instance ${claimed.id} is running`)
+				}
+				if (answer === ENV_WRITTEN) {
+					const stored = await deps.instances.writeTokenUnderClaim(
+						scope,
+						instanceId,
+						claimId,
+						sealed,
+					)
+					if (!stored) {
+						throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+					}
+				}
+
+				if (document !== undefined) {
+					const written = await claimedExec(
+						flight,
+						transport,
+						configWriteCommand(claimed.id, document),
+						INSTANCE_STEP_TIMEOUT_MS,
+						document,
+					)
+					if (written.exitCode !== 0) {
+						throw new Error(`Failed to write instance config: ${written.stderr.trim()}`)
+					}
+				}
+
+				const started = await claimedExec(
+					flight,
+					transport,
+					startUnitCommand(claimed.id),
+					INSTANCE_STEP_TIMEOUT_MS,
+				)
+				if (started.exitCode !== 0) {
+					throw new Error(`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`)
+				}
+				startedOrThrow(claimed.id, started.stdout)
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
+
+			const action = verb === "start" ? "instance.start" : "instance.restart"
+			return toInstancePublic(await finalizeLifecycle(ctx, instanceId, claimId, "running", action))
+		})
 	}
 
 	const saveConfig = async (
@@ -816,7 +906,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		const claimId = randomUUID()
 		const flight: ExecFlight = { inFlight: false }
 
-		try {
+		return await releasingClaim(scope, instanceId, claimId, flight, async () => {
 			const { settled, document } = await deps.withTransaction(async (repos) => {
 				const claimed = await takeConfigClaim(repos, scope, instanceId, claimId, {
 					expectedVersion,
@@ -865,12 +955,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				})
 				return { version: saved.version }
 			})
-		} catch (error) {
-			if (!flight.inFlight) {
-				await deps.instances.releaseConfigClaim(scope, instanceId, claimId).catch(() => undefined)
-			}
-			throw error
-		}
+		})
 	}
 
 	const controller = {
@@ -972,99 +1057,38 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		start: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
-			const instance = await requireInstance(ctx, instanceId)
-			if (instance.status === "needs_auth") {
-				throw new InstanceAuthInProgressError(
-					`Instance ${instanceId} has not completed its microsoft sign-in`,
-				)
-			}
-
-			const document = await expectedDocumentFor(scopeOf(ctx), instance)
-			const rotated = await rotateLiveControlToken(ctx, instance)
-			await writeConfigDocument(ctx, rotated, document)
-			await unitCommand(ctx, rotated, "start", "runtime")
-
-			const updated = await deps.withTransaction(async (repos) => {
-				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
-				if (!row) {
-					throw new InstanceConcurrentlyModifiedError(
-						`Instance ${instanceId} changed before it could be started`,
-					)
-				}
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.start",
-					subjectType: "instance",
-					subjectId: instanceId,
-					detail: {},
-				})
-				return row
-			})
-			return toInstancePublic(updated)
+			return await startUnderClaim(ctx, instanceId, "start")
 		},
 
 		restart: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
-			const instance = await requireInstance(ctx, instanceId)
-			if (instance.status === "needs_auth") {
-				throw new InstanceAuthInProgressError(
-					`Instance ${instanceId} has not completed its microsoft sign-in`,
-				)
-			}
-
-			const document = await expectedDocumentFor(scopeOf(ctx), instance)
-			await unitCommand(ctx, instance, "stop", "runtime")
-			forgetActive(instance.id)
-			const rotated = await rotateLiveControlToken(ctx, instance)
-			await writeConfigDocument(ctx, rotated, document)
-			await unitCommand(ctx, rotated, "start", "runtime")
-
-			const restarted = await deps.withTransaction(async (repos) => {
-				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "running" })
-				if (!row) {
-					throw new InstanceConcurrentlyModifiedError(
-						`Instance ${instanceId} changed before it could be restarted`,
-					)
-				}
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.restart",
-					subjectType: "instance",
-					subjectId: instanceId,
-					detail: {},
-				})
-				return row
-			})
-			return toInstancePublic(restarted)
+			return await startUnderClaim(ctx, instanceId, "restart")
 		},
 
 		stop: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {
 			requireCapabilityFor(ctx.role, "instance.start")
+			const scope = scopeOf(ctx)
 			const instance = await requireInstance(ctx, instanceId)
+			const loaded = await loadHost(scope, instance.hostId, "setUpOnce")
+			const claimId = randomUUID()
+			const flight: ExecFlight = { inFlight: false }
 
-			await unitCommand(ctx, instance, "stop", "setUpOnce")
-			forgetActive(instance.id)
+			return await releasingClaim(scope, instanceId, claimId, flight, async () => {
+				const claimed = await deps.withTransaction(
+					async (repos) => await takeLifecycleClaim(repos, scope, instanceId, claimId),
+				)
 
-			const stopped = await deps.withTransaction(async (repos) => {
-				const row = await repos.instances.update(scopeOf(ctx), instanceId, { status: "stopped" })
-				if (!row) {
-					throw new InstanceConcurrentlyModifiedError(
-						`Instance ${instanceId} changed before it could be stopped`,
-					)
+				const transport = await connectLoaded(loaded)
+				try {
+					await stopUnitUnderClaim(flight, transport, claimed.id)
+				} finally {
+					await transport.close().catch(() => undefined)
 				}
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.stop",
-					subjectType: "instance",
-					subjectId: instanceId,
-					detail: {},
-				})
-				return row
+
+				return toInstancePublic(
+					await finalizeLifecycle(ctx, instanceId, claimId, "stopped", "instance.stop"),
+				)
 			})
-			return toInstancePublic(stopped)
 		},
 
 		sendCommand: async (ctx: ActorContext, instanceId: string, command: string): Promise<void> => {

@@ -227,6 +227,28 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		expect(after).not.toBe(before)
 	})
 
+	it("leaves a running bot's token file untouched when it is started again, and keeps it running", async () => {
+		const tokenFile = `${botDir(botId)}/env`
+		const before = await read(host, tokenFile)
+		const since = await hostClock()
+
+		await ready().manager.controller.start(owner, botId)
+
+		expect(await read(host, tokenFile)).toBe(before)
+		expect(
+			await property(unitOf(botId), "ActiveState"),
+			await journalSince(unitOf(botId), since),
+		).toBe("active")
+	})
+
+	it("gives the unit the 90 second start timeout the restart's lease margin assumes", async () => {
+		const reported = await property(unitOf(botId), "TimeoutStartUSec")
+		const minutes = /(\d+)min/.exec(reported)?.[1] ?? "0"
+		const seconds = /(?:^|\s)(\d+)s/.exec(reported)?.[1] ?? "0"
+
+		expect(Number(minutes) * 60 + Number(seconds), `TimeoutStartUSec is ${reported}`).toBe(90)
+	})
+
 	it("stops the bot for its sleep window and starts it again when the window ends", async () => {
 		await ready().manager.controller.setSleepWindow(owner, {
 			instanceId: botId,

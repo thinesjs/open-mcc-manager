@@ -95,6 +95,8 @@ export const configWriteCommand = (instanceId: string, document: string): string
 
 export const ENV_WRITTEN = "written"
 
+export const ENV_KEPT = "kept"
+
 export const envWriteCommand = (
 	instanceId: string,
 	environment: string,
@@ -158,6 +160,27 @@ export const instanceLayoutSteps = ({
 }
 
 export const RUNNING_UNIT_STATES = ["active", "activating", "deactivating", "reloading"] as const
+
+export const envWriteUnlessRunningCommand = (
+	instanceId: string,
+	environment: string,
+	liveControlPort: number,
+): string => {
+	const unit = shellQuote(`${unitName(instanceId)}.service`)
+	const state = systemctl(`show -p ActiveState --value ${unit}`)
+	const kept = `printf ${shellQuote(`${ENV_KEPT}\\n`)}`
+	const write = envWriteCommand(instanceId, environment, liveControlPort)
+	return `case "$(${state})" in ${RUNNING_UNIT_STATES.join("|")}) ${kept};; *) ${write};; esac`
+}
+
+export const parseEnvWriteAnswer = (
+	output: string,
+): typeof ENV_WRITTEN | typeof ENV_KEPT | undefined => {
+	const answer = output.endsWith("\n") ? output.slice(0, -1) : output
+	if (answer === ENV_WRITTEN) return ENV_WRITTEN
+	if (answer === ENV_KEPT) return ENV_KEPT
+	return undefined
+}
 
 export const startUnitCommand = (instanceId: string): string => {
 	const unit = shellQuote(unitName(instanceId))

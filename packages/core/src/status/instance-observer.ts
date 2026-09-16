@@ -13,20 +13,28 @@ export const SEED_WINDOW = "-7d"
 export const journalTimestamp = (iso: string): string => {
 	const at = new Date(iso)
 	if (Number.isNaN(at.getTime())) return SEED_WINDOW
-	return at.toISOString().slice(0, 19).replace("T", " ")
+	return `${at.toISOString().slice(0, 19).replace("T", " ")} UTC`
 }
 
 export const journalSince = (cursor: string | null): string =>
 	cursor === null ? SEED_WINDOW : journalTimestamp(cursor)
 
-export const journalCommand = (instanceId: string, cursor: string | null): string =>
-	journalctl(
-		`-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager -n ${JOURNAL_MAX_LINES}`,
-	)
+export const journalCommand = (instanceId: string, cursor: string | null): string => {
+	const window = `-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager`
+	if (cursor === null) return journalctl(`${window} -n ${JOURNAL_MAX_LINES}`)
+	return `{ ${journalctl(window)} || true; } | head -n ${JOURNAL_MAX_LINES + 1}`
+}
+
+export const journalLineCount = (raw: string): number => {
+	const parts = raw.split("\n")
+	return parts.at(-1) === "" ? parts.length - 1 : parts.length
+}
 
 export type InstanceReading = {
 	changes: ConnectionChange[]
 	cursor: string | null
+	full: boolean
+	withheldAt: string | null
 }
 
 export const readConnectionChanges = async (
@@ -36,16 +44,21 @@ export const readConnectionChanges = async (
 	cursor: string | null,
 ): Promise<InstanceReading> => {
 	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
-	if (result.exitCode !== 0) return { changes: [], cursor }
+	if (result.exitCode !== 0) return { changes: [], cursor, full: false, withheldAt: null }
 
-	const lines = parseJournal(result.stdout)
-	const signals = connectionSignals(lines)
+	const full = cursor !== null && journalLineCount(result.stdout) > JOURNAL_MAX_LINES
+	const parsed = parseJournal(result.stdout)
+	const lines = full ? parsed.slice(0, -1) : parsed
+	const beyond = connectionSignals(full ? parsed.slice(-1) : []).length
+	const sighted = connectionSignals(parsed)
+	const signals = sighted.slice(0, sighted.length - beyond)
+	const withheldAt = full ? (parsed.at(-1)?.at.toISOString() ?? null) : null
 	const last = lines.at(-1)
 	const nextCursor = last === undefined ? cursor : last.at.toISOString()
 
 	if (cursor === null) {
 		const latest = signals.at(-1)
-		if (latest === undefined) return { changes: [], cursor: nextCursor }
+		if (latest === undefined) return { changes: [], cursor: nextCursor, full, withheldAt }
 		return {
 			changes: [
 				latest.kind === "joined"
@@ -73,8 +86,74 @@ export const readConnectionChanges = async (
 							},
 			],
 			cursor: nextCursor,
+			full,
+			withheldAt,
 		}
 	}
 
-	return { changes: changesFromSignals(current, signals), cursor: nextCursor }
+	return { changes: changesFromSignals(current, signals), cursor: nextCursor, full, withheldAt }
+}
+
+export const JOURNAL_DRAIN_ROUNDS = 4
+
+export type JournalLease = Pick<HostReader, "exec" | "release">
+
+export type JournalDrain = {
+	lease: () => Promise<JournalLease | undefined>
+	record: (changes: ConnectionChange[]) => Promise<void>
+	saveCursor: (cursor: string) => Promise<void>
+	onSkipped: (second: string) => void
+}
+
+export type DrainOutcome = "drained" | "unleased"
+
+const secondAfter = (iso: string): string => new Date(new Date(iso).getTime() + 1_000).toISOString()
+
+const connectionAfter = (
+	current: ConnectionCurrent,
+	changes: readonly ConnectionChange[],
+): ConnectionCurrent => {
+	const last = changes.at(-1)
+	if (last === undefined) return current
+	return { state: last.state, since: last.at, pid: last.pid }
+}
+
+export const drainConnectionChanges = async (
+	drain: JournalDrain,
+	instanceId: string,
+	current: ConnectionCurrent,
+	cursor: string | null,
+): Promise<DrainOutcome> => {
+	let seen = current
+	let at = cursor
+
+	for (let round = 0; round < JOURNAL_DRAIN_ROUNDS; round += 1) {
+		const leased = await drain.lease()
+		if (leased === undefined) return "unleased"
+
+		let reading: InstanceReading
+		try {
+			reading = await readConnectionChanges(leased, instanceId, seen, at)
+		} finally {
+			leased.release()
+		}
+
+		await drain.record(reading.changes)
+
+		const next = reading.cursor
+		if (next === null) return "drained"
+		if (!reading.full) {
+			if (next !== at) await drain.saveCursor(next)
+			return "drained"
+		}
+
+		const escaped = next === at
+		if (escaped && reading.withheldAt === next) drain.onSkipped(next)
+		const resume = escaped ? secondAfter(next) : next
+		await drain.saveCursor(resume)
+		seen = connectionAfter(seen, reading.changes)
+		at = resume
+	}
+
+	return "drained"
 }

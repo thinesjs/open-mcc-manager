@@ -25,6 +25,7 @@ import {
 	createSshKeyRepository,
 	createStatusController,
 	createStatusControllerTransaction,
+	drainConnectionChanges,
 	egressPolicy,
 	generateSshKeyPair,
 	type HealthPollerHandle,
@@ -36,7 +37,6 @@ import {
 	leaseHostReader,
 	lockLostHandler,
 	readBuildInfo,
-	readConnectionChanges,
 	reconcileQueues,
 	resolveMinecraftName,
 	runtimeErrorReporter,
@@ -316,22 +316,31 @@ export const startServer = async (
 			for (const instance of onHost) {
 				const cursor = await statusController.connectionCursor(scope, instance.id)
 				const current = await statusController.currentConnection(scope, instance.id)
-				const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
-				if (journal.kind !== "leased") return
-				let reading: Awaited<ReturnType<typeof readConnectionChanges>>
-				try {
-					reading = await readConnectionChanges(journal.reader, instance.id, current, cursor)
-				} finally {
-					journal.reader.release()
-				}
-				await statusController.recordInstanceConnection(
-					scope,
-					{ id: instance.id, name: instance.name },
-					reading.changes,
+				const outcome = await drainConnectionChanges(
+					{
+						lease: async () => {
+							const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
+							return journal.kind === "leased" ? journal.reader : undefined
+						},
+						record: (changes) =>
+							statusController.recordInstanceConnection(
+								scope,
+								{ id: instance.id, name: instance.name },
+								changes,
+							),
+						saveCursor: (next) => statusController.saveConnectionCursor(scope, instance.id, next),
+						onSkipped: (second) =>
+							logger.warn("Journal second over the read cap, its remaining lines were skipped", {
+								instanceId: instance.id,
+								instanceName: instance.name,
+								second,
+							}),
+					},
+					instance.id,
+					current,
+					cursor,
 				)
-				if (reading.cursor !== null && reading.cursor !== cursor) {
-					await statusController.saveConnectionCursor(scope, instance.id, reading.cursor)
-				}
+				if (outcome === "unleased") return
 				const resolved = await resolveMinecraftName(instance, {
 					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
 					openToken: (sealed, keyId) => secrets.open(sealed, keyId),

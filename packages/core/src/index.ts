@@ -304,7 +304,11 @@ export type { SshKeyCreateValues, SshKeyRepository } from "./ssh-key/ssh-key.rep
 export { createSshKeyRepository } from "./ssh-key/ssh-key.repository"
 export type { EscalationDeps, EscalationPayload } from "./status/escalation.job"
 export { createEscalationHandler, readEscalationPayload } from "./status/escalation.job"
-export { JOURNAL_READ_TIMEOUT_MS, readConnectionChanges } from "./status/instance-observer"
+export {
+	drainConnectionChanges,
+	JOURNAL_READ_TIMEOUT_MS,
+	readConnectionChanges,
+} from "./status/instance-observer"
 export { nextReachability } from "./status/reachability"
 export {
 	createStatusController,

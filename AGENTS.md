@@ -121,7 +121,8 @@ make a player-name test pass, and do not add filtering in its place.
 - No Next.js, in any form, ever.
 - No code comments in application code. Names and types carry the meaning.
 - No commit descriptions. Subject lines only, imperative mood, Conventional
-  Commits (`type(scope): subject`).
+  Commits (`type: subject`; the scope in `type(scope): subject` is optional and
+  this branch's history does not use it).
 - No `any`, no non-null `!`, no definite-assignment `!` on a declaration, no
   `@ts-ignore`, no `@ts-expect-error`, no `@ts-nocheck`, no type assertions
   except `as const`.
@@ -241,13 +242,13 @@ subject.
 ### `scripts/check-commit-subjects.mjs`
 
 Reads `git log` over a revision range and rejects any non-merge commit whose
-subject is not `type(scope): subject` with a known Conventional Commits type,
-or that carries a description at all. Merge commits are skipped — their
-message is generated, not authored here. CI runs it on pull requests over
-`github.event.pull_request.base.sha..HEAD`, which is why the checkout uses
-`fetch-depth: 0`; pushes to `main` are not re-checked, because the same
-commits were checked on the pull request that introduced them. Run it locally
-with `pnpm check:commits origin/main..HEAD`.
+subject is not `type: subject`, with an optional `(scope)` and a known
+Conventional Commits type, or that carries a description at all. Merge
+commits are skipped — their message is generated, not authored here. CI runs
+it on pull requests over `github.event.pull_request.base.sha..HEAD`, which
+is why the checkout uses `fetch-depth: 0`; pushes to `main` are not
+re-checked, because the same commits were checked on the pull request that
+introduced them. Run it locally with `pnpm check:commits origin/main..HEAD`.
 
 Imperative mood is not checked. It needs judgement rather than a regex, so
 that half of the rule stays with review.
@@ -374,6 +375,29 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
+- `CONFIG_CLAIM_LEASE_MS` (`instance.repository.ts`) leases one bot's config
+  claim for 180s. `claimForConfig` and `claimForLifecycle` take it — the second
+  also refuses a live sign-in claim, because start, restart, stop and remove
+  must not run under one — and `claimForAuth` refuses a live config claim and
+  clears a stale one it takes over, so the superseded flow's
+  `finalizeConfigClaim` matches nothing rather than writing a status nothing
+  else repairs. `writeTokenUnderClaim` renews the lease, so the SSH work still
+  to come after a wait on the pool does not run past it. Every stamp and every
+  comparison of `configClaimedAt` is the database's `clock_timestamp()` and not
+  `now()`, which is transaction start time and therefore older than any wait on
+  a row lock: an `UPDATE` queued behind another writer would otherwise commit a
+  claim that was already stale when it landed. It follows that
+  `configClaimedAt` must never be written from the application clock the way
+  `authClaimedAt` and `provisioningClaimedAt` are — `pg` stores a JS `Date` in a
+  `timestamp` column as the client's local wall clock while `clock_timestamp()`
+  reads the database's, so the two differ by the whole offset whenever the
+  server and the database disagree about the timezone. The four writes that run
+  under an existing claim — `finalizeConfigClaim`, `releaseConfigClaim`,
+  `writeTokenUnderClaim` and `deleteUnderClaim` — match on the claim id alone,
+  with no freshness test, exactly as `finalizeProvisioning` does: refusing a
+  late one would leave a host holding a token its row lacks, or strand a row
+  whose tree is already gone. Nothing takes the claim yet; the callers land
+  with the saves.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

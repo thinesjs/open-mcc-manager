@@ -93,6 +93,8 @@ export interface Instance {
 	accountType: Generated<string>
 	authClaimedAt: Timestamp | null
 	authClaimId: string | null
+	configClaimedAt: Timestamp | null
+	configClaimId: string | null
 	createdAt: Generated<Timestamp>
 	hostId: string
 	id: string

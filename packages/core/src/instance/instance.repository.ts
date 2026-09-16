@@ -1,5 +1,7 @@
 import type { Executor, InstanceConfigRow, InstanceInsert, InstanceRow } from "@open-mcc/db"
+import { sql } from "kysely"
 import { nanoid } from "nanoid"
+import type { SealedValue } from "../crypto/sealed-box"
 import type { OrgScope } from "../host/host.repository"
 
 export type InstanceCreateValues = Omit<
@@ -22,8 +24,15 @@ export type InstanceUpdateValues = Partial<
 
 export const AUTH_LEASE_MS = 15 * 60 * 1000
 
+export const CONFIG_CLAIM_LEASE_MS = 180_000
+
 export const isAuthClaimStale = (claimedAt: Date | null, now: Date = new Date()): boolean =>
 	claimedAt === null || now.getTime() - claimedAt.getTime() > AUTH_LEASE_MS
+
+const databaseClock = sql<Date>`clock_timestamp()`
+
+const leasedBefore = (leaseMs: number) =>
+	sql<Date>`clock_timestamp() - ${sql.lit(leaseMs)} * interval '1 millisecond'`
 
 const whitelistInstanceUpdate = (patch: InstanceUpdateValues): InstanceUpdateValues => ({
 	...(patch.name !== undefined && { name: patch.name }),
@@ -95,13 +104,24 @@ export const createInstanceRepository = (db: Executor) => ({
 	): Promise<InstanceRow | undefined> =>
 		db
 			.updateTable("instance")
-			.set({ authClaimId: attemptId, authClaimedAt: new Date() })
+			.set({
+				authClaimId: attemptId,
+				authClaimedAt: new Date(),
+				configClaimId: null,
+				configClaimedAt: null,
+			})
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where((eb) =>
 				eb.or([
 					eb("authClaimId", "is", null),
 					eb("authClaimedAt", "<", new Date(Date.now() - AUTH_LEASE_MS)),
+				]),
+			)
+			.where((eb) =>
+				eb.or([
+					eb("configClaimId", "is", null),
+					eb("configClaimedAt", "<", leasedBefore(CONFIG_CLAIM_LEASE_MS)),
 				]),
 			)
 			.returningAll()
@@ -114,6 +134,113 @@ export const createInstanceRepository = (db: Executor) => ({
 			.where("id", "=", id)
 			.where("organizationId", "=", scope.organizationId)
 			.where("authClaimId", "=", attemptId)
+			.returningAll()
+			.execute()
+		return rows.length > 0
+	},
+
+	claimForConfig: async (
+		scope: OrgScope,
+		id: string,
+		claimId: string,
+	): Promise<InstanceRow | undefined> =>
+		db
+			.updateTable("instance")
+			.set({ configClaimId: claimId, configClaimedAt: databaseClock })
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where((eb) =>
+				eb.or([
+					eb("configClaimId", "is", null),
+					eb("configClaimedAt", "<", leasedBefore(CONFIG_CLAIM_LEASE_MS)),
+				]),
+			)
+			.returningAll()
+			.executeTakeFirst(),
+
+	claimForLifecycle: async (
+		scope: OrgScope,
+		id: string,
+		claimId: string,
+	): Promise<InstanceRow | undefined> =>
+		db
+			.updateTable("instance")
+			.set({ configClaimId: claimId, configClaimedAt: databaseClock })
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where((eb) =>
+				eb.or([
+					eb("configClaimId", "is", null),
+					eb("configClaimedAt", "<", leasedBefore(CONFIG_CLAIM_LEASE_MS)),
+				]),
+			)
+			.where((eb) =>
+				eb.or([
+					eb("authClaimId", "is", null),
+					eb("authClaimedAt", "<", new Date(Date.now() - AUTH_LEASE_MS)),
+				]),
+			)
+			.returningAll()
+			.executeTakeFirst(),
+
+	finalizeConfigClaim: async (
+		scope: OrgScope,
+		id: string,
+		claimId: string,
+		patch: Pick<InstanceUpdateValues, "status">,
+	): Promise<InstanceRow | undefined> =>
+		db
+			.updateTable("instance")
+			.set({
+				...(patch.status !== undefined && { status: patch.status }),
+				configClaimId: null,
+				configClaimedAt: null,
+			})
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("configClaimId", "=", claimId)
+			.returningAll()
+			.executeTakeFirst(),
+
+	releaseConfigClaim: async (scope: OrgScope, id: string, claimId: string): Promise<boolean> => {
+		const rows = await db
+			.updateTable("instance")
+			.set({ configClaimId: null, configClaimedAt: null })
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("configClaimId", "=", claimId)
+			.returningAll()
+			.execute()
+		return rows.length > 0
+	},
+
+	writeTokenUnderClaim: async (
+		scope: OrgScope,
+		id: string,
+		claimId: string,
+		sealed: SealedValue,
+	): Promise<boolean> => {
+		const rows = await db
+			.updateTable("instance")
+			.set({
+				liveControlTokenEncrypted: sealed.ciphertext,
+				liveControlTokenKeyId: sealed.keyId,
+				configClaimedAt: databaseClock,
+			})
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("configClaimId", "=", claimId)
+			.returningAll()
+			.execute()
+		return rows.length > 0
+	},
+
+	deleteUnderClaim: async (scope: OrgScope, id: string, claimId: string): Promise<boolean> => {
+		const rows = await db
+			.deleteFrom("instance")
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("configClaimId", "=", claimId)
 			.returningAll()
 			.execute()
 		return rows.length > 0

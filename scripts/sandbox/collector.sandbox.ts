@@ -148,6 +148,8 @@ const ROW: InstanceRow = {
 	liveControlTokenKeyId: null,
 	authClaimId: null,
 	authClaimedAt: null,
+	configClaimId: null,
+	configClaimedAt: null,
 	playerListOffset: "0",
 	playerListFingerprint: EMPTY_FINGERPRINT,
 	playerListCursorVersion: "0",

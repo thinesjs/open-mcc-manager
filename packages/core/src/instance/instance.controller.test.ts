@@ -1261,6 +1261,21 @@ describe("removing an instance", () => {
 		},
 	)
 
+	it.each([1, 5, 124])(
+		"finishes the removal when stopping the units answers %i, whose status removal ignores",
+		async (exitCode) => {
+			const transport = answering((command) => (command === STEPS.stop ? exitCode : undefined))
+			const { instances, audit, run } = removeOn(hostRow, transport)
+
+			await run()
+
+			expect(transport.commands).toHaveLength(6)
+			expect(instances.deleteUnderClaim).toHaveBeenCalledTimes(1)
+			expect(instances.releaseConfigClaim).not.toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledTimes(1)
+		},
+	)
+
 	it.each([
 		{
 			named: "a step never answers",
@@ -1312,6 +1327,11 @@ describe("removing an instance", () => {
 		expect(connected).not.toHaveBeenCalled()
 		expect(transport.commands).toEqual([])
 		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+			scope,
+			"abc123",
+			takenClaim(instances),
+		)
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
@@ -1328,6 +1348,11 @@ describe("removing an instance", () => {
 		expect(connected).not.toHaveBeenCalled()
 		expect(transport.commands).toEqual([])
 		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+			scope,
+			"abc123",
+			takenClaim(instances),
+		)
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
@@ -1346,6 +1371,11 @@ describe("removing an instance", () => {
 		expect(connected).not.toHaveBeenCalled()
 		expect(transport.commands).toEqual([])
 		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+			scope,
+			"abc123",
+			takenClaim(instances),
+		)
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 

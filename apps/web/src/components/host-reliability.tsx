@@ -36,6 +36,7 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 			{ getNextPageParam: (page) => page.nextCursor ?? undefined },
 		),
 		refetchInterval: (query) => ((query.state.data?.pages.length ?? 0) > 1 ? false : 60_000),
+		staleTime: 60_000,
 	})
 
 	const summary = summaryQuery.data

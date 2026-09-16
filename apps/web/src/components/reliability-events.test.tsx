@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { describeStatusEvent } from "~/lib/status-events"
 import { BotReliability } from "./bot-reliability"
 import { HostReliability } from "./host-reliability"
 
@@ -33,15 +34,18 @@ const seed = (count: number) => {
 
 const arrive = (count: number) => {
 	seeded.events = [
-		...Array.from({ length: count }, (_, index) => eventNamed(`new-${index}`, -1 - index)),
+		...Array.from({ length: count }, (_, index) =>
+			eventNamed(`new-${count - 1 - index}`, index - count),
+		),
 		...seeded.events,
 	]
 }
 
 const pageFrom = (limit: number, cursor: string | null) => {
 	if (seeded.refuse) throw new Error("Internal server error")
-	const resumeAt = cursor === null ? 0 : seeded.events.findIndex((each) => each.id === cursor) + 1
-	const events = seeded.events.slice(resumeAt, resumeAt + limit)
+	const at = cursor === null ? -1 : seeded.events.findIndex((each) => each.id === cursor)
+	if (cursor !== null && at < 0) throw new Error("unknown cursor")
+	const events = seeded.events.slice(at + 1, at + 1 + limit)
 	const last = events[events.length - 1]
 	return {
 		events,
@@ -49,6 +53,11 @@ const pageFrom = (limit: number, cursor: string | null) => {
 		nextCursor: last === undefined || events.length < limit ? null : last.id,
 	}
 }
+
+const rowText = (each: MockEvent) =>
+	`${new Date(each.occurredAt).toLocaleTimeString()}${describeStatusEvent(each.kind, each.subjectLabel)}`
+
+const renderedRows = () => screen.getAllByRole("listitem").map((item) => item.textContent ?? "")
 
 const SUMMARY = {
 	hosts: [
@@ -174,8 +183,9 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2 + 1)
 		})
 
-		const shown = screen.getAllByRole("listitem").length
-		expect(new Set(seeded.events.slice(0, shown).map((each) => each.id)).size).toBe(shown)
+		const rendered = renderedRows()
+		expect(rendered).toEqual(seeded.events.slice(0, rendered.length).map(rowText))
+		expect(new Set(rendered).size).toBe(rendered.length)
 		expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
 	})
 
@@ -194,6 +204,8 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2 + 5)
 		})
 
+		const rendered = renderedRows()
+		expect(new Set(rendered).size).toBe(rendered.length)
 		expect(screen.getByText(`${pageSize * 2 + 8} events`)).toBeDefined()
 		expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
 	})

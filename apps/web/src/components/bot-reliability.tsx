@@ -37,6 +37,7 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 			{ getNextPageParam: (page) => page.nextCursor ?? undefined },
 		),
 		refetchInterval: (query) => ((query.state.data?.pages.length ?? 0) > 1 ? false : 60_000),
+		staleTime: 60_000,
 	})
 
 	const summary = summaryQuery.data

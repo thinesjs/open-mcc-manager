@@ -119,6 +119,23 @@ const storeFor = (organizationId: string): ArtifactStore => {
 	}
 }
 
+const SESSIONS_GONE_TIMEOUT_MS = 10_000
+
+const openSessions = async (databaseName: string): Promise<number> => {
+	const { rows } = await sql<{ open: number }>`
+		select count(*)::int as open from pg_stat_activity where datname = ${databaseName}
+	`.execute(testDb())
+	return rows[0]?.open ?? 0
+}
+
+const untilSessionsGone = async (databaseName: string): Promise<void> => {
+	const deadline = Date.now() + SESSIONS_GONE_TIMEOUT_MS
+	while ((await openSessions(databaseName)) > 0) {
+		if (Date.now() > deadline) throw new Error(`sessions still open on ${databaseName}`)
+		await new Promise((resolve) => setTimeout(resolve, 50))
+	}
+}
+
 beforeAll(async () => {
 	ownerOrg = await seedOrganization("artifact-owner")
 	otherOrg = await seedOrganization("artifact-other")
@@ -310,7 +327,8 @@ describe("★ moving a player list's cursor only with the bytes it stored", () =
 			).rejects.toThrow()
 		} finally {
 			await fresh.destroy()
-			await sql`drop database ${sql.id(name)} with (force)`.execute(testDb())
+			await untilSessionsGone(name)
+			await sql`drop database ${sql.id(name)}`.execute(testDb())
 		}
 	})
 })

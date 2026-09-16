@@ -1,5 +1,5 @@
-import { minecraftNameOf } from "@open-mcc/contracts"
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { type InstancePublic, minecraftNameOf } from "@open-mcc/contracts"
+import { useSuspenseQueries } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
@@ -26,14 +26,19 @@ function InstanceListPage() {
 	const trpc = useTRPC()
 	const [view, setView] = useViewMode("open-mcc.view.instances")
 	const [creating, setCreating] = useState(false)
-	const instancesQuery = useSuspenseQuery({
-		...trpc.instance.list.queryOptions(),
-		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+	const [instancesQuery, hostsQuery] = useSuspenseQueries({
+		queries: [
+			{
+				...trpc.instance.list.queryOptions(),
+				refetchInterval: (query: { state: { data: InstancePublic[] | undefined } }) =>
+					pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+			},
+			trpc.host.list.queryOptions(),
+		],
 	})
-	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 
-	const hostNameById = new Map((hostsQuery.data ?? []).map((host) => [host.id, host.name]))
-	const readyHosts = (hostsQuery.data ?? []).filter((host) => host.status === "ready")
+	const hostNameById = new Map(hostsQuery.data.map((host) => [host.id, host.name]))
+	const readyHosts = hostsQuery.data.filter((host) => host.status === "ready")
 
 	return (
 		<div className="space-y-6">

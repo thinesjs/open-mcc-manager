@@ -1,26 +1,19 @@
 import { ACCOUNT_TYPE_LABELS, minecraftNameOf, needsInteractiveSignIn } from "@open-mcc/contracts"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import {
-	ChevronLeft,
-	CircleAlert,
-	KeyRound,
-	Play,
-	Radio,
-	RotateCcw,
-	Square,
-	Terminal,
-} from "lucide-react"
+import { ChevronLeft, CircleAlert, KeyRound, Radio, Terminal } from "lucide-react"
 import { useState } from "react"
-import { BotConfigPanel } from "~/components/bot-config-panel"
 import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
 import { DeviceCode } from "~/components/device-code"
 import { EmptyState } from "~/components/empty-state"
-import { InstanceSettingsForm } from "~/components/instance-settings-form"
+import { InstanceBotsTab, InstanceSettingsTab } from "~/components/instance-config-tabs"
+import { InstanceControls } from "~/components/instance-controls"
+import { InstanceDangerZone } from "~/components/instance-danger-zone"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { LiveChat } from "~/components/live-chat"
+import { LiveConnection } from "~/components/live-connection"
 import { LiveEvents } from "~/components/live-events"
 import { LiveInventory } from "~/components/live-inventory"
 import { LiveReadouts } from "~/components/live-readouts"
@@ -30,7 +23,6 @@ import { SleepWindow } from "~/components/sleep-window"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
-import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "~/components/ui/tabs"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
@@ -50,7 +42,7 @@ function InstanceDetailPage() {
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
-	const instanceQuery = useQuery(trpc.instance.get.queryOptions({ instanceId }))
+	const instanceQuery = useSuspenseQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
 	const liveChatQuery = useQuery({
@@ -190,8 +182,6 @@ function InstanceDetailPage() {
 				Instances
 			</Link>
 
-			{instanceQuery.isPending ? <LoadingBlock label="Loading instance" /> : null}
-
 			{instanceQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(instanceQuery.error)}
@@ -212,63 +202,18 @@ function InstanceDetailPage() {
 									presentInstanceStatus(instance.status).description}
 							</p>
 						</div>
-						<div className="flex flex-wrap gap-2">
-							{!interactive ? null : (
-								<>
-									<Button
-										size="sm"
-										variant={instance.status === "needs_auth" ? "default" : "secondary"}
-										disabled={busy}
-										onClick={() => authenticateMutation.mutate({ instanceId })}
-									>
-										{authenticateMutation.isPending ? (
-											<Spinner label="Requesting a code" />
-										) : (
-											<>
-												<KeyRound className="size-4" />
-												{instance.status === "needs_auth"
-													? "Get a sign-in code"
-													: "Re-authenticate"}
-											</>
-										)}
-									</Button>
-									{instance.status === "needs_auth" && challenge ? (
-										<Button
-											size="sm"
-											variant="secondary"
-											disabled={busy}
-											onClick={() => completeMutation.mutate({ instanceId })}
-										>
-											{completeMutation.isPending ? (
-												<Spinner label="Checking" />
-											) : (
-												"I finished signing in"
-											)}
-										</Button>
-									) : null}
-								</>
-							)}
-							{instance.status === "running" ? (
-								<Button
-									size="sm"
-									variant="secondary"
-									disabled={busy}
-									onClick={() => stopMutation.mutate({ instanceId })}
-								>
-									<Square className="size-4" />
-									Stop
-								</Button>
-							) : (
-								<Button
-									size="sm"
-									disabled={busy || instance.status === "needs_auth"}
-									onClick={() => startMutation.mutate({ instanceId })}
-								>
-									<Play className="size-4" />
-									Start
-								</Button>
-							)}
-						</div>
+						<InstanceControls
+							status={instance.status}
+							interactive={interactive}
+							hasChallenge={challenge !== undefined}
+							busy={busy}
+							authenticatePending={authenticateMutation.isPending}
+							completePending={completeMutation.isPending}
+							onAuthenticate={() => authenticateMutation.mutate({ instanceId })}
+							onComplete={() => completeMutation.mutate({ instanceId })}
+							onStart={() => startMutation.mutate({ instanceId })}
+							onStop={() => stopMutation.mutate({ instanceId })}
+						/>
 					</div>
 
 					{actionError ? (
@@ -364,44 +309,11 @@ function InstanceDetailPage() {
 										<h2 className="text-sm font-semibold text-foreground">Live state</h2>
 										<p className="text-xs text-muted-foreground">What the bot can see right now.</p>
 									</div>
-									{!running ? (
-										<p className="text-sm text-muted-foreground">
-											Not live. The bot is not running.
-										</p>
-									) : liveStatusQuery.isPending ? (
-										<Spinner label="Reading live state" />
-									) : liveStatus ? (
-										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-											{liveStatus.username ? (
-												<div className="flex justify-between gap-4">
-													<dt className="text-sm text-muted-foreground">Signed in as</dt>
-													<dd className="text-sm text-foreground">{liveStatus.username}</dd>
-												</div>
-											) : null}
-											<div className="flex justify-between gap-4">
-												<dt className="text-sm text-muted-foreground">Connected to</dt>
-												<dd className="text-sm text-foreground">
-													{liveStatus.host}:{liveStatus.port}
-												</dd>
-											</div>
-											<div className="flex justify-between gap-4">
-												<dt className="text-sm text-muted-foreground">Protocol</dt>
-												<dd className="text-sm tabular-nums text-foreground">
-													{liveStatus.protocolVersion}
-												</dd>
-											</div>
-											<div className="flex justify-between gap-4">
-												<dt className="text-sm text-muted-foreground">World data</dt>
-												<dd className="text-sm text-foreground">
-													{liveStatus.terrainEnabled ? "Terrain" : "No terrain"}
-												</dd>
-											</div>
-										</dl>
-									) : (
-										<p className="text-sm text-muted-foreground">
-											Not answering yet. The client only opens this once it has joined a server.
-										</p>
-									)}
+									<LiveConnection
+										running={running}
+										pending={liveStatusQuery.isPending}
+										liveStatus={liveStatus}
+									/>
 
 									{liveWorld ? (
 										<dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
@@ -537,123 +449,35 @@ function InstanceDetailPage() {
 						</TabsPanel>
 
 						<TabsPanel value="settings">
-							{configQuery.isPending ? (
-								<Spinner label="Loading settings" />
-							) : !configQuery.data ? (
-								<p className="text-sm text-muted-foreground">
-									No saved settings for this instance.
-								</p>
-							) : (
-								<section className="space-y-4 rounded-[var(--radius)] border border-border bg-card p-4">
-									<div>
-										<h2 className="text-sm font-semibold text-foreground">Settings</h2>
-										<p className="text-xs text-muted-foreground">
-											What this client connects to, and how it behaves while it is there. Takes
-											effect the next time the bot starts.
-										</p>
-									</div>
-									<InstanceSettingsForm
-										key={instanceId}
-										instanceId={instanceId}
-										config={configQuery.data.config}
-										version={configQuery.data.version}
-										onSaved={async () => (await configQuery.refetch()).data ?? null}
-									/>
-								</section>
-							)}
+							<InstanceSettingsTab
+								instanceId={instanceId}
+								pending={configQuery.isPending}
+								saved={configQuery.data}
+								onSaved={async () => (await configQuery.refetch()).data ?? null}
+							/>
 						</TabsPanel>
 
 						<TabsPanel value="bots">
-							{configQuery.isPending ? (
-								<Spinner label="Loading bots" />
-							) : !configQuery.data ? (
-								<p className="text-sm text-muted-foreground">
-									No saved settings for this instance.
-								</p>
-							) : (
-								<BotConfigPanel
-									key={instanceId}
-									instanceId={instanceId}
-									config={configQuery.data.config}
-									version={configQuery.data.version}
-									onSaved={async () => (await configQuery.refetch()).data ?? null}
-								/>
-							)}
+							<InstanceBotsTab
+								instanceId={instanceId}
+								pending={configQuery.isPending}
+								saved={configQuery.data}
+								onSaved={async () => (await configQuery.refetch()).data ?? null}
+							/>
 						</TabsPanel>
 
 						<TabsPanel value="danger">
-							<div className="space-y-4">
-								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-									<div>
-										<h2 className="text-sm font-semibold text-foreground">Restart</h2>
-										<p className="text-xs text-muted-foreground">
-											Applies your saved settings. The bot leaves the server for a few seconds.
-										</p>
-									</div>
-									<Button
-										size="sm"
-										variant="secondary"
-										disabled={busy || instance.status !== "running"}
-										onClick={() => restartMutation.mutate({ instanceId })}
-									>
-										{restartMutation.isPending ? (
-											<Spinner label="Restarting" />
-										) : (
-											<>
-												<RotateCcw className="size-4" />
-												Restart
-											</>
-										)}
-									</Button>
-									{instance.status !== "running" ? (
-										<p className="text-xs text-muted-foreground">
-											Only a running instance can be restarted. Use Start instead.
-										</p>
-									) : null}
-								</section>
-
-								{interactive ? (
-									<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
-										<div>
-											<h2 className="text-sm font-semibold text-foreground">
-												Cancel a stuck sign-in
-											</h2>
-											<p className="text-xs text-muted-foreground">
-												Ends a sign-in that was started but never finished.
-											</p>
-										</div>
-										<Button
-											size="sm"
-											variant="secondary"
-											disabled={busy}
-											onClick={() => cancelAuthMutation.mutate({ instanceId })}
-										>
-											{cancelAuthMutation.isPending ? (
-												<Spinner label="Cancelling" />
-											) : (
-												"Cancel sign-in"
-											)}
-										</Button>
-									</section>
-								) : null}
-
-								<section className="space-y-3 rounded-[var(--radius)] border border-destructive/40 bg-card p-4">
-									<div>
-										<h2 className="text-sm font-semibold text-foreground">Remove this instance</h2>
-										<p className="text-xs text-muted-foreground">
-											Deletes this bot and everything saved for it. This cannot be undone.
-										</p>
-									</div>
-									<Button
-										variant="destructive-outline"
-										size="sm"
-										onClick={() => setConfirmingRemove(true)}
-										disabled={busy}
-									>
-										{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove instance"}
-									</Button>
-								</section>
-							</div>
+							<InstanceDangerZone
+								status={instance.status}
+								interactive={interactive}
+								busy={busy}
+								restartPending={restartMutation.isPending}
+								cancelAuthPending={cancelAuthMutation.isPending}
+								removePending={removeMutation.isPending}
+								onRestart={() => restartMutation.mutate({ instanceId })}
+								onCancelAuth={() => cancelAuthMutation.mutate({ instanceId })}
+								onRemove={() => setConfirmingRemove(true)}
+							/>
 						</TabsPanel>
 					</Tabs>
 				</>

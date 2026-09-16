@@ -20,6 +20,7 @@ const detail = readFileSync(
 	join(here, "..", "routes", "_authenticated.instances.$instanceId.tsx"),
 	"utf8",
 )
+const tabs = readFileSync(join(here, "instance-config-tabs.tsx"), "utf8")
 
 const DELAY_FIELDS = ["autoRelogDelaySeconds", "antiAfkIntervalSeconds"] as const
 
@@ -80,22 +81,24 @@ describe("switching auto-relog off", () => {
 })
 
 const propsOf = (component: string): string => {
-	const start = detail.indexOf(`<${component}`)
-	return start < 0 ? "" : detail.slice(start, detail.indexOf("/>", start))
+	const start = tabs.indexOf(`<${component}`)
+	return start < 0 ? "" : tabs.slice(start, tabs.indexOf("/>", start))
 }
 
 describe("where the operator edits these settings", () => {
 	it("★ puts the form on the page itself, so it has room to grow and works on a phone", () => {
-		expect(detail).toContain("<InstanceSettingsForm")
+		expect(tabs).toContain("<InstanceSettingsForm")
+		expect(tabs).not.toContain("<Modal")
 		expect(detail).not.toContain("<Modal")
 	})
 
 	it("keeps no second read-only copy of the same values to drift out of step", () => {
-		expect(detail).not.toContain("formatDelaySeconds(configQuery.data.")
+		expect(detail).not.toContain("formatDelaySeconds(")
+		expect(tabs).not.toContain("formatDelaySeconds(")
 	})
 
 	it("gives the bots their own page too, rather than burying them in the same form", () => {
-		expect(detail).toContain("<BotConfigPanel")
+		expect(tabs).toContain("<BotConfigPanel")
 	})
 
 	it("★ keys each form to its instance, so a draft cannot follow the operator to another bot", () => {

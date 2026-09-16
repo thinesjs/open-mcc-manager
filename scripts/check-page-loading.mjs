@@ -4,11 +4,20 @@ import { join, relative } from "node:path"
 const ROOT = join(import.meta.dirname, "..", "apps", "web", "src", "routes")
 const SKIP = new Set(["node_modules", "dist", "build", "coverage"])
 
-const FORBIDDEN = new Set(["LoadingBlock", "Spinner"])
+const FORBIDDEN_NAMES = new Set(["LoadingBlock", "Spinner", "PageShimmer", "PageLoading"])
 
-export const AWAITING_ANOTHER_BRANCH = new Set(["_authenticated.instances.$instanceId.tsx"])
+const FORBIDDEN_MODULES = ["components/ui/spinner", "components/ui/shimmer"]
+
+export const EXEMPT_ROUTES = new Map([
+	["_authenticated.tsx", "the layout owns the PageBoundary every other route inherits"],
+	[
+		"_authenticated.audit.tsx",
+		"its paged list query needs enabled and placeholderData, which useSuspenseQuery supports neither of",
+	],
+])
 
 const NAMED_IMPORT = /import\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*["'][^"']+["']/g
+const MODULE_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g
 
 const ADVICE =
 	"page content shimmers through the PageBoundary around <Outlet /> in _authenticated.tsx, so declare the page's data with useSuspenseQuery and delete the branch; a small in-place wait (modal, card, button, row action) belongs in a component under apps/web/src/components/"
@@ -34,18 +43,24 @@ export const findViolations = (source, label) => {
 					.trim()
 					.split(/\s+as\s+/)[0]
 					?.trim() ?? ""
-			if (!FORBIDDEN.has(imported)) continue
+			if (!FORBIDDEN_NAMES.has(imported)) continue
 			found.push(
 				`${label}:${lineOf(source, match.index ?? 0)} a route imports ${imported}; ${ADVICE}`,
 			)
 		}
+	}
+	for (const match of source.matchAll(MODULE_SPECIFIER)) {
+		const specifier = match[1] ?? ""
+		const owner = FORBIDDEN_MODULES.find((module) => specifier.endsWith(module))
+		if (owner === undefined) continue
+		found.push(`${label}:${lineOf(source, match.index ?? 0)} a route imports ${owner}; ${ADVICE}`)
 	}
 	return found
 }
 
 const violations = walk(ROOT).flatMap((file) => {
 	const rel = relative(ROOT, file)
-	if (AWAITING_ANOTHER_BRANCH.has(rel)) return []
+	if (EXEMPT_ROUTES.has(rel)) return []
 	return findViolations(readFileSync(file, "utf8"), join("apps", "web", "src", "routes", rel))
 })
 

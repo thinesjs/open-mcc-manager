@@ -1,6 +1,7 @@
 import {
 	instanceConfigInput,
 	instanceIdInput,
+	instanceStatusSchema,
 	type UpdateInstanceConfigInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
@@ -100,7 +101,10 @@ const live = (reading: object): object => {
 	return reading
 }
 
+const asked: string[] = []
+
 const answer = async (procedure: string): Promise<object | null> => {
+	asked.push(procedure)
 	switch (procedure) {
 		case "get":
 			return server.instance
@@ -213,6 +217,7 @@ beforeEach(() => {
 	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
 	issued.length = 0
+	asked.length = 0
 	saves.length = 0
 	params.instanceId = "bot-1"
 	heldSave.release = undefined
@@ -251,6 +256,121 @@ const page = () => {
 	if (Page === undefined) throw new Error("the instance route renders no page")
 	return <Page />
 }
+
+const LIVE_READS = [
+	"readLiveChat",
+	"readLiveWorld",
+	"readLiveEntities",
+	"readLiveInventory",
+	"readLivePlayerStats",
+	"readLiveStatusEffects",
+	"readLiveBots",
+	"readLivePlayers",
+	"readLiveEvents",
+	"readLiveStatus",
+] as const
+
+const READS_ON_LIVE_CONTROL = [
+	"readLiveChat",
+	"readLivePlayerStats",
+	"readLiveStatusEffects",
+	"readLiveBots",
+	"readLivePlayers",
+	"readLiveEvents",
+	"readLiveStatus",
+] as const
+
+const EVERY_LIVE_SETTING = {
+	liveControlEnabled: true,
+	worldDataEnabled: true,
+	entityDataEnabled: true,
+	inventoryDataEnabled: true,
+}
+
+const LIVE_CONTROL_ALONE = {
+	liveControlEnabled: true,
+	worldDataEnabled: false,
+	entityDataEnabled: false,
+	inventoryDataEnabled: false,
+}
+
+const NO_LIVE_SETTING = {
+	liveControlEnabled: false,
+	worldDataEnabled: false,
+	entityDataEnabled: false,
+	inventoryDataEnabled: false,
+}
+
+const NOT_RUNNING = instanceStatusSchema.options.filter((status) => status !== "running")
+
+const LONGEST_LIVE_INTERVAL_MS = 5000
+
+const CONSOLE_INTERVAL_MS = 3000
+
+describe("polling a bot for a live reading", () => {
+	const pollFor = async (
+		status: typeof BOT.status,
+		config: typeof EVERY_LIVE_SETTING,
+	): Promise<void> => {
+		server.instance = { ...BOT, status }
+		server.config = { config, version: 1 }
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		await mount()
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(LONGEST_LIVE_INTERVAL_MS * 3)
+		})
+	}
+
+	const liveReads = () => LIVE_READS.filter((name) => asked.includes(name))
+
+	it.each(NOT_RUNNING)(
+		"★ never reaches a bot that is %s, however much live control is switched on",
+		async (status) => {
+			await pollFor(status, EVERY_LIVE_SETTING)
+
+			expect(liveReads()).toEqual([])
+		},
+	)
+
+	it("★ reads everything the settings ask for while the bot runs", async () => {
+		await pollFor("running", EVERY_LIVE_SETTING)
+
+		expect(liveReads()).toEqual([...LIVE_READS])
+	})
+
+	it("★ reads nothing from a running bot whose live settings are off", async () => {
+		await pollFor("running", NO_LIVE_SETTING)
+
+		expect(liveReads()).toEqual([])
+	})
+
+	it("★ leaves the world, entity and inventory reads to their own settings", async () => {
+		await pollFor("running", LIVE_CONTROL_ALONE)
+
+		expect(liveReads()).toEqual([...READS_ON_LIVE_CONTROL])
+	})
+})
+
+describe("polling a bot for its console", () => {
+	const pollFor = async (status: typeof BOT.status): Promise<number> => {
+		server.instance = { ...BOT, status }
+		server.config = { config: NO_LIVE_SETTING, version: 1 }
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		await mount()
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(CONSOLE_INTERVAL_MS * 3)
+		})
+		return asked.filter((each) => each === "readConsole").length
+	}
+
+	it("★ keeps reading a running bot's console", async () => {
+		expect(await pollFor("running")).toBeGreaterThan(1)
+	})
+
+	it.each(NOT_RUNNING)("★ reads a bot that is %s once and then leaves it alone", async (status) => {
+		expect(await pollFor(status)).toBe(1)
+	})
+})
 
 describe("a live reading once the bot is no longer live", () => {
 	it("stops showing the last reading when the bot stops", async () => {

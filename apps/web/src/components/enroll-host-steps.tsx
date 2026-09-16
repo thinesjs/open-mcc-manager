@@ -205,13 +205,6 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 			<Steps step={step} direction={direction}>
 				{step === 0 ? (
 					<div className="space-y-4 pb-1">
-						<div>
-							<h3 className="text-sm font-medium text-foreground">How this server gets set up</h3>
-							<p className="mt-1 text-sm text-muted-foreground">
-								Either OpenMCC prepares the server for you, or you run one command on it.
-							</p>
-						</div>
-
 						<Choice
 							label="How this server gets set up"
 							value={installMode}

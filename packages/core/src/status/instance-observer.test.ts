@@ -1,6 +1,15 @@
+import { type HostReader, type ReadCommand, readCommandText } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import { UNOBSERVED_CONNECTION } from "./connection"
-import { journalCommand, journalSince, readConnectionChanges } from "./instance-observer"
+import {
+	drainConnectionChanges,
+	JOURNAL_DRAIN_ROUNDS,
+	JOURNAL_MAX_LINES,
+	journalCommand,
+	journalSince,
+	readConnectionChanges,
+	SEED_WINDOW,
+} from "./instance-observer"
 
 const REAL_OUTPUT = [
 	"2026-09-06T14:15:38+0800 tjsx100 sh[1689967]: §8[MCC] Disconnected by Server :",
@@ -139,5 +148,226 @@ describe("turning a journal read into connection changes", () => {
 		)
 
 		expect(reading.cursor).toBe("2026-09-06T05:00:00.000Z")
+	})
+})
+
+const SIGPIPE_EXIT = 141
+
+const headLimit = (command: string): number | undefined => {
+	const digits = /\|\s*head\s+-n\s+(\d+)/.exec(command)?.[1]
+	return digits === undefined ? undefined : Number(digits)
+}
+
+const tailLimit = (command: string): number | undefined => {
+	const digits = /journalctl[^|]*\s-n\s+(\d+)/.exec(command)?.[1]
+	return digits === undefined ? undefined : Number(digits)
+}
+
+const writerStatusIgnored = (command: string): boolean => /\|\|\s*true\s*;?\s*\}/.test(command)
+
+const sinceLimit = (command: string): number | undefined => {
+	const stamp = /--since\s+"([^"]+)"/.exec(command)?.[1]
+	if (stamp === undefined || stamp === SEED_WINDOW) return undefined
+	return Date.parse(`${stamp.replace(" ", "T")}Z`)
+}
+
+const loggedAt = (line: string): number => Date.parse(line.slice(0, line.indexOf(" ")))
+
+const hostWithJournal = (journal: readonly string[]) => {
+	const statuses: number[] = []
+	return {
+		statuses,
+		exec: vi.fn(async (command: ReadCommand) => {
+			const text = readCommandText(command)
+			const since = sinceLimit(text)
+			const window =
+				since === undefined ? journal.slice() : journal.filter((line) => loggedAt(line) >= since)
+			const head = headLimit(text)
+			const tail = tailLimit(text)
+			const kept =
+				head !== undefined
+					? window.slice(0, head)
+					: tail === undefined
+						? window
+						: window.slice(-tail)
+			const closedEarly = head !== undefined && kept.length < window.length
+			const exitCode = closedEarly && !writerStatusIgnored(text) ? SIGPIPE_EXIT : 0
+			statuses.push(exitCode)
+			return { stdout: kept.length === 0 ? "" : `${kept.join("\n")}\n`, stderr: "", exitCode }
+		}),
+	}
+}
+
+const JOURNAL_BASE_MS = Date.parse("2026-09-06T00:00:00Z")
+
+const journalLine = (index: number, message: string): string =>
+	`${new Date(JOURNAL_BASE_MS + index * 1_000).toISOString().slice(0, 19)}+0000 tjsx100 sh[4242]: §8[MCC] ${message}`
+
+const busyJournal = (total: number, joinAt: number, disconnectAt: number): string[] =>
+	Array.from({ length: total }, (_, index) =>
+		index === joinAt
+			? journalLine(index, "Server was successfully joined.")
+			: index === disconnectAt
+				? journalLine(index, "Disconnected by Server : Server closed")
+				: journalLine(index, `Chat: line ${index}`),
+	)
+
+const sameSecondJournal = (total: number): string[] =>
+	Array.from({ length: total }, (_, index) => journalLine(0, `Chat: line ${index}`))
+
+const WAS_DOWN = { state: "down", since: new Date("2026-09-05T00:00:00Z"), pid: null } as const
+
+const RESUMED_FROM = "2026-09-05T00:00:00.000Z"
+
+describe("a bot that logs more than one window between polls", () => {
+	it("reports the oldest signals in the backlog instead of skipping past them", async () => {
+		const journal = busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)
+
+		const reading = await readConnectionChanges(
+			hostWithJournal(journal),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
+		expect(reading.changes[0]?.at.toISOString()).toBe("2026-09-06T00:00:05.000Z")
+		expect(reading.cursor).toBe("2026-09-06T00:33:19.000Z")
+	})
+
+	it("succeeds when the bounding step closes the pipe on journalctl", async () => {
+		const host = hostWithJournal(busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400))
+
+		const reading = await readConnectionChanges(host, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(host.statuses).toEqual([0])
+		expect(reading.changes).toHaveLength(1)
+	})
+
+	it("flags a batch that filled the cap so the poller keeps draining", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.full).toBe(true)
+	})
+
+	it("does not flag a batch that fell short of the cap", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(busyJournal(JOURNAL_MAX_LINES - 1, 5, 100)),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.full).toBe(false)
+	})
+
+	it("still reports only the latest signal on a first read of an overflowing journal", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(busyJournal(JOURNAL_MAX_LINES + 500, 5, 1_000)),
+			"abc123",
+			UNOBSERVED_CONNECTION,
+			null,
+		)
+
+		expect(reading.changes).toHaveLength(1)
+		expect(reading.changes[0]).toMatchObject({
+			state: "interrupted",
+			event: "instance.connection_lost",
+		})
+	})
+})
+
+const countingDrain = (host: Pick<HostReader, "exec"> | undefined) => {
+	const cursors: string[] = []
+	const counts = { leases: 0, releases: 0 }
+	return {
+		cursors,
+		counts,
+		lease: async () => {
+			if (host === undefined) return undefined
+			counts.leases += 1
+			return {
+				exec: host.exec,
+				release: () => {
+					counts.releases += 1
+				},
+			}
+		},
+		record: async () => undefined,
+		saveCursor: async (cursor: string) => {
+			cursors.push(cursor)
+		},
+	}
+}
+
+describe("draining a bot that has fallen behind", () => {
+	it("walks forward over bounded rounds and releases every lease", async () => {
+		const drain = countingDrain(hostWithJournal(busyJournal(12_000, 5, 11_000)))
+
+		const outcome = await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(outcome).toBe("drained")
+		expect(drain.counts.leases).toBe(JOURNAL_DRAIN_ROUNDS)
+		expect(drain.counts.releases).toBe(JOURNAL_DRAIN_ROUNDS)
+		expect(drain.cursors).toHaveLength(JOURNAL_DRAIN_ROUNDS)
+		expect(drain.cursors.at(-1)).toBe("2026-09-06T02:13:16.000Z")
+	})
+
+	it("reads once when the batch did not fill the cap", async () => {
+		const drain = countingDrain(hostWithJournal(busyJournal(JOURNAL_MAX_LINES - 1, 5, 100)))
+
+		await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(drain.counts.leases).toBe(1)
+		expect(drain.counts.releases).toBe(1)
+	})
+
+	it("stops rather than re-reading a batch the cursor cannot move past", async () => {
+		const drain = countingDrain(hostWithJournal(sameSecondJournal(JOURNAL_MAX_LINES + 500)))
+
+		const outcome = await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(outcome).toBe("drained")
+		expect(drain.counts.leases).toBe(2)
+	})
+
+	it("gives up the cycle when the journal lease is refused", async () => {
+		const drain = countingDrain(undefined)
+
+		const outcome = await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(outcome).toBe("unleased")
+		expect(drain.cursors).toEqual([])
+	})
+
+	it("releases the lease when the read itself throws", async () => {
+		const counts = { releases: 0 }
+
+		await expect(
+			drainConnectionChanges(
+				{
+					lease: async () => ({
+						exec: async () => {
+							throw new Error("read connection lost")
+						},
+						release: () => {
+							counts.releases += 1
+						},
+					}),
+					record: async () => undefined,
+					saveCursor: async () => undefined,
+				},
+				"abc123",
+				WAS_DOWN,
+				RESUMED_FROM,
+			),
+		).rejects.toThrow("read connection lost")
+
+		expect(counts.releases).toBe(1)
 	})
 })

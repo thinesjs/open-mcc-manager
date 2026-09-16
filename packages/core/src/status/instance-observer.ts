@@ -20,10 +20,9 @@ export const journalSince = (cursor: string | null): string =>
 	cursor === null ? SEED_WINDOW : journalTimestamp(cursor)
 
 export const journalCommand = (instanceId: string, cursor: string | null): string => {
-	const read = journalctl(
-		`-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager`,
-	)
-	return `{ ${read} || true; } | head -n ${JOURNAL_MAX_LINES}`
+	const window = `-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager`
+	if (cursor === null) return journalctl(`${window} -n ${JOURNAL_MAX_LINES}`)
+	return `{ ${journalctl(window)} || true; } | head -n ${JOURNAL_MAX_LINES}`
 }
 
 export const journalLineCount = (raw: string): number => {
@@ -46,7 +45,7 @@ export const readConnectionChanges = async (
 	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
 	if (result.exitCode !== 0) return { changes: [], cursor, full: false }
 
-	const full = journalLineCount(result.stdout) >= JOURNAL_MAX_LINES
+	const full = cursor !== null && journalLineCount(result.stdout) >= JOURNAL_MAX_LINES
 	const lines = parseJournal(result.stdout)
 	const signals = connectionSignals(lines)
 	const last = lines.at(-1)

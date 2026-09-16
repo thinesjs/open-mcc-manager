@@ -265,20 +265,39 @@ describe("a bot that logs more than one window between polls", () => {
 
 		expect(reading.full).toBe(false)
 	})
+})
 
-	it("still reports only the latest signal on a first read of an overflowing journal", async () => {
+const OVERSIZED_JOURNAL = busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)
+
+describe("which end of an oversized window each kind of read keeps", () => {
+	it("keeps the newest lines on a first read, so adopting a busy bot replays nothing", async () => {
 		const reading = await readConnectionChanges(
-			hostWithJournal(busyJournal(JOURNAL_MAX_LINES + 500, 5, 1_000)),
+			hostWithJournal(OVERSIZED_JOURNAL),
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
 		)
 
+		expect(reading.cursor).toBe("2026-09-06T00:41:39.000Z")
 		expect(reading.changes).toHaveLength(1)
 		expect(reading.changes[0]).toMatchObject({
 			state: "interrupted",
 			event: "instance.connection_lost",
 		})
+		expect(reading.full).toBe(false)
+	})
+
+	it("keeps the oldest lines on a resumed read, so a backlog is consumed in order", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(OVERSIZED_JOURNAL),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.cursor).toBe("2026-09-06T00:33:19.000Z")
+		expect(reading.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
+		expect(reading.full).toBe(true)
 	})
 })
 

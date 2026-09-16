@@ -224,6 +224,12 @@ function AlertsPage() {
 				) : null}
 			</div>
 
+			{destinations.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(destinations.error)}
+				</Alert>
+			) : null}
+
 			{actionError === undefined ? null : (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{actionError}

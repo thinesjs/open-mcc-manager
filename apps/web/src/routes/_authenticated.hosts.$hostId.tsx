@@ -105,6 +105,12 @@ function HostDetailPage() {
 				<HostStatusBadge status={host.status} />
 			</div>
 
+			{hostsQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(hostsQuery.error)}
+				</Alert>
+			) : null}
+
 			{provisionMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(provisionMutation.error)}

@@ -40,7 +40,7 @@ function OverviewPage() {
 	const instances = instancesQuery.data
 	const hosts = hostsQuery.data ?? []
 	const attention = instancesNeedingAttention(instances)
-	const error = hostsQuery.error
+	const error = instancesQuery.error ?? hostsQuery.error
 
 	return (
 		<div className="space-y-8">

@@ -1,9 +1,12 @@
 import { STATUS_RANGES, type StatusRange } from "@open-mcc/contracts"
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
+import { CircleAlert } from "lucide-react"
 import { useState } from "react"
+import { Alert } from "~/components/ui/alert"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
+import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 import { describeCoverage, describeUptime } from "~/lib/uptime"
 import { cn } from "~/lib/utils"
@@ -49,6 +52,12 @@ function StatusPage() {
 					How reliably OpenMCC has been able to reach your servers.
 				</p>
 			</div>
+
+			{summaryQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(summaryQuery.error)}
+				</Alert>
+			) : null}
 
 			<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
 				<div className="flex flex-wrap items-baseline justify-between gap-3">

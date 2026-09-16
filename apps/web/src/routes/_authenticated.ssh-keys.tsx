@@ -62,6 +62,12 @@ function SshKeysPage() {
 				</div>
 			</div>
 
+			{sshKeysQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(sshKeysQuery.error)}
+				</Alert>
+			) : null}
+
 			{deleteMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(deleteMutation.error)}

@@ -1,16 +1,18 @@
 import { minecraftNameOf } from "@open-mcc/contracts"
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { Boxes, ChevronRight, Plus, Server } from "lucide-react"
+import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
 import { EmptyState } from "~/components/empty-state"
 import { InstanceContextMenu } from "~/components/instance-context-menu"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { PlayerAvatar } from "~/components/player-avatar"
+import { Alert } from "~/components/ui/alert"
 import { Button, buttonVariants } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
+import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
 import { describeExitCode } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -50,6 +52,12 @@ function InstanceListPage() {
 					</Button>
 				</div>
 			</div>
+
+			{instancesQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(instancesQuery.error)}
+				</Alert>
+			) : null}
 
 			{instancesQuery.data.length === 0 ? (
 				<EmptyState

@@ -1,6 +1,6 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ChevronRight, Plus, Server } from "lucide-react"
+import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { EnrollHostSteps } from "~/components/enroll-host-steps"
@@ -8,9 +8,11 @@ import { HostBadge } from "~/components/host-badge"
 import { HostContextMenu } from "~/components/host-context-menu"
 import { OsIcon } from "~/components/os-icon"
 import { SelfHostCard, shouldOfferSelfHost } from "~/components/self-host-card"
+import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
+import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
 import { useTRPC } from "~/lib/trpc"
 
@@ -47,6 +49,12 @@ function HostListPage() {
 					</Button>
 				</div>
 			</div>
+
+			{hostsQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(hostsQuery.error)}
+				</Alert>
+			) : null}
 
 			{shouldOfferSelfHost(offer, hostsQuery.data) ? (
 				<SelfHostCard

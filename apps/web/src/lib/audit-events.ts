@@ -7,6 +7,7 @@ const TEMPLATES: Record<string, (subject: string) => string> = {
 	"host.provision.reclaim": (subject) => `took over a stalled setup of the host ${subject}.`,
 	"host.retrust": (subject) => `trusted a new key for the host ${subject}.`,
 	"host.teardown.requested": (subject) => `asked to clean up the host ${subject}.`,
+	"host.teardown": (subject) => `finished cleaning up the host ${subject}.`,
 	"host.delete": (subject) => `removed the host ${subject}.`,
 	"instance.create": (subject) => `created the instance ${subject}.`,
 	"instance.authenticate": (subject) => `signed in the instance ${subject}.`,
@@ -19,6 +20,8 @@ const TEMPLATES: Record<string, (subject: string) => string> = {
 	"instance.schedule": (subject) => `changed a scheduled command on the instance ${subject}.`,
 	"instance.inventory.select": (subject) => `held an item on the instance ${subject}.`,
 	"instance.inventory.drop": (subject) => `dropped an item from the instance ${subject}.`,
+	"member.invite": (subject) => `invited ${subject}.`,
+	"member.accept": () => "joined the organization.",
 	"member.remove": (subject) => `removed the member ${subject}.`,
 	"member.invite.cancel": (subject) => `cancelled the invitation to ${subject}.`,
 	"sshKey.create": (subject) => `generated the SSH key ${subject}.`,
@@ -41,6 +44,8 @@ export const auditSubject = (event: Pick<AuditEventView, "subjectId" | "detail">
 	}
 	return event.subjectId
 }
+
+export const hasAuditTemplate = (action: string): boolean => TEMPLATES[action] !== undefined
 
 export const describeAuditAction = (action: string, subject: string): string =>
 	TEMPLATES[action]?.(subject) ?? `${action.replaceAll(".", " ")} ${subject}.`

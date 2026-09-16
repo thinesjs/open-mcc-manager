@@ -1,6 +1,6 @@
 import { AUDIT_PAGE_SIZE, type AuditPage, type Role } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Route } from "./_authenticated.audit"
@@ -86,7 +86,7 @@ afterEach(() => {
 	cleanup()
 })
 
-const mount = async () => {
+const mount = async (): Promise<QueryClient> => {
 	const Page = Route.options.component
 	if (Page === undefined) throw new Error("the audit route renders no page")
 	await Page.preload?.()
@@ -98,6 +98,12 @@ const mount = async () => {
 			</Suspense>
 		</QueryClientProvider>,
 	)
+	return client
+}
+
+const shrinkTo = async (client: QueryClient, total: number): Promise<void> => {
+	state.total = total
+	await act(() => client.refetchQueries())
 }
 
 describe("what an owner sees at the top of the audit log", () => {
@@ -180,6 +186,73 @@ describe("walking back through the trail", () => {
 
 		gate.release?.()
 		await waitFor(() => expect(screen.getByText(/started the instance bot-50\./)).toBeDefined())
+	})
+
+	it("never strands the reader on an empty list when the total drops beneath the offset", async () => {
+		const client = await mount()
+
+		await waitFor(() => expect(screen.getByText(/bot-0\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-100\./)).toBeDefined())
+
+		await shrinkTo(client, 40)
+
+		await waitFor(() => expect(screen.getByText("40 actions recorded")).toBeDefined())
+		expect(screen.getByText(/bot-0\./)).toBeDefined()
+		expect(screen.queryByText("Nothing recorded yet")).toBeNull()
+		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
+		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+	})
+
+	it("lands on the last whole page when the total drops to an exact page multiple", async () => {
+		const client = await mount()
+
+		await waitFor(() => expect(screen.getByText(/bot-0\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-100\./)).toBeDefined())
+
+		await shrinkTo(client, AUDIT_PAGE_SIZE * 2)
+
+		await waitFor(() => expect(screen.getByText("100 actions recorded")).toBeDefined())
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+		expect(asked).toContain(AUDIT_PAGE_SIZE)
+		expect(screen.getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(true)
+		expect(screen.getByRole("button", { name: "Previous" }).hasAttribute("disabled")).toBe(false)
+	})
+
+	it("recovers from an offset that is not a page multiple, without a page of its own", async () => {
+		state.total = 137
+		const client = await mount()
+
+		await waitFor(() => expect(screen.getByText(/bot-0\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+
+		await shrinkTo(client, 37)
+
+		await waitFor(() => expect(screen.getByText("37 actions recorded")).toBeDefined())
+		expect(screen.getByText(/bot-0\./)).toBeDefined()
+		expect(screen.queryByText("Nothing recorded yet")).toBeNull()
+	})
+
+	it("comes all the way back to an honest empty page when everything is gone", async () => {
+		const client = await mount()
+
+		await waitFor(() => expect(screen.getByText(/bot-0\./)).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(screen.getByText(/bot-50\./)).toBeDefined())
+
+		await shrinkTo(client, 0)
+
+		await waitFor(() => expect(screen.getByText("Nothing recorded yet")).toBeDefined())
+		expect(screen.getByText("0 actions recorded")).toBeDefined()
+		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
+		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+		expect(screen.queryByText(/bot-/)).toBeNull()
 	})
 
 	it("offers no pager at all when everything already fits on one page", async () => {

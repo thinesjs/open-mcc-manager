@@ -6,6 +6,8 @@ import {
 	type Role,
 } from "@open-mcc/contracts"
 import {
+	createAuditController,
+	createAuditControllerTransaction,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
@@ -93,6 +95,9 @@ beforeAll(async () => {
 				}),
 				selfHostController: createTestSelfHostController(db),
 				memberController: memberControllerFor(db, auth, () => undefined),
+				auditController: createAuditController({
+					withTransaction: createAuditControllerTransaction(db),
+				}),
 			}),
 		}),
 	)

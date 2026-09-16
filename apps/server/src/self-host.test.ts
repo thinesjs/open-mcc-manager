@@ -3,6 +3,8 @@ import { trpcServer } from "@hono/trpc-server"
 import { hostPublic, type SelfHostOffer, selfHostPublicOffer } from "@open-mcc/contracts"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
+	createAuditController,
+	createAuditControllerTransaction,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
@@ -144,6 +146,9 @@ const appWith = (
 				}),
 				selfHostController: createTestSelfHostController(db, hostController.enroll, materials),
 				memberController: memberControllerFor(db, auth, () => undefined),
+				auditController: createAuditController({
+					withTransaction: createAuditControllerTransaction(db),
+				}),
 			}),
 		}),
 	)

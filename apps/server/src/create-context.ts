@@ -1,5 +1,6 @@
 import { isRole } from "@open-mcc/contracts"
 import type {
+	AuditController,
 	BuildInfo,
 	DestinationController,
 	HostController,
@@ -10,11 +11,7 @@ import type {
 	SshKeyController,
 	StatusController,
 } from "@open-mcc/core"
-import {
-	createAuditController,
-	createAuditControllerTransaction,
-	createUpdateStateRepository,
-} from "@open-mcc/core"
+import { createUpdateStateRepository } from "@open-mcc/core"
 import type { Db } from "@open-mcc/db"
 import type { Auth } from "./auth"
 import type { Actor, RequestContext } from "./context"
@@ -33,6 +30,7 @@ export type AppDeps = {
 	selfHostController: SelfHostController
 	destinationController: DestinationController
 	memberController: MemberController
+	auditController: AuditController
 }
 
 const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | null> => {
@@ -64,9 +62,6 @@ const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | nu
 
 export const createRequestContext = (deps: AppDeps) => {
 	const updateStates = createUpdateStateRepository(deps.db)
-	const auditController = createAuditController({
-		withTransaction: createAuditControllerTransaction(deps.db),
-	})
 	return async (opts: { req: Request }): Promise<RequestContext> => {
 		const actor = await resolveActor(deps, opts.req.headers)
 		return {
@@ -85,7 +80,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			destinationController: deps.destinationController,
 			memberController: deps.memberController,
 			updateStates,
-			auditController,
+			auditController: deps.auditController,
 			db: deps.db,
 		}
 	}

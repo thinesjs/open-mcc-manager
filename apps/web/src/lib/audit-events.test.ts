@@ -1,6 +1,49 @@
+import { readdirSync, readFileSync, statSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { AuditEventView } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
-import { auditSubject, describeAuditAction, describeAuditEvent } from "./audit-events"
+import {
+	auditSubject,
+	describeAuditAction,
+	describeAuditEvent,
+	hasAuditTemplate,
+} from "./audit-events"
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..")
+
+const RECORDING_ROOTS = [
+	join("packages", "core", "src"),
+	join("apps", "server", "src"),
+	join("apps", "worker", "src"),
+]
+
+const AUDIT_ENTRY = /actorLabel:[\s\S]{0,200}?action: "([^"]+)"/g
+
+const sourceFilesUnder = (dir: string, found: string[] = []): string[] => {
+	for (const entry of readdirSync(dir).sort()) {
+		const full = join(dir, entry)
+		if (statSync(full).isDirectory()) {
+			sourceFilesUnder(full, found)
+			continue
+		}
+		if (entry.endsWith(".ts") && !entry.includes(".test.")) found.push(full)
+	}
+	return found
+}
+
+const recordedActions = (): string[] => {
+	const actions = new Set<string>()
+	for (const root of RECORDING_ROOTS) {
+		for (const file of sourceFilesUnder(join(repoRoot, root))) {
+			for (const match of readFileSync(file, "utf8").matchAll(AUDIT_ENTRY)) {
+				const action = match[1]
+				if (action !== undefined) actions.add(action)
+			}
+		}
+	}
+	return [...actions].sort()
+}
 
 const event = (overrides: Partial<AuditEventView> = {}): AuditEventView => ({
 	id: "evt-1",
@@ -40,6 +83,60 @@ describe("how a recorded action reads", () => {
 
 	it("leaves the verb alone when the action is unmapped, rather than inventing one", () => {
 		expect(describeAuditAction("something.brand.new", "thing")).toBe("something brand new thing.")
+	})
+})
+
+describe("every action this codebase records", () => {
+	it("has copy, so nothing reaches the page as raw enum text", () => {
+		const recorded = recordedActions()
+
+		expect(recorded.length).toBeGreaterThan(25)
+		expect(recorded.filter((action) => !hasAuditTemplate(action))).toEqual([])
+	})
+
+	it("includes the member lifecycle, which is why this page is owner-only", () => {
+		const recorded = recordedActions()
+
+		expect(recorded).toContain("member.invite")
+		expect(recorded).toContain("member.accept")
+		expect(recorded).toContain("host.teardown")
+	})
+
+	it("says who was invited and who joined, in words", () => {
+		expect(
+			describeAuditEvent(
+				event({
+					action: "member.invite",
+					subjectType: "invitation",
+					subjectId: "inv-1",
+					detail: { email: "bob@example.com", role: "operator" },
+				}),
+			),
+		).toBe("owner@example.com invited bob@example.com.")
+		expect(
+			describeAuditEvent(
+				event({
+					actorLabel: "bob@example.com",
+					action: "member.accept",
+					subjectType: "member",
+					subjectId: "mem-abc123",
+					detail: { invitationId: "inv-1", role: "operator" },
+				}),
+			),
+		).toBe("bob@example.com joined the organization.")
+	})
+
+	it("never prints an opaque id where the trail recorded no name to print", () => {
+		expect(
+			describeAuditEvent(
+				event({
+					actorLabel: "bob@example.com",
+					action: "member.accept",
+					subjectId: "mem-abc123",
+					detail: {},
+				}),
+			),
+		).not.toContain("mem-abc123")
 	})
 })
 

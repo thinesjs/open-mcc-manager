@@ -1,8 +1,8 @@
 import { AUDIT_PAGE_SIZE, type AuditEventView, can } from "@open-mcc/contracts"
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { CircleAlert, ScrollText } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
@@ -40,10 +40,16 @@ function AuditPage() {
 	const page = useQuery({
 		...trpc.audit.list.queryOptions({ offset }),
 		enabled: mayRead,
-		placeholderData: (previous) => previous,
+		placeholderData: keepPreviousData,
 	})
 
 	const total = page.data?.total
+
+	useEffect(() => {
+		if (total === undefined) return
+		const lastPage = total === 0 ? 0 : Math.floor((total - 1) / AUDIT_PAGE_SIZE) * AUDIT_PAGE_SIZE
+		if (offset > lastPage) setOffset(lastPage)
+	}, [total, offset])
 	const header = (
 		<div>
 			<h1 className="text-lg font-semibold text-foreground">Audit log</h1>
@@ -107,7 +113,7 @@ function AuditPage() {
 				</ul>
 			) : null}
 
-			{total !== undefined && total > AUDIT_PAGE_SIZE ? (
+			{page.data && (page.data.total > AUDIT_PAGE_SIZE || offset > 0) ? (
 				<div className="flex items-center justify-end gap-2">
 					<Button
 						variant="outline"
@@ -120,7 +126,7 @@ function AuditPage() {
 					<Button
 						variant="outline"
 						size="sm"
-						disabled={offset + AUDIT_PAGE_SIZE >= total}
+						disabled={offset + page.data.items.length >= page.data.total}
 						onClick={() => setOffset(offset + AUDIT_PAGE_SIZE)}
 					>
 						Next

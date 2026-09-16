@@ -1,6 +1,10 @@
 import { createServer, type Server } from "node:http"
 import { connect } from "node:net"
-import { instanceConfigInput, type SleepWindowInput } from "@open-mcc/contracts"
+import {
+	instanceConfigInput,
+	instanceSettingsInput,
+	type SleepWindowInput,
+} from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
 	HostRow,
@@ -12,6 +16,10 @@ import type {
 } from "@open-mcc/db"
 import { DatabaseError } from "@open-mcc/db"
 import {
+	ChannelLimitReachedError,
+	ChannelOpenTimedOutError,
+	CommandAbortedError,
+	CommandTimedOutError,
 	createFakeTransport,
 	createReadConnections,
 	LiveChannelUnavailableError,
@@ -70,6 +78,8 @@ import {
 	HostUnreachableError,
 	InstanceAuthInProgressError,
 	InstanceBotConfigUnusableError,
+	InstanceBusyError,
+	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
 	type InstanceControllerDeps,
 	InstanceHostNotProvisionedError,
@@ -80,7 +90,7 @@ import {
 	InstanceStillInUseError,
 	scheduledRunFailure,
 } from "./instance.controller"
-import type { InstanceRepository } from "./instance.repository"
+import { CONFIG_CLAIM_LEASE_MS, type InstanceRepository } from "./instance.repository"
 import { reconcileFactsCommand } from "./reconcile"
 import {
 	deleteDirectoryCommand,
@@ -1325,25 +1335,50 @@ describe("running several instances on one host", () => {
 			documents.push(document)
 			return configRow()
 		}
+		vi.mocked(deps.instances.latestConfig).mockResolvedValue(
+			configRow({
+				document: {
+					accountType: "microsoft",
+					minecraftAccount: "a@b.com",
+					serverAddress: "play.example.net",
+					autoRelogRetries: 3,
+					autoRelogEnabled: true,
+					autoRelogDelaySeconds: 10,
+					antiAfkEnabled: false,
+					antiAfkIntervalSeconds: 60,
+					autoRespawnEnabled: false,
+					liveControlEnabled: true,
+					liveControlPort: 33333,
+					worldDataEnabled: false,
+					inventoryDataEnabled: false,
+					entityDataEnabled: false,
+					advancedKeys: {},
+					botConfig: {},
+				},
+			}),
+		)
 		const controller = createInstanceController(deps)
-		await controller.updateConfig(owner, "abc123", {
-			accountType: "microsoft",
-			minecraftAccount: "a@b.com",
-			serverAddress: "play.example.net",
-			autoRelogRetries: 3,
-			autoRelogEnabled: true,
-			autoRelogDelaySeconds: { min: 10, max: 10 },
-			antiAfkEnabled: false,
-			antiAfkIntervalSeconds: { min: 60, max: 60 },
-			autoRespawnEnabled: false,
-			liveControlEnabled: true,
-			liveControlPort: 40000,
-			worldDataEnabled: false,
-			inventoryDataEnabled: false,
-			entityDataEnabled: false,
-			advancedKeys: {},
-			botConfig: {},
-		})
+		await controller.updateSettings(
+			owner,
+			"abc123",
+			{
+				accountType: "microsoft",
+				minecraftAccount: "a@b.com",
+				serverAddress: "play.example.net",
+				autoRelogRetries: 3,
+				autoRelogEnabled: true,
+				autoRelogDelaySeconds: { min: 10, max: 10 },
+				antiAfkEnabled: false,
+				antiAfkIntervalSeconds: { min: 60, max: 60 },
+				autoRespawnEnabled: false,
+				liveControlEnabled: true,
+				liveControlPort: 40000,
+				worldDataEnabled: false,
+				inventoryDataEnabled: false,
+				entityDataEnabled: false,
+			},
+			1,
+		)
 
 		const [document = ""] = transport.stdins
 
@@ -1776,10 +1811,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, instances } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", {
-			botConfig: { "ChatBot.Alerts.Enabled": "true" },
-			advancedKeys: SAVED.advancedKeys,
-		})
+		await controller.updateBotConfig(
+			owner,
+			"abc123",
+			{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+			1,
+		)
 
 		const document = writtenDocument(instances)
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "true" })
@@ -1792,10 +1829,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, transport } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", {
-			botConfig: { "ChatBot.Alerts.Enabled": "true" },
-			advancedKeys: SAVED.advancedKeys,
-		})
+		await controller.updateBotConfig(
+			owner,
+			"abc123",
+			{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+			1,
+		)
 
 		const written = transport.stdins.find((each) => each.includes("[ChatBot.Alerts]"))
 		expect(written).toBeDefined()
@@ -1806,10 +1845,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, audit } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", {
-			botConfig: { "ChatBot.Alerts.Enabled": "true" },
-			advancedKeys: SAVED.advancedKeys,
-		})
+		await controller.updateBotConfig(
+			owner,
+			"abc123",
+			{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+			1,
+		)
 
 		expect(audit.record).toHaveBeenCalledWith(
 			expect.anything(),
@@ -1822,10 +1863,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(viewer, "abc123", {
-				botConfig: { "ChatBot.Alerts.Enabled": "true" },
-				advancedKeys: SAVED.advancedKeys,
-			}),
+			controller.updateBotConfig(
+				viewer,
+				"abc123",
+				{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+				1,
+			),
 		).rejects.toThrow(ForbiddenError)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 		expect(instances.findById).not.toHaveBeenCalled()
@@ -1838,10 +1881,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(owner, "abc123", {
-				botConfig: { "ChatBot.Alerts.Enabled": "true" },
-				advancedKeys: SAVED.advancedKeys,
-			}),
+			controller.updateBotConfig(
+				owner,
+				"abc123",
+				{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+				1,
+			),
 		).rejects.toThrow(InstanceNotFoundError)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
@@ -1851,10 +1896,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
-		await controller.updateSettings(owner, "abc123", {
-			...settings,
-			serverAddress: "moved.example.net",
-		})
+		await controller.updateSettings(
+			owner,
+			"abc123",
+			{ ...settings, serverAddress: "moved.example.net" },
+			1,
+		)
 
 		const document = writtenDocument(instances)
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "false" })
@@ -1866,10 +1913,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
-		await controller.updateSettings(owner, "abc123", {
-			...settings,
-			serverAddress: "moved.example.net",
-		})
+		await controller.updateSettings(
+			owner,
+			"abc123",
+			{ ...settings, serverAddress: "moved.example.net" },
+			1,
+		)
 
 		const document = writtenDocument(instances)
 		expect(document.advancedKeys).toEqual({ "ChatBot.AutoEat.Enabled": "true" })
@@ -1880,25 +1929,20 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const { deps, instances } = withSavedConfig()
 		const controller = createInstanceController(deps)
 
-		await controller.updateBotConfig(owner, "abc123", {
-			botConfig: { "ChatBot.Alerts.Enabled": "true" },
-			advancedKeys: { "ChatBot.AutoEat.Threshold": "9" },
-		})
+		await controller.updateBotConfig(
+			owner,
+			"abc123",
+			{
+				botConfig: { "ChatBot.Alerts.Enabled": "true" },
+				advancedKeys: { "ChatBot.AutoEat.Threshold": "9" },
+			},
+			1,
+		)
 
 		const document = writtenDocument(instances)
 		expect(document.advancedKeys).toEqual({ "ChatBot.AutoEat.Threshold": "9" })
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "true" })
 		expect(document.serverAddress).toBe("play.example.net")
-	})
-
-	it("writes an empty bot config for an instance saving its settings for the first time", async () => {
-		const { deps, instances } = makeDeps()
-		const controller = createInstanceController(deps)
-		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
-
-		await controller.updateSettings(owner, "abc123", settings)
-
-		expect(writtenDocument(instances).botConfig).toEqual({})
 	})
 
 	it("★ refuses to START an instance whose saved settings the contract would not accept", async () => {
@@ -1957,7 +2001,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
-		await expect(controller.updateSettings(owner, "abc123", settings)).rejects.toBeInstanceOf(
+		await expect(controller.updateSettings(owner, "abc123", settings, 1)).rejects.toBeInstanceOf(
 			InstanceBotConfigUnusableError,
 		)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
@@ -2061,10 +2105,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
-		await controller.updateSettings(owner, "abc123", {
-			...settings,
-			serverAddress: "play.example.net",
-		})
+		await controller.updateSettings(
+			owner,
+			"abc123",
+			{ ...settings, serverAddress: "play.example.net" },
+			1,
+		)
 
 		expect(writtenDocument(instances).serverAddress).toBe("play.example.net")
 	})
@@ -2105,20 +2151,31 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
 
-		await expect(controller.updateSettings(owner, "abc123", settings)).rejects.toThrow(
+		await expect(controller.updateSettings(owner, "abc123", settings, 1)).rejects.toThrow(
 			InstanceConfigUnusableError,
 		)
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
 
-	it("★ refuses a config an in-process caller composed that the contract would not accept", async () => {
-		const { deps, instances } = withSavedConfig()
+	it("★ refuses a config the merge composed that the contract would not accept", async () => {
+		const { deps, instances } = makeDeps()
+		vi.mocked(instances.latestConfig).mockResolvedValue(
+			configRow({
+				document: { ...JSON.parse(JSON.stringify(SAVED)), serverAddress: "a/../../etc" },
+			}),
+		)
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateConfig(owner, "abc123", { ...SAVED, serverAddress: "a/../../etc" }),
+			controller.updateBotConfig(
+				owner,
+				"abc123",
+				{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+				1,
+			),
 		).rejects.toThrow()
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalled()
 	})
 
 	it("refuses an instance with nothing saved rather than inventing a config around the bots", async () => {
@@ -2126,10 +2183,12 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const controller = createInstanceController(deps)
 
 		await expect(
-			controller.updateBotConfig(owner, "abc123", {
-				botConfig: { "ChatBot.Alerts.Enabled": "true" },
-				advancedKeys: SAVED.advancedKeys,
-			}),
+			controller.updateBotConfig(
+				owner,
+				"abc123",
+				{ botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: SAVED.advancedKeys },
+				1,
+			),
 		).rejects.toThrow("No saved settings")
 		expect(instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
@@ -2524,5 +2583,336 @@ describe("the token goes only to a bot seen running", () => {
 		await controller.readLivePlayerStats(owner, "abc123")
 
 		expect(checks).toEqual(["shared", "shared"])
+	})
+})
+
+describe("saving settings under a claim", () => {
+	const { botConfig: _savedBots, advancedKeys: _savedKeys, ...SAVED_SETTINGS } = SAVED_DOCUMENT
+	const SETTINGS = instanceSettingsInput.parse(SAVED_SETTINGS)
+
+	const BOTS = { botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: {} }
+
+	const savedDeps = () => {
+		const made = makeDeps()
+		vi.mocked(made.instances.latestConfig).mockResolvedValue(
+			configRow({ document: { ...SAVED_DOCUMENT } }),
+		)
+		return made
+	}
+
+	type Save = (
+		controller: ReturnType<typeof createInstanceController>,
+	) => Promise<{ version: number }>
+
+	const SAVES: Array<{ named: string; run: Save }> = [
+		{
+			named: "a settings save",
+			run: (controller) => controller.updateSettings(owner, "abc123", SETTINGS, 1),
+		},
+		{
+			named: "a bots save",
+			run: (controller) => controller.updateBotConfig(owner, "abc123", BOTS, 1),
+		},
+	]
+
+	const recordingInstances = (inner: InstanceRepository, note: () => void): InstanceRepository => ({
+		insert: (...args) => {
+			note()
+			return inner.insert(...args)
+		},
+		findById: (...args) => {
+			note()
+			return inner.findById(...args)
+		},
+		list: (...args) => {
+			note()
+			return inner.list(...args)
+		},
+		update: (...args) => {
+			note()
+			return inner.update(...args)
+		},
+		delete: (...args) => {
+			note()
+			return inner.delete(...args)
+		},
+		claimForAuth: (...args) => {
+			note()
+			return inner.claimForAuth(...args)
+		},
+		releaseAuthClaim: (...args) => {
+			note()
+			return inner.releaseAuthClaim(...args)
+		},
+		claimForConfig: (...args) => {
+			note()
+			return inner.claimForConfig(...args)
+		},
+		claimForLifecycle: (...args) => {
+			note()
+			return inner.claimForLifecycle(...args)
+		},
+		finalizeConfigClaim: (...args) => {
+			note()
+			return inner.finalizeConfigClaim(...args)
+		},
+		releaseConfigClaim: (...args) => {
+			note()
+			return inner.releaseConfigClaim(...args)
+		},
+		writeTokenUnderClaim: (...args) => {
+			note()
+			return inner.writeTokenUnderClaim(...args)
+		},
+		deleteUnderClaim: (...args) => {
+			note()
+			return inner.deleteUnderClaim(...args)
+		},
+		insertConfigVersion: (...args) => {
+			note()
+			return inner.insertConfigVersion(...args)
+		},
+		latestConfig: (...args) => {
+			note()
+			return inner.latestConfig(...args)
+		},
+	})
+
+	it.each(SAVES)(
+		"never reads the pool repository inside a transaction during $named",
+		async ({ run }) => {
+			const made = savedDeps()
+			let open = 0
+			const sightings: boolean[] = []
+			const note = () => sightings.push(open > 0)
+			const deps: InstanceControllerDeps = {
+				...made.deps,
+				instances: recordingInstances(made.instances, note),
+				hosts: {
+					findById: (...args) => {
+						note()
+						return made.deps.hosts.findById(...args)
+					},
+				},
+				sshKeys: {
+					findById: (...args) => {
+						note()
+						return made.deps.sshKeys.findById(...args)
+					},
+				},
+				withTransaction: async (fn) => {
+					open += 1
+					try {
+						return await made.deps.withTransaction(fn)
+					} finally {
+						open -= 1
+					}
+				},
+			}
+
+			await run(createInstanceController(deps))
+
+			expect(sightings.length).toBeGreaterThan(0)
+			expect(sightings.filter((inside) => inside)).toEqual([])
+		},
+	)
+
+	it.each(SAVES)("never touches the host inside a transaction during $named", async ({ run }) => {
+		const made = savedDeps()
+		let open = 0
+		const sightings: boolean[] = []
+		const inner = made.transport
+		const deps: InstanceControllerDeps = {
+			...made.deps,
+			createTransport: () => ({
+				...inner,
+				connect: async (options) => {
+					sightings.push(open > 0)
+					await inner.connect(options)
+				},
+				exec: async (command, timeoutMs, stdin) => {
+					sightings.push(open > 0)
+					return await inner.exec(command, timeoutMs, stdin)
+				},
+				canForward: async (port, timeoutMs) => {
+					sightings.push(open > 0)
+					return await inner.canForward(port, timeoutMs)
+				},
+			}),
+			withTransaction: async (fn) => {
+				open += 1
+				try {
+					return await made.deps.withTransaction(fn)
+				} finally {
+					open -= 1
+				}
+			},
+		}
+
+		await run(createInstanceController(deps))
+
+		expect(sightings.length).toBeGreaterThan(0)
+		expect(sightings.filter((inside) => inside)).toEqual([])
+	})
+
+	it("spends far less than the lease between taking the claim and finalizing it", async () => {
+		const made = savedDeps()
+		let claimed = false
+		const waits: number[] = []
+		const claim = made.instances.claimForConfig
+		made.instances.claimForConfig = async (...args) => {
+			const row = await claim(...args)
+			claimed = true
+			return row
+		}
+		const finalize = made.instances.finalizeConfigClaim
+		made.instances.finalizeConfigClaim = async (...args) => {
+			claimed = false
+			return await finalize(...args)
+		}
+		const inner = made.transport
+		const deps: InstanceControllerDeps = {
+			...made.deps,
+			createTransport: () => ({
+				...inner,
+				connect: async (options) => {
+					if (claimed) waits.push(options.timeoutMs)
+					await inner.connect(options)
+				},
+				exec: async (command, timeoutMs, stdin) => {
+					if (claimed) waits.push(timeoutMs)
+					return await inner.exec(command, timeoutMs, stdin)
+				},
+			}),
+		}
+
+		await createInstanceController(deps).updateSettings(owner, "abc123", SETTINGS, 1)
+
+		const budget = waits.reduce((total, wait) => total + wait, 0)
+		expect(budget).toBe(25_000)
+		expect(budget).toBeLessThan(CONFIG_CLAIM_LEASE_MS)
+	})
+
+	const failingWrite = (
+		made: ReturnType<typeof savedDeps>,
+		outcome: { resolves: number } | { rejects: Error },
+	) => {
+		const inner = made.transport.exec
+		made.transport.exec = async (command, timeoutMs, stdin) => {
+			if (!command.includes("MinecraftClient.ini")) return await inner(command, timeoutMs, stdin)
+			if ("rejects" in outcome) throw outcome.rejects
+			return { stdout: "", stderr: "refused", exitCode: outcome.resolves }
+		}
+	}
+
+	it.each([
+		{ named: "an exit status of 1", outcome: { resolves: 1 }, released: true },
+		{ named: "a deadline's exit status of 124", outcome: { resolves: 124 }, released: true },
+		{
+			named: "a refused session channel",
+			outcome: { rejects: new ChannelLimitReachedError("no channel") },
+			released: true,
+		},
+		{
+			named: "a command that timed out",
+			outcome: { rejects: new CommandTimedOutError("too slow") },
+			released: false,
+		},
+		{
+			named: "ssh2's Unable to exec",
+			outcome: { rejects: new Error("Unable to exec") },
+			released: false,
+		},
+		{
+			named: "a channel closed with no exit status",
+			outcome: { rejects: new CommandAbortedError("write", undefined) },
+			released: false,
+		},
+		{
+			named: "a channel killed by a signal",
+			outcome: { rejects: new CommandAbortedError("write", "KILL") },
+			released: false,
+		},
+		{
+			named: "a channel that opened too late",
+			outcome: { rejects: new ChannelOpenTimedOutError("too slow") },
+			released: false,
+		},
+	])("$named leaves the claim released=$released", async ({ outcome, released }) => {
+		const made = savedDeps()
+		failingWrite(made, outcome)
+
+		await expect(
+			createInstanceController(made.deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toThrow()
+
+		expect(vi.mocked(made.instances.releaseConfigClaim).mock.calls.length > 0).toBe(released)
+		expect(made.instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("releases the claim when the host refuses the connection, because nothing was sent", async () => {
+		const made = savedDeps()
+		const deps: InstanceControllerDeps = {
+			...made.deps,
+			createTransport: () => ({
+				...made.transport,
+				connect: async () => {
+					throw new Error("Connection refused")
+				},
+			}),
+		}
+
+		await expect(
+			createInstanceController(deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toBeInstanceOf(HostUnreachableError)
+
+		expect(made.instances.releaseConfigClaim).toHaveBeenCalled()
+	})
+
+	it("refuses a save whose bot is already claimed, without touching the host", async () => {
+		const made = savedDeps()
+		vi.mocked(made.instances.claimForConfig).mockResolvedValue(undefined)
+
+		await expect(
+			createInstanceController(made.deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toBeInstanceOf(InstanceBusyError)
+
+		expect(made.transport.stdins).toEqual([])
+	})
+
+	it("refuses a save made against a version someone else has already replaced", async () => {
+		const made = savedDeps()
+		vi.mocked(made.instances.latestConfig).mockResolvedValue(
+			configRow({ document: { ...SAVED_DOCUMENT }, version: 2 }),
+		)
+
+		await expect(
+			createInstanceController(made.deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toBeInstanceOf(InstanceConcurrentlyModifiedError)
+
+		expect(made.transport.stdins).toEqual([])
+		expect(made.instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+
+	it("reports a bot that was removed as gone, not as busy", async () => {
+		const made = savedDeps()
+		vi.mocked(made.instances.claimForConfig).mockResolvedValue(undefined)
+		vi.mocked(made.instances.findById).mockResolvedValueOnce(instanceRow())
+		vi.mocked(made.instances.findById).mockResolvedValue(undefined)
+
+		await expect(
+			createInstanceController(made.deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toBeInstanceOf(InstanceNotFoundError)
+	})
+
+	it("refuses to record a version once the claim it wrote under was lost", async () => {
+		const made = savedDeps()
+		vi.mocked(made.instances.finalizeConfigClaim).mockResolvedValue(undefined)
+
+		await expect(
+			createInstanceController(made.deps).updateSettings(owner, "abc123", SETTINGS, 1),
+		).rejects.toBeInstanceOf(InstanceBusyError)
+
+		expect(made.instances.insertConfigVersion).not.toHaveBeenCalled()
 	})
 })

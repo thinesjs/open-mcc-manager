@@ -5,6 +5,7 @@ import {
 	createInstanceInput,
 	type InstanceBotsInput,
 	type InstanceConfigInput,
+	type InstanceConfigStored,
 	type InstanceConfigView,
 	type InstancePublic,
 	type InstanceSettingsInput,
@@ -37,11 +38,15 @@ import {
 	constraintViolationOf,
 	type Db,
 	type InstanceCommandRow,
+	type InstanceConfigRow,
 	type InstanceRow,
 	type InstanceScheduleRow,
 } from "@open-mcc/db"
 import {
+	ChannelLimitReachedError,
 	type ConnectionIdentity,
+	type ConnectOptions,
+	type ExecResult,
 	type HostReader,
 	type HostTransport,
 	LiveChannelUnavailableError,
@@ -219,6 +224,7 @@ export class InstanceAuthInProgressError extends Error {}
 export class InstanceSignInRunningError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
+export class InstanceBusyError extends Error {}
 export class InstanceStillInUseError extends Error {}
 export class InstanceRemovalFailedError extends Error {}
 
@@ -248,6 +254,60 @@ const startedOrThrow = (instanceId: string, output: string): void => {
 		throw new InstanceSignInRunningError(`Sign-in is running for instance ${instanceId}`)
 	}
 	throw new Error(`Failed to start instance ${instanceId}: ${state.activeState} ${state.result}`)
+}
+
+type LoadedHost = {
+	identity: ConnectionIdentity
+	options: ConnectOptions
+}
+
+export type ExecFlight = { inFlight: boolean }
+
+export const claimedExec = async (
+	flight: ExecFlight,
+	transport: HostTransport,
+	command: string,
+	timeoutMs: number,
+	stdin?: string,
+): Promise<ExecResult> => {
+	try {
+		return await transport.exec(command, timeoutMs, stdin)
+	} catch (error) {
+		if (!(error instanceof ChannelLimitReachedError)) flight.inFlight = true
+		throw error
+	}
+}
+
+export type ConfigClaimRepos = {
+	instances: Pick<InstanceRepository, "claimForConfig" | "findById" | "latestConfig">
+}
+
+export type ConfigClaim = {
+	instance: InstanceRow
+	config: InstanceConfigRow
+}
+
+export const takeConfigClaim = async (
+	repos: ConfigClaimRepos,
+	scope: OrgScope,
+	instanceId: string,
+	claimId: string,
+	want: { expectedVersion: number },
+): Promise<ConfigClaim> => {
+	const claimed = await repos.instances.claimForConfig(scope, instanceId, claimId)
+	if (!claimed) {
+		const present = await repos.instances.findById(scope, instanceId)
+		if (!present) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+		throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+	}
+	const config = await repos.instances.latestConfig(scope, instanceId)
+	if (!config) throw new Error(`No saved settings for instance ${instanceId}`)
+	if (config.version !== want.expectedVersion) {
+		throw new InstanceConcurrentlyModifiedError(
+			`Instance ${instanceId} is at version ${config.version}, not ${want.expectedVersion}`,
+		)
+	}
+	return { instance: claimed, config }
 }
 
 export const createInstanceController = (deps: InstanceControllerDeps) => {
@@ -296,11 +356,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!(await check)) throw new LiveChannelUnavailableError("The bot is not running")
 	}
 
-	const openHost = async (
-		scope: OrgScope,
-		hostId: string,
-		need: HostNeed,
-	): Promise<{ transport: HostTransport; identity: ConnectionIdentity }> => {
+	const loadHost = async (scope: OrgScope, hostId: string, need: HostNeed): Promise<LoadedHost> => {
 		const host = await deps.hosts.findById(scope, hostId)
 		if (!host) throw new InstanceHostNotFoundError(`Host not found: ${hostId}`)
 		if (!host.sshKeyId) throw new InstanceHostNotFoundError(`Host ${hostId} has no ssh key`)
@@ -310,33 +366,47 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		if (!hostMeets(host, need)) {
 			throw new InstanceHostNotProvisionedError(`Host ${hostId} is not set up to run bots`)
 		}
-		const identity: ConnectionIdentity = {
-			hostname: host.hostname,
-			port: host.port,
-			username: host.username,
-			sshKeyId: host.sshKeyId,
-			hostKeyFingerprint: host.hostKeyFingerprint,
-		}
 		const key = await deps.sshKeys.findById(scope, host.sshKeyId)
 		if (!key) throw new InstanceHostNotFoundError(`Ssh key not found for host ${hostId}`)
-
-		const transport = deps.createTransport()
-		try {
-			await transport.connect({
+		return {
+			identity: {
+				hostname: host.hostname,
+				port: host.port,
+				username: host.username,
+				sshKeyId: host.sshKeyId,
+				hostKeyFingerprint: host.hostKeyFingerprint,
+			},
+			options: {
 				hostname: host.hostname,
 				port: host.port,
 				username: host.username,
 				privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
 				expectedFingerprint: host.hostKeyFingerprint,
 				timeoutMs: CONNECT_TIMEOUT_MS,
-			})
+			},
+		}
+	}
+
+	const connectLoaded = async (loaded: LoadedHost): Promise<HostTransport> => {
+		const transport = deps.createTransport()
+		try {
+			await transport.connect(loaded.options)
 		} catch (error) {
 			await transport.close().catch(() => undefined)
 			throw new HostUnreachableError(
 				error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
 			)
 		}
-		return { transport, identity }
+		return transport
+	}
+
+	const openHost = async (
+		scope: OrgScope,
+		hostId: string,
+		need: HostNeed,
+	): Promise<{ transport: HostTransport; identity: ConnectionIdentity }> => {
+		const loaded = await loadHost(scope, hostId, need)
+		return { transport: await connectLoaded(loaded), identity: loaded.identity }
 	}
 
 	const connectToHost = async (
@@ -471,16 +541,14 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return renderInstanceConfig(usable.data)
 	}
 
-	const savedBots = async (ctx: ActorContext, instanceId: string): Promise<InstanceBotsInput> => {
-		const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
-		if (!row) return { botConfig: {}, advancedKeys: {} }
+	const storedDocument = (instanceId: string, row: InstanceConfigRow): InstanceConfigStored => {
 		const parsed = instanceConfigStored.safeParse(row.document)
 		if (!parsed.success) {
 			throw new InstanceConfigUnusableError(
 				`Saved settings for instance ${instanceId} are unusable`,
 			)
 		}
-		return usableBots(instanceId, parsed.data)
+		return parsed.data
 	}
 
 	const writeConfigDocument = async (
@@ -710,6 +778,76 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			if (verb === "start") startedOrThrow(instance.id, result.stdout)
 		} finally {
 			await transport.close().catch(() => undefined)
+		}
+	}
+
+	const saveConfig = async (
+		ctx: ActorContext,
+		instanceId: string,
+		expectedVersion: number,
+		compose: (stored: InstanceConfigStored) => InstanceConfigInput,
+	): Promise<{ version: number }> => {
+		requireCapabilityFor(ctx.role, "config.edit")
+		const scope = scopeOf(ctx)
+		const instance = await requireInstance(ctx, instanceId)
+		const loaded = await loadHost(scope, instance.hostId, "setUpOnce")
+		const claimId = randomUUID()
+		const flight: ExecFlight = { inFlight: false }
+
+		try {
+			const { settled, document } = await deps.withTransaction(async (repos) => {
+				const claimed = await takeConfigClaim(repos, scope, instanceId, claimId, {
+					expectedVersion,
+				})
+				const checked = instanceConfigInput.parse(
+					compose(storedDocument(instanceId, claimed.config)),
+				)
+				const composed = { ...checked, liveControlPort: claimed.instance.liveControlPort }
+				return { settled: composed, document: renderInstanceConfig(composed) }
+			})
+
+			const transport = await connectLoaded(loaded)
+			try {
+				const result = await claimedExec(
+					flight,
+					transport,
+					configWriteCommand(instanceId, document),
+					INSTANCE_STEP_TIMEOUT_MS,
+					document,
+				)
+				if (result.exitCode !== 0) {
+					throw new Error(`Failed to write instance config: ${result.stderr.trim()}`)
+				}
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
+
+			return await deps.withTransaction(async (repos) => {
+				const finalized = await repos.instances.finalizeConfigClaim(scope, instanceId, claimId, {})
+				if (!finalized) {
+					throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+				}
+				const saved = await repos.instances.insertConfigVersion(
+					scope,
+					instanceId,
+					JSON.stringify(settled),
+					{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
+				)
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.config.update",
+					subjectType: "instance",
+					subjectId: instanceId,
+					detail: { version: String(saved.version) },
+				})
+				return { version: saved.version }
+			})
+		} catch (error) {
+			if (!flight.inFlight) {
+				await deps.instances.releaseConfigClaim(scope, instanceId, claimId).catch(() => undefined)
+			}
+			throw error
 		}
 	}
 
@@ -1099,72 +1237,24 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			}
 		},
 
-		updateConfig: async (
-			ctx: ActorContext,
-			instanceId: string,
-			config: InstanceConfigInput,
-		): Promise<void> => {
-			requireCapabilityFor(ctx.role, "config.edit")
-			const checked = instanceConfigInput.parse(config)
-			const instance = await requireInstance(ctx, instanceId)
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
-			const settled = { ...checked, liveControlPort: instance.liveControlPort }
-			const document = renderInstanceConfig(settled)
-
-			try {
-				const result = await transport.exec(
-					configWriteCommand(instance.id, document),
-					INSTANCE_STEP_TIMEOUT_MS,
-					document,
-				)
-				if (result.exitCode !== 0) {
-					throw new Error(`Failed to write instance config: ${result.stderr.trim()}`)
-				}
-			} finally {
-				await transport.close().catch(() => undefined)
-			}
-
-			await deps.withTransaction(async (repos) => {
-				const version = await repos.instances.insertConfigVersion(
-					scopeOf(ctx),
-					instanceId,
-					JSON.stringify(settled),
-					{ authorId: ctx.memberId, authorLabel: ctx.actorLabel },
-				)
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.config.update",
-					subjectType: "instance",
-					subjectId: instanceId,
-					detail: { version: String(version.version) },
-				})
-			})
-		},
-
 		updateSettings: async (
 			ctx: ActorContext,
 			instanceId: string,
 			settings: InstanceSettingsInput,
-		): Promise<void> => {
-			requireCapabilityFor(ctx.role, "config.edit")
-			await requireInstance(ctx, instanceId)
-			await controller.updateConfig(ctx, instanceId, {
+			expectedVersion: number,
+		): Promise<{ version: number }> =>
+			await saveConfig(ctx, instanceId, expectedVersion, (stored) => ({
 				...settings,
-				...(await savedBots(ctx, instanceId)),
-			})
-		},
+				...usableBots(instanceId, stored),
+			})),
 
 		updateBotConfig: async (
 			ctx: ActorContext,
 			instanceId: string,
 			bots: InstanceBotsInput,
-		): Promise<void> => {
-			requireCapabilityFor(ctx.role, "config.edit")
-			const saved = await controller.getConfig(ctx, instanceId)
-			if (!saved) throw new Error(`No saved settings for instance ${instanceId}`)
-			await controller.updateConfig(ctx, instanceId, { ...saved.config, ...bots })
-		},
+			expectedVersion: number,
+		): Promise<{ version: number }> =>
+			await saveConfig(ctx, instanceId, expectedVersion, (stored) => ({ ...stored, ...bots })),
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {
 			requireCapabilityFor(ctx.role, "instance.read")

@@ -12,6 +12,7 @@ import {
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
+	createInstanceRepository,
 	createSecretStore,
 	createSshKeyController,
 	createSshKeyControllerTransaction,
@@ -39,6 +40,8 @@ import { createTestStatusController } from "./test/status-controller"
 
 const ORIGIN = "http://localhost:5173"
 const hostScript: FakeScript = {}
+
+const hostTransports: ReturnType<typeof createFakeTransport>[] = []
 
 let db: Db
 let app: Hono
@@ -87,7 +90,9 @@ beforeAll(async () => {
 				},
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
-				instanceController: await createTestInstanceController(db, secrets, hostScript),
+				instanceController: await createTestInstanceController(db, secrets, hostScript, (each) =>
+					hostTransports.push(each),
+				),
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController: createSshKeyController({
@@ -132,6 +137,7 @@ afterEach(async () => {
 	seededOrganizationIds = []
 	seededEmails = []
 	seededInstanceIds = []
+	hostTransports.length = 0
 
 	if (instanceIds.length > 0) {
 		await db.deleteFrom("instanceConfig").where("instanceId", "in", instanceIds).execute()
@@ -368,6 +374,7 @@ describe("instance router capability boundaries", () => {
 			instanceId,
 			botConfig: { "ChatBot.Alerts.Enabled": "true" },
 			advancedKeys: {},
+			expectedVersion: 1,
 		})
 
 		expect(res.status).toBe(403)
@@ -388,6 +395,7 @@ describe("instance router capability boundaries", () => {
 			instanceId,
 			botConfig: { "ChatBot.Alerts.Enabled": "true" },
 			advancedKeys: {},
+			expectedVersion: 1,
 		})
 
 		expect(res.status).not.toBe(200)
@@ -415,6 +423,7 @@ describe("instance router capability boundaries", () => {
 				antiAfkEnabled: true,
 				antiAfkIntervalSeconds: { min: 90, max: 300 },
 			},
+			expectedVersion: 1,
 		})
 
 		const body = await res.text()
@@ -439,6 +448,7 @@ describe("instance router capability boundaries", () => {
 				antiAfkIntervalSeconds: { min: 90, max: 300 },
 				advancedKeys: { "ChatBot.AutoEat.Enabled": "true" },
 			},
+			expectedVersion: 1,
 		})
 
 		expect(res.status).toBe(400)
@@ -456,6 +466,7 @@ describe("instance router capability boundaries", () => {
 			instanceId,
 			botConfig: { "ChatBot.Script.Script_File": "evil" },
 			advancedKeys: {},
+			expectedVersion: 1,
 		})
 
 		expect(res.status).toBe(400)
@@ -868,5 +879,188 @@ describe("what an instance procedure sends the browser", () => {
 		for (const field of WITHHELD_INSTANCE_FIELDS) {
 			expect(text).not.toContain(field)
 		}
+	})
+})
+
+describe("a save that lost the race", () => {
+	const SAVED_DOCUMENT = {
+		accountType: "offline",
+		minecraftAccount: "OpenMccBot",
+		serverAddress: "play.example.com",
+		autoRelogRetries: 3,
+		autoRelogEnabled: true,
+		autoRelogDelaySeconds: { min: 5, max: 20 },
+		antiAfkEnabled: true,
+		antiAfkIntervalSeconds: { min: 90, max: 300 },
+		autoRespawnEnabled: false,
+		liveControlEnabled: false,
+		liveControlPort: 48931,
+		worldDataEnabled: false,
+		inventoryDataEnabled: false,
+		entityDataEnabled: false,
+		advancedKeys: {},
+		botConfig: {},
+	}
+
+	const SETTINGS = {
+		accountType: SAVED_DOCUMENT.accountType,
+		minecraftAccount: SAVED_DOCUMENT.minecraftAccount,
+		serverAddress: SAVED_DOCUMENT.serverAddress,
+		autoRelogRetries: SAVED_DOCUMENT.autoRelogRetries,
+		autoRelogEnabled: SAVED_DOCUMENT.autoRelogEnabled,
+		autoRelogDelaySeconds: SAVED_DOCUMENT.autoRelogDelaySeconds,
+		antiAfkEnabled: SAVED_DOCUMENT.antiAfkEnabled,
+		antiAfkIntervalSeconds: SAVED_DOCUMENT.antiAfkIntervalSeconds,
+	}
+
+	const seedReadyInstance = async (orgId: string, memberId: string): Promise<string> => {
+		const sshKeyId = randomUUID()
+		const sealed = secrets.seal("PRIVATE KEY")
+		await db
+			.insertInto("sshKey")
+			.values({
+				id: sshKeyId,
+				organizationId: orgId,
+				name: `key-${sshKeyId}`,
+				publicKey: "ssh-ed25519 AAAA",
+				privateKeyEncrypted: sealed.ciphertext,
+				privateKeyKeyId: sealed.keyId,
+			})
+			.execute()
+		const hostId = randomUUID()
+		await db
+			.insertInto("host")
+			.values({
+				id: hostId,
+				organizationId: orgId,
+				name: `vps-${hostId}`,
+				hostname: "127.0.0.1",
+				port: 1,
+				username: "mcc",
+				status: "ready",
+				osRelease: "systemd 252",
+				sshKeyId,
+				hostKeyAlgorithm: "ssh-ed25519",
+				hostKeyFingerprint: "SHA256:trusted",
+				hostKeyTrustedBy: memberId,
+				hostKeyTrustedByLabel: "owner@example.com",
+				hostKeyTrustedAt: new Date(),
+			})
+			.execute()
+		const instanceId = randomUUID()
+		await db
+			.insertInto("instance")
+			.values({
+				id: instanceId,
+				organizationId: orgId,
+				hostId,
+				name: `afk-${instanceId.slice(0, 8)}`,
+				accountType: "offline",
+				minecraftAccount: SAVED_DOCUMENT.minecraftAccount,
+				minecraftUsername: null,
+				liveControlPort: SAVED_DOCUMENT.liveControlPort,
+				status: "stopped",
+			})
+			.execute()
+		seededInstanceIds.push(instanceId)
+		for (const version of [1, 2]) {
+			await db
+				.insertInto("instanceConfig")
+				.values({
+					id: randomUUID(),
+					organizationId: orgId,
+					instanceId,
+					version,
+					document: JSON.stringify(SAVED_DOCUMENT),
+					authorId: memberId,
+					authorLabel: "owner@example.com",
+				})
+				.execute()
+		}
+		return instanceId
+	}
+
+	const errorCodeOf = async (res: Response): Promise<string | undefined> =>
+		errorResponseSchema.parse(JSON.parse(await res.text())).error.data.errorCode
+
+	const issuedCommands = (): string[] => hostTransports.flatMap((each) => each.commands)
+
+	const latestVersion = async (instanceId: string): Promise<number | undefined> => {
+		const row = await db
+			.selectFrom("instanceConfig")
+			.select("version")
+			.where("instanceId", "=", instanceId)
+			.orderBy("version", "desc")
+			.executeTakeFirst()
+		return row?.version
+	}
+
+	it("★ refuses a settings save made against a version someone else replaced", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: SETTINGS,
+			expectedVersion: 1,
+		})
+
+		expect(res.status).toBe(409)
+		expect(await errorCodeOf(res)).toBe("INSTANCE_CONCURRENTLY_MODIFIED")
+		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
+	})
+
+	it("★ refuses a bots save made against a version someone else replaced", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.updateBotConfig", cookie, {
+			instanceId,
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+			advancedKeys: {},
+			expectedVersion: 1,
+		})
+
+		expect(res.status).toBe(409)
+		expect(await errorCodeOf(res)).toBe("INSTANCE_CONCURRENTLY_MODIFIED")
+		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
+	})
+
+	it("★ carries the version the caller sent, so the save at the stored one goes through", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: { ...SETTINGS, serverAddress: "moved.example.com" },
+			expectedVersion: 2,
+		})
+
+		expect(res.status).toBe(200)
+		expect(await latestVersion(instanceId)).toBe(3)
+		expect(issuedCommands().filter((each) => each.includes("MinecraftClient.ini"))).toHaveLength(1)
+	})
+
+	it("★ refuses a save on a bot another change is already holding", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+		await createInstanceRepository(db).claimForConfig(
+			{ organizationId: orgId },
+			instanceId,
+			"held-elsewhere",
+		)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: SETTINGS,
+			expectedVersion: 2,
+		})
+
+		expect(res.status).toBe(409)
+		expect(await errorCodeOf(res)).toBe("INSTANCE_BUSY")
+		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
 	})
 })

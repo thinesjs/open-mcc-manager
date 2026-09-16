@@ -557,9 +557,7 @@ function InstanceDetailPage() {
 										instanceId={instanceId}
 										config={configQuery.data.config}
 										version={configQuery.data.version}
-										onSaved={async () => {
-											await configQuery.refetch()
-										}}
+										onSaved={async () => (await configQuery.refetch()).data ?? null}
 									/>
 								</section>
 							)}
@@ -578,9 +576,7 @@ function InstanceDetailPage() {
 									instanceId={instanceId}
 									config={configQuery.data.config}
 									version={configQuery.data.version}
-									onSaved={async () => {
-										await configQuery.refetch()
-									}}
+									onSaved={async () => (await configQuery.refetch()).data ?? null}
 								/>
 							)}
 						</TabsPanel>

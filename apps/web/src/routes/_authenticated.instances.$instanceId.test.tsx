@@ -1,3 +1,8 @@
+import {
+	instanceConfigInput,
+	type UpdateInstanceConfigInput,
+	updateInstanceConfigInput,
+} from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
@@ -32,13 +37,35 @@ const NEARBY = { totalTracked: 3, entities: [{ id: 7, label: "Zombie", distance:
 
 const SIGN_IN_CODE = "WXYZ-1234"
 
+const FULL_CONFIG = instanceConfigInput.parse({
+	accountType: "offline",
+	minecraftAccount: "OpenMccBot",
+	serverAddress: "play.example.com:25565",
+	autoRelogRetries: 3,
+	autoRelogEnabled: true,
+	autoRelogDelaySeconds: { min: 5, max: 20 },
+	antiAfkEnabled: true,
+	antiAfkIntervalSeconds: { min: 90, max: 300 },
+	liveControlEnabled: true,
+	entityDataEnabled: true,
+})
+
 const server = {
 	instance: BOT,
 	config: { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 },
 	readsFail: false,
 }
 
+const params = { instanceId: "bot-1" }
+
 const issued: string[] = []
+
+const saves: UpdateInstanceConfigInput[] = []
+
+const heldSave: { release: ((result: { version: number }) => void) | undefined; hold: boolean } = {
+	release: undefined,
+	hold: false,
+}
 
 const live = (reading: object): object => {
 	if (server.readsFail) throw new Error("The bot's live view is not available right now.")
@@ -62,9 +89,16 @@ const answer = async (procedure: string): Promise<object | null> => {
 	}
 }
 
-const outcome = async (procedure: string): Promise<object | null> => {
+const outcome = async (procedure: string, input: object): Promise<object | null> => {
 	issued.push(procedure)
 	switch (procedure) {
+		case "updateConfig": {
+			saves.push(updateInstanceConfigInput.parse(input))
+			if (!heldSave.hold) return { version: 4 }
+			return await new Promise<{ version: number }>((resolve) => {
+				heldSave.release = resolve
+			})
+		}
 		case "authenticate":
 			return {
 				userCode: SIGN_IN_CODE,
@@ -86,7 +120,10 @@ const procedure = (router: string, name: string) => ({
 		queryKey: [router, name, input ?? {}],
 		queryFn: () => answer(name),
 	}),
-	mutationOptions: (options: object) => ({ ...options, mutationFn: () => outcome(name) }),
+	mutationOptions: (options: object) => ({
+		...options,
+		mutationFn: (input: object) => outcome(name, input),
+	}),
 })
 
 const trpc = new Proxy(
@@ -107,7 +144,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	createFileRoute: () => (options: object) => ({
 		options,
-		useParams: () => ({ instanceId: "bot-1" }),
+		useParams: () => params,
 	}),
 	Link: ({ children }: { children?: ReactNode }) => <a href="/instances">{children}</a>,
 	useNavigate: () => () => undefined,
@@ -118,6 +155,10 @@ beforeEach(() => {
 	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
 	issued.length = 0
+	saves.length = 0
+	params.instanceId = "bot-1"
+	heldSave.release = undefined
+	heldSave.hold = false
 })
 
 afterEach(cleanup)
@@ -142,6 +183,12 @@ const mount = async () => {
 
 const openTab = async (name: string) => {
 	fireEvent.click(await screen.findByRole("tab", { name }))
+}
+
+const page = () => {
+	const Page = Route.options.component
+	if (Page === undefined) throw new Error("the instance route renders no page")
+	return <Page />
 }
 
 describe("a live reading once the bot is no longer live", () => {
@@ -214,5 +261,53 @@ describe("a Microsoft sign-in code", () => {
 		const start = await screen.findByRole("button", { name: "Start" })
 		await waitFor(() => expect(start.hasAttribute("disabled")).toBe(false))
 		expect(issued).not.toContain("start")
+	})
+})
+
+describe("a settings save still in flight when the operator moves to another bot", () => {
+	it("★ never writes the finished bot's version into the bot now on screen", async () => {
+		server.config = { config: FULL_CONFIG, version: 3 }
+		heldSave.hold = true
+		const Page = Route.options.component
+		if (Page === undefined) throw new Error("the instance route renders no page")
+		await Page.preload?.()
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		})
+		const { rerender } = render(
+			<QueryClientProvider client={client}>
+				<Suspense fallback={null}>{page()}</Suspense>
+			</QueryClientProvider>,
+		)
+		await screen.findByRole("tab", { name: "Overview" }, { timeout: 10_000 })
+		await openTab("Settings")
+		fireEvent.click(await screen.findByRole("button", { name: "Save settings" }))
+		await waitFor(() => expect(saves).toHaveLength(1))
+
+		params.instanceId = "bot-2"
+		heldSave.hold = false
+		client.setQueryData(["instance", "get", { instanceId: "bot-2" }], BOT)
+		client.setQueryData(["instance", "getConfig", { instanceId: "bot-2" }], {
+			config: FULL_CONFIG,
+			version: 3,
+		})
+		rerender(
+			<QueryClientProvider client={client}>
+				<Suspense fallback={null}>{page()}</Suspense>
+			</QueryClientProvider>,
+		)
+		const release = heldSave.release
+		if (release === undefined) throw new Error("the first save was never held")
+		await act(async () => {
+			release({ version: 8 })
+		})
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save settings" }, { timeout: 10_000 }),
+		)
+		await waitFor(() => expect(saves).toHaveLength(2))
+
+		expect(saves.map((each) => each.instanceId)).toEqual(["bot-1", "bot-2"])
+		expect(saves.map((each) => each.expectedVersion)).toEqual([3, 3])
 	})
 })

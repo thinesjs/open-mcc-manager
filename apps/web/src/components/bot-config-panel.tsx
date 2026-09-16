@@ -1,4 +1,4 @@
-import type { InstanceConfigInput } from "@open-mcc/contracts"
+import type { InstanceConfigInput, InstanceConfigView } from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { useState } from "react"
@@ -13,14 +13,14 @@ import {
 	savedFrom,
 	validateBotConfig,
 } from "~/lib/bot-config"
-import { getErrorMessage } from "~/lib/errors"
+import { errorCodeOf, getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 export type BotConfigPanelProps = {
 	instanceId: string
 	config: InstanceConfigInput
 	version: number
-	onSaved: () => Promise<void>
+	onSaved: () => Promise<InstanceConfigView | null>
 }
 
 export const BotConfigPanel = ({ instanceId, config, version, onSaved }: BotConfigPanelProps) => {
@@ -41,11 +41,19 @@ export const BotConfigPanel = ({ instanceId, config, version, onSaved }: BotConf
 	const save = () => {
 		if (blocked) return
 		saveMutation.mutate(
-			{ instanceId, ...savedFrom(draft) },
+			{ instanceId, ...savedFrom(draft), expectedVersion: savedVersion },
 			{
-				onSuccess: async () => {
+				onSuccess: async (saved) => {
+					setSavedVersion(saved.version)
 					await queryClient.invalidateQueries()
 					await onSaved()
+				},
+				onError: async (error) => {
+					if (errorCodeOf(error) !== "INSTANCE_CONCURRENTLY_MODIFIED") return
+					const refreshed = await onSaved()
+					if (!refreshed) return
+					setDraft(draftFrom(refreshed.config))
+					setSavedVersion(refreshed.version)
 				},
 			},
 		)

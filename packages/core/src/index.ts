@@ -15,6 +15,21 @@ export {
 	usesKnownInsecureKey,
 } from "./crypto/sealed-box"
 export { LINGER_COMMAND } from "./host/check"
+export {
+	connectFailureOutcome,
+	EXPRESS_CONNECT_TIMEOUT_MS,
+	EXPRESS_NO_REASON,
+	EXPRESS_REASON_TAIL,
+	EXPRESS_SETUP_TIMEOUT_MS,
+	EXPRESS_TIMED_OUT_REASON,
+	expressAuditDetail,
+	expressSetupCommand,
+	printedFingerprint,
+	rootCredentialFor,
+	runFailureOutcome,
+	scriptOutcome,
+	secretOf,
+} from "./host/express-install"
 export type { HostFacts } from "./host/facts"
 export { readHostFacts } from "./host/facts"
 export type { HealthInput, HostHealth } from "./host/health"
@@ -42,6 +57,7 @@ export {
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
 	HostHasInstancesError,
+	HostKeyUnreadableError,
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningFailedError,
@@ -284,7 +300,7 @@ export {
 export type { NotificationEnvelope } from "./notification/sender"
 export type { OrganizationRepository } from "./organization/organization.repository"
 export { createOrganizationRepository } from "./organization/organization.repository"
-export { redact, redactError } from "./security/redact"
+export { REDACTED_CREDENTIAL, redact, redactError, redactValue } from "./security/redact"
 export type {
 	SelfHostController,
 	SelfHostControllerDeps,

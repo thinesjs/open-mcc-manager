@@ -21,6 +21,7 @@ import {
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
 	HostHasInstancesError,
+	HostKeyUnreadableError,
 	HostMisconfiguredError,
 	HostNotFoundError,
 	HostProvisioningFailedError,
@@ -51,6 +52,7 @@ import {
 	ChannelLimitReachedError,
 	CommandAbortedError,
 	LiveChannelUnavailableError,
+	RootHostKeyRejectedError,
 	StreamOverflowError,
 	TransportInterruptedError,
 } from "@open-mcc/transport"
@@ -174,6 +176,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	if (cause instanceof SshKeyNotFoundError) {
 		return mapped("NOT_FOUND", "SSH_KEY_NOT_FOUND", "SSH key not found")
 	}
+	if (cause instanceof RootHostKeyRejectedError) {
+		return mapped(
+			"BAD_REQUEST",
+			"FINGERPRINT_MISMATCH",
+			"Host key fingerprint does not match the trusted value",
+		)
+	}
 	if (cause instanceof FingerprintMismatchError) {
 		return mapped(
 			"BAD_REQUEST",
@@ -258,6 +267,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 	}
 	if (cause instanceof HostProvisioningFailedError) {
 		return mapped("BAD_REQUEST", "HOST_PROVISIONING_FAILED", cause.message)
+	}
+	if (cause instanceof HostKeyUnreadableError) {
+		return mapped("BAD_REQUEST", "HOST_KEY_UNREADABLE", cause.message)
 	}
 	if (cause instanceof HostUnreachableError) {
 		return mapped("BAD_REQUEST", "HOST_UNREACHABLE", "Could not open an SSH session to this host")

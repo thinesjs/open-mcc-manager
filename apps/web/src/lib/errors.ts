@@ -9,6 +9,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	UNAUTHORIZED: "Your session has expired. Please sign in again.",
 	FORBIDDEN: "You do not have permission to perform this action.",
 	HOST_NOT_FOUND: "That host no longer exists.",
+	HOST_KEY_UNREADABLE: "Could not read a host key from that address.",
 	DESTINATION_NOT_FOUND: "That destination no longer exists. Refresh the list.",
 	DESTINATION_TEST_THROTTLED:
 		"This destination was tested a moment ago. Wait a minute before testing it again.",

@@ -1,7 +1,15 @@
 import {
+	ACCOUNT_NAME_PATTERN,
+	ACCOUNT_NAME_REQUIREMENT,
 	ADDRESS_PROBE_MESSAGES,
 	type AddressProbeOutcome,
+	EXPRESS_WARNING,
+	EXPRESS_WARNING_TITLE,
+	fingerprintCommand,
 	HOST_KEY_FINGERPRINT_PATTERN,
+	hostSetupScript,
+	type InstallMode,
+	setupSummary,
 } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
@@ -9,6 +17,7 @@ import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 import { CommandBlock } from "~/components/command-block"
 import { CopyButton } from "~/components/copy-button"
+import { ExpressInstallPanel } from "~/components/express-install-panel"
 import { HostCheckList } from "~/components/host-check-list"
 import { SetupCommand } from "~/components/setup-command"
 import { Alert } from "~/components/ui/alert"
@@ -26,13 +35,6 @@ import {
 import { Spinner } from "~/components/ui/spinner"
 import { StepIndicator, Steps } from "~/components/ui/steps"
 import { getErrorMessage } from "~/lib/errors"
-import {
-	ACCOUNT_NAME_PATTERN,
-	ACCOUNT_NAME_REQUIREMENT,
-	fingerprintCommand,
-	hostSetupScript,
-	setupSummary,
-} from "~/lib/host-setup"
 import { clampStep, directionBetween, isLastStep } from "~/lib/steps"
 import { useTRPC } from "~/lib/trpc"
 
@@ -57,6 +59,19 @@ const ACCOUNT_OPTIONS = [
 ] as const
 
 type AccountMode = (typeof ACCOUNT_OPTIONS)[number]["value"]
+
+const INSTALL_OPTIONS = [
+	{
+		value: "express",
+		label: "Set it up for me",
+		description: "OpenMCC signs in as root and runs the setup over SSH.",
+	},
+	{
+		value: "manual",
+		label: "I will run the command",
+		description: "Copy one command and run it on the server yourself.",
+	},
+] as const
 
 const PROBE_TONE: Record<AddressProbeOutcome, "success" | "warning" | "error"> = {
 	answered: "success",
@@ -97,6 +112,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const [accountMode, setAccountMode] = useState<AccountMode>("create")
 	const [expectedFingerprint, setExpectedFingerprint] = useState("")
 	const [copiedCommand, setCopiedCommand] = useState("")
+	const [installMode, setInstallMode] = useState<InstallMode>("manual")
 
 	const keys = sshKeysQuery.data ?? []
 	const selectedKey = keys.find((key) => key.id === sshKeyId)
@@ -189,6 +205,27 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 			<Steps step={step} direction={direction}>
 				{step === 0 ? (
 					<div className="space-y-4 pb-1">
+						<div>
+							<h3 className="text-sm font-medium text-foreground">How this server gets set up</h3>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Either OpenMCC prepares the server for you, or you run one command on it.
+							</p>
+						</div>
+
+						<Choice
+							label="How this server gets set up"
+							value={installMode}
+							options={INSTALL_OPTIONS}
+							onChange={setInstallMode}
+						/>
+
+						{installMode === "express" ? (
+							<Alert variant="warning" icon={<TriangleAlert />}>
+								<p className="font-medium">{EXPRESS_WARNING_TITLE}</p>
+								<p>{EXPRESS_WARNING}</p>
+							</Alert>
+						) : null}
+
 						<div>
 							<h3 className="text-sm font-medium text-foreground">
 								Choose the key to connect with
@@ -362,14 +399,30 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Prepare the host</h3>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Run once on {hostname || "the host"}. It sets up {username} to run bots in Podman
-								and prints the fingerprint for the next step.
+								{installMode === "express"
+									? `OpenMCC sets ${username} up on ${hostname || "the host"} to run bots in Podman.`
+									: `Run once on ${hostname || "the host"}. It sets up ${username} to run bots in Podman and prints the fingerprint for the next step.`}
 							</p>
 						</div>
 
-						{staleNotice}
+						{installMode === "express" ? (
+							<ExpressInstallPanel
+								hostname={hostname}
+								port={portNumber ?? 22}
+								username={username}
+								sshKeyId={sshKeyId}
+								createAccount={createAccount}
+								onReady={(fingerprint) => {
+									setExpectedFingerprint(fingerprint)
+									goTo(4)
+								}}
+								onManual={() => setInstallMode("manual")}
+							/>
+						) : null}
 
-						{selectedKey ? (
+						{installMode === "manual" ? staleNotice : null}
+
+						{installMode === "manual" && selectedKey ? (
 							<SetupCommand
 								command={setupCommand}
 								summary={setupSummary(username, selectedKey.name, createAccount)}

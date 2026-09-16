@@ -20,7 +20,7 @@ import {
 	generateSshKeyPair,
 } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import { createFakeRootSession, createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -74,6 +74,7 @@ beforeAll(async () => {
 					probeHostKey: async () => Buffer.alloc(0),
 					probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 					createTransport: () => createFakeTransport(),
+					createRootSession: () => createFakeRootSession(),
 					evictHost: () => undefined,
 					now: () => new Date(),
 					withTransaction: createHostControllerTransaction(db, async () => null),

@@ -2,6 +2,7 @@ import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
 import {
 	type ConnectionState,
+	createFakeRootSession,
 	createFakeTransport,
 	type HostTransport,
 	type SshHandshake,
@@ -220,6 +221,7 @@ const deps = (
 			async (): Promise<SshHandshake> => ({ kind: "key", key: DEFAULT_HOST_KEY_BLOB }),
 		),
 		createTransport: vi.fn(() => createFakeTransport(PROVISIONABLE)),
+		createRootSession: vi.fn(() => createFakeRootSession()),
 		evictHost: () => undefined,
 		now: () => new Date(),
 		withTransaction,

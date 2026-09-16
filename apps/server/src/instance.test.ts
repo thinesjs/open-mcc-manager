@@ -27,7 +27,7 @@ import {
 	startUnitCommand,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
-import { createFakeTransport, type FakeScript } from "@open-mcc/transport"
+import { createFakeRootSession, createFakeTransport, type FakeScript } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -84,6 +84,7 @@ beforeAll(async () => {
 					probeHostKey: async () => Buffer.alloc(0),
 					probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 					createTransport: () => createFakeTransport(),
+					createRootSession: () => createFakeRootSession(),
 					evictHost: () => undefined,
 					now: () => new Date(),
 					withTransaction: createHostControllerTransaction(db, async () => null),
@@ -546,6 +547,7 @@ describe("which controller method each readout route reaches", () => {
 						probeHostKey: async () => Buffer.alloc(0),
 						probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 						createTransport: () => createFakeTransport(),
+						createRootSession: () => createFakeRootSession(),
 						evictHost: () => undefined,
 						now: () => new Date(),
 						withTransaction: createHostControllerTransaction(db, async () => null),

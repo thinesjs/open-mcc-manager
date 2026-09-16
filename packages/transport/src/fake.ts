@@ -7,6 +7,7 @@ import {
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
 } from "./read-connections"
+import type { RootSession, RootSessionOptions } from "./ssh/root-session"
 import {
 	type ConnectionState,
 	type ExecResult,
@@ -14,6 +15,42 @@ import {
 	LiveChannelUnavailableError,
 	type ReusableTransport,
 } from "./types"
+
+export type FakeRootSessionScript = {
+	connect?: Error
+	run?: Error
+	result?: ExecResult
+}
+
+export type FakeRootSession = RootSession & {
+	attempts: RootSessionOptions[]
+	commands: string[]
+	closeCount: () => number
+}
+
+export const createFakeRootSession = (script: FakeRootSessionScript = {}): FakeRootSession => {
+	const attempts: RootSessionOptions[] = []
+	const commands: string[] = []
+	let closes = 0
+
+	return {
+		attempts,
+		commands,
+		closeCount: () => closes,
+		connect: async (options) => {
+			attempts.push(options)
+			if (script.connect) throw script.connect
+		},
+		run: async (command) => {
+			commands.push(command)
+			if (script.run) throw script.run
+			return script.result ?? { stdout: "", stderr: "", exitCode: 0 }
+		},
+		close: () => {
+			closes += 1
+		},
+	}
+}
 
 export type FakeScript = Record<string, ExecResult>
 

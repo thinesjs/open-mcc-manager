@@ -6,6 +6,7 @@ import {
 	fingerprintCommand,
 	hostSetupScript,
 	LOCK_STATE_FUNCTION,
+	lockedNotice,
 	setupSummary,
 } from "./host-setup"
 
@@ -368,9 +369,7 @@ describe("an account that is already there but locked", () => {
 
 	it("says what being locked means before it asks anything", () => {
 		const script = hostSetupScript("pi", KEY, false)
-		const said = script.indexOf(
-			"The account $account is locked, so the server may refuse it even with the right key.",
-		)
+		const said = script.indexOf(lockedNotice("pi"))
 
 		expect(said).toBeGreaterThan(-1)
 		expect(said).toBeLessThan(script.indexOf(LOCK_PROMPT))

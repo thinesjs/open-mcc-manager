@@ -1,4 +1,9 @@
-import { can, HOST_KEY_FINGERPRINT_PATTERN, type Role } from "@open-mcc/contracts"
+import {
+	can,
+	fingerprintCommand,
+	HOST_KEY_FINGERPRINT_PATTERN,
+	type Role,
+} from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -10,7 +15,6 @@ import { Label } from "~/components/ui/label"
 import { Modal } from "~/components/ui/modal"
 import { Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
-import { fingerprintCommand } from "~/lib/host-setup"
 import { useTRPC } from "~/lib/trpc"
 
 export type RetrustHostKeyProps = {

@@ -240,6 +240,8 @@ const executedIn = (script: string): string =>
 
 const LOCK_READ = "if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi"
 
+const LOCK_PROMPT = "printf 'Unlock %s now? [y/N] ' \"$account\" >&2"
+
 describe("setting up the account the bots run as", () => {
 	it("creates it only on the path where the operator asked for one", () => {
 		expect(hostSetupScript("pi", KEY, true)).toContain(CREATE_STEP)
@@ -350,7 +352,8 @@ describe("an account that is already there but locked", () => {
 		)
 
 		expect(said).toBeGreaterThan(-1)
-		expect(said).toBeLessThan(script.indexOf(LOCK_READ))
+		expect(said).toBeLessThan(script.indexOf(LOCK_PROMPT))
+		expect(script.indexOf(LOCK_PROMPT)).toBeLessThan(script.indexOf(LOCK_READ))
 		expect(script).toContain("It has no password, and unlocking gives it none. It stays key-only.")
 	})
 
@@ -370,13 +373,13 @@ describe("an account that is already there but locked", () => {
 		)
 
 		expect(said).toBeGreaterThan(-1)
-		expect(said).toBeLessThan(script.indexOf(LOCK_READ))
+		expect(said).toBeLessThan(script.indexOf(LOCK_PROMPT))
 	})
 
 	it("asks on the terminal, since the script itself arrives on stdin", () => {
 		const script = hostSetupScript("pi", KEY, false)
 
-		expect(script).toContain("printf 'Unlock %s now? [y/N] ' \"$account\" >&2")
+		expect(script).toContain(LOCK_PROMPT)
 		expect(script).toContain(LOCK_READ)
 	})
 

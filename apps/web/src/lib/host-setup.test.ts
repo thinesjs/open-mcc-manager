@@ -351,9 +351,7 @@ describe("an account that is already there but locked", () => {
 
 		expect(said).toBeGreaterThan(-1)
 		expect(said).toBeLessThan(script.indexOf(LOCK_READ))
-		expect(script).toContain(
-			"It has no password. Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password.",
-		)
+		expect(script).toContain("It has no password, and unlocking gives it none. It stays key-only.")
 	})
 
 	it("confirms the account came unlocked rather than trusting the exit status", () => {
@@ -367,7 +365,9 @@ describe("an account that is already there but locked", () => {
 
 	it("says what being locked means before it asks anything", () => {
 		const script = hostSetupScript("pi", KEY, false)
-		const said = script.indexOf("The account $account is locked. A server can refuse it")
+		const said = script.indexOf(
+			"The account $account is locked, so the server may refuse it even with the right key.",
+		)
 
 		expect(said).toBeGreaterThan(-1)
 		expect(said).toBeLessThan(script.indexOf(LOCK_READ))

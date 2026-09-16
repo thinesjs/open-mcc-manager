@@ -343,7 +343,7 @@ describe("the host setup script", () => {
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain(`The account ${account} is locked`)
-		expect(ran.stderr).toContain("It has no password.")
+		expect(ran.stderr).toContain("It has no password, and unlocking gives it none.")
 		expect(ran.stderr).toContain(`usermod -p '*' -- '${account}'`)
 		expect(await snapshot(host, homeOf(account))).toBe(before)
 	})

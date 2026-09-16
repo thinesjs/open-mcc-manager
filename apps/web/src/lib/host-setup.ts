@@ -81,11 +81,11 @@ const lockSection = (username: string): string => `
 ${LOCK_STATE_FUNCTION}
 state=$(${READ_STATE})
 if [ "$state" != open ]; then
-  echo "The account $account is locked. A server can refuse it before it even looks at the key, which then looks like the key was rejected." >&2
+  echo "The account $account is locked, so the server may refuse it even with the right key." >&2
   if [ "$state" = password ]; then
     echo "It has a password. Unlocking puts that password back exactly as it was, and changes nothing else." >&2
   else
-    echo "It has no password. Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password." >&2
+    echo "It has no password, and unlocking gives it none. It stays key-only." >&2
   fi
   printf 'Unlock %s now? [y/N] ' "$account" >&2
   answer=n

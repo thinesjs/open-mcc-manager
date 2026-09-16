@@ -36,6 +36,8 @@ export const TRUNCATE_KILL_AFTER_SECONDS = 2
 
 export const TRUNCATE_DEADLINE_SECONDS = 10
 
+export const TRUNCATE_LOCK_MISSING_EXIT = 3
+
 const READ_BLOCK_BYTES = 65536
 
 export const PLAYER_LIST_FILE_DEFAULT = CLIENT_DEFAULT_FILES["ChatBot.PlayerListLogger.File"]
@@ -255,10 +257,15 @@ export const truncateCommand = (
 		`[ "$(${readBytes(file, window.skip, window.count)} | sha256sum | cut -c1-64)" = ${cursor.fingerprint} ]`,
 		`dd if=/dev/null of=${file} oflag=nofollow,nonblock conv=nocreat status=none`,
 	].join(" && ")
+	const wrapper = [
+		`f=${directory}/${INSTANCE_LAYOUT.collectLock}`,
+		`[ -f "$f" ] || exit ${TRUNCATE_LOCK_MISSING_EXIT}`,
+		`{ flock -n 9 || exit 1; ${script}; } 9< "$f"`,
+	].join("; ")
 	return withDeadline(
 		TRUNCATE_KILL_AFTER_SECONDS,
 		TRUNCATE_DEADLINE_SECONDS,
-		`flock -n ${directory}/${INSTANCE_LAYOUT.collectLock} sh -c ${shellQuote(script)}`,
+		`sh -c ${shellQuote(wrapper)}`,
 	)
 }
 

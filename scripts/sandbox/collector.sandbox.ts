@@ -14,6 +14,7 @@ import {
 	sweepHostArtifacts,
 	TRUNCATE_DEADLINE_SECONDS,
 	TRUNCATE_KILL_AFTER_SECONDS,
+	TRUNCATE_LOCK_MISSING_EXIT,
 	truncateCommand,
 } from "../../packages/core/src/instance/artifact"
 import {
@@ -463,6 +464,78 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 		} finally {
 			await stopBot()
 		}
+	})
+
+	it("★ never recreates a collect.lock that is gone, and still waits for one the unit holds", async () => {
+		expect(["inactive", "failed"]).toContain(await activeState())
+		const text = "[2026/9/15 10:0]\nalice\n\n"
+		const list = `${STATE}/${PLAYER_LIST_FILE_DEFAULT}`
+		succeeded(
+			await shell(host, as, 'rm -f -- "$1" && printf "%s" "$2" > "$1"', list, text),
+			"writing the player list",
+		)
+		succeeded(await shell(host, as, 'rm -f -- "$1"', LOCK), "deleting the bot's lock")
+		const before = succeeded(
+			await shell(host, as, 'ls -A -- "$1" | sort | tr "\\n" " "', BOT_DIR),
+			"listing the bot's directory",
+		)
+
+		const memory = cursorStore()
+		const swept = await sweep(memory.store, memory.state.cursor)
+		const truncating = async () =>
+			await shell(
+				host,
+				{ ...as, timeoutMs: ARTIFACT_STEP_TIMEOUT_MS },
+				truncateCommand(BOT, PLAYER_LIST_FILE_DEFAULT, memory.state.cursor),
+			)
+		const gone = await truncating()
+		const after = succeeded(
+			await shell(host, as, 'ls -A -- "$1" | sort | tr "\\n" " "', BOT_DIR),
+			"listing the bot's directory again",
+		)
+
+		succeeded(await shell(host, as, '(umask 077; : > "$1")', LOCK), "restoring the bot's lock")
+		const holding = shell(
+			host,
+			{ ...as, timeoutMs: 60_000 },
+			'/usr/bin/flock -w 30 "$1" sleep 8',
+			LOCK,
+		)
+		succeeded(
+			await shell(
+				host,
+				as,
+				'for attempt in $(seq 100); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1',
+				LOCK,
+			),
+			"waiting for the unit's own flock to take the lock",
+		)
+		const held = await truncating()
+		const whileHeld = succeeded(await shell(host, as, 'cat -- "$1"', list), "reading the list")
+		succeeded(await holding, "holding the lock the way the unit does")
+		const free = await truncating()
+
+		expect({
+			collected: swept.swept?.collected,
+			failed: swept.swept?.failed,
+			gone: gone.status,
+			lockRecreated: after.split(" ").includes("collect.lock"),
+			directoryUnchanged: after === before,
+			held: held.status,
+			whileHeld,
+			free: free.status,
+			emptied: succeeded(await shell(host, as, 'cat -- "$1"', list), "reading the list"),
+		}).toEqual({
+			collected: 1,
+			failed: 1,
+			gone: TRUNCATE_LOCK_MISSING_EXIT,
+			lockRecreated: false,
+			directoryUnchanged: true,
+			held: 1,
+			whileHeld: text,
+			free: 0,
+			emptied: "",
+		})
 	})
 
 	it("★ ends a deadline's TERM as exit 124 and its KILL as exit 137, a status the account's login shell reports rather than a signal", async () => {

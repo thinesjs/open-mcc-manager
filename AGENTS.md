@@ -970,10 +970,13 @@ what it is called:
   to 0, and the same sweep reads again. Once both units are `inactive` or
   `failed` and the whole file is stored, one exec empties it under
   `collect.lock` and `withDeadline(2, 10, …)`, re-checking both units, the size
-  and the fingerprint inside the lock; the cursor then resets. The unit's
-  `ExecStartPre` takes the same lock, so a start cannot pass it while the
-  truncate runs, and a start that passed first is `activating`. Every SSH step
-  stays outside the transaction: read, then commit, then truncate.
+  and the fingerprint inside the lock; the cursor then resets. It takes that
+  lock on a descriptor of a file that must already exist, so it can never
+  create one, and a bot whose `collect.lock` has gone is reported `failed`
+  until its next start remakes it. The unit's `ExecStartPre` takes the same
+  lock, so a start cannot pass it while the truncate runs, and a start that
+  passed first is `activating`. Every SSH step stays outside the transaction:
+  read, then commit, then truncate.
 - `ChatBot.ReplayCapture` writes finished `.mcpr` archives to
   `replay_recordings/`, mounted from the instance's `replays/`, and a raw
   packet stream to `recording_cache/<run>/recording.tmcpr`, mounted from
@@ -1031,9 +1034,9 @@ what it is called:
 The sweep re-reads the host before each bot, and again before that bot's
 truncate, replays and Mailer, and stops touching a host once its removal is
 requested (`artifact-collect.job.test.ts`). One exec already under way can still
-land inside teardown's delete, such as a truncate whose `flock` recreates
-`collect.lock`; that teardown attempt then fails, and its retry covers it. A
-single bot's removal that races a sweep can still fail once; its retry succeeds.
+land inside teardown's delete, but no collector command creates an entry inside
+a bot's directory, so a sweep makes neither a removal's `rm -rf` nor teardown's
+fail.
 
 A file on a host is attacker-influenced — a player's chat reaches
 `PlayerListLogger` through the tab list and `Mailer` through a private message —

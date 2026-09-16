@@ -185,10 +185,11 @@ have:
 | No sandbox container is killed or force-removed | `scripts/sandbox/sandbox.test.ts` — the same guard refuses `kill` and `restart`, an `rm` or `remove` carrying `--force`, `--force=…` or a short-flag group containing `f`, and any `stop` that is not `stop --timeout -1` or that carries `--signal` or `-s`, each with or without the `container` prefix, and the harness's own stop arguments are checked against it. A direct `spawn("docker", ...)` would go around it |
 | A host-side deadline on removal's and teardown's deletes, ending inside the manager's wait | `packages/core/src/instance/removal.test.ts` and `packages/core/src/host/teardown.test.ts` — each reads `timeout -k <k> <n>` off the commands a removal renders or a real `tearDownHost` issues, and requires `n + k` below that exec's wait; `packages/core/src/host/deadline.test.ts` pins the wrapper's shape. It proves the arithmetic, NOT that a host kills anything: `removal.sandbox.ts` and `collector.sandbox.ts` prove that, outside `pnpm test` |
 | The teardown queue retrying only after its longest host deadline | `packages/core/src/job/queue-setup.test.ts` — reads `retryLimit` 2 and `retryDelay` 60 off the reconciled queue and takes the longest deadline from the commands a real `tearDownHost` issues, so a deadline longer than the delay fails it |
+| A new bot claimed by the statement that makes it visible | `packages/core/src/instance/instance.repository.test.ts` — on a real database the row `insert` returns already carries the claim id it was given and a `configClaimedAt` between two readings of the database's own `clock_timestamp()`, and every one of `claimForConfig`, `claimForLifecycle` and `claimForAuth` is refused against it, so inserting the row unclaimed fails it. That the claim is one statement and not two is held by the **type**, not by this test: `insert` requires a claim id and `InstanceCreateValues` omits both claim columns, so no caller can open the window, and a two-statement rewrite inside the repository leaves every test green |
 | A config claim taken before the version it guards is read | `packages/core/src/instance/instance.repository.test.ts` — on a real database a finalize is held open on the row while `takeConfigClaim` runs against it, so comparing before claiming reads the version that finalize is replacing and fails the test |
-| No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart and a stop | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
-| No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart and a stop | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
-| Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart and a stop, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
+| No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
+| No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
+| Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -425,10 +426,23 @@ Dependency direction is one-way: router → controller → repository.
   and the status is part of the same `UPDATE` that gives the claim back, so a
   manager stop and a manager start can no longer leave the row saying `running`
   over a stopped unit. A start issued while a removal holds the claim is
-  refused as busy. What the claim excludes is every other *manager* actor, not
-  the host's own systemd — a sleep timer or a `Restart=on-failure` start is
-  still unclaimed — which is why a removal goes on relying on the timer step,
-  the stop that cancels a `Restart=on-failure`, and the second verify.
+  refused as busy. Creation takes the claim in the `INSERT` itself rather than
+  in a statement after it, so the row becomes visible already carrying a claim
+  id and a `clock_timestamp()` stamp and there is no instant at which a bot
+  still being built is free for a save, a start, a restart, a stop, a removal or
+  a sign-in. Its four layout steps run under that claim and one pooled
+  `finalizeConfigClaim` gives it back, with no status and no audit event beside
+  it because the insert's own transaction already wrote both. A creation that
+  fails partway leaves the row and its version 1 behind, as it always did, and
+  leaves the claim with them for as long as the keep rule below holds it. Past
+  the lease another actor can take the row over, and creation's finalize then
+  matches nothing and reports the create busy. The bot exists by then, so an
+  operator who retries the create gets a second bot on a second port rather
+  than the one they meant to finish. What the claim excludes is every other
+  *manager* actor, not the host's own systemd — a sleep timer or a
+  `Restart=on-failure` start is still unclaimed — which is why a removal goes
+  on relying on the timer step, the stop that cancels a `Restart=on-failure`,
+  and the second verify.
   A start rewrites `env` only when the host reports the unit stopped: the same
   exec that would write the file first reads `ActiveState` against
   `RUNNING_UNIT_STATES`, answers `kept` for any running state — `activating`

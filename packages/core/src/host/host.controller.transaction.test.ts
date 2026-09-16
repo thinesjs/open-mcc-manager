@@ -2110,10 +2110,10 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 				return fn({
 					instances: {
 						...instances,
-						insert: async (scope, values) => {
+						insert: async (scope, values, claimId) => {
 							signalInserting()
 							await insertGate
-							return await instances.insert(scope, values)
+							return await instances.insert(scope, values, claimId)
 						},
 					},
 					schedules: createScheduleRepository(tx),

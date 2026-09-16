@@ -38,7 +38,9 @@ let nextPort = 33333
 
 const seedInstance = async (organizationId: string, hostId: string) => {
 	nextPort += 1
-	const row = await createInstanceRepository(testDb()).insert(
+	const instances = createInstanceRepository(testDb())
+	const claimId = `seed-${Math.random().toString(36).slice(2, 10)}`
+	const row = await instances.insert(
 		{ organizationId },
 		{
 			hostId,
@@ -47,9 +49,12 @@ const seedInstance = async (organizationId: string, hostId: string) => {
 			minecraftUsername: null,
 			liveControlPort: nextPort,
 		},
+		claimId,
 	)
 	trackInstanceId(row.id)
-	return row
+	const settled = await instances.finalizeConfigClaim({ organizationId }, row.id, claimId, {})
+	if (!settled) throw new Error(`Seeded instance ${row.id} kept its claim`)
+	return settled
 }
 
 const backdateAuthClaim = async (id: string, ageMs: number): Promise<void> => {
@@ -68,6 +73,13 @@ const backdateConfigClaim = async (id: string, ageMs: number): Promise<void> => 
 		})
 		.where("id", "=", id)
 		.execute()
+}
+
+const databaseNowOn = async (executor: Executor): Promise<Date> => {
+	const read = await sql<{ at: Date }>`select clock_timestamp()::timestamp as at`.execute(executor)
+	const row = read.rows[0]
+	if (!row) throw new Error("the database returned no clock reading")
+	return row.at
 }
 
 const storedInstance = async (id: string) => {
@@ -240,6 +252,68 @@ describe("config claim fencing", () => {
 		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
 		const reclaimed = await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-2")
 		expect(reclaimed?.configClaimId).toBe("claim-2")
+	})
+})
+
+describe("a new bot is claimed by the statement that makes it visible", () => {
+	const insertClaimedOn = async (executor: Executor, claimId: string) => {
+		nextPort += 1
+		const row = await createInstanceRepository(executor).insert(
+			{ organizationId: orgA },
+			{
+				hostId: hostA,
+				name: `inst-${Math.random().toString(36).slice(2, 10)}`,
+				minecraftAccount: "a@b.com",
+				minecraftUsername: null,
+				liveControlPort: nextPort,
+			},
+			claimId,
+		)
+		trackInstanceId(row.id)
+		return row
+	}
+
+	const insertClaimed = async (claimId: string) => await insertClaimedOn(testDb(), claimId)
+
+	it("returns the row already holding the claim it was inserted under", async () => {
+		const row = await insertClaimed("create-1")
+		expect(row.configClaimId).toBe("create-1")
+		expect((await storedInstance(row.id)).configClaimId).toBe("create-1")
+	})
+
+	it("refuses another claimant from the moment the row exists", async () => {
+		const row = await insertClaimed("create-1")
+		expect(await repo.claimForConfig({ organizationId: orgA }, row.id, "other")).toBeUndefined()
+		expect(await repo.claimForLifecycle({ organizationId: orgA }, row.id, "other")).toBeUndefined()
+		expect(await repo.claimForAuth({ organizationId: orgA }, row.id, "sign-in")).toBeUndefined()
+	})
+
+	it("leases that claim, so a creation that never finished is reclaimable", async () => {
+		const row = await insertClaimed("create-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		expect(
+			(await repo.claimForConfig({ organizationId: orgA }, row.id, "other"))?.configClaimId,
+		).toBe("other")
+	})
+
+	it("stamps the claim from the database clock, not the clock the server runs on", async () => {
+		const oneHourOffTheServer = 1 - new Date().getTimezoneOffset() / 60
+
+		const { before, stamped, after } = await testDb()
+			.transaction()
+			.execute(async (tx) => {
+				await sql`set local time zone interval ${sql.lit(`${oneHourOffTheServer} hours`)}`.execute(
+					tx,
+				)
+				const before = await databaseNowOn(tx)
+				const row = await insertClaimedOn(tx, "create-1")
+				const after = await databaseNowOn(tx)
+				return { before, stamped: row.configClaimedAt, after }
+			})
+
+		expect(stamped).toBeInstanceOf(Date)
+		expect(stamped?.getTime()).toBeGreaterThanOrEqual(before.getTime())
+		expect(stamped?.getTime()).toBeLessThanOrEqual(after.getTime())
 	})
 })
 

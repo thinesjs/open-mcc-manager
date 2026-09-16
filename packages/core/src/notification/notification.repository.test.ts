@@ -365,15 +365,40 @@ describe("paginating alerts that did not arrive", () => {
 	it("pages through failures with no gap or overlap and counts only its own organization", async () => {
 		const org = await seedOrganization("alerts-page")
 		const destination = await seedDestination(org)
+		const sharedSettledAt = daysAgo(1)
 		for (let i = 0; i < 25; i += 1) {
 			const created = await seedNotification(org, daysAgo(1))
 			await seedDelivery(org, {
 				notificationId: created,
 				destinationId: destination,
 				state: "failed",
-				settledAt: new Date(Date.now() - i * 1000),
+				settledAt: sharedSettledAt,
 			})
 		}
+
+		const delivered = await seedNotification(org, daysAgo(1))
+		const abandoned = await seedNotification(org, daysAgo(1))
+		const queued = await seedNotification(org, daysAgo(1))
+		const notFailed = [
+			await seedDelivery(org, {
+				notificationId: delivered,
+				destinationId: destination,
+				state: "delivered",
+				settledAt: daysAgo(1),
+			}),
+			await seedDelivery(org, {
+				notificationId: abandoned,
+				destinationId: destination,
+				state: "abandoned",
+				settledAt: daysAgo(1),
+			}),
+			await seedDelivery(org, {
+				notificationId: queued,
+				destinationId: destination,
+				state: "queued",
+				settledAt: null,
+			}),
+		]
 
 		const other = await seedOrganization("alerts-page-other")
 		const otherDestination = await seedDestination(other)
@@ -402,6 +427,15 @@ describe("paginating alerts that did not arrive", () => {
 			.map((row) => row.settledAt ?? "")
 			.every((value, index, all) => index === 0 || (all[index - 1] ?? "") >= value)
 		expect(settledInOrder).toBe(true)
+
+		const combinedIds = [...firstPage, ...secondPage].map((row) => row.deliveryId)
+		const idsDescending = [...combinedIds].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+		expect(combinedIds).toEqual(idsDescending)
+
+		for (const deliveryId of notFailed) {
+			expect(firstIds).not.toContain(deliveryId)
+			expect(secondIds).not.toContain(deliveryId)
+		}
 
 		expect(firstIds).not.toContain(otherDelivery)
 		expect(secondIds).not.toContain(otherDelivery)

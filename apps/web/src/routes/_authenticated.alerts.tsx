@@ -6,7 +6,7 @@ import {
 	SUBSCRIPTION_LABELS,
 	type SubscriptionKind,
 } from "@open-mcc/contracts"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
 	BellRing,
@@ -118,7 +118,10 @@ function AlertsPage() {
 	const setEnabled = useMutation(trpc.notification.setEnabled.mutationOptions())
 	const rotate = useMutation(trpc.notification.rotateSecret.mutationOptions())
 	const test = useMutation(trpc.notification.test.mutationOptions())
-	const failures = useQuery(trpc.notification.failures.queryOptions({ offset: failuresOffset }))
+	const failures = useQuery({
+		...trpc.notification.failures.queryOptions({ offset: failuresOffset }),
+		placeholderData: keepPreviousData,
+	})
 	const retry = useMutation(trpc.notification.retry.mutationOptions())
 	const dismiss = useMutation(trpc.notification.dismiss.mutationOptions())
 
@@ -149,19 +152,20 @@ function AlertsPage() {
 		queryClient.invalidateQueries({ queryKey: trpc.notification.failures.queryKey() })
 	}, [queryClient, trpc])
 
-	const refreshFailures = () => {
-		if (failuresOffset > 0 && failures.data?.items.length === 1) {
-			setFailuresOffset((current) => Math.max(0, current - FAILURES_PAGE_SIZE))
-		}
-		refresh()
-	}
-
 	useEffect(() => {
 		if (testing === undefined) return
 		setWaitedLongEnough(false)
 		const timer = window.setTimeout(() => setWaitedLongEnough(true), TEST_POLL_BUDGET_MS)
 		return () => window.clearTimeout(timer)
 	}, [testing])
+
+	useEffect(() => {
+		const total = failures.data?.total
+		if (total === undefined) return
+		const lastPage =
+			total === 0 ? 0 : Math.floor((total - 1) / FAILURES_PAGE_SIZE) * FAILURES_PAGE_SIZE
+		if (failuresOffset > lastPage) setFailuresOffset(lastPage)
+	}, [failures.data?.total, failuresOffset])
 
 	const testFinished = outcome?.kind === "arrived" || outcome?.kind === "did-not-arrive"
 
@@ -407,10 +411,7 @@ function AlertsPage() {
 											variant="outline"
 											disabled={retry.isPending}
 											onClick={() =>
-												retry.mutate(
-													{ deliveryId: failure.deliveryId },
-													{ onSuccess: refreshFailures },
-												)
+												retry.mutate({ deliveryId: failure.deliveryId }, { onSuccess: refresh })
 											}
 										>
 											Send again
@@ -422,10 +423,7 @@ function AlertsPage() {
 											variant="ghost"
 											disabled={dismiss.isPending}
 											onClick={() =>
-												dismiss.mutate(
-													{ deliveryId: failure.deliveryId },
-													{ onSuccess: refreshFailures },
-												)
+												dismiss.mutate({ deliveryId: failure.deliveryId }, { onSuccess: refresh })
 											}
 										>
 											Dismiss

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Route } from "./_authenticated.alerts"
@@ -134,6 +134,14 @@ describe("how many alerts did not arrive", () => {
 		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
 		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
 	})
+
+	it("hides the whole section when there are no failures at all", async () => {
+		seedFailures(0)
+		await mount()
+
+		await screen.findByText("No destinations")
+		expect(screen.queryByText("Alerts that did not arrive")).toBeNull()
+	})
 })
 
 describe("paging through alerts that did not arrive", () => {
@@ -164,9 +172,47 @@ describe("paging through alerts that did not arrive", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
 
-		await waitFor(() => expect(screen.queryByText(/of 21/)).toBeNull())
-		expect(countBeside("Alerts that did not arrive")).toBe("20")
-		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+		await waitFor(() => {
+			expect(countBeside("Alerts that did not arrive")).toBe("20")
+			expect(screen.queryByText(/of 21/)).toBeNull()
+			expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+		})
 		expect(screen.getByText("Alert 0")).toBeDefined()
+	})
+
+	it("recovers to a valid page, not an empty box, when the total drops out from under the offset", async () => {
+		seedFailures(25)
+		const client = await mount()
+
+		await screen.findByText("1–20 of 25")
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await screen.findByText("21–25 of 25")
+
+		failureRows = failureRows.slice(0, 19)
+		await act(() => client.refetchQueries())
+
+		await waitFor(() => expect(countBeside("Alerts that did not arrive")).toBe("19"))
+		expect(screen.getByText("Alert 0")).toBeDefined()
+		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
+		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
+	})
+
+	it("never settles on a nonsense range when the total drops more than a page behind the offset", async () => {
+		seedFailures(45)
+		const client = await mount()
+
+		await screen.findByText("1–20 of 45")
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await screen.findByText("21–40 of 45")
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await screen.findByText("41–45 of 45")
+
+		failureRows = failureRows.slice(0, 25)
+		await act(() => client.refetchQueries())
+
+		await waitFor(() => expect(screen.queryByText("41–40 of 25")).toBeNull())
+		await screen.findByText("21–25 of 25")
+		expect(screen.getByText("Alert 20")).toBeDefined()
+		expect(screen.getByRole("button", { name: "Next" })).toHaveProperty("disabled", true)
 	})
 })

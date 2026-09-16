@@ -14,10 +14,12 @@ import {
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
+	InstanceBusyError,
 	type InstanceControllerDeps,
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
+import { isAuthClaimStale } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
 import {
 	authUnitName,
@@ -116,6 +118,10 @@ export const beginAuthentication = async (
 	const attemptId = randomUUID()
 	const claimed = await deps.instances.claimForAuth(scope, instanceId, attemptId)
 	if (!claimed) {
+		const held = await deps.instances.findById(scope, instanceId)
+		if (held && isAuthClaimStale(held.authClaimedAt)) {
+			throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+		}
 		throw new InstanceAuthInProgressError(
 			`Instance ${instanceId} is already being authenticated; the claim has not gone stale`,
 		)

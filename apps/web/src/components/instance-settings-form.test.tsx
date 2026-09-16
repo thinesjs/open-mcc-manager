@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { InstanceConfigInput } from "@open-mcc/contracts"
-import { instanceConfigInput, updateInstanceConfigInput } from "@open-mcc/contracts"
+import type { InstanceConfigInput, InstanceConfigView } from "@open-mcc/contracts"
+import {
+	instanceConfigInput,
+	instanceConfigStored,
+	updateInstanceConfigInput,
+} from "@open-mcc/contracts"
 import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { INSTANCE_SETTING_LABELS } from "~/lib/bot-config-fields"
 import { InstanceSettingsForm } from "./instance-settings-form"
 
@@ -119,7 +123,13 @@ vi.mock("~/lib/trpc", () => ({
 	}),
 }))
 
-const mount = (advancedKeys: AdvancedKeys) => {
+type RefetchConfig = () => Promise<InstanceConfigView | null>
+
+const mount = (
+	advancedKeys: AdvancedKeys,
+	version = 1,
+	onSaved: RefetchConfig = async () => null,
+) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	return render(
 		<QueryClientProvider client={client}>
@@ -127,8 +137,8 @@ const mount = (advancedKeys: AdvancedKeys) => {
 				key="i1"
 				instanceId="i1"
 				config={{ ...CONFIG, advancedKeys }}
-				version={1}
-				onSaved={async () => undefined}
+				version={version}
+				onSaved={onSaved}
 			/>
 		</QueryClientProvider>,
 	)
@@ -138,6 +148,7 @@ const remount = (
 	rerender: (element: React.ReactElement) => void,
 	instanceId: string,
 	config: InstanceConfigInput,
+	version = 1,
 ) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	rerender(
@@ -146,8 +157,27 @@ const remount = (
 				key={instanceId}
 				instanceId={instanceId}
 				config={config}
-				version={1}
-				onSaved={async () => undefined}
+				version={version}
+				onSaved={async () => null}
+			/>
+		</QueryClientProvider>,
+	)
+}
+
+const rerenderWith = (
+	rerender: (element: React.ReactElement) => void,
+	version: number,
+	onSaved: RefetchConfig = async () => null,
+) => {
+	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+	rerender(
+		<QueryClientProvider client={client}>
+			<InstanceSettingsForm
+				key="i1"
+				instanceId="i1"
+				config={{ ...CONFIG, advancedKeys: {} }}
+				version={version}
+				onSaved={onSaved}
 			/>
 		</QueryClientProvider>,
 	)
@@ -162,6 +192,10 @@ const sentConfig = () => mutate.mock.calls[0]?.[0]?.config
 
 const advancedRowOf = (label: string) =>
 	screen.getAllByRole("combobox").find((trigger) => trigger.textContent === label)
+
+beforeEach(() => {
+	mutate.mockResolvedValue({ version: 2 })
+})
 
 afterEach(() => {
 	cleanup()
@@ -310,5 +344,83 @@ describe("discarding an edit", () => {
 
 		expect(screen.getByLabelText("Server address")).toHaveProperty("value", CONFIG.serverAddress)
 		expect(screen.getByText("Discard changes")).toHaveProperty("disabled", true)
+	})
+})
+
+describe("★ the version a save is made against", () => {
+	const expectedVersions = () =>
+		mutate.mock.calls.map((call) => updateInstanceConfigInput.parse(call[0]).expectedVersion)
+
+	it("★ posts the version the form was opened at, not the one that arrived meanwhile", async () => {
+		const { rerender } = mount({}, 7)
+
+		rerenderWith(rerender, 8)
+		await save()
+
+		expect(expectedVersions()).toEqual([7])
+	})
+
+	it("★ posts the version the last save returned, so a second save is not a stale one", async () => {
+		mount({}, 7)
+		mutate.mockResolvedValue({ version: 8 })
+
+		await save()
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 8])
+	})
+
+	it("★ posts the refreshed version after a conflict, not a version read a second time", async () => {
+		const refetched = vi
+			.fn<() => Promise<InstanceConfigView | null>>()
+			.mockResolvedValueOnce({ config: instanceConfigStored.parse(CONFIG), version: 9 })
+			.mockResolvedValue({ config: instanceConfigStored.parse(CONFIG), version: 11 })
+		mount({}, 7, refetched)
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 9])
+	})
+
+	it("★ keeps the version it holds when the bot is busy, so the retry is not a stale save", async () => {
+		const refetched = async () => ({
+			config: instanceConfigStored.parse(CONFIG),
+			version: 9,
+		})
+		mount({}, 7, refetched)
+		mutate.mockRejectedValueOnce({
+			message: "busy",
+			data: { errorCode: "INSTANCE_BUSY" },
+		})
+
+		await save()
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 7])
+	})
+
+	it("★ leaves a pending save on the last instance unable to write this one's version", async () => {
+		let resolveFirst = (_result: { version: number }): void => undefined
+		mutate.mockImplementationOnce(
+			async () =>
+				await new Promise<{ version: number }>((resolve) => {
+					resolveFirst = resolve
+				}),
+		)
+		const { rerender } = mount({}, 7)
+
+		await save()
+		remount(rerender, "i2", instanceConfigInput.parse(CONFIG), 3)
+		await act(async () => {
+			resolveFirst({ version: 8 })
+		})
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 3])
 	})
 })

@@ -1,13 +1,15 @@
 import {
 	type InstanceConfigInput,
+	type InstanceConfigView,
 	instanceConfigInput,
+	instanceConfigStored,
 	type UpdateBotConfigInput,
 	updateBotConfigInput,
 } from "@open-mcc/contracts"
 import type { AdvancedKeys } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BotConfigPanel } from "./bot-config-panel"
 
 const mutate = vi.fn()
@@ -38,7 +40,14 @@ const configWith = (logFile: string): InstanceConfigInput =>
 		},
 	})
 
-const mount = (instanceId: string, config: InstanceConfigInput) => {
+type RefetchConfig = () => Promise<InstanceConfigView | null>
+
+const mount = (
+	instanceId: string,
+	config: InstanceConfigInput,
+	version = 1,
+	onSaved: RefetchConfig = async () => null,
+) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	return render(
 		<QueryClientProvider client={client}>
@@ -46,8 +55,8 @@ const mount = (instanceId: string, config: InstanceConfigInput) => {
 				key={instanceId}
 				instanceId={instanceId}
 				config={config}
-				version={1}
-				onSaved={async () => undefined}
+				version={version}
+				onSaved={onSaved}
 			/>
 		</QueryClientProvider>,
 	)
@@ -57,6 +66,7 @@ const remount = (
 	rerender: (element: React.ReactElement) => void,
 	instanceId: string,
 	config: InstanceConfigInput,
+	version = 1,
 ) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	rerender(
@@ -65,8 +75,8 @@ const remount = (
 				key={instanceId}
 				instanceId={instanceId}
 				config={config}
-				version={1}
-				onSaved={async () => undefined}
+				version={version}
+				onSaved={async () => null}
 			/>
 		</QueryClientProvider>,
 	)
@@ -103,6 +113,10 @@ const turnOn = (section: string) => {
 }
 
 const HUNGER = "Eat when hunger drops to"
+
+beforeEach(() => {
+	mutate.mockResolvedValue({ version: 2 })
+})
 
 afterEach(() => {
 	cleanup()
@@ -336,5 +350,46 @@ describe("moving to another instance without the page being rebuilt", () => {
 			"value",
 			"still-being-typed.txt",
 		)
+	})
+})
+
+describe("★ the version a bots save is made against", () => {
+	const expectedVersions = () =>
+		mutate.mock.calls.map((call) => updateBotConfigInput.parse(call[0]).expectedVersion)
+
+	it("★ posts the version the panel was opened at, not the one that arrived meanwhile", async () => {
+		const { rerender } = mount("i1", PARSED_BASE, 7)
+
+		remount(rerender, "i1", PARSED_BASE, 8)
+		await save()
+
+		expect(expectedVersions()).toEqual([7])
+	})
+
+	it("★ posts the version the last save returned, so a second save is not a stale one", async () => {
+		mount("i1", PARSED_BASE, 7)
+		mutate.mockResolvedValue({ version: 8 })
+
+		await save()
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 8])
+	})
+
+	it("★ posts the refreshed version after a conflict, not a version read a second time", async () => {
+		const refetched = vi
+			.fn<() => Promise<InstanceConfigView | null>>()
+			.mockResolvedValueOnce({ config: instanceConfigStored.parse(PARSED_BASE), version: 9 })
+			.mockResolvedValue({ config: instanceConfigStored.parse(PARSED_BASE), version: 11 })
+		mount("i1", PARSED_BASE, 7, refetched)
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+		await save()
+
+		expect(expectedVersions()).toEqual([7, 9])
 	})
 })

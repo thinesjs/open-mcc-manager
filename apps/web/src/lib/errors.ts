@@ -86,6 +86,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	INSTANCE_SIGN_IN_RUNNING: "Sign-in is running. Try again when it's done.",
 	INSTANCE_CONCURRENTLY_MODIFIED:
 		"This instance was changed by someone else. Refresh and try again.",
+	INSTANCE_BUSY: "This bot is busy with another change. Try again in a moment.",
 	INSTANCE_STILL_IN_USE:
 		"Something on the host is still using this instance, so it was not removed. Try again in a moment.",
 	INSTANCE_REMOVAL_FAILED:
@@ -98,6 +99,11 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	MEMBER_ALREADY_INVITED: "That person is already a member or already has an invitation.",
 	INVITATION_EMAIL_HAS_ACCOUNT: "This email already has an account here.",
 	CONSTRAINT_VIOLATION: "That change conflicts with data already stored. Refresh and try again.",
+}
+
+export const errorCodeOf = (error: TRPCErrorLike): ErrorCode | undefined => {
+	const errorCode = error.data?.errorCode
+	return isErrorCode(errorCode) ? errorCode : undefined
 }
 
 const FALLBACK_MESSAGE = "Something went wrong. Please try again."

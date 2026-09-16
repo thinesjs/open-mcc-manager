@@ -29,6 +29,7 @@ import {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceBotConfigUnusableError,
+	InstanceBusyError,
 	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,
@@ -112,6 +113,11 @@ const CONSTRAINT_VIOLATIONS: Record<string, MappedError> = {
 		"CONFLICT",
 		"HOST_HAS_INSTANCES",
 		"That host still has instances on it; remove them first",
+	),
+	instanceConfig_instance_version_unique: mapped(
+		"CONFLICT",
+		"INSTANCE_CONCURRENTLY_MODIFIED",
+		"This instance was changed by someone else. Refresh and try again",
 	),
 }
 
@@ -334,6 +340,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_SIGN_IN_RUNNING",
 			"Sign-in is running for this instance; try again when it is done",
+		)
+	}
+	if (cause instanceof InstanceBusyError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_BUSY",
+			"This instance is busy with another change; try again in a moment",
 		)
 	}
 	if (cause instanceof InstanceConcurrentlyModifiedError) {

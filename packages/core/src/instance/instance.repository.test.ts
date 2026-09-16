@@ -1,3 +1,4 @@
+import type { Executor } from "@open-mcc/db"
 import { sql } from "kysely"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
@@ -9,6 +10,7 @@ import {
 	trackInstanceConfigId,
 	trackInstanceId,
 } from "../test/db"
+import { InstanceConcurrentlyModifiedError, takeConfigClaim } from "./instance.controller"
 import {
 	AUTH_LEASE_MS,
 	CONFIG_CLAIM_LEASE_MS,
@@ -447,5 +449,89 @@ describe("versioned config", () => {
 		)
 		trackInstanceConfigId(cfg.id)
 		expect(await repo.latestConfig({ organizationId: orgB }, row.id)).toBeUndefined()
+	})
+})
+
+describe("takeConfigClaim against a finalize still holding the row", () => {
+	const waitingPids = async (pid: number): Promise<number> => {
+		const answer = await sql<{
+			blocked: number
+		}>`select count(*)::int as blocked from pg_locks where pid = ${pid} and not granted`.execute(
+			testDb(),
+		)
+		return answer.rows[0]?.blocked ?? 0
+	}
+
+	const backendPid = async (tx: Executor): Promise<number> => {
+		const answer = await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(tx)
+		return answer.rows[0]?.pid ?? 0
+	}
+
+	it("claims before it compares, so it never reads a version an open finalize is replacing", async () => {
+		const member = await seedMember(orgA)
+		const scope = { organizationId: orgA }
+		const row = await seedInstance(orgA, hostA)
+		const first = await repo.insertConfigVersion(
+			scope,
+			row.id,
+			JSON.stringify({ serverAddress: "one.example.com" }),
+			{ authorId: member, authorLabel: "author@example.com" },
+		)
+		trackInstanceConfigId(first.id)
+		await repo.claimForConfig(scope, row.id, "claim-a")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+
+		let releaseFinalize = (): void => undefined
+		const held = new Promise<void>((resolve) => {
+			releaseFinalize = resolve
+		})
+
+		const finalizing = testDb()
+			.transaction()
+			.execute(async (tx) => {
+				const inTransaction = createInstanceRepository(tx)
+				await inTransaction.finalizeConfigClaim(scope, row.id, "claim-a", {})
+				const second = await inTransaction.insertConfigVersion(
+					scope,
+					row.id,
+					JSON.stringify({ serverAddress: "two.example.com" }),
+					{ authorId: member, authorLabel: "author@example.com" },
+				)
+				trackInstanceConfigId(second.id)
+				await held
+			})
+
+		let claimingPid = 0
+		const claiming = testDb()
+			.transaction()
+			.execute(async (tx) => {
+				claimingPid = await backendPid(tx)
+				return await takeConfigClaim(
+					{ instances: createInstanceRepository(tx) },
+					scope,
+					row.id,
+					"claim-b",
+					{ expectedVersion: 1 },
+				)
+			})
+
+		let blocked = 0
+		try {
+			for (let attempt = 0; attempt < 500 && blocked === 0; attempt += 1) {
+				blocked = await waitingPids(claimingPid)
+			}
+		} finally {
+			releaseFinalize()
+		}
+
+		await finalizing
+		const settled = await claiming.then(
+			() => "the claim was allowed",
+			(error: Error) => error,
+		)
+
+		expect(blocked).toBeGreaterThan(0)
+		expect(settled).toBeInstanceOf(InstanceConcurrentlyModifiedError)
+		expect((await repo.latestConfig(scope, row.id))?.version).toBe(2)
 	})
 })

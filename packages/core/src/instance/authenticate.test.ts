@@ -27,6 +27,7 @@ import {
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
+	InstanceBusyError,
 	type InstanceControllerDeps,
 	InstanceHostNotFoundError,
 } from "./instance.controller"
@@ -310,7 +311,7 @@ describe("beginAuthentication", () => {
 		expect(JSON.stringify(result)).not.toContain("eyJ")
 	})
 
-	it("refuses a second authentication while a claim is live", async () => {
+	const refusingClaim = (held: InstanceRow) => {
 		const { deps } = makeDeps(DEVICE_CODE_OUTPUT)
 		deps.instances.claimForAuth = vi.fn(
 			async (
@@ -319,9 +320,24 @@ describe("beginAuthentication", () => {
 				_attemptId: string,
 			): Promise<ReturnType<typeof instanceRow> | undefined> => undefined,
 		)
+		deps.instances.findById = vi.fn(async () => held)
+		return deps
+	}
+
+	it("refuses a second authentication while a sign-in claim is live", async () => {
+		const deps = refusingClaim(instanceRow({ authClaimId: "attempt-0", authClaimedAt: new Date() }))
 		await expect(
 			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
 		).rejects.toThrow(InstanceAuthInProgressError)
+	})
+
+	it("refuses a sign-in that a live config claim is holding up, as busy rather than as a sign-in", async () => {
+		const deps = refusingClaim(
+			instanceRow({ configClaimId: "claim-1", configClaimedAt: new Date() }),
+		)
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(InstanceBusyError)
 	})
 
 	it("releases the claim when the session fails, rather than holding it for the whole lease", async () => {

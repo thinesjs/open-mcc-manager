@@ -163,7 +163,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixteen rules stated further down this document are enforced too, and are listed
+Twenty rules stated further down this document are enforced too, and are listed
 here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -185,6 +185,10 @@ have:
 | No sandbox container is killed or force-removed | `scripts/sandbox/sandbox.test.ts` — the same guard refuses `kill` and `restart`, an `rm` or `remove` carrying `--force`, `--force=…` or a short-flag group containing `f`, and any `stop` that is not `stop --timeout -1` or that carries `--signal` or `-s`, each with or without the `container` prefix, and the harness's own stop arguments are checked against it. A direct `spawn("docker", ...)` would go around it |
 | A host-side deadline on removal's and teardown's deletes, ending inside the manager's wait | `packages/core/src/instance/removal.test.ts` and `packages/core/src/host/teardown.test.ts` — each reads `timeout -k <k> <n>` off the commands a removal renders or a real `tearDownHost` issues, and requires `n + k` below that exec's wait; `packages/core/src/host/deadline.test.ts` pins the wrapper's shape. It proves the arithmetic, NOT that a host kills anything: `removal.sandbox.ts` and `collector.sandbox.ts` prove that, outside `pnpm test` |
 | The teardown queue retrying only after its longest host deadline | `packages/core/src/job/queue-setup.test.ts` — reads `retryLimit` 2 and `retryDelay` 60 off the reconciled queue and takes the longest deadline from the commands a real `tearDownHost` issues, so a deadline longer than the delay fails it |
+| A config claim taken before the version it guards is read | `packages/core/src/instance/instance.repository.test.ts` — on a real database a finalize is held open on the row while `takeConfigClaim` runs against it, so comparing before claiming reads the version that finalize is replacing and fails the test |
+| No repository call on the pool while a transaction is open, for either save | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories and every `deps.instances.*` call records whether one is open, so moving a read inside the claim fails it |
+| No connect, exec or port probe while a transaction is open, for either save | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize fails it |
+| A save's claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued between the claim and the finalize and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs fails it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -396,8 +400,16 @@ Dependency direction is one-way: router → controller → repository.
   `writeTokenUnderClaim` and `deleteUnderClaim` — match on the claim id alone,
   with no freshness test, exactly as `finalizeProvisioning` does: refusing a
   late one would leave a host holding a token its row lacks, or strand a row
-  whose tree is already gone. Nothing takes the claim yet; the callers land
-  with the saves.
+  whose tree is already gone. A settings or a bots save takes it: one short
+  transaction claims the row, compares the stored version against the
+  `expectedVersion` the form posted, composes the merged document and re-parses
+  it, so a stale save, a busy bot or an unusable document rolls the claim back
+  before the host is touched at all. The write then runs with no transaction
+  open, and a second short transaction finalizes the claim, records the version
+  and writes the audit event. A failure the manager can see the end of releases
+  the claim; one that could still be running on the host keeps it until the
+  lease expires, because releasing it would let a second writer race a command
+  that has not finished.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

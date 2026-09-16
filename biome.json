@@ -10,7 +10,7 @@
 			"!**/.turbo",
 			"!**/coverage",
 			"!**/build",
-			"!**/.claude",
+			"!.claude",
 			"!**/.superpowers"
 		]
 	},

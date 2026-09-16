@@ -75,8 +75,8 @@ const backdateConfigClaim = async (id: string, ageMs: number): Promise<void> => 
 		.execute()
 }
 
-const databaseNow = async (): Promise<Date> => {
-	const read = await sql<{ at: Date }>`select clock_timestamp()::timestamp as at`.execute(testDb())
+const databaseNowOn = async (executor: Executor): Promise<Date> => {
+	const read = await sql<{ at: Date }>`select clock_timestamp()::timestamp as at`.execute(executor)
 	const row = read.rows[0]
 	if (!row) throw new Error("the database returned no clock reading")
 	return row.at
@@ -256,9 +256,9 @@ describe("config claim fencing", () => {
 })
 
 describe("a new bot is claimed by the statement that makes it visible", () => {
-	const insertClaimed = async (claimId: string) => {
+	const insertClaimedOn = async (executor: Executor, claimId: string) => {
 		nextPort += 1
-		const row = await repo.insert(
+		const row = await createInstanceRepository(executor).insert(
 			{ organizationId: orgA },
 			{
 				hostId: hostA,
@@ -272,6 +272,8 @@ describe("a new bot is claimed by the statement that makes it visible", () => {
 		trackInstanceId(row.id)
 		return row
 	}
+
+	const insertClaimed = async (claimId: string) => await insertClaimedOn(testDb(), claimId)
 
 	it("returns the row already holding the claim it was inserted under", async () => {
 		const row = await insertClaimed("create-1")
@@ -295,12 +297,21 @@ describe("a new bot is claimed by the statement that makes it visible", () => {
 	})
 
 	it("stamps the claim from the database clock, not the clock the server runs on", async () => {
-		const before = await databaseNow()
-		const row = await insertClaimed("create-1")
-		const after = await databaseNow()
+		const oneHourOffTheServer = 1 - new Date().getTimezoneOffset() / 60
 
-		const stamped = (await storedInstance(row.id)).configClaimedAt
-		expect(stamped).not.toBeNull()
+		const { before, stamped, after } = await testDb()
+			.transaction()
+			.execute(async (tx) => {
+				await sql`set local time zone interval ${sql.lit(`${oneHourOffTheServer} hours`)}`.execute(
+					tx,
+				)
+				const before = await databaseNowOn(tx)
+				const row = await insertClaimedOn(tx, "create-1")
+				const after = await databaseNowOn(tx)
+				return { before, stamped: row.configClaimedAt, after }
+			})
+
+		expect(stamped).toBeInstanceOf(Date)
 		expect(stamped?.getTime()).toBeGreaterThanOrEqual(before.getTime())
 		expect(stamped?.getTime()).toBeLessThanOrEqual(after.getTime())
 	})

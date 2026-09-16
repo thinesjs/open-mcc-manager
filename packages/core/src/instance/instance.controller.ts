@@ -1043,13 +1043,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					})
 				})
 
-				const steps = instanceLayoutSteps({
-					instanceId: created.id,
-					liveControlPort: created.liveControlPort,
-					liveControlToken,
-					configDocument: renderInstanceConfig(initialConfig),
-				})
 				return await releasingClaim(scopeOf(ctx), created.id, claimId, flight, async () => {
+					const steps = instanceLayoutSteps({
+						instanceId: created.id,
+						liveControlPort: created.liveControlPort,
+						liveControlToken,
+						configDocument: renderInstanceConfig(initialConfig),
+					})
 					for (const { command, failure, stdin } of steps) {
 						const result = await claimedExec(
 							flight,

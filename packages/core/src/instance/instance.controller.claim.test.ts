@@ -2,10 +2,12 @@ import { instanceConfigStored, instanceSettingsInput } from "@open-mcc/contracts
 import {
 	createFakeTransport,
 	createReadConnections,
+	type FakeScript,
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
 } from "@open-mcc/transport"
+import { sql } from "kysely"
 import { afterAll, describe, expect, it } from "vitest"
 import { createHostRepository } from "../host/host.repository"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -24,10 +26,17 @@ import {
 	type ActorContext,
 	createInstanceController,
 	createInstanceControllerTransaction,
+	InstanceBusyError,
 	InstanceConcurrentlyModifiedError,
 } from "./instance.controller"
-import { createInstanceRepository } from "./instance.repository"
+import { CONFIG_CLAIM_LEASE_MS, createInstanceRepository } from "./instance.repository"
 import { createScheduleRepository } from "./schedule.repository"
+import {
+	ENV_WRITTEN,
+	envWriteUnlessRunningCommand,
+	renderEnvironmentFile,
+	startUnitCommand,
+} from "./unit"
 
 const SAVED = {
 	accountType: "microsoft",
@@ -99,6 +108,11 @@ const seedBot = async (slugPrefix: string) => {
 		status: "ready",
 	})
 	trackHostId(host.id)
+	await db
+		.updateTable("host")
+		.set({ networkStack: "slirp4netns", architecture: "x64" })
+		.where("id", "=", host.id)
+		.execute()
 	nextPort += 1
 	const instances = createInstanceRepository(db)
 	const instance = await instances.insert(scope, {
@@ -122,12 +136,48 @@ const seedBot = async (slugPrefix: string) => {
 		actorLabel: "actor@example.com",
 		role: "owner",
 	}
-	return { actor, scope, instanceId: instance.id, instances }
+	return {
+		actor,
+		scope,
+		instanceId: instance.id,
+		liveControlPort: instance.liveControlPort,
+		instances,
+	}
 }
 
-const controllerOver = () => {
+const envExecOf = (instanceId: string, liveControlPort: number): string =>
+	envWriteUnlessRunningCommand(
+		instanceId,
+		renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
+		liveControlPort,
+	)
+
+const startAnswers = (instanceId: string, liveControlPort: number): FakeScript => ({
+	[envExecOf(instanceId, liveControlPort)]: {
+		stdout: `${ENV_WRITTEN}\n`,
+		stderr: "",
+		exitCode: 0,
+	},
+	[startUnitCommand(instanceId)]: {
+		stdout: "ActiveState=active\nResult=success\nSignIn=inactive\n",
+		stderr: "",
+		exitCode: 0,
+	},
+})
+
+const backdateConfigClaim = async (id: string, ageMs: number): Promise<void> => {
+	await testDb()
+		.updateTable("instance")
+		.set({
+			configClaimedAt: sql<Date>`clock_timestamp() - ${sql.lit(ageMs)} * interval '1 millisecond'`,
+		})
+		.where("id", "=", id)
+		.execute()
+}
+
+const controllerOver = (script: FakeScript = {}) => {
 	const db = testDb()
-	const transport = createFakeTransport({})
+	const transport = createFakeTransport(script)
 	return {
 		transport,
 		controller: createInstanceController({
@@ -203,5 +253,72 @@ describe("two operators saving the same bot", () => {
 
 		const claimed = await instances.claimForConfig(scope, instanceId, "next-claim")
 		expect(claimed?.configClaimId).toBe("next-claim")
+	})
+})
+
+describe("a bot started while something else wants it", () => {
+	it("refuses a save made while a start holds the same bot", async () => {
+		const { actor, instanceId, liveControlPort } = await seedBot("claim-start-holds")
+		const { controller, transport } = controllerOver(startAnswers(instanceId, liveControlPort))
+		const inner = transport.exec
+		let refused: Error | undefined
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (command.includes("MinecraftClient.ini")) {
+				refused = await controller.updateSettings(actor, instanceId, SETTINGS, 1).then(
+					() => undefined,
+					(error: Error) => error,
+				)
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await controller.start(actor, instanceId)
+
+		expect(refused).toBeInstanceOf(InstanceBusyError)
+	})
+
+	it("stores no token once the claim it minted under was taken away", async () => {
+		const { actor, scope, instanceId, liveControlPort, instances } =
+			await seedBot("claim-start-token")
+		const { controller, transport } = controllerOver(startAnswers(instanceId, liveControlPort))
+		const envExec = envExecOf(instanceId, liveControlPort)
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (command === envExec) {
+				await testDb()
+					.updateTable("instance")
+					.set({ configClaimId: "someone-else" })
+					.where("id", "=", instanceId)
+					.execute()
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await expect(controller.start(actor, instanceId)).rejects.toBeInstanceOf(InstanceBusyError)
+
+		const row = await instances.findById(scope, instanceId)
+		expect(row?.liveControlTokenEncrypted).toBeNull()
+		expect(row?.status).not.toBe("running")
+		expect(transport.commands.some((each) => each.includes("systemctl --user start"))).toBe(false)
+	})
+
+	it("cannot say a bot is running once a sign-in has taken its stale claim over", async () => {
+		const { actor, scope, instanceId, liveControlPort, instances } =
+			await seedBot("claim-start-stale")
+		const { controller, transport } = controllerOver(startAnswers(instanceId, liveControlPort))
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			const result = await inner(command, timeoutMs, stdin)
+			if (command.includes("systemctl --user start")) {
+				await backdateConfigClaim(instanceId, CONFIG_CLAIM_LEASE_MS + 60_000)
+				await instances.claimForAuth(scope, instanceId, "sign-in")
+				await instances.update(scope, instanceId, { status: "needs_auth" })
+			}
+			return result
+		}
+
+		await expect(controller.start(actor, instanceId)).rejects.toBeInstanceOf(InstanceBusyError)
+
+		expect((await instances.findById(scope, instanceId))?.status).toBe("needs_auth")
 	})
 })

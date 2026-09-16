@@ -7,6 +7,7 @@ import type {
 	McpStatusEffect,
 } from "@open-mcc/contracts/boundary/mcp-readouts"
 import {
+	AUTH_LEASE_MS,
 	createAuditController,
 	createAuditControllerTransaction,
 	createHostController,
@@ -17,8 +18,11 @@ import {
 	createSshKeyController,
 	createSshKeyControllerTransaction,
 	createSshKeyRepository,
+	ENV_WRITTEN,
+	envWriteUnlessRunningCommand,
 	generateKeyPair,
 	generateSshKeyPair,
+	renderEnvironmentFile,
 	type SecretStore,
 	startUnitCommand,
 } from "@open-mcc/core"
@@ -731,7 +735,7 @@ const seedReadyInstance = async (
 			liveControlTokenEncrypted: SEALED_TOKEN_SENTINEL,
 			liveControlTokenKeyId: TOKEN_KEY_SENTINEL,
 			authClaimId: AUTH_CLAIM_SENTINEL,
-			authClaimedAt: new Date(),
+			authClaimedAt: new Date(Date.now() - AUTH_LEASE_MS - 60_000),
 			status: "stopped",
 		})
 		.execute()
@@ -741,6 +745,13 @@ const seedReadyInstance = async (
 		stderr: "",
 		exitCode: 0,
 	}
+	hostScript[
+		envWriteUnlessRunningCommand(
+			instanceId,
+			renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
+			48919,
+		)
+	] = { stdout: `${ENV_WRITTEN}\n`, stderr: "", exitCode: 0 }
 	return { hostId, instanceId }
 }
 

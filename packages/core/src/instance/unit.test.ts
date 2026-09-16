@@ -16,12 +16,16 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
 	configWriteCommand,
+	ENV_KEPT,
 	ENV_WRITTEN,
 	envWriteCommand,
+	envWriteUnlessRunningCommand,
 	INSTANCE_LAYOUT,
 	instanceDir,
 	instanceLayoutSteps,
+	parseEnvWriteAnswer,
 	parseUnitStartState,
+	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
 	renderUnitEnv,
 	startUnitCommand,
@@ -231,6 +235,101 @@ describe("writing a bot's token and port files so a start never reads half of ei
 		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(ENVIRONMENT)
 		expect(statSync(join(instanceOf(home), INSTANCE_LAYOUT.env)).mode & 0o777).toBe(0o600)
 		expect(readdirSync(instanceOf(home))).toEqual([INSTANCE_LAYOUT.env])
+	})
+})
+
+describe("leaving a running bot's token alone", () => {
+	const ENVIRONMENT = `MCC_MCP_AUTH_TOKEN=${TOKEN}\n`
+
+	const PREVIOUS = `MCC_MCP_AUTH_TOKEN=${"f".repeat(32)}\n`
+
+	const PREVIOUS_PORT = renderUnitEnv(40000)
+
+	const reporting = (home: string, state: string): void => {
+		const shim = join(home, "bin", "systemctl")
+		writeFileSync(shim, `#!/bin/sh\nprintf '%s\\n' ${state}\n`)
+		chmodSync(shim, 0o755)
+	}
+
+	const withEnvFiles = (state: string): string => {
+		const home = scratchHome(false)
+		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), PREVIOUS)
+		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.unitEnv), PREVIOUS_PORT)
+		reporting(home, state)
+		return home
+	}
+
+	it("asks systemd for the unit's state, and counts every state the unit file counts", () => {
+		expect(envWriteUnlessRunningCommand("abc123", ENVIRONMENT, 33333)).toBe(
+			`case "$(XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState --value 'open-mcc@abc123.service')" in active|activating|deactivating|reloading) printf 'kept\\n';; *) ${envWriteCommand("abc123", ENVIRONMENT, 33333)};; esac`,
+		)
+		expect(RUNNING_UNIT_STATES.join("|")).toBe("active|activating|deactivating|reloading")
+	})
+
+	it.each(["active", "activating", "deactivating", "reloading"])(
+		"leaves the token and the port alone for a unit systemd reports as %s",
+		(state) => {
+			const home = withEnvFiles(state)
+
+			const ran = runIn(
+				home,
+				envWriteUnlessRunningCommand("abc123", ENVIRONMENT, 33333),
+				ENVIRONMENT,
+			)
+
+			expect(ran.status, ran.stderr.toString()).toBe(0)
+			expect(ran.stdout.toString()).toBe(`${ENV_KEPT}\n`)
+			expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(PREVIOUS)
+			expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.unitEnv), "utf8")).toBe(
+				PREVIOUS_PORT,
+			)
+			expect(readdirSync(instanceOf(home)).sort()).toEqual([
+				INSTANCE_LAYOUT.env,
+				INSTANCE_LAYOUT.unitEnv,
+			])
+		},
+	)
+
+	it.each(["inactive", "failed"])(
+		"writes the token and the port for a unit systemd reports as %s",
+		(state) => {
+			const home = withEnvFiles(state)
+
+			const ran = runIn(
+				home,
+				envWriteUnlessRunningCommand("abc123", ENVIRONMENT, 33333),
+				ENVIRONMENT,
+			)
+
+			expect(ran.status, ran.stderr.toString()).toBe(0)
+			expect(ran.stdout.toString()).toBe(`${ENV_WRITTEN}\n`)
+			expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(ENVIRONMENT)
+			expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.unitEnv), "utf8")).toBe(
+				renderUnitEnv(33333),
+			)
+		},
+	)
+
+	it("says nothing a caller could read as a write when a stopped unit's write fails", () => {
+		const home = withEnvFiles("inactive")
+
+		const ran = runIn(
+			home,
+			envWriteUnlessRunningCommand("abc123", ENVIRONMENT, 33333),
+			ENVIRONMENT.slice(0, -1),
+		)
+
+		expect(ran.status).toBe(1)
+		expect(ran.stdout.toString()).toBe("")
+		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(PREVIOUS)
+	})
+
+	it("tells the two answers apart, and refuses anything else as neither", () => {
+		expect(parseEnvWriteAnswer(`${ENV_WRITTEN}\n`)).toBe(ENV_WRITTEN)
+		expect(parseEnvWriteAnswer(`${ENV_KEPT}\n`)).toBe(ENV_KEPT)
+		expect(parseEnvWriteAnswer("")).toBeUndefined()
+		expect(parseEnvWriteAnswer("maybe\n")).toBeUndefined()
+		expect(parseEnvWriteAnswer(`${ENV_KEPT}\n${ENV_WRITTEN}\n`)).toBeUndefined()
 	})
 })
 

@@ -1,3 +1,4 @@
+import { sql } from "kysely"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
 	seedMember,
@@ -10,6 +11,7 @@ import {
 } from "../test/db"
 import {
 	AUTH_LEASE_MS,
+	CONFIG_CLAIM_LEASE_MS,
 	createInstanceRepository,
 	type InstanceUpdateValues,
 	isAuthClaimStale,
@@ -54,6 +56,26 @@ const backdateAuthClaim = async (id: string, ageMs: number): Promise<void> => {
 		.set({ authClaimedAt: new Date(Date.now() - ageMs) })
 		.where("id", "=", id)
 		.execute()
+}
+
+const backdateConfigClaim = async (id: string, ageMs: number): Promise<void> => {
+	await testDb()
+		.updateTable("instance")
+		.set({
+			configClaimedAt: sql<Date>`clock_timestamp() - ${sql.lit(ageMs)} * interval '1 millisecond'`,
+		})
+		.where("id", "=", id)
+		.execute()
+}
+
+const storedInstance = async (id: string) => {
+	const row = await testDb()
+		.selectFrom("instance")
+		.selectAll()
+		.where("id", "=", id)
+		.executeTakeFirst()
+	if (!row) throw new Error("the seeded instance disappeared")
+	return row
 }
 
 beforeAll(async () => {
@@ -144,6 +166,147 @@ describe("auth claim fencing", () => {
 			false,
 		)
 		expect(await repo.releaseAuthClaim({ organizationId: orgA }, row.id, "attempt-1")).toBe(true)
+	})
+})
+
+describe("config claim fencing", () => {
+	it("refuses a second claimant while the first claim is live", async () => {
+		const row = await seedInstance(orgA, hostA)
+		const first = await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		const second = await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-2")
+		expect(first?.configClaimId).toBe("claim-1")
+		expect(second).toBeUndefined()
+		expect((await storedInstance(row.id)).configClaimId).toBe("claim-1")
+	})
+
+	it("reclaims under a new id once the claim is backdated past its lease", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		const reclaimed = await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-2")
+		expect(reclaimed?.configClaimId).toBe("claim-2")
+	})
+})
+
+describe("writes under a config claim match the claim id", () => {
+	const seedClaimed = async (): Promise<string> => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		return row.id
+	}
+
+	it("finalizes nothing under the wrong claim id", async () => {
+		const id = await seedClaimed()
+		expect(
+			await repo.finalizeConfigClaim({ organizationId: orgA }, id, "claim-other", {
+				status: "running",
+			}),
+		).toBeUndefined()
+		const stored = await storedInstance(id)
+		expect(stored.status).toBe("created")
+		expect(stored.configClaimId).toBe("claim-1")
+	})
+
+	it("releases nothing under the wrong claim id", async () => {
+		const id = await seedClaimed()
+		expect(await repo.releaseConfigClaim({ organizationId: orgA }, id, "claim-other")).toBe(false)
+		expect((await storedInstance(id)).configClaimId).toBe("claim-1")
+	})
+
+	it("writes no token under the wrong claim id", async () => {
+		const id = await seedClaimed()
+		expect(
+			await repo.writeTokenUnderClaim({ organizationId: orgA }, id, "claim-other", {
+				ciphertext: "sealed-token",
+				keyId: "k1",
+			}),
+		).toBe(false)
+		expect((await storedInstance(id)).liveControlTokenEncrypted).toBeNull()
+	})
+
+	it("deletes nothing under the wrong claim id", async () => {
+		const id = await seedClaimed()
+		expect(await repo.deleteUnderClaim({ organizationId: orgA }, id, "claim-other")).toBe(false)
+		expect((await storedInstance(id)).configClaimId).toBe("claim-1")
+	})
+})
+
+describe("sign-in and the lifecycle exclude each other", () => {
+	it("refuses a lifecycle claim while a sign-in claim is live, and still takes a save's claim", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForAuth({ organizationId: orgA }, row.id, "attempt-1")
+		expect(
+			await repo.claimForLifecycle({ organizationId: orgA }, row.id, "claim-1"),
+		).toBeUndefined()
+		const saved = await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		expect(saved?.configClaimId).toBe("claim-1")
+	})
+
+	it("takes the lifecycle claim once the sign-in claim is backdated past its lease", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForAuth({ organizationId: orgA }, row.id, "attempt-1")
+		await backdateAuthClaim(row.id, AUTH_LEASE_MS + 60_000)
+		const claimed = await repo.claimForLifecycle({ organizationId: orgA }, row.id, "claim-1")
+		expect(claimed?.configClaimId).toBe("claim-1")
+	})
+
+	it("refuses a sign-in claim while a config claim is live", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		expect(await repo.claimForAuth({ organizationId: orgA }, row.id, "attempt-1")).toBeUndefined()
+	})
+
+	it("takes the sign-in claim once the config claim is backdated past its lease", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		const claimed = await repo.claimForAuth({ organizationId: orgA }, row.id, "attempt-1")
+		expect(claimed?.authClaimId).toBe("attempt-1")
+	})
+
+	it("clears the config claim it takes over, so the superseded finalize matches nothing", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		const claimed = await repo.claimForAuth({ organizationId: orgA }, row.id, "attempt-1")
+		expect(claimed?.configClaimId).toBeNull()
+		expect(
+			await repo.finalizeConfigClaim({ organizationId: orgA }, row.id, "claim-1", {
+				status: "running",
+			}),
+		).toBeUndefined()
+		expect((await storedInstance(row.id)).status).toBe("created")
+	})
+})
+
+describe("the token write renews the config lease", () => {
+	it("renews the lease, so a competing claim is refused after the write", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		expect(
+			await repo.writeTokenUnderClaim({ organizationId: orgA }, row.id, "claim-1", {
+				ciphertext: "sealed-token",
+				keyId: "k1",
+			}),
+		).toBe(true)
+		expect(await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-2")).toBeUndefined()
+	})
+
+	it("neither writes nor renews under the wrong claim id", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-1")
+		await backdateConfigClaim(row.id, CONFIG_CLAIM_LEASE_MS + 60_000)
+		expect(
+			await repo.writeTokenUnderClaim({ organizationId: orgA }, row.id, "claim-other", {
+				ciphertext: "sealed-token",
+				keyId: "k1",
+			}),
+		).toBe(false)
+		expect((await storedInstance(row.id)).liveControlTokenEncrypted).toBeNull()
+		expect(
+			(await repo.claimForConfig({ organizationId: orgA }, row.id, "claim-2"))?.configClaimId,
+		).toBe("claim-2")
 	})
 })
 

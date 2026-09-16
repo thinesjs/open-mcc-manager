@@ -6,6 +6,7 @@ import {
 	createInstanceController,
 	type InstanceControllerDeps,
 } from "../../packages/core/src/instance/instance.controller"
+import { CONFIG_CLAIM_LEASE_MS } from "../../packages/core/src/instance/instance.repository"
 import type {
 	HostRow,
 	InstanceConfigRow,
@@ -103,6 +104,25 @@ export const memoryManager = async (
 	const configs: InstanceConfigRow[] = []
 	const windows = new Map<string, InstanceScheduleRow>()
 
+	const configClaimIsLive = (row: InstanceRow): boolean =>
+		row.configClaimId !== null &&
+		row.configClaimedAt !== null &&
+		Date.now() - row.configClaimedAt.getTime() < CONFIG_CLAIM_LEASE_MS
+
+	const takeConfigClaim = (id: string, claimId: string): InstanceRow | undefined => {
+		const current = rows.get(id)
+		if (current === undefined) return undefined
+		if (configClaimIsLive(current)) return undefined
+		const next = { ...current, configClaimId: claimId, configClaimedAt: new Date() }
+		rows.set(id, next)
+		return next
+	}
+
+	const rowUnderClaim = (id: string, claimId: string): InstanceRow | undefined => {
+		const current = rows.get(id)
+		return current?.configClaimId === claimId ? current : undefined
+	}
+
 	const instances: InstanceControllerDeps["instances"] = {
 		insert: async (_scope, values) => {
 			const row: InstanceRow = {
@@ -120,6 +140,8 @@ export const memoryManager = async (
 				liveControlTokenKeyId: values.liveControlTokenKeyId ?? null,
 				authClaimId: null,
 				authClaimedAt: null,
+				configClaimId: null,
+				configClaimedAt: null,
 				playerListOffset: "0",
 				playerListFingerprint: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 				playerListCursorVersion: "0",
@@ -141,7 +163,14 @@ export const memoryManager = async (
 		claimForAuth: async (_scope, id, attemptId) => {
 			const current = rows.get(id)
 			if (current === undefined) return undefined
-			const next = { ...current, authClaimId: attemptId, authClaimedAt: new Date() }
+			if (configClaimIsLive(current)) return undefined
+			const next = {
+				...current,
+				authClaimId: attemptId,
+				authClaimedAt: new Date(),
+				configClaimId: null,
+				configClaimedAt: null,
+			}
 			rows.set(id, next)
 			return next
 		},
@@ -151,6 +180,43 @@ export const memoryManager = async (
 			rows.set(id, { ...current, authClaimId: null, authClaimedAt: null })
 			return true
 		},
+		claimForConfig: async (_scope, id, claimId) => takeConfigClaim(id, claimId),
+		claimForLifecycle: async (_scope, id, claimId) => {
+			const current = rows.get(id)
+			if (current === undefined || current.authClaimId !== null) return undefined
+			return takeConfigClaim(id, claimId)
+		},
+		finalizeConfigClaim: async (_scope, id, claimId, patch) => {
+			const current = rowUnderClaim(id, claimId)
+			if (current === undefined) return undefined
+			const next = {
+				...current,
+				...(patch.status !== undefined && { status: patch.status }),
+				configClaimId: null,
+				configClaimedAt: null,
+			}
+			rows.set(id, next)
+			return next
+		},
+		releaseConfigClaim: async (_scope, id, claimId) => {
+			const current = rowUnderClaim(id, claimId)
+			if (current === undefined) return false
+			rows.set(id, { ...current, configClaimId: null, configClaimedAt: null })
+			return true
+		},
+		writeTokenUnderClaim: async (_scope, id, claimId, sealed) => {
+			const current = rowUnderClaim(id, claimId)
+			if (current === undefined) return false
+			rows.set(id, {
+				...current,
+				liveControlTokenEncrypted: sealed.ciphertext,
+				liveControlTokenKeyId: sealed.keyId,
+				configClaimedAt: new Date(),
+			})
+			return true
+		},
+		deleteUnderClaim: async (_scope, id, claimId) =>
+			rowUnderClaim(id, claimId) !== undefined && rows.delete(id),
 		insertConfigVersion: async (_scope, instanceId, document, author) => {
 			const row: InstanceConfigRow = {
 				id: randomUUID(),

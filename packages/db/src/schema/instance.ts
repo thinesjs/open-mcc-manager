@@ -26,6 +26,8 @@ export type InstanceTable = Omit<
 	| "liveControlTokenKeyId"
 	| "authClaimId"
 	| "authClaimedAt"
+	| "configClaimId"
+	| "configClaimedAt"
 	| "minecraftUsername"
 > & {
 	status: Generated<InstanceStatus>
@@ -35,6 +37,8 @@ export type InstanceTable = Omit<
 	liveControlTokenKeyId: Generated<DB["instance"]["liveControlTokenKeyId"]>
 	authClaimId: Generated<DB["instance"]["authClaimId"]>
 	authClaimedAt: Generated<DB["instance"]["authClaimedAt"]>
+	configClaimId: Generated<DB["instance"]["configClaimId"]>
+	configClaimedAt: Generated<DB["instance"]["configClaimedAt"]>
 	minecraftUsername: Generated<DB["instance"]["minecraftUsername"]>
 }
 

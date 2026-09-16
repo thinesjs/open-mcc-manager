@@ -11,9 +11,10 @@ const SKIP = new Set([
 	"coverage",
 	".git",
 	".turbo",
-	".claude",
 	".superpowers",
 ])
+
+const SKIP_AT_ROOT = new Set([".claude"])
 
 const GENERATED_FILES = new Set([join("apps", "web", "src", "routeTree.gen.ts")])
 const COMMENT_ALLOWED_FILES = new Set([join("packages", "db", "src", "generated", "database.ts")])
@@ -24,6 +25,7 @@ const MANIFEST_FILE = "package.json"
 const walk = (dir, root, acc = { sources: [], manifests: [] }) => {
 	for (const entry of readdirSync(dir).sort()) {
 		if (SKIP.has(entry)) continue
+		if (dir === root && SKIP_AT_ROOT.has(entry)) continue
 		const full = join(dir, entry)
 		if (statSync(full).isDirectory()) {
 			walk(full, root, acc)

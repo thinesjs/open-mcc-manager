@@ -15,13 +15,13 @@ describe("loading UI a route renders for itself", () => {
 	})
 
 	it("flags a route that reaches for the page shimmer directly", () => {
-		const source = 'import { PageShimmer } from "~/components/ui/shimmer"\n'
-		expect(findViolations(source, label).length).toBeGreaterThan(0)
+		const source = 'import { PageShimmer } from "~/components/ui/index"\n'
+		expect(findViolations(source, label)).toHaveLength(1)
 	})
 
 	it("flags a route that reaches for the labelled page loading block directly", () => {
-		const source = 'import { PageLoading } from "~/components/ui/shimmer"\n'
-		expect(findViolations(source, label).length).toBeGreaterThan(0)
+		const source = 'import { PageLoading } from "~/components/ui/index"\n'
+		expect(findViolations(source, label)).toHaveLength(1)
 	})
 
 	it("flags a renamed import, since the rendered element is the same one", () => {

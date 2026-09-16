@@ -13,7 +13,7 @@ import { Route as status } from "./_authenticated.status"
 
 const REFUSAL = "The control plane did not answer."
 
-const state = { failing: false }
+const state: { failing: string | null } = { failing: null }
 
 const HOST = {
 	id: "host-1",
@@ -65,7 +65,10 @@ const procedure = (router: string, name: string) => ({
 	queryKey: (input?: object) => [router, name, input ?? {}],
 	queryOptions: (input?: object) => ({
 		queryKey: [router, name, input ?? {}],
-		queryFn: () => (state.failing ? Promise.reject(new Error(REFUSAL)) : answerFor(router, name)),
+		queryFn: () =>
+			state.failing === `${router}.${name}`
+				? Promise.reject(new Error(REFUSAL))
+				: answerFor(router, name),
 	}),
 	mutationOptions: (options: object) => ({ ...options, mutationFn: () => null }),
 })
@@ -90,27 +93,28 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 vi.setConfig({ testTimeout: 20_000 })
 
 beforeEach(() => {
-	state.failing = false
+	state.failing = null
 })
 
 afterEach(cleanup)
 
 const PAGES = [
-	{ name: "hosts", route: hostsIndex, settled: "tjsx100" },
+	{ name: "hosts", route: hostsIndex, settled: "tjsx100", primary: "host.list" },
 	{
 		name: "instances",
 		route: instancesIndex,
 		settled: "Every Minecraft Console Client this organization supervises.",
+		primary: "instance.list",
 	},
-	{ name: "ssh keys", route: sshKeys, settled: "No SSH keys" },
-	{ name: "alerts", route: alerts, settled: "No destinations" },
-	{ name: "status", route: status, settled: "1 of 1 answering" },
-	{ name: "overview", route: overview, settled: "Needs attention" },
-	{ name: "members", route: members, settled: "Members" },
-	{ name: "audit", route: audit, settled: "Audit log" },
+	{ name: "ssh keys", route: sshKeys, settled: "No SSH keys", primary: "sshKey.list" },
+	{ name: "alerts", route: alerts, settled: "No destinations", primary: "notification.list" },
+	{ name: "status", route: status, settled: "1 of 1 answering", primary: "status.summary" },
+	{ name: "overview", route: overview, settled: "Needs attention", primary: "instance.list" },
+	{ name: "members", route: members, settled: "Members", primary: "member.me" },
+	{ name: "audit", route: audit, settled: "Audit log", primary: "member.me" },
 ] as const
 
-describe.each(PAGES)("$name after a background refresh fails", ({ route, settled }) => {
+describe.each(PAGES)("$name after a background refresh fails", ({ route, settled, primary }) => {
 	it("says the page is out of date rather than showing stale data in silence", async () => {
 		const Page = route.options.component
 		if (Page === undefined) throw new Error("the route renders no page")
@@ -125,7 +129,7 @@ describe.each(PAGES)("$name after a background refresh fails", ({ route, settled
 		)
 		await screen.findByText(settled, {}, { timeout: 10_000 })
 
-		state.failing = true
+		state.failing = primary
 		await act(async () => {
 			await client.refetchQueries()
 		})

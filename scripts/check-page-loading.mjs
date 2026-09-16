@@ -58,13 +58,16 @@ export const findViolations = (source, label) => {
 	return found
 }
 
-const violations = walk(ROOT).flatMap((file) => {
-	const rel = relative(ROOT, file)
-	if (EXEMPT_ROUTES.has(rel)) return []
-	return findViolations(readFileSync(file, "utf8"), join("apps", "web", "src", "routes", rel))
-})
+const main = () => {
+	const violations = walk(ROOT).flatMap((file) => {
+		const rel = relative(ROOT, file)
+		if (EXEMPT_ROUTES.has(rel)) return []
+		return findViolations(readFileSync(file, "utf8"), join("apps", "web", "src", "routes", rel))
+	})
 
-if (violations.length > 0) {
+	if (violations.length === 0) return
 	for (const violation of violations) process.stdout.write(`${violation}\n`)
 	process.exit(1)
 }
+
+if (process.argv[1]?.endsWith("check-page-loading.mjs")) main()

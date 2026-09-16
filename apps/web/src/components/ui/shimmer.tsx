@@ -52,7 +52,7 @@ export const PageLoading = ({ label = PAGE_LOADING_LABEL }: { label?: string }) 
 type Phase = "waiting" | "revealed" | "instant"
 
 const SettleSignal = ({ onSettle }: { onSettle: () => void }) => {
-	useLayoutEffect(onSettle)
+	useLayoutEffect(onSettle, [onSettle])
 	return null
 }
 

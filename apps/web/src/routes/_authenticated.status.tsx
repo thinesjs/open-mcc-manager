@@ -2,7 +2,7 @@ import { STATUS_RANGES, type StatusRange } from "@open-mcc/contracts"
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
-import { startTransition, useState } from "react"
+import { useState } from "react"
 import { Alert } from "~/components/ui/alert"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
@@ -71,7 +71,7 @@ function StatusPage() {
 								<button
 									key={option}
 									type="button"
-									onClick={() => startTransition(() => setRange(option))}
+									onClick={() => setRange(option)}
 									className={cn(
 										"rounded-[var(--control-radius)] px-2 py-1 text-xs transition-colors active:scale-[0.97]",
 										option === range

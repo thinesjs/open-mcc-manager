@@ -17,6 +17,7 @@ type FailureRow = {
 type FailuresPage = {
 	items: FailureRow[]
 	total: number
+	offset: number
 }
 
 type QueryInput = { offset?: number; deliveryId?: string }
@@ -26,6 +27,8 @@ type MutationVariables = { deliveryId?: string }
 const PAGE_SIZE = 20
 
 let failureRows: FailureRow[] = []
+
+let failuresOverride: FailuresPage | undefined
 
 const failureRow = (index: number): FailureRow => ({
 	deliveryId: `del-${index}`,
@@ -41,10 +44,12 @@ const seedFailures = (count: number): void => {
 	failureRows = Array.from({ length: count }, (_, index) => failureRow(index))
 }
 
-const failuresPage = (offset: number): FailuresPage => ({
-	items: failureRows.slice(offset, offset + PAGE_SIZE),
-	total: failureRows.length,
-})
+const failuresPage = (offset: number): FailuresPage =>
+	failuresOverride ?? {
+		items: failureRows.slice(offset, offset + PAGE_SIZE),
+		total: failureRows.length,
+		offset,
+	}
 
 const answer = async (name: string): Promise<object | null> => {
 	if (name === "me") return { role: "owner" }
@@ -52,13 +57,18 @@ const answer = async (name: string): Promise<object | null> => {
 	return {}
 }
 
+let failuresDelayMs = 0
+
 const procedure = (router: string, name: string) => ({
 	queryOptions: (input?: QueryInput) => ({
 		queryKey: input === undefined ? [router, name] : [router, name, input],
-		queryFn: async () =>
-			router === "notification" && name === "failures"
-				? failuresPage(input?.offset ?? 0)
-				: answer(name),
+		queryFn: async () => {
+			if (router !== "notification" || name !== "failures") return answer(name)
+			if (failuresDelayMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, failuresDelayMs))
+			}
+			return failuresPage(input?.offset ?? 0)
+		},
 	}),
 	queryKey: (input?: QueryInput) => (input === undefined ? [router, name] : [router, name, input]),
 	mutationOptions: () => ({
@@ -92,6 +102,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 
 beforeEach(() => {
 	seedFailures(0)
+	failuresOverride = undefined
+	failuresDelayMs = 0
 })
 
 afterEach(cleanup)
@@ -141,6 +153,14 @@ describe("how many alerts did not arrive", () => {
 
 		await screen.findByText("No destinations")
 		expect(screen.queryByText("Alerts that did not arrive")).toBeNull()
+	})
+
+	it("still renders the heading and the total when the page itself comes back empty", async () => {
+		failuresOverride = { items: [], total: 25, offset: 0 }
+		await mount()
+
+		await screen.findByText("Alerts that did not arrive")
+		expect(countBeside("Alerts that did not arrive")).toBe("25")
 	})
 })
 
@@ -195,6 +215,26 @@ describe("paging through alerts that did not arrive", () => {
 		expect(screen.getByText("Alert 0")).toBeDefined()
 		expect(screen.queryByRole("button", { name: "Previous" })).toBeNull()
 		expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
+	})
+
+	it("keeps the range and the rows in sync while the next page is still loading", async () => {
+		seedFailures(45)
+		await mount()
+
+		await screen.findByText("1–20 of 45")
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await screen.findByText("21–40 of 45")
+
+		failuresDelayMs = 50
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+
+		expect(screen.queryByText("41–60 of 45")).toBeNull()
+		expect(screen.getByText("21–40 of 45")).toBeDefined()
+		expect(screen.getByText("Alert 20")).toBeDefined()
+
+		failuresDelayMs = 0
+		await screen.findByText("41–45 of 45")
+		expect(screen.getByText("Alert 40")).toBeDefined()
 	})
 
 	it("never settles on a nonsense range when the total drops more than a page behind the offset", async () => {

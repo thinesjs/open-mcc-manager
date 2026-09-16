@@ -433,7 +433,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 					notifications.recentFailures(scope, FAILURES_PAGE_SIZE, input.offset),
 					notifications.failureCount(scope),
 				])
-				return { items, total }
+				return { items, total, offset: input.offset }
 			})
 		},
 

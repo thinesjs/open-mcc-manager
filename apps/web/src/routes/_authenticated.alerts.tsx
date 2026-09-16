@@ -18,7 +18,7 @@ import {
 	Send,
 	Trash2,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 import { AlertDestinationForm, type DestinationDraft } from "~/components/alert-destination-form"
 import { CopyButton } from "~/components/copy-button"
 import { EmptyState } from "~/components/empty-state"
@@ -159,7 +159,7 @@ function AlertsPage() {
 		return () => window.clearTimeout(timer)
 	}, [testing])
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const total = failures.data?.total
 		if (total === undefined) return
 		const lastPage =
@@ -436,14 +436,14 @@ function AlertsPage() {
 					{failures.data.total > FAILURES_PAGE_SIZE ? (
 						<div className="flex items-center justify-between gap-2 px-1">
 							<p className="text-xs text-muted-foreground">
-								{failuresOffset + 1}–{failuresOffset + failures.data.items.length} of{" "}
+								{failures.data.offset + 1}–{failures.data.offset + failures.data.items.length} of{" "}
 								{failures.data.total}
 							</p>
 							<div className="flex gap-2">
 								<Button
 									size="sm"
 									variant="outline"
-									disabled={failuresOffset === 0}
+									disabled={failures.data.offset === 0}
 									onClick={() =>
 										setFailuresOffset((current) => Math.max(0, current - FAILURES_PAGE_SIZE))
 									}
@@ -453,7 +453,9 @@ function AlertsPage() {
 								<Button
 									size="sm"
 									variant="outline"
-									disabled={failuresOffset + failures.data.items.length >= failures.data.total}
+									disabled={
+										failures.data.offset + failures.data.items.length >= failures.data.total
+									}
 									onClick={() => setFailuresOffset((current) => current + FAILURES_PAGE_SIZE)}
 								>
 									Next

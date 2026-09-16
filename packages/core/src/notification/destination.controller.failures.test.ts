@@ -97,6 +97,7 @@ describe("reading alerts that did not arrive", () => {
 
 		expect(page.items).toHaveLength(20)
 		expect(page.total).toBe(22)
+		expect(page.offset).toBe(0)
 	})
 
 	it("refuses somebody who may only see instances, not alerts", async () => {

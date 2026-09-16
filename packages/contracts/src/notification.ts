@@ -304,6 +304,7 @@ export type FailuresInput = z.infer<typeof failuresInput>
 export const failuresPageSchema = z.object({
 	items: z.array(deliveryFailureViewSchema),
 	total: z.number().int().nonnegative(),
+	offset: z.number().int().nonnegative(),
 })
 
 export type FailuresPage = z.infer<typeof failuresPageSchema>

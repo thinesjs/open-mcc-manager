@@ -365,15 +365,19 @@ describe("paginating alerts that did not arrive", () => {
 	it("pages through failures with no gap or overlap and counts only its own organization", async () => {
 		const org = await seedOrganization("alerts-page")
 		const destination = await seedDestination(org)
-		const sharedSettledAt = daysAgo(1)
-		for (let i = 0; i < 25; i += 1) {
-			const created = await seedNotification(org, daysAgo(1))
-			await seedDelivery(org, {
-				notificationId: created,
-				destinationId: destination,
-				state: "failed",
-				settledAt: sharedSettledAt,
-			})
+		const BUCKET_COUNT = 5
+		const BUCKET_SIZE = 5
+		for (let bucket = 0; bucket < BUCKET_COUNT; bucket += 1) {
+			const settledAt = daysAgo(bucket)
+			for (let row = 0; row < BUCKET_SIZE; row += 1) {
+				const created = await seedNotification(org, daysAgo(1))
+				await seedDelivery(org, {
+					notificationId: created,
+					destinationId: destination,
+					state: "failed",
+					settledAt,
+				})
+			}
 		}
 
 		const delivered = await seedNotification(org, daysAgo(1))
@@ -428,9 +432,15 @@ describe("paginating alerts that did not arrive", () => {
 			.every((value, index, all) => index === 0 || (all[index - 1] ?? "") >= value)
 		expect(settledInOrder).toBe(true)
 
-		const combinedIds = [...firstPage, ...secondPage].map((row) => row.deliveryId)
-		const idsDescending = [...combinedIds].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
-		expect(combinedIds).toEqual(idsDescending)
+		const idsByTie = new Map<string, string[]>()
+		for (const row of [...firstPage, ...secondPage]) {
+			const key = row.settledAt ?? ""
+			idsByTie.set(key, [...(idsByTie.get(key) ?? []), row.deliveryId])
+		}
+		for (const ids of idsByTie.values()) {
+			const idsDescending = [...ids].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+			expect(ids).toEqual(idsDescending)
+		}
 
 		for (const deliveryId of notFailed) {
 			expect(firstIds).not.toContain(deliveryId)

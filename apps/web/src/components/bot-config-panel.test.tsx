@@ -376,6 +376,24 @@ describe("★ the version a bots save is made against", () => {
 		expect(expectedVersions()).toEqual([7, 8])
 	})
 
+	it("★ keeps the bots and the version it holds when the bot is busy, so no edit is thrown away", async () => {
+		const theirs = instanceConfigStored.parse({
+			...BASE,
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+		})
+		mount("i1", PARSED_BASE, 7, async () => ({ config: theirs, version: 9 }))
+		mutate.mockRejectedValueOnce({ message: "busy", data: { errorCode: "INSTANCE_BUSY" } })
+
+		await save()
+		await save()
+
+		expect(mutate.mock.calls.map((call) => updateBotConfigInput.parse(call[0]).botConfig)).toEqual([
+			{},
+			{},
+		])
+		expect(expectedVersions()).toEqual([7, 7])
+	})
+
 	it("★ takes the bots the conflict handed back into the panel, so the retry cannot overwrite them", async () => {
 		const theirs = instanceConfigStored.parse({
 			...BASE,

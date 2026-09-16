@@ -119,7 +119,8 @@ export const beginAuthentication = async (
 	const claimed = await deps.instances.claimForAuth(scope, instanceId, attemptId)
 	if (!claimed) {
 		const held = await deps.instances.findById(scope, instanceId)
-		if (held && isAuthClaimStale(held.authClaimedAt)) {
+		if (!held) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+		if (isAuthClaimStale(held.authClaimedAt)) {
 			throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
 		}
 		throw new InstanceAuthInProgressError(

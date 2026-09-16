@@ -114,7 +114,9 @@ export const InstanceSettingsForm = ({
 				onError: async (error) => {
 					if (errorCodeOf(error) !== "INSTANCE_CONCURRENTLY_MODIFIED") return
 					const refreshed = await onSaved()
-					if (refreshed) setSavedVersion(refreshed.version)
+					if (!refreshed) return
+					setDraft(scalarsFrom(refreshed.config))
+					setSavedVersion(refreshed.version)
 				},
 			},
 		)

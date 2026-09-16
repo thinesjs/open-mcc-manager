@@ -111,8 +111,8 @@ const FALLBACK_MESSAGE = "Something went wrong. Please try again."
 const isSentence = (message: string): boolean => message.length > 0 && !/^\s*[[{]/.test(message)
 
 export const getErrorMessage = (error: TRPCErrorLike): string => {
-	const errorCode = error.data?.errorCode
-	const mapped = isErrorCode(errorCode) ? ERROR_MESSAGES[errorCode] : undefined
+	const errorCode = errorCodeOf(error)
+	const mapped = errorCode ? ERROR_MESSAGES[errorCode] : undefined
 	if (mapped) return mapped
 	return isSentence(error.message) ? error.message : FALLBACK_MESSAGE
 }

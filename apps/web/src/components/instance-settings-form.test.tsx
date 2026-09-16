@@ -370,6 +370,28 @@ describe("★ the version a save is made against", () => {
 		expect(expectedVersions()).toEqual([7, 8])
 	})
 
+	it("★ takes the document the conflict handed back into the form, so the retry cannot overwrite it", async () => {
+		const theirs = instanceConfigStored.parse({ ...CONFIG, serverAddress: "theirs.example.com" })
+		mount({}, 7, async () => ({ config: theirs, version: 9 }))
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "mine.example.com" },
+		})
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+		await save()
+
+		expect(
+			mutate.mock.calls.map(
+				(call) => updateInstanceConfigInput.parse(call[0]).config.serverAddress,
+			),
+		).toEqual(["mine.example.com", "theirs.example.com"])
+		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "theirs.example.com")
+	})
+
 	it("★ posts the refreshed version after a conflict, not a version read a second time", async () => {
 		const refetched = vi
 			.fn<() => Promise<InstanceConfigView | null>>()

@@ -51,7 +51,9 @@ export const BotConfigPanel = ({ instanceId, config, version, onSaved }: BotConf
 				onError: async (error) => {
 					if (errorCodeOf(error) !== "INSTANCE_CONCURRENTLY_MODIFIED") return
 					const refreshed = await onSaved()
-					if (refreshed) setSavedVersion(refreshed.version)
+					if (!refreshed) return
+					setDraft(draftFrom(refreshed.config))
+					setSavedVersion(refreshed.version)
 				},
 			},
 		)

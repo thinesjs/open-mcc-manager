@@ -376,6 +376,26 @@ describe("★ the version a bots save is made against", () => {
 		expect(expectedVersions()).toEqual([7, 8])
 	})
 
+	it("★ takes the bots the conflict handed back into the panel, so the retry cannot overwrite them", async () => {
+		const theirs = instanceConfigStored.parse({
+			...BASE,
+			botConfig: { "ChatBot.Alerts.Enabled": "true" },
+		})
+		mount("i1", PARSED_BASE, 7, async () => ({ config: theirs, version: 9 }))
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+		await save()
+
+		expect(mutate.mock.calls.map((call) => updateBotConfigInput.parse(call[0]).botConfig)).toEqual([
+			{},
+			{ "ChatBot.Alerts.Enabled": "true" },
+		])
+	})
+
 	it("★ posts the refreshed version after a conflict, not a version read a second time", async () => {
 		const refetched = vi
 			.fn<() => Promise<InstanceConfigView | null>>()

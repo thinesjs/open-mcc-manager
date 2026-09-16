@@ -41,6 +41,8 @@ import { createTestStatusController } from "./test/status-controller"
 const ORIGIN = "http://localhost:5173"
 const hostScript: FakeScript = {}
 
+const hostTransports: ReturnType<typeof createFakeTransport>[] = []
+
 let db: Db
 let app: Hono
 let secrets: SecretStore
@@ -88,7 +90,9 @@ beforeAll(async () => {
 				},
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
-				instanceController: await createTestInstanceController(db, secrets, hostScript),
+				instanceController: await createTestInstanceController(db, secrets, hostScript, (each) =>
+					hostTransports.push(each),
+				),
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
 				sshKeyController: createSshKeyController({
@@ -133,6 +137,7 @@ afterEach(async () => {
 	seededOrganizationIds = []
 	seededEmails = []
 	seededInstanceIds = []
+	hostTransports.length = 0
 
 	if (instanceIds.length > 0) {
 		await db.deleteFrom("instanceConfig").where("instanceId", "in", instanceIds).execute()
@@ -978,6 +983,8 @@ describe("a save that lost the race", () => {
 	const errorCodeOf = async (res: Response): Promise<string | undefined> =>
 		errorResponseSchema.parse(JSON.parse(await res.text())).error.data.errorCode
 
+	const issuedCommands = (): string[] => hostTransports.flatMap((each) => each.commands)
+
 	const latestVersion = async (instanceId: string): Promise<number | undefined> => {
 		const row = await db
 			.selectFrom("instanceConfig")
@@ -1001,6 +1008,7 @@ describe("a save that lost the race", () => {
 		expect(res.status).toBe(409)
 		expect(await errorCodeOf(res)).toBe("INSTANCE_CONCURRENTLY_MODIFIED")
 		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
 	})
 
 	it("★ refuses a bots save made against a version someone else replaced", async () => {
@@ -1017,6 +1025,7 @@ describe("a save that lost the race", () => {
 		expect(res.status).toBe(409)
 		expect(await errorCodeOf(res)).toBe("INSTANCE_CONCURRENTLY_MODIFIED")
 		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
 	})
 
 	it("★ carries the version the caller sent, so the save at the stored one goes through", async () => {
@@ -1031,6 +1040,7 @@ describe("a save that lost the race", () => {
 
 		expect(res.status).toBe(200)
 		expect(await latestVersion(instanceId)).toBe(3)
+		expect(issuedCommands().filter((each) => each.includes("MinecraftClient.ini"))).toHaveLength(1)
 	})
 
 	it("★ refuses a save on a bot another change is already holding", async () => {
@@ -1051,5 +1061,6 @@ describe("a save that lost the race", () => {
 		expect(res.status).toBe(409)
 		expect(await errorCodeOf(res)).toBe("INSTANCE_BUSY")
 		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
 	})
 })

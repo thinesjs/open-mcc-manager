@@ -2684,9 +2684,22 @@ describe("saving settings under a claim", () => {
 			const made = savedDeps()
 			let open = 0
 			const sightings: boolean[] = []
+			const note = () => sightings.push(open > 0)
 			const deps: InstanceControllerDeps = {
 				...made.deps,
-				instances: recordingInstances(made.instances, () => sightings.push(open > 0)),
+				instances: recordingInstances(made.instances, note),
+				hosts: {
+					findById: (...args) => {
+						note()
+						return made.deps.hosts.findById(...args)
+					},
+				},
+				sshKeys: {
+					findById: (...args) => {
+						note()
+						return made.deps.sshKeys.findById(...args)
+					},
+				},
 				withTransaction: async (fn) => {
 					open += 1
 					try {

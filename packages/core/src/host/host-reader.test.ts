@@ -185,7 +185,7 @@ describe("leasing a reader on a host's current trust", () => {
 
 		const failure = await leaseHostReader(deps, SCOPE, "host-1", 10_000, "setUpOnce").then(
 			() => undefined,
-			(error: Error) => error,
+			(error) => (error instanceof Error ? error : new Error(String(error))),
 		)
 
 		expect(failure).toBeInstanceOf(HostUnreachableError)

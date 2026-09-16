@@ -210,7 +210,7 @@ describe("the directory an instance removal deletes", () => {
 	})
 
 	it.runIf(process.platform === "linux")(
-		"deletes a directory holding one the bot made unreadable, with GNU chmod walking without following links",
+		"deletes a directory holding one the bot made unreadable, with a recursive GNU chmod walking in first",
 		() => {
 			const { home, run } = stubbedHost()
 			const locked = join(

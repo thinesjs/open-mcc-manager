@@ -122,9 +122,9 @@ export const shellTransport = (host: string, as: As): ReturnType<typeof createFa
 					signal.removeEventListener("abort", abandon)
 					resolve(result)
 				},
-				(error: Error) => {
+				(error) => {
 					signal.removeEventListener("abort", abandon)
-					reject(error)
+					reject(error instanceof Error ? error : new Error(String(error)))
 				},
 			)
 		})

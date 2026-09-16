@@ -2059,7 +2059,7 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 			.create(ctx, newBotOn(hostId))
 			.then(
 				() => undefined,
-				(error: Error) => error,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
 			)
 		await probing
 		try {
@@ -2140,7 +2140,7 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 			.remove(ctx, hostId)
 			.then(
 				() => undefined,
-				(error: Error) => error,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
 			)
 		try {
 			await removalLocking

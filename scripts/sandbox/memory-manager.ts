@@ -6,7 +6,10 @@ import {
 	createInstanceController,
 	type InstanceControllerDeps,
 } from "../../packages/core/src/instance/instance.controller"
-import { CONFIG_CLAIM_LEASE_MS } from "../../packages/core/src/instance/instance.repository"
+import {
+	CONFIG_CLAIM_LEASE_MS,
+	isAuthClaimStale,
+} from "../../packages/core/src/instance/instance.repository"
 import type {
 	HostRow,
 	InstanceConfigRow,
@@ -183,7 +186,8 @@ export const memoryManager = async (
 		claimForConfig: async (_scope, id, claimId) => takeConfigClaim(id, claimId),
 		claimForLifecycle: async (_scope, id, claimId) => {
 			const current = rows.get(id)
-			if (current === undefined || current.authClaimId !== null) return undefined
+			if (current === undefined) return undefined
+			if (current.authClaimId !== null && !isAuthClaimStale(current.authClaimedAt)) return undefined
 			return takeConfigClaim(id, claimId)
 		},
 		finalizeConfigClaim: async (_scope, id, claimId, patch) => {

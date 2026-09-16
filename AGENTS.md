@@ -244,12 +244,11 @@ subject.
 Reads `git log` over a revision range and rejects any non-merge commit whose
 subject is not `type: subject`, with an optional `(scope)` and a known
 Conventional Commits type, or that carries a description at all. Merge
-commits are skipped — their
-message is generated, not authored here. CI runs it on pull requests over
-`github.event.pull_request.base.sha..HEAD`, which is why the checkout uses
-`fetch-depth: 0`; pushes to `main` are not re-checked, because the same
-commits were checked on the pull request that introduced them. Run it locally
-with `pnpm check:commits origin/main..HEAD`.
+commits are skipped — their message is generated, not authored here. CI runs
+it on pull requests over `github.event.pull_request.base.sha..HEAD`, which
+is why the checkout uses `fetch-depth: 0`; pushes to `main` are not
+re-checked, because the same commits were checked on the pull request that
+introduced them. Run it locally with `pnpm check:commits origin/main..HEAD`.
 
 Imperative mood is not checked. It needs judgement rather than a regex, so
 that half of the rule stays with review.

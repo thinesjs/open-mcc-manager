@@ -124,14 +124,12 @@ import {
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
 import {
-	CONFIG_FILE_PATH,
-	INSTANCE_LAYOUT,
-	instanceDir,
+	configWriteCommand,
+	envWriteCommand,
 	instanceLayoutSteps,
 	parseUnitStartState,
 	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
-	renderUnitEnv,
 	startUnitCommand,
 	unitName,
 } from "./unit"
@@ -381,14 +379,13 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 	): Promise<InstanceRow> => {
 		const token = randomUUID().replaceAll("-", "")
 		const sealed = deps.secrets.seal(token)
-		const dir = instanceDir(instance.id)
-		const { env, unitEnv } = INSTANCE_LAYOUT
+		const environment = renderEnvironmentFile({ liveControlToken: token })
 		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
 		try {
 			const result = await transport.exec(
-				`(umask 077; cat > ${dir}/${env} && printf '%s' ${shellQuote(renderUnitEnv(instance.liveControlPort))} > ${dir}/${unitEnv})`,
+				envWriteCommand(instance.id, environment, instance.liveControlPort),
 				INSTANCE_STEP_TIMEOUT_MS,
-				renderEnvironmentFile({ liveControlToken: token }),
+				environment,
 			)
 			if (result.exitCode !== 0) {
 				throw new Error(`Failed to write the instance environment: ${result.stderr.trim()}`)
@@ -495,9 +492,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 		try {
-			const configPath = `${instanceDir(instance.id)}/${CONFIG_FILE_PATH}`
 			const result = await transport.exec(
-				`(umask 077; cat > ${configPath})`,
+				configWriteCommand(instance.id, document),
 				INSTANCE_STEP_TIMEOUT_MS,
 				document,
 			)
@@ -1116,9 +1112,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const document = renderInstanceConfig(settled)
 
 			try {
-				const configPath = `${instanceDir(instance.id)}/${CONFIG_FILE_PATH}`
 				const result = await transport.exec(
-					`(umask 077; cat > ${configPath})`,
+					configWriteCommand(instance.id, document),
 					INSTANCE_STEP_TIMEOUT_MS,
 					document,
 				)

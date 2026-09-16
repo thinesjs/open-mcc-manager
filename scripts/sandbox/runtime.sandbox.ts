@@ -15,7 +15,7 @@ import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../../packages/core/src
 import { sessionCacheProbeCommand } from "../../packages/core/src/instance/authenticate"
 import { controlLine } from "../../packages/core/src/instance/control"
 import { InstanceSignInRunningError } from "../../packages/core/src/instance/instance.controller"
-import { CONFIG_FILE_PATH } from "../../packages/core/src/instance/unit"
+import { CONFIG_FILE_PATH, configWriteCommand } from "../../packages/core/src/instance/unit"
 import type { InstanceCommandRow } from "../../packages/db/src/index"
 import { HOST_ID, installStandInClient, memoryManager, ORGANIZATION, owner } from "./memory-manager"
 import {
@@ -409,5 +409,41 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			),
 			"ending the stand-in sign-in",
 		)
+	})
+
+	it("starts the bot on a settings file put in place by a rename, and keeps the old one when a write is cut short (H1)", async () => {
+		const settings = `${botDir(botId)}/${CONFIG_FILE_PATH}`
+		const temporaries = async (): Promise<string> =>
+			succeeded(
+				await shell(
+					host,
+					as,
+					'find "$1" -maxdepth 1 -name ".MinecraftClient.ini.*" -print',
+					`${botDir(botId)}/config`,
+				),
+				"listing the settings temporaries",
+			).trim()
+		const since = await hostClock()
+
+		await ready().manager.controller.start(owner, botId)
+
+		expect(
+			await property(unitOf(botId), "ActiveState"),
+			await journalSince(unitOf(botId), since),
+		).toBe("active")
+		expect(await containers()).not.toBe("")
+		const document = await read(host, settings)
+		expect(document).not.toBe("")
+		expect(await temporaries()).toBe("")
+
+		const cutShort = await shell(
+			host,
+			{ ...as, input: document.slice(0, -1) },
+			configWriteCommand(botId, document),
+		)
+
+		expect(cutShort.status).not.toBe(0)
+		expect(await read(host, settings)).toBe(document)
+		expect(await temporaries()).toBe("")
 	})
 })

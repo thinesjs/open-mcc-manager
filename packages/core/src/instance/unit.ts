@@ -1,4 +1,5 @@
 import { INSTANCE_ID_PATTERN } from "@open-mcc/contracts"
+import { withDeadline } from "../host/deadline"
 import { INSTANCES_ROOT, systemctl } from "../host/profile"
 
 export type EnvironmentValues = {
@@ -66,6 +67,56 @@ export const stopAuthCommand = (instanceId: string): string => {
 export const instanceDir = (instanceId: string): string =>
 	`${INSTANCES_ROOT}/instances/${validateInstanceId(instanceId)}`
 
+const CONFIG_WRITE_KILL_AFTER_SECONDS = 2
+
+const CONFIG_WRITE_DEADLINE_SECONDS = 10
+
+export const configWriteCommand = (instanceId: string, document: string): string => {
+	const dir = instanceDir(instanceId)
+	const bytes = Buffer.byteLength(document, "utf8")
+	if (bytes === 0) {
+		throw new Error(
+			"The settings document must not be empty, which the byte check cannot tell from a lost channel",
+		)
+	}
+	return withDeadline(
+		CONFIG_WRITE_KILL_AFTER_SECONDS,
+		CONFIG_WRITE_DEADLINE_SECONDS,
+		`sh -c ${shellQuote(
+			[
+				`t=$(mktemp ${dir}/${INSTANCE_LAYOUT.config}/.${CONFIG_FILE_NAME}.XXXXXX) || exit 1`,
+				`if cat > "$t" && [ "$(wc -c < "$t")" -eq ${bytes} ] && mv -f -- "$t" ${dir}/${CONFIG_FILE_PATH}; then exit 0; fi`,
+				'rm -f -- "$t"',
+				"exit 1",
+			].join("; "),
+		)}`,
+	)
+}
+
+export const ENV_WRITTEN = "written"
+
+export const envWriteCommand = (
+	instanceId: string,
+	environment: string,
+	liveControlPort?: number,
+): string => {
+	const { env, unitEnv } = INSTANCE_LAYOUT
+	const bytes = Buffer.byteLength(environment, "utf8")
+	const temp = `t=$(mktemp "$d"/.${env}.XXXXXX) || exit 1`
+	const received = `cat > "$t" && [ "$(wc -c < "$t")" -eq ${bytes} ]`
+	const renamed = `mv -f -- "$t" "$d"/${env}`
+	const written = `printf ${shellQuote(`${ENV_WRITTEN}\\n`)}`
+	const steps =
+		liveControlPort === undefined
+			? [temp, `if ${received} && ${renamed}; then ${written}; else rm -f -- "$t"; exit 1; fi`]
+			: [
+					temp,
+					`u=$(mktemp "$d"/.${unitEnv}.XXXXXX) || { rm -f -- "$t"; exit 1; }`,
+					`if ${received} && printf '%s' ${shellQuote(renderUnitEnv(liveControlPort))} > "$u" && mv -f -- "$u" "$d"/${unitEnv} && ${renamed}; then ${written}; else rm -f -- "$t" "$u"; exit 1; fi`,
+				]
+	return [`d=${instanceDir(instanceId)}`, ...steps].join("; ")
+}
+
 export type InstanceLayoutValues = {
 	instanceId: string
 	liveControlPort: number
@@ -80,8 +131,8 @@ export const instanceLayoutSteps = ({
 	configDocument,
 }: InstanceLayoutValues) => {
 	const dir = instanceDir(instanceId)
-	const { config, state, replays, recordingCache, unitEnv, env, control, collectLock } =
-		INSTANCE_LAYOUT
+	const { config, state, replays, recordingCache, unitEnv, control, collectLock } = INSTANCE_LAYOUT
+	const environment = renderEnvironmentFile({ liveControlToken })
 	return [
 		{
 			command: `install -d -m 0700 ${dir} ${dir}/${config} ${dir}/${state} ${dir}/${replays} ${dir}/${recordingCache}`,
@@ -94,12 +145,12 @@ export const instanceLayoutSteps = ({
 			stdin: undefined,
 		},
 		{
-			command: `(umask 077; cat > ${dir}/${env})`,
+			command: envWriteCommand(instanceId, environment),
 			failure: "Failed to write the instance environment",
-			stdin: renderEnvironmentFile({ liveControlToken }),
+			stdin: environment,
 		},
 		{
-			command: `(umask 077; cat > ${dir}/${CONFIG_FILE_PATH})`,
+			command: configWriteCommand(instanceId, configDocument),
 			failure: "Failed to write the instance config",
 			stdin: configDocument,
 		},

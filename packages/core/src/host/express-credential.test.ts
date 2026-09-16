@@ -3,11 +3,15 @@ import type { SshKeyRow } from "@open-mcc/db"
 import { createFakeRootSession, type FakeRootSessionScript } from "@open-mcc/transport"
 import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { REDACTED_CREDENTIAL } from "../security/redact"
+import { REDACTED_CREDENTIAL, redactError } from "../security/redact"
 import { seedMember, seedOrganization, teardownTestDb, testDb } from "../test/db"
 import { unusedHostRepository } from "../test/host-doubles"
 import { EXPRESS_TIMED_OUT_REASON } from "./express-install"
-import { createHostController, createHostControllerTransaction } from "./host.controller"
+import {
+	createHostController,
+	createHostControllerTransaction,
+	type HostControllerDeps,
+} from "./host.controller"
 
 const ROOT_PASSWORD = "sup3rs3cret-r00t-pw-9f3c1a7b4e2d"
 
@@ -52,9 +56,13 @@ type Captured = {
 	logs: string
 }
 
-const captureOutput = async <T>(fn: () => Promise<T>): Promise<{ result: T; logs: string }> => {
+type RecordLine = (value: string) => void
+
+const captureOutput = async <T>(
+	fn: (record: RecordLine) => Promise<T>,
+): Promise<{ result: T; logs: string }> => {
 	const lines: string[] = []
-	const record = (value: string): void => {
+	const record: RecordLine = (value) => {
 		lines.push(value)
 	}
 	const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -72,7 +80,7 @@ const captureOutput = async <T>(fn: () => Promise<T>): Promise<{ result: T; logs
 	)
 
 	try {
-		return { result: await fn(), logs: lines.join("\n") }
+		return { result: await fn(record), logs: lines.join("\n") }
 	} finally {
 		stdout.mockRestore()
 		stderr.mockRestore()
@@ -80,33 +88,36 @@ const captureOutput = async <T>(fn: () => Promise<T>): Promise<{ result: T; logs
 	}
 }
 
+const depsFor = (
+	organizationId: string,
+	script: FakeRootSessionScript,
+	record: RecordLine,
+): HostControllerDeps => ({
+	hosts: unusedHostRepository(),
+	sshKeys: { findById: vi.fn(async () => ({ ...sshKeyRow, organizationId })) },
+	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn(() => "PRIVATE KEY") },
+	probeHostKey: vi.fn(async () => Buffer.alloc(0)),
+	probeSshHandshake: vi.fn(async () => ({ kind: "closed" }) as const),
+	createTransport: vi.fn(),
+	createRootSession: () => createFakeRootSession(script),
+	evictHost: () => undefined,
+	now: () => new Date(),
+	withTransaction: createHostControllerTransaction(testDb(), async () => null),
+	onError: (message, error) => record(`${message} ${redactError(error)}`),
+})
+
 const runInstall = async (
 	organizationId: string,
 	memberId: string,
 	credential: ExpressInstallInput["credential"],
 	script: FakeRootSessionScript,
-): Promise<Captured> => {
-	const db = testDb()
-	const controller = createHostController({
-		hosts: unusedHostRepository(),
-		sshKeys: { findById: vi.fn(async () => ({ ...sshKeyRow, organizationId })) },
-		secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn(() => "PRIVATE KEY") },
-		probeHostKey: vi.fn(async () => Buffer.alloc(0)),
-		probeSshHandshake: vi.fn(async () => ({ kind: "closed" }) as const),
-		createTransport: vi.fn(),
-		createRootSession: () => createFakeRootSession(script),
-		evictHost: () => undefined,
-		now: () => new Date(),
-		withTransaction: createHostControllerTransaction(db, async () => null),
-	})
-
-	return captureOutput(() =>
-		controller.expressInstall(
+): Promise<Captured> =>
+	captureOutput((record) =>
+		createHostController(depsFor(organizationId, script, record)).expressInstall(
 			{ organizationId, memberId, actorLabel: "actor@example.com", role: "owner" },
 			inputWith(credential),
 		),
 	)
-}
 
 const dumpDatabase = async (): Promise<string> => {
 	const db = testDb()
@@ -177,6 +188,19 @@ describe("the evidence these tests rest on", () => {
 		expect(logs).toContain("canary-stdout")
 		expect(logs).toContain("canary-stderr")
 		expect(logs).toContain("canary-console")
+	})
+
+	it("really sees a line the controller reports through the reporter it is given", async () => {
+		const { logs } = await captureOutput(async (record) => {
+			const reporter = depsFor("org-canary", { run: new Error("unused") }, record).onError
+
+			expect(reporter).toBeDefined()
+			reporter?.("canary-reported", new Error("canary-onError"))
+			return null
+		})
+
+		expect(logs).toContain("canary-reported")
+		expect(logs).toContain("canary-onError")
 	})
 })
 

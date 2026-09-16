@@ -13,7 +13,7 @@ import {
 	savedFrom,
 	validateBotConfig,
 } from "~/lib/bot-config"
-import { errorCodeOf, getErrorMessage } from "~/lib/errors"
+import { errorCodeOf, getConfigSaveMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 export type BotConfigPanelProps = {
@@ -63,7 +63,7 @@ export const BotConfigPanel = ({ instanceId, config, version, onSaved }: BotConf
 		<div className="space-y-4">
 			{saveMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
-					{getErrorMessage(saveMutation.error)}
+					{getConfigSaveMessage(saveMutation.error)}
 				</Alert>
 			) : null}
 

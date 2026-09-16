@@ -431,3 +431,40 @@ describe("★ the version a bots save is made against", () => {
 		expect(expectedVersions()).toEqual([7, 9])
 	})
 })
+
+describe("★ what a bots save that lost the race tells the operator", () => {
+	const alertText = async () => (await screen.findByRole("alert")).textContent
+
+	const theirs = () => instanceConfigStored.parse(configWith("theirs.txt"))
+
+	it("★ says someone else saved first, and shows the bots that operator saved", async () => {
+		mount("i1", configWith("was-saved.txt"), 7, async () => ({ config: theirs(), version: 9 }))
+		fireEvent.change(screen.getByLabelText("Player list file"), {
+			target: { value: "mine.txt" },
+		})
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+
+		expect(await alertText()).toBe(
+			"Someone else saved first, so your changes were not saved. The form now shows theirs.",
+		)
+		expect(screen.getByLabelText("Player list file")).toHaveProperty("value", "theirs.txt")
+	})
+
+	it("★ says the bot is busy instead, and leaves the operator's typing on screen", async () => {
+		mount("i1", configWith("was-saved.txt"), 7, async () => ({ config: theirs(), version: 9 }))
+		fireEvent.change(screen.getByLabelText("Player list file"), {
+			target: { value: "mine.txt" },
+		})
+		mutate.mockRejectedValueOnce({ message: "busy", data: { errorCode: "INSTANCE_BUSY" } })
+
+		await save()
+
+		expect(await alertText()).toBe("This bot is busy with another change. Try again in a moment.")
+		expect(screen.getByLabelText("Player list file")).toHaveProperty("value", "mine.txt")
+	})
+})

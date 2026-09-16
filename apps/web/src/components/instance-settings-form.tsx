@@ -14,7 +14,7 @@ import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
-import { errorCodeOf, getErrorMessage } from "~/lib/errors"
+import { errorCodeOf, getConfigSaveMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 const scalarsFrom = (config: InstanceConfigInput): InstanceSettingsInput => {
@@ -126,7 +126,7 @@ export const InstanceSettingsForm = ({
 		<form onSubmit={submit} className="space-y-4">
 			{saveMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
-					{getErrorMessage(saveMutation.error)}
+					{getConfigSaveMessage(saveMutation.error)}
 				</Alert>
 			) : null}
 

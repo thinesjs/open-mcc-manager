@@ -158,6 +158,7 @@ here and adding the test that proves it.
 | No `@ts-expect-error` | `check-type-policy.mjs` alone — Biome never flags it in any form, because switching to it is `noTsIgnore`'s own suggested fix |
 | No `@ts-nocheck` | `check-type-policy.mjs` |
 | No type assertions except `as const` | `check-type-policy.mjs` |
+| The checker skipping `.claude` only at the repository root | `check-type-policy.test.ts` — a nested `apps/web/.claude` must be scanned and a root `.claude/worktrees/...` skipped, so returning it to a single any-depth skip list fails. `biome.json`'s matching half rests on review |
 | `never` outside `exhaustive.ts` | `check-type-policy.mjs` |
 | `unknown` outside `boundary/` | `check-type-policy.mjs` |
 | Derived types, never hand-written | nothing — review only |
@@ -208,8 +209,22 @@ whose own guard does not run is not a guard.
 
 It scans every `.ts`, `.tsx`, `.mts` and `.cts` file and every `package.json`
 under the repository root, skipping `node_modules`, `dist`, `build`,
-`coverage`, `.git` and `.turbo` — the list `biome.json` excludes, plus
-`.git`. Change one list and change the other.
+`coverage`, `.turbo` and `.superpowers` at any depth — the list `biome.json`
+excludes, plus `.git`. Change one list and change the other.
+
+`.claude` is the one entry both skip **only at the repository root**, and it is
+anchored that way in both files: `biome.json` excludes `!.claude` rather than
+`!**/.claude`, and the checker holds it in `SKIP_AT_ROOT` rather than `SKIP`.
+The anchoring is load-bearing for the checker's own development, not a
+refinement: Biome matches its globs against a path that includes the ancestors
+of the project root, so `!**/.claude` matched the *worktree's own path* whenever
+a worktree lived under `.claude/worktrees/`, and `pnpm lint` then reported zero
+files checked while exiting non-zero. Every agent working in a worktree had to
+copy the tree elsewhere to lint it. Neither file may go back to matching
+`.claude` at any depth, and neither may stop skipping the root one — the root is
+where this repository's own worktrees live, each a full second copy of the tree.
+Only the checker's half is pinned by a test; `biome.json`'s rests on review, so
+the two can still be made to disagree by editing the config alone.
 
 It works on the parse tree, not on a text search, and that cuts one way only:
 a forbidden word inside a string, a template literal or an identifier is not

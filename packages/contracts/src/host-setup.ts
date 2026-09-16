@@ -79,6 +79,10 @@ export const UNLOCK_MODES = ["ask", "grant"] as const
 
 export type UnlockMode = (typeof UNLOCK_MODES)[number]
 
+export const SETUP_PRIVILEGES = ["sudo", "none"] as const
+
+export type SetupPrivilege = (typeof SETUP_PRIVILEGES)[number]
+
 export const lockedNotice = (username: string): string =>
 	`The account ${username} is locked, so the server may refuse it even with the right key.`
 
@@ -290,7 +294,8 @@ export const hostSetupScript = (
 	publicKey: string,
 	createAccount: boolean,
 	unlock: UnlockMode = "ask",
-): string => `sudo sh -s <<'${SCRIPT_HEREDOC}'
+	privilege: SetupPrivilege = "sudo",
+): string => `${privilege === "sudo" ? "sudo " : ""}sh -s <<'${SCRIPT_HEREDOC}'
 set -eu
 
 account=${singleQuote(username)}

@@ -99,12 +99,21 @@ function ready() {
 }
 
 describe("running the setup for an operator who has root", () => {
-	it("sends the very command the manual path would have shown, byte for byte", async () => {
+	it("sends the very script the manual path would have shown, byte for byte", async () => {
 		const { session, controller } = harness()
 
 		await controller.expressInstall(ctx, input())
 
-		expect(session.commands).toEqual([hostSetupScript("mcc", PUBLIC_KEY, true)])
+		expect(session.commands).toEqual([hostSetupScript("mcc", PUBLIC_KEY, true, "ask", "none")])
+		expect(`sudo ${session.commands[0]}`).toBe(hostSetupScript("mcc", PUBLIC_KEY, true))
+	})
+
+	it("asks for no sudo on a connection that is already root, since a host may not have it", async () => {
+		const { session, controller } = harness()
+
+		await controller.expressInstall(ctx, input())
+
+		expect(session.commands[0]?.startsWith("sh -s <<'OPENMCC_SETUP'")).toBe(true)
 	})
 
 	it("connects as root at the fingerprint the operator confirmed, not one it chose itself", async () => {
@@ -234,8 +243,10 @@ describe("the locked account nobody can be asked about", () => {
 		const second = harness()
 		await second.controller.expressInstall(ctx, input({ unlock: true }))
 
-		expect(first.session.commands[0]).toBe(hostSetupScript("mcc", PUBLIC_KEY, true, "ask"))
-		expect(second.session.commands[0]).toBe(hostSetupScript("mcc", PUBLIC_KEY, true, "grant"))
+		expect(first.session.commands[0]).toBe(hostSetupScript("mcc", PUBLIC_KEY, true, "ask", "none"))
+		expect(second.session.commands[0]).toBe(
+			hostSetupScript("mcc", PUBLIC_KEY, true, "grant", "none"),
+		)
 	})
 })
 

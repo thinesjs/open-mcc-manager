@@ -24,7 +24,13 @@ export const EXPRESS_NO_REASON = "The setup stopped without saying why."
 const KEY_REFUSED = "The server did not accept this SSH key"
 
 export const expressSetupCommand = (input: ExpressInstallInput, publicKey: string): string =>
-	hostSetupScript(input.username, publicKey, input.createAccount, input.unlock ? "grant" : "ask")
+	hostSetupScript(
+		input.username,
+		publicKey,
+		input.createAccount,
+		input.unlock ? "grant" : "ask",
+		"none",
+	)
 
 export const rootCredentialFor = (input: ExpressInstallInput): RootCredential =>
 	input.credential.kind === "password"

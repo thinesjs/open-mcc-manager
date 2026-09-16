@@ -32,6 +32,17 @@ describe("the command an operator pastes onto a new host", () => {
 		expect(script.trimEnd().endsWith("OPENMCC_SETUP")).toBe(true)
 	})
 
+	it("asks for root through sudo, since the operator pasting it is not root yet", () => {
+		expect(hostSetupScript("pi", KEY, false)).toBe(hostSetupScript("pi", KEY, false, "ask", "sudo"))
+	})
+
+	it("asks for nothing on a connection that is already root, since a minimal Debian has no sudo", () => {
+		const asRoot = hostSetupScript("pi", KEY, false, "ask", "none")
+
+		expect(asRoot.startsWith("sh -s <<'OPENMCC_SETUP'")).toBe(true)
+		expect(`sudo ${asRoot}`).toBe(hostSetupScript("pi", KEY, false, "ask", "sudo"))
+	})
+
 	it("resolves the account's own home, so running it as root does not write to root's", () => {
 		const script = hostSetupScript("pi", KEY, false)
 

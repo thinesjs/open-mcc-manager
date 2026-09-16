@@ -90,7 +90,15 @@ import {
 	verifyGoneCommand,
 } from "./removal"
 import type { ScheduleRepository } from "./schedule.repository"
-import { instanceDir, instanceLayoutSteps, startUnitCommand, unitName } from "./unit"
+import {
+	configWriteCommand,
+	envWriteCommand,
+	instanceDir,
+	instanceLayoutSteps,
+	renderEnvironmentFile,
+	startUnitCommand,
+	unitName,
+} from "./unit"
 
 const owner: ActorContext = {
 	organizationId: "org-1",
@@ -337,9 +345,16 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 }
 
 describe("a bot's files and its start", () => {
-	const DIR = '"$HOME"/.local/share/open-mcc/instances/abc123'
+	const ENV_WRITE = envWriteCommand(
+		"abc123",
+		renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
+		33333,
+	)
 
-	const ENV_WRITE = `(umask 077; cat > ${DIR}/env && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`
+	const CONFIG_WRITE = configWriteCommand(
+		"abc123",
+		renderInstanceConfig(instanceConfigInput.parse({ ...SAVED_DOCUMENT, liveControlPort: 33333 })),
+	)
 
 	const RUNNING = { status: "running" }
 
@@ -372,13 +387,15 @@ describe("a bot's files and its start", () => {
 		})
 
 		const port = vi.mocked(deps.instances.insert).mock.calls[0]?.[1].liveControlPort ?? 0
+		const written = transport.stdins.find((each) => !each.startsWith("MCC_MCP_AUTH_TOKEN=")) ?? ""
 		expect(port).toBeGreaterThan(0)
+		expect(written).not.toBe("")
 		expect(transport.commands.filter((command) => command.includes("/instances/abc123"))).toEqual(
 			instanceLayoutSteps({
 				instanceId: "abc123",
 				liveControlPort: port,
 				liveControlToken: "0".repeat(32),
-				configDocument: "",
+				configDocument: written,
 			}).map((step) => step.command),
 		)
 	})
@@ -391,11 +408,7 @@ describe("a bot's files and its start", () => {
 		await controller.restart(owner, "abc123")
 
 		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
-		expect(
-			transport.commands.filter(
-				(command) => command === `(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`,
-			),
-		).toHaveLength(2)
+		expect(transport.commands.filter((command) => command === CONFIG_WRITE)).toHaveLength(2)
 		expect(
 			transport.commands.filter((command) => command === startUnitCommand("abc123")),
 		).toHaveLength(2)
@@ -419,18 +432,17 @@ describe("a bot's files and its start", () => {
 	it("rewrites unit.env from the row's port in the exec that writes the token, adding no exec", async () => {
 		const { deps, transport } = withSavedConfig()
 		const controller = createInstanceController(deps)
-		const configWrite = `(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`
 
 		await controller.start(owner, "abc123")
 		const started = [...transport.commands]
 		transport.commands.length = 0
 		await controller.restart(owner, "abc123")
 
-		expect(started).toEqual([ENV_WRITE, configWrite, startUnitCommand("abc123")])
+		expect(started).toEqual([ENV_WRITE, CONFIG_WRITE, startUnitCommand("abc123")])
 		expect(transport.commands).toEqual([
 			`${SYSTEMCTL} stop 'open-mcc@abc123'`,
 			ENV_WRITE,
-			configWrite,
+			CONFIG_WRITE,
 			startUnitCommand("abc123"),
 		])
 	})
@@ -639,7 +651,9 @@ describe("instance creation prepares the host", () => {
 
 		const joined = transport.commands.join("\n")
 		expect(joined).toContain("mkfifo -m 0600")
-		expect(joined).toContain('"$HOME"/.local/share/open-mcc/instances/abc123/env')
+		expect(joined).toContain(
+			envWriteCommand("abc123", renderEnvironmentFile({ liveControlToken: "0".repeat(32) })),
+		)
 		expect(transport.stdins.some((each) => each.includes("MCC_MCP_AUTH_TOKEN="))).toBe(true)
 	})
 
@@ -697,7 +711,7 @@ describe("instance creation prepares the host", () => {
 		expect(joined).not.toContain("chown")
 		expect(joined).toContain('install -d -m 0700 "$HOME"/.local/share/open-mcc/instances/abc123')
 		expect(joined).toContain(
-			'(umask 077; cat > "$HOME"/.local/share/open-mcc/instances/abc123/env)',
+			envWriteCommand("abc123", renderEnvironmentFile({ liveControlToken: "0".repeat(32) })),
 		)
 
 		for (const mode of joined.match(/-m [0-7]{4}/g) ?? []) {
@@ -1323,11 +1337,11 @@ describe("running several instances on one host", () => {
 			botConfig: {},
 		})
 
+		const [document = ""] = transport.stdins
+
 		expect(documents).toHaveLength(1)
 		expect(JSON.parse(documents[0] ?? "{}").liveControlPort).toBe(33333)
-		expect(transport.commands).toContain(
-			'(umask 077; cat > "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini)',
-		)
+		expect(transport.commands).toContain(configWriteCommand("abc123", document))
 		expect(transport.commands.some((command) => /install -d|mkdir/.test(command))).toBe(false)
 	})
 

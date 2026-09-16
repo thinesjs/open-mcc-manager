@@ -1,6 +1,22 @@
+import { spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { describe, expect, it } from "vitest"
 import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import {
+	configWriteCommand,
+	envWriteCommand,
 	INSTANCE_LAYOUT,
 	instanceDir,
 	instanceLayoutSteps,
@@ -59,8 +75,8 @@ describe("making a bot's directory", () => {
 		expect(steps.map((step) => step.command)).toEqual([
 			`install -d -m 0700 ${DIR} ${DIR}/config ${DIR}/state ${DIR}/replays ${DIR}/recording-cache`,
 			`(test -p ${DIR}/control || mkfifo -m 0600 ${DIR}/control) && (umask 077; : > ${DIR}/collect.lock && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`,
-			`(umask 077; cat > ${DIR}/env)`,
-			`(umask 077; cat > ${DIR}/config/MinecraftClient.ini)`,
+			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && mv -f -- "$t" "$d"/env; then exit 0; fi; rm -f -- "$t"; exit 1`,
+			`timeout -k 2 10 sh -c 't=$(mktemp ${DIR}/config/.MinecraftClient.ini.XXXXXX) || exit 1; if cat > "$t" && [ "$(wc -c < "$t")" -eq 7 ] && mv -f -- "$t" ${DIR}/config/MinecraftClient.ini; then exit 0; fi; rm -f -- "$t"; exit 1'; s=$?; exit $s`,
 		])
 	})
 
@@ -91,6 +107,113 @@ describe("making a bot's directory", () => {
 				configDocument: "",
 			}),
 		).toThrow(/token/i)
+	})
+})
+
+const scratch: string[] = []
+
+afterEach(() => {
+	for (const each of scratch.splice(0)) rmSync(each, { force: true, recursive: true })
+})
+
+const instanceOf = (home: string): string => join(home, ".local/share/open-mcc/instances/abc123")
+
+const configOf = (home: string): string => join(instanceOf(home), INSTANCE_LAYOUT.config)
+
+const scratchHome = (withConfigDirectory: boolean): string => {
+	const home = mkdtempSync(join(tmpdir(), "instance-write-"))
+	scratch.push(home)
+	mkdirSync(withConfigDirectory ? configOf(home) : instanceOf(home), { recursive: true })
+	const bin = join(home, "bin")
+	mkdirSync(bin)
+	writeFileSync(join(bin, "timeout"), '#!/bin/sh\nshift 3; exec "$@"\n')
+	chmodSync(join(bin, "timeout"), 0o755)
+	return home
+}
+
+const runIn = (home: string, command: string, stdin: string) =>
+	spawnSync("/bin/sh", ["-c", command], {
+		env: { PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: home },
+		input: stdin,
+	})
+
+describe("writing a bot's settings file so no reader ever sees half of one", () => {
+	const DOCUMENT = "[Main]\nNick = bot\n"
+
+	const CONFIG = "MinecraftClient.ini"
+
+	it("lands the whole document at 0600 and leaves no temporary behind", () => {
+		const home = scratchHome(true)
+
+		const ran = runIn(home, configWriteCommand("abc123", DOCUMENT), DOCUMENT)
+
+		expect(ran.status, ran.stderr.toString()).toBe(0)
+		expect(readFileSync(join(configOf(home), CONFIG), "utf8")).toBe(DOCUMENT)
+		expect(statSync(join(configOf(home), CONFIG)).mode & 0o777).toBe(0o600)
+		expect(readdirSync(configOf(home))).toEqual([CONFIG])
+	})
+
+	it("refuses a stdin one byte short of the count it announced, keeping the file it would have replaced", () => {
+		const home = scratchHome(true)
+		const previous = "[Main]\nNick = previous\n"
+		writeFileSync(join(configOf(home), CONFIG), previous)
+
+		const ran = runIn(home, configWriteCommand("abc123", DOCUMENT), DOCUMENT.slice(0, -1))
+
+		expect(ran.status).toBe(1)
+		expect(readFileSync(join(configOf(home), CONFIG), "utf8")).toBe(previous)
+		expect(readdirSync(configOf(home))).toEqual([CONFIG])
+	})
+
+	it("fails rather than create a config directory that is gone", () => {
+		const home = scratchHome(false)
+
+		const ran = runIn(home, configWriteCommand("abc123", DOCUMENT), DOCUMENT)
+
+		expect(ran.status).not.toBe(0)
+		expect(existsSync(configOf(home))).toBe(false)
+	})
+})
+
+describe("writing a bot's token and port files so a start never reads half of either", () => {
+	const ENVIRONMENT = `MCC_MCP_AUTH_TOKEN=${TOKEN}\n`
+
+	const PREVIOUS = `MCC_MCP_AUTH_TOKEN=${"f".repeat(32)}\n`
+
+	it("renames the port file before the token, so a half-finished write leaves the port stale", () => {
+		expect(envWriteCommand("abc123", ENVIRONMENT, 33333)).toBe(
+			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; u=$(mktemp "$d"/.unit.env.XXXXXX) || { rm -f -- "$t"; exit 1; }; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && printf '%s' 'OPEN_MCC_PORT=33333\n' > "$u" && mv -f -- "$u" "$d"/unit.env && mv -f -- "$t" "$d"/env; then exit 0; fi; rm -f -- "$t" "$u"; exit 1`,
+		)
+	})
+
+	it("refuses a short stdin during creation, leaving the token file the bot already had", () => {
+		const home = scratchHome(false)
+		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), PREVIOUS)
+		const step = instanceLayoutSteps({
+			instanceId: "abc123",
+			liveControlPort: 33333,
+			liveControlToken: TOKEN,
+			configDocument: "[Main]\n",
+		}).find((each) => each.stdin === ENVIRONMENT)
+		if (step === undefined) throw new Error("creation writes no token file from stdin")
+
+		const ran = runIn(home, step.command, ENVIRONMENT.slice(0, -1))
+
+		expect(ran.status).toBe(1)
+		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(PREVIOUS)
+		expect(readdirSync(instanceOf(home))).toEqual([INSTANCE_LAYOUT.env])
+	})
+
+	it("lands the token file whole when stdin arrives whole", () => {
+		const home = scratchHome(false)
+		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), PREVIOUS)
+
+		const ran = runIn(home, envWriteCommand("abc123", ENVIRONMENT), ENVIRONMENT)
+
+		expect(ran.status, ran.stderr.toString()).toBe(0)
+		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(ENVIRONMENT)
+		expect(statSync(join(instanceOf(home), INSTANCE_LAYOUT.env)).mode & 0o777).toBe(0o600)
+		expect(readdirSync(instanceOf(home))).toEqual([INSTANCE_LAYOUT.env])
 	})
 })
 

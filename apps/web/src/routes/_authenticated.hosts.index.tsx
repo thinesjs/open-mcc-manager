@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
@@ -11,7 +11,6 @@ import { SelfHostCard, shouldOfferSelfHost } from "~/components/self-host-card"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
-import { LoadingBlock } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
@@ -26,7 +25,7 @@ function HostListPage() {
 	const [enrolling, setEnrolling] = useState(false)
 	const [view, setView] = useViewMode("open-mcc.view.hosts")
 	const trpc = useTRPC()
-	const hostsQuery = useQuery({
+	const hostsQuery = useSuspenseQuery({
 		...trpc.host.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
@@ -51,8 +50,6 @@ function HostListPage() {
 				</div>
 			</div>
 
-			{hostsQuery.isPending ? <LoadingBlock label="Loading hosts" /> : null}
-
 			{hostsQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(hostsQuery.error)}
@@ -66,7 +63,7 @@ function HostListPage() {
 				/>
 			) : null}
 
-			{hostsQuery.data && hostsQuery.data.length === 0 ? (
+			{hostsQuery.data.length === 0 ? (
 				<EmptyState
 					icon={Server}
 					title="No hosts enrolled"
@@ -80,7 +77,7 @@ function HostListPage() {
 				/>
 			) : null}
 
-			{hostsQuery.data && hostsQuery.data.length > 0 ? (
+			{hostsQuery.data.length > 0 ? (
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{hostsQuery.data.map((host) => (

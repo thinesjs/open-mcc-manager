@@ -1,6 +1,9 @@
-import { minecraftNameOf } from "@open-mcc/contracts"
-import { useQuery } from "@tanstack/react-query"
+import { type InstancePublic, minecraftNameOf } from "@open-mcc/contracts"
+import type { AppRouter } from "@open-mcc/server"
+import { type Query, useSuspenseQueries } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import type { TRPCClientErrorLike } from "@trpc/client"
+import type { TRPCQueryKeyWithoutPrefix } from "@trpc/tanstack-react-query"
 import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
@@ -11,7 +14,6 @@ import { PlayerAvatar } from "~/components/player-avatar"
 import { Alert } from "~/components/ui/alert"
 import { Button, buttonVariants } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
-import { LoadingBlock } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
@@ -27,14 +29,25 @@ function InstanceListPage() {
 	const trpc = useTRPC()
 	const [view, setView] = useViewMode("open-mcc.view.instances")
 	const [creating, setCreating] = useState(false)
-	const instancesQuery = useQuery({
-		...trpc.instance.list.queryOptions(),
-		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+	const [instancesQuery, hostsQuery] = useSuspenseQueries({
+		queries: [
+			{
+				...trpc.instance.list.queryOptions(),
+				refetchInterval: (
+					query: Query<
+						InstancePublic[],
+						TRPCClientErrorLike<AppRouter>,
+						InstancePublic[],
+						TRPCQueryKeyWithoutPrefix
+					>,
+				) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+			},
+			trpc.host.list.queryOptions(),
+		],
 	})
-	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 
-	const hostNameById = new Map((hostsQuery.data ?? []).map((host) => [host.id, host.name]))
-	const readyHosts = (hostsQuery.data ?? []).filter((host) => host.status === "ready")
+	const hostNameById = new Map(hostsQuery.data.map((host) => [host.id, host.name]))
+	const readyHosts = hostsQuery.data.filter((host) => host.status === "ready")
 
 	return (
 		<div className="space-y-6">
@@ -54,15 +67,13 @@ function InstanceListPage() {
 				</div>
 			</div>
 
-			{instancesQuery.isPending ? <LoadingBlock label="Loading instances" /> : null}
-
 			{instancesQuery.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(instancesQuery.error)}
 				</Alert>
 			) : null}
 
-			{instancesQuery.data && instancesQuery.data.length === 0 ? (
+			{instancesQuery.data.length === 0 ? (
 				<EmptyState
 					icon={Boxes}
 					title="No instances"
@@ -86,7 +97,7 @@ function InstanceListPage() {
 				/>
 			) : null}
 
-			{instancesQuery.data && instancesQuery.data.length > 0 ? (
+			{instancesQuery.data.length > 0 ? (
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{instancesQuery.data.map((instance) => (

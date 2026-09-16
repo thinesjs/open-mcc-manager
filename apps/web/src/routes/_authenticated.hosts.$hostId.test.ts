@@ -3,10 +3,11 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const source = readFileSync(join(__dirname, "_authenticated.hosts.$hostId.tsx"), "utf8")
+const controls = readFileSync(join(__dirname, "..", "components", "host-controls.tsx"), "utf8")
 
 const buttonBlockAfter = (gate: string): string => {
-	const start = source.indexOf(gate)
-	return start === -1 ? "" : source.slice(start, start + 700)
+	const start = controls.indexOf(gate)
+	return start === -1 ? "" : controls.slice(start, start + 700)
 }
 
 describe("host page actions a role cannot use", () => {
@@ -16,14 +17,14 @@ describe("host page actions a role cannot use", () => {
 
 	it("renders Set up and Repair setup only for a role that may set up a host", () => {
 		const block = buttonBlockAfter('mayUseHostControl(role, "setUp")')
-		expect(block).toContain("setConfirmingProvision(true)")
+		expect(block).toContain("onClick={onSetUp}")
 		expect(block).toContain('"Repair setup"')
+		expect(source).toContain("onSetUp={() => setConfirmingProvision(true)}")
 	})
 
 	it("renders Remove only for a role that may remove a host", () => {
-		expect(buttonBlockAfter('mayUseHostControl(role, "remove")')).toContain(
-			"setConfirmingRemove(true)",
-		)
+		expect(buttonBlockAfter('mayUseHostControl(role, "remove")')).toContain("onClick={onRemove}")
+		expect(source).toContain("onRemove={() => setConfirmingRemove(true)}")
 	})
 
 	it("reads the role from the signed-in member", () => {
@@ -33,10 +34,12 @@ describe("host page actions a role cannot use", () => {
 
 describe("what the host page says about a host", () => {
 	it("shows no privilege row and no isolation label, since every host runs bots one way", () => {
-		expect(source).not.toContain("Privilege")
-		expect(source).not.toContain("confinementLabel")
-		expect(source).not.toContain("Bot isolation")
-		expect(source).not.toContain("host.mode")
-		expect(source).not.toContain("host.sandboxed")
+		for (const text of [source, controls]) {
+			expect(text).not.toContain("Privilege")
+			expect(text).not.toContain("confinementLabel")
+			expect(text).not.toContain("Bot isolation")
+			expect(text).not.toContain("host.mode")
+			expect(text).not.toContain("host.sandboxed")
+		}
 	})
 })

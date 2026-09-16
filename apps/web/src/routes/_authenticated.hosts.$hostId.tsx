@@ -1,9 +1,10 @@
 import type { HostPublic, HostStatus } from "@open-mcc/contracts"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { CircleAlert, Plus } from "lucide-react"
+import { CircleAlert } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
+import { HostControls } from "~/components/host-controls"
 import { HostDrift } from "~/components/host-drift"
 import { HostHealthBadge } from "~/components/host-health-badge"
 import { HostMetricsPanel } from "~/components/host-metrics"
@@ -12,14 +13,11 @@ import { HostStatusBadge } from "~/components/host-status-badge"
 import { ProvisionProgress } from "~/components/provision-progress"
 import { RetrustHostKey } from "~/components/retrust-host-key"
 import { Alert } from "~/components/ui/alert"
-import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { Modal } from "~/components/ui/modal"
-import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
-import { mayUseHostControl } from "~/lib/host-actions"
 import { sawProvisioningFinish, stillShowingCompletion } from "~/lib/just-provisioned"
 import { useTRPC } from "~/lib/trpc"
 
@@ -39,7 +37,7 @@ function HostDetailPage() {
 	const queryClient = useQueryClient()
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 
-	const hostsQuery = useQuery({
+	const hostsQuery = useSuspenseQuery({
 		...trpc.host.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
@@ -48,7 +46,7 @@ function HostDetailPage() {
 	const me = useQuery(trpc.member.me.queryOptions())
 	const role = me.data?.role
 
-	const host = hostsQuery.data?.find((candidate) => candidate.id === hostId)
+	const host = hostsQuery.data.find((candidate) => candidate.id === hostId)
 
 	const previousStatus = useRef<HostStatus | undefined>(undefined)
 	const [justProvisioned, setJustProvisioned] = useState(false)
@@ -86,18 +84,6 @@ function HostDetailPage() {
 		)
 	}
 
-	if (hostsQuery.isPending) {
-		return <LoadingBlock label="Loading host" />
-	}
-
-	if (hostsQuery.isError) {
-		return (
-			<Alert variant="error" icon={<CircleAlert />}>
-				{getErrorMessage(hostsQuery.error)}
-			</Alert>
-		)
-	}
-
 	if (!host) {
 		return (
 			<Alert variant="error" icon={<CircleAlert />}>
@@ -117,6 +103,12 @@ function HostDetailPage() {
 				</div>
 				<HostStatusBadge status={host.status} />
 			</div>
+
+			{hostsQuery.isError ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					{getErrorMessage(hostsQuery.error)}
+				</Alert>
+			) : null}
 
 			{provisionMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
@@ -231,46 +223,15 @@ function HostDetailPage() {
 
 			<HostDrift hostId={host.id} ready={host.status === "ready"} />
 
-			<div className="flex gap-3">
-				{host.status === "ready" && mayUseHostControl(role, "createInstance") ? (
-					<Button onClick={() => setCreatingInstance(true)}>
-						<Plus className="size-4" />
-						New instance
-					</Button>
-				) : null}
-				{mayUseHostControl(role, "setUp") ? (
-					<Button
-						variant={host.status === "ready" ? "secondary" : "default"}
-						onClick={() => setConfirmingProvision(true)}
-						disabled={
-							provisionMutation.isPending ||
-							host.status === "provisioning" ||
-							host.status === "removing"
-						}
-					>
-						{provisionMutation.isPending ? (
-							<Spinner label="Setting up" />
-						) : host.status === "ready" ? (
-							"Repair setup"
-						) : (
-							"Set up"
-						)}
-					</Button>
-				) : null}
-				{mayUseHostControl(role, "remove") ? (
-					<Button
-						variant="destructive-outline"
-						onClick={() => setConfirmingRemove(true)}
-						disabled={
-							removeMutation.isPending ||
-							host.status === "provisioning" ||
-							host.status === "removing"
-						}
-					>
-						{removeMutation.isPending ? <Spinner label="Removing" /> : "Remove"}
-					</Button>
-				) : null}
-			</div>
+			<HostControls
+				host={host}
+				role={role}
+				provisionPending={provisionMutation.isPending}
+				removePending={removeMutation.isPending}
+				onCreateInstance={() => setCreatingInstance(true)}
+				onSetUp={() => setConfirmingProvision(true)}
+				onRemove={() => setConfirmingRemove(true)}
+			/>
 
 			<ConfirmDialog
 				open={confirmingProvision}

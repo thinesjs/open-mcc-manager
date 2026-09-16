@@ -6,7 +6,13 @@ import {
 	SUBSCRIPTION_LABELS,
 	type SubscriptionKind,
 } from "@open-mcc/contracts"
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+	keepPreviousData,
+	useMutation,
+	useQuery,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import {
 	BellRing,
@@ -27,7 +33,6 @@ import { Badge } from "~/components/ui/badge"
 import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
 import { Modal } from "~/components/ui/modal"
-import { LoadingBlock } from "~/components/ui/spinner"
 import { WebhookContract } from "~/components/webhook-contract"
 import {
 	type AlertControl,
@@ -111,7 +116,7 @@ function AlertsPage() {
 	const me = useQuery(trpc.member.me.queryOptions())
 	const may = (control: AlertControl): boolean => mayUseAlertControl(me.data?.role, control)
 
-	const destinations = useQuery(trpc.notification.list.queryOptions())
+	const destinations = useSuspenseQuery(trpc.notification.list.queryOptions())
 	const create = useMutation(trpc.notification.create.mutationOptions())
 	const edit = useMutation(trpc.notification.edit.mutationOptions())
 	const remove = useMutation(trpc.notification.remove.mutationOptions())
@@ -185,12 +190,12 @@ function AlertsPage() {
 	].find((message) => message !== undefined)
 
 	const sharedTargets = new Set(
-		(destinations.data ?? [])
+		destinations.data
 			.map((entry) => entry.target)
 			.filter((target, index, all) => all.indexOf(target) !== index),
 	)
 
-	const editing = destinations.data?.find((entry) => entry.id === pendingEdit)
+	const editing = destinations.data.find((entry) => entry.id === pendingEdit)
 
 	const handleCreate = (draft: DestinationDraft) => {
 		create.mutate(draft, {
@@ -219,8 +224,6 @@ function AlertsPage() {
 				) : null}
 			</div>
 
-			{destinations.isPending ? <LoadingBlock label="Loading alerts" /> : null}
-
 			{destinations.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(destinations.error)}
@@ -239,7 +242,7 @@ function AlertsPage() {
 				</Alert>
 			)}
 
-			{destinations.data && destinations.data.length === 0 ? (
+			{destinations.data.length === 0 ? (
 				<EmptyState
 					icon={BellRing}
 					title="No destinations"
@@ -260,7 +263,7 @@ function AlertsPage() {
 			) : null}
 
 			<div className="space-y-3">
-				{destinations.data?.map((destination) => (
+				{destinations.data.map((destination) => (
 					<div
 						key={destination.id}
 						className="rounded-[var(--radius)] border border-border bg-card p-4"

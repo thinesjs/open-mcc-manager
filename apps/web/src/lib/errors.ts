@@ -116,3 +116,11 @@ export const getErrorMessage = (error: TRPCErrorLike): string => {
 	if (mapped) return mapped
 	return isSentence(error.message) ? error.message : FALLBACK_MESSAGE
 }
+
+const LOST_SAVE_MESSAGE =
+	"Someone else saved first, so your changes were not saved. The form now shows theirs."
+
+export const getConfigSaveMessage = (error: TRPCErrorLike): string =>
+	errorCodeOf(error) === "INSTANCE_CONCURRENTLY_MODIFIED"
+		? LOST_SAVE_MESSAGE
+		: getErrorMessage(error)

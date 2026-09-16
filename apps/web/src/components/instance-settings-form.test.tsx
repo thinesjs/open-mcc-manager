@@ -449,3 +449,41 @@ describe("★ the version a save is made against", () => {
 		expect(expectedVersions()).toEqual([7, 3])
 	})
 })
+
+describe("★ what a save that lost the race tells the operator", () => {
+	const alertText = async () => (await screen.findByRole("alert")).textContent
+
+	const theirs = () =>
+		instanceConfigStored.parse({ ...CONFIG, serverAddress: "theirs.example.com" })
+
+	it("★ says someone else saved first, and shows the settings that operator saved", async () => {
+		mount({}, 7, async () => ({ config: theirs(), version: 9 }))
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "mine.example.com" },
+		})
+		mutate.mockRejectedValueOnce({
+			message: "conflict",
+			data: { errorCode: "INSTANCE_CONCURRENTLY_MODIFIED" },
+		})
+
+		await save()
+
+		expect(await alertText()).toBe(
+			"Someone else saved first, so your changes were not saved. The form now shows theirs.",
+		)
+		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "theirs.example.com")
+	})
+
+	it("★ says the bot is busy instead, and leaves the operator's typing on screen", async () => {
+		mount({}, 7, async () => ({ config: theirs(), version: 9 }))
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "mine.example.com" },
+		})
+		mutate.mockRejectedValueOnce({ message: "busy", data: { errorCode: "INSTANCE_BUSY" } })
+
+		await save()
+
+		expect(await alertText()).toBe("This bot is busy with another change. Try again in a moment.")
+		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "mine.example.com")
+	})
+})

@@ -37,7 +37,11 @@ function AuditPage() {
 	const [offset, setOffset] = useState(0)
 	const me = useQuery(trpc.member.me.queryOptions())
 	const mayRead = me.data !== undefined && can(me.data.role, "audit.read")
-	const page = useQuery({ ...trpc.audit.list.queryOptions({ offset }), enabled: mayRead })
+	const page = useQuery({
+		...trpc.audit.list.queryOptions({ offset }),
+		enabled: mayRead,
+		placeholderData: (previous) => previous,
+	})
 
 	const total = page.data?.total
 	const header = (

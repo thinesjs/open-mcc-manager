@@ -7,9 +7,15 @@ import { Route } from "./_authenticated.audit"
 
 type Input = { offset: number }
 
-type PageState = { role: Role; total: number; action: string }
+type PageState = { role: Role; total: number; action: string; holdOffset: number | undefined }
 
-const state: PageState = { role: "owner", total: 137, action: "instance.start" }
+const state: PageState = {
+	role: "owner",
+	total: 137,
+	action: "instance.start",
+	holdOffset: undefined,
+}
+const gate: { release: (() => void) | undefined } = { release: undefined }
 const asked: number[] = []
 
 const pageAt = (offset: number): AuditPage => ({
@@ -28,13 +34,16 @@ const pageAt = (offset: number): AuditPage => ({
 	total: state.total,
 })
 
-const answer = (router: string, name: string, input: Input | undefined): object => {
-	if (router === "audit" && name === "list") {
-		const offset = input?.offset ?? 0
-		asked.push(offset)
-		return pageAt(offset)
+const answer = async (router: string, name: string, input: Input | undefined): Promise<object> => {
+	if (router !== "audit" || name !== "list") return { role: state.role }
+	const offset = input?.offset ?? 0
+	asked.push(offset)
+	if (state.holdOffset === offset) {
+		await new Promise<void>((resolve) => {
+			gate.release = resolve
+		})
 	}
-	return { role: state.role }
+	return pageAt(offset)
 }
 
 const procedure = (router: string, name: string) => ({
@@ -67,10 +76,15 @@ beforeEach(() => {
 	state.role = "owner"
 	state.total = 137
 	state.action = "instance.start"
+	state.holdOffset = undefined
+	gate.release = undefined
 	asked.length = 0
 })
 
-afterEach(cleanup)
+afterEach(() => {
+	gate.release?.()
+	cleanup()
+})
 
 const mount = async () => {
 	const Page = Route.options.component
@@ -151,6 +165,21 @@ describe("walking back through the trail", () => {
 		await waitFor(() => expect(screen.getByText(/bot-100\./)).toBeDefined())
 
 		expect(screen.getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(true)
+	})
+
+	it("keeps the total and the rows on screen while the next page is still loading", async () => {
+		state.holdOffset = AUDIT_PAGE_SIZE
+		await mount()
+
+		await waitFor(() => expect(screen.getByText("137 actions recorded")).toBeDefined())
+		fireEvent.click(screen.getByRole("button", { name: "Next" }))
+		await waitFor(() => expect(asked).toContain(AUDIT_PAGE_SIZE))
+
+		expect(screen.getByText("137 actions recorded")).toBeDefined()
+		expect(screen.getByText(/started the instance bot-0\./)).toBeDefined()
+
+		gate.release?.()
+		await waitFor(() => expect(screen.getByText(/started the instance bot-50\./)).toBeDefined())
 	})
 
 	it("offers no pager at all when everything already fits on one page", async () => {

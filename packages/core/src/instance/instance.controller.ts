@@ -5,6 +5,7 @@ import {
 	createInstanceInput,
 	type InstanceBotsInput,
 	type InstanceConfigInput,
+	type InstanceConfigView,
 	type InstancePublic,
 	type InstanceSettingsInput,
 	instanceBotsInput,
@@ -1089,14 +1090,17 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		getConfig: async (
 			ctx: ActorContext,
 			instanceId: string,
-		): Promise<InstanceConfigInput | undefined> => {
+		): Promise<InstanceConfigView | undefined> => {
 			requireCapabilityFor(ctx.role, "instance.read")
 			const instance = await requireInstance(ctx, instanceId)
 			const row = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
 			if (!row) return undefined
 			const parsed = instanceConfigStored.safeParse(row.document)
 			if (!parsed.success) return undefined
-			return { ...parsed.data, liveControlPort: instance.liveControlPort }
+			return {
+				config: { ...parsed.data, liveControlPort: instance.liveControlPort },
+				version: row.version,
+			}
 		},
 
 		updateConfig: async (
@@ -1164,7 +1168,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "config.edit")
 			const saved = await controller.getConfig(ctx, instanceId)
 			if (!saved) throw new Error(`No saved settings for instance ${instanceId}`)
-			await controller.updateConfig(ctx, instanceId, { ...saved, ...bots })
+			await controller.updateConfig(ctx, instanceId, { ...saved.config, ...bots })
 		},
 
 		hostMetrics: async (ctx: ActorContext, hostId: string): Promise<HostMetrics> => {

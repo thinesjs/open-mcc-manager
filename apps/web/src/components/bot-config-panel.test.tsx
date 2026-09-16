@@ -42,7 +42,13 @@ const mount = (instanceId: string, config: InstanceConfigInput) => {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	return render(
 		<QueryClientProvider client={client}>
-			<BotConfigPanel instanceId={instanceId} config={config} onSaved={async () => undefined} />
+			<BotConfigPanel
+				key={instanceId}
+				instanceId={instanceId}
+				config={config}
+				version={1}
+				onSaved={async () => undefined}
+			/>
 		</QueryClientProvider>,
 	)
 }
@@ -55,7 +61,13 @@ const remount = (
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 	rerender(
 		<QueryClientProvider client={client}>
-			<BotConfigPanel instanceId={instanceId} config={config} onSaved={async () => undefined} />
+			<BotConfigPanel
+				key={instanceId}
+				instanceId={instanceId}
+				config={config}
+				version={1}
+				onSaved={async () => undefined}
+			/>
 		</QueryClientProvider>,
 	)
 }

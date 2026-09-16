@@ -129,6 +129,12 @@ export const instanceConfigStored = instanceConfigInput.extend({
 	botConfig: storedBotConfigSchema.default({}),
 })
 
+export const instanceConfigView = z.object({
+	config: instanceConfigStored,
+	version: z.number().int(),
+})
+export type InstanceConfigView = z.infer<typeof instanceConfigView>
+
 export const instanceSettingsInput = instanceConfigInput.omit({
 	botConfig: true,
 	advancedKeys: true,

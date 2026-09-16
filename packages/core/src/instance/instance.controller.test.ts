@@ -1423,6 +1423,17 @@ describe("running several instances on one host", () => {
 		expect(config?.config.liveControlPort).toBe(33333)
 	})
 
+	it("★ hands back the row's own version, not one it invents", async () => {
+		const { deps } = makeDeps()
+		deps.instances.latestConfig = async () =>
+			configRow({ document: { ...SAVED_DOCUMENT }, version: 4 })
+		const controller = createInstanceController(deps)
+
+		const config = await controller.getConfig(owner, "abc123")
+
+		expect(config?.version).toBe(4)
+	})
+
 	it("restarts by stopping, rewriting the config, then starting, in that order", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.latestConfig = async () =>

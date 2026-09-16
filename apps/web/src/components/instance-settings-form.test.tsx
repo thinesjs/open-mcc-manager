@@ -75,6 +75,11 @@ describe("switching auto-relog off", () => {
 	})
 })
 
+const propsOf = (component: string): string => {
+	const start = detail.indexOf(`<${component}`)
+	return start < 0 ? "" : detail.slice(start, detail.indexOf("/>", start))
+}
+
 describe("where the operator edits these settings", () => {
 	it("★ puts the form on the page itself, so it has room to grow and works on a phone", () => {
 		expect(detail).toContain("<InstanceSettingsForm")
@@ -87,6 +92,11 @@ describe("where the operator edits these settings", () => {
 
 	it("gives the bots their own page too, rather than burying them in the same form", () => {
 		expect(detail).toContain("<BotConfigPanel")
+	})
+
+	it("★ keys each form to its instance, so a draft cannot follow the operator to another bot", () => {
+		expect(propsOf("InstanceSettingsForm")).toContain("key={instanceId}")
+		expect(propsOf("BotConfigPanel")).toContain("key={instanceId}")
 	})
 })
 

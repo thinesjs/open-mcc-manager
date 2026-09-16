@@ -1,4 +1,8 @@
-import { ADDRESS_PROBE_MESSAGES, HOST_KEY_FINGERPRINT_PATTERN } from "@open-mcc/contracts"
+import {
+	ADDRESS_PROBE_MESSAGES,
+	type AddressProbeOutcome,
+	HOST_KEY_FINGERPRINT_PATTERN,
+} from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react"
@@ -22,7 +26,13 @@ import {
 import { Spinner } from "~/components/ui/spinner"
 import { StepIndicator, Steps } from "~/components/ui/steps"
 import { getErrorMessage } from "~/lib/errors"
-import { fingerprintCommand, hostSetupScript, setupSummary } from "~/lib/host-setup"
+import {
+	ACCOUNT_NAME_PATTERN,
+	ACCOUNT_NAME_REQUIREMENT,
+	fingerprintCommand,
+	hostSetupScript,
+	setupSummary,
+} from "~/lib/host-setup"
 import { clampStep, directionBetween, isLastStep } from "~/lib/steps"
 import { useTRPC } from "~/lib/trpc"
 
@@ -47,6 +57,15 @@ const ACCOUNT_OPTIONS = [
 ] as const
 
 type AccountMode = (typeof ACCOUNT_OPTIONS)[number]["value"]
+
+const PROBE_TONE: Record<AddressProbeOutcome, "success" | "warning" | "error"> = {
+	answered: "success",
+	"no-answer": "error",
+	refused: "error",
+	"timed-out": "error",
+	"not-ssh": "error",
+	unclear: "warning",
+}
 
 export type EnrollHostStepsProps = {
 	onEnrolled: (hostId: string) => void
@@ -107,7 +126,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 
 	const portNumber = portFrom(port)
 	const addressReady = name.length > 0 && hostname.length > 0 && portNumber !== null
-	const accountReady = username.length > 0
+	const accountReady = ACCOUNT_NAME_PATTERN.test(username)
 	const fingerprintReady = HOST_KEY_FINGERPRINT_PATTERN.test(expectedFingerprint)
 
 	const createAccount = accountMode === "create"
@@ -290,15 +309,14 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								</Alert>
 							) : null}
 							{probeMutation.data ? (
-								probeMutation.data.outcome === "answered" ? (
-									<Alert variant="success" icon={<CircleCheck />}>
-										{ADDRESS_PROBE_MESSAGES.answered}
-									</Alert>
-								) : (
-									<Alert variant="error" icon={<CircleAlert />}>
-										{ADDRESS_PROBE_MESSAGES[probeMutation.data.outcome]}
-									</Alert>
-								)
+								<Alert
+									variant={PROBE_TONE[probeMutation.data.outcome]}
+									icon={
+										probeMutation.data.outcome === "answered" ? <CircleCheck /> : <CircleAlert />
+									}
+								>
+									{ADDRESS_PROBE_MESSAGES[probeMutation.data.outcome]}
+								</Alert>
 							) : null}
 						</div>
 					</div>
@@ -325,10 +343,13 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							<Input
 								id="enroll-username"
 								value={username}
+								aria-invalid={!accountReady}
 								onChange={(event) => checkedInput(username, setUsername)(event.target.value)}
 							/>
 							<p className="text-xs text-muted-foreground">
-								Leave it as {DEFAULT_ACCOUNT} if you have no preference.
+								{accountReady
+									? `Leave it as ${DEFAULT_ACCOUNT} if you have no preference.`
+									: ACCOUNT_NAME_REQUIREMENT}
 							</p>
 						</div>
 
@@ -345,6 +366,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								and prints the fingerprint for the next step.
 							</p>
 						</div>
+
+						{staleNotice}
 
 						{selectedKey ? (
 							<SetupCommand

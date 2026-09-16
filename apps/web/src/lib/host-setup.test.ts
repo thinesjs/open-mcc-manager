@@ -1,6 +1,22 @@
+import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import * as hostSetup from "./host-setup"
-import { fingerprintCommand, hostSetupScript, setupSummary } from "./host-setup"
+import {
+	ACCOUNT_NAME_PATTERN,
+	fingerprintCommand,
+	hostSetupScript,
+	LOCK_STATE_FUNCTION,
+	setupSummary,
+} from "./host-setup"
+
+const lockState = (field: string): string =>
+	execFileSync("/bin/sh", ["-c", `${LOCK_STATE_FUNCTION}\nlock_state "$1"`, "lock_state", field], {
+		encoding: "utf8",
+	})
+
+const HASH = "$y$j9T$XgQnU2/qyO4T1vM4NjH/B0$r2aUF0xI1c7T1eHyOw78CJRzPNrUB4Dfehx1AyeQK22"
+
+const HASH_WITH_LK = "$y$j9T$aLKb2/qyO4T1vM4NjH/B0$r2aUF0xI1c7T1eHyOw78CJRzPNrUB4Dfehx1AyeQK22"
 
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI manager key"
 
@@ -257,15 +273,41 @@ describe("setting up the account the bots run as", () => {
 		expect(script).toContain('Either go back to the Account step and choose "Create it for me",')
 		expect(script).toContain(
 			asShellText(
-				"or run this first: sudo useradd --create-home --shell /bin/sh --password '*' 'pi'",
+				"or run this first: sudo useradd --create-home --shell /bin/sh --password '*' -- 'pi'",
 			),
 		)
 	})
 
 	it("quotes the account name in the command it tells the operator to run", () => {
 		expect(hostSetupScript("pi'; rm -rf /", KEY, false)).toContain(
-			asShellText("--password '*' 'pi'\\''; rm -rf /'"),
+			asShellText("--password '*' -- 'pi'\\''; rm -rf /'"),
 		)
+	})
+
+	it("ends the options of every command it runs, so no name is read as one", () => {
+		const executed = executedIn(hostSetupScript("pi", KEY, true))
+		const commands = executed.match(/(useradd|usermod -[pU]|chsh)[^\n]*/g) ?? []
+
+		expect(commands.length).toBeGreaterThan(2)
+		for (const command of commands) expect(command).toContain("-- 'pi'")
+	})
+
+	it("accepts only account names useradd itself would take", () => {
+		for (const name of ["mcc", "m", "bots-1", "_x", "a_b-c9"]) {
+			expect(ACCOUNT_NAME_PATTERN.test(name)).toBe(true)
+		}
+		for (const name of [
+			"",
+			"Mcc",
+			"9bots",
+			"-bots",
+			"my account",
+			"pi'; rm -rf /",
+			"a".repeat(33),
+			"OPENMCC_SETUP",
+		]) {
+			expect(ACCOUNT_NAME_PATTERN.test(name)).toBe(false)
+		}
 	})
 })
 
@@ -273,8 +315,54 @@ describe("an account that is already there but locked", () => {
 	it.each([true, false])("is detected on both paths, with createAccount %s", (createAccount) => {
 		const script = hostSetupScript("pi", KEY, createAccount)
 
-		expect(script).toContain('case "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)"')
-		expect(script).toContain("'!'*|*LK*")
+		expect(script).toContain(
+			'lock_state "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)"',
+		)
+		expect(script).toContain(LOCK_STATE_FUNCTION)
+	})
+
+	it.each([
+		{ field: "!", state: "none" },
+		{ field: "!!", state: "none" },
+		{ field: "!*", state: "none" },
+		{ field: `!${HASH}`, state: "password" },
+		{ field: "!x", state: "password" },
+		{ field: "*", state: "open" },
+		{ field: "", state: "open" },
+		{ field: HASH, state: "open" },
+		{ field: HASH_WITH_LK, state: "open" },
+	])("reads a shadow field of $field as $state", ({ field, state }) => {
+		expect(lockState(field)).toBe(state)
+	})
+
+	it("puts a locked real password back rather than overwriting it", () => {
+		const script = hostSetupScript("pi", KEY, false)
+
+		expect(script).toContain("usermod -U -- 'pi' || true")
+		expect(script).toContain("usermod -p '*' -- 'pi' || true")
+		expect(script).toContain("if [ \"$state\" = password ]; then\n        usermod -U -- 'pi'")
+	})
+
+	it("says a password is being put back before it asks about an account that has one", () => {
+		const script = hostSetupScript("pi", KEY, false)
+		const said = script.indexOf(
+			"It has a password. Unlocking puts that password back exactly as it was, and changes nothing else.",
+		)
+
+		expect(said).toBeGreaterThan(-1)
+		expect(said).toBeLessThan(script.indexOf(LOCK_READ))
+		expect(script).toContain(
+			"It has no password. Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password.",
+		)
+	})
+
+	it("confirms the account came unlocked rather than trusting the exit status", () => {
+		const script = hostSetupScript("pi", KEY, false)
+
+		expect(script).toContain(
+			'if [ "$(lock_state "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)")" != open ]; then',
+		)
+		expect(script).toContain('echo "Could not unlock $account." >&2')
 	})
 
 	it("says what being locked means before it asks anything", () => {
@@ -295,16 +383,20 @@ describe("an account that is already there but locked", () => {
 	it("never unlocks without an answer", () => {
 		const script = hostSetupScript("pi", KEY, false)
 
-		expect(script.indexOf(LOCK_READ)).toBeLessThan(script.indexOf("usermod -p '*' 'pi'"))
+		expect(script.indexOf(LOCK_READ)).toBeLessThan(script.indexOf("usermod -U -- 'pi'"))
+		expect(script.indexOf(LOCK_READ)).toBeLessThan(script.indexOf("usermod -p '*' -- 'pi'"))
 		expect(script).toContain("y|Y|yes|Yes|YES)")
 	})
 
-	it("stops with the one command that fixes it when the answer is no", () => {
+	it("stops with the one command that fits what it found, when the answer is no", () => {
 		const script = hostSetupScript("pi", KEY, false)
 
 		expect(script).toContain('echo "Left $account locked, and changed nothing." >&2')
 		expect(script).toContain(
-			asShellText("Unlock it yourself, then run this again: sudo usermod -p '*' 'pi'"),
+			asShellText("Unlock it yourself, then run this again: sudo usermod -p '*' -- 'pi'"),
+		)
+		expect(script).toContain(
+			asShellText("Unlock it yourself, then run this again: sudo usermod -U -- 'pi'"),
 		)
 	})
 
@@ -314,7 +406,7 @@ describe("an account that is already there but locked", () => {
 		expect(executedIn(script)).not.toContain("chsh")
 		expect(executedIn(script)).not.toContain("chpasswd")
 		expect(executedIn(script)).not.toContain("usermod -aG")
-		expect(executedIn(script).match(/usermod -p [^\n;]*/g)).toEqual(["usermod -p '*' 'pi'"])
+		expect(executedIn(script).match(/usermod -p [^\n;|]*/g)).toEqual(["usermod -p '*' -- 'pi' "])
 	})
 })
 
@@ -337,9 +429,12 @@ describe("what the command proves before it prints the fingerprint", () => {
 	})
 
 	it("names the login shell that would stop the account running anything", () => {
-		expect(hostSetupScript("pi", KEY, false)).toContain(
+		const script = hostSetupScript("pi", KEY, false)
+
+		expect(script).toContain(
 			'echo "The account $account cannot run anything: its shell is $shell." >&2',
 		)
+		expect(script).toContain(asShellText("sudo chsh -s /bin/sh -- 'pi'"))
 	})
 })
 

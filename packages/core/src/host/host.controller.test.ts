@@ -270,7 +270,7 @@ describe("testing an address before anything is set up", () => {
 
 		await expect(
 			createHostController(d).probeAddress(ctx, { hostname: "10.0.0.1", port: 80 }),
-		).resolves.toEqual({ outcome: "not-ssh" })
+		).resolves.toEqual({ outcome: "unclear" })
 	})
 })
 

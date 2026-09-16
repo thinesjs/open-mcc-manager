@@ -39,10 +39,25 @@ describe("what an address probe tells the operator", () => {
 		expect(addressProbeOutcomeFor(handshake)).toBe("timed-out")
 	})
 
-	it("says it is not SSH when something answered but never offered a key", () => {
-		expect(addressProbeOutcomeFor({ kind: "closed" })).toBe("not-ssh")
-		expect(addressProbeOutcomeFor(failedWith({}, "Invalid identification string"))).toBe("not-ssh")
-		expect(addressProbeOutcomeFor(failedWith({ code: "ECONNRESET" }))).toBe("not-ssh")
+	it.each([
+		"Invalid identification string",
+		"Header line too long",
+		"Max greeting lines exceeded",
+		"Invalid header: expected newline",
+	])("says it is not SSH only on what the peer actually sent: %s", (message) => {
+		expect(addressProbeOutcomeFor(failedWith({}, message))).toBe("not-ssh")
+	})
+
+	it.each([
+		{
+			shape: "a connection closed with no key and no error",
+			handshake: { kind: "closed" } as const,
+		},
+		{ shape: "a reset", handshake: failedWith({ code: "ECONNRESET" }) },
+		{ shape: "a broken pipe", handshake: failedWith({ code: "EPIPE" }) },
+		{ shape: "anything it does not recognise", handshake: failedWith({}, "Unable to parse") },
+	])("admits it could not tell on $shape, rather than blaming the port", ({ handshake }) => {
+		expect(addressProbeOutcomeFor(handshake)).toBe("unclear")
 	})
 
 	it("waits less than the connect the rest of enrolment makes, since it only asks one question", () => {

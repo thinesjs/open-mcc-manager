@@ -41,6 +41,12 @@ const setUp = (host: string, account: string, publicKey: string, createAccount =
 
 const authorizedKeysOf = (account: string): string => `${homeOf(account)}/.ssh/authorized_keys`
 
+const shadowOf = async (host: string, account: string): Promise<string> =>
+	succeeded(
+		await shell(host, ROOT, 'getent shadow "$1" | cut -d: -f2', account),
+		"reading the account's password field",
+	).trim()
+
 const holdersOf = async (host: string, publicKey: string): Promise<string[]> => {
 	const found = await shell(
 		host,
@@ -337,8 +343,32 @@ describe("the host setup script", () => {
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain(`The account ${account} is locked`)
-		expect(ran.stderr).toContain(`usermod -p '*' '${account}'`)
+		expect(ran.stderr).toContain("It has no password.")
+		expect(ran.stderr).toContain(`usermod -p '*' -- '${account}'`)
 		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+
+	it("offers to put a locked password back, and destroys nothing when it stops", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				'printf "%s:%s\\n" "$1" "correct-horse-battery" | chpasswd && passwd -l "$1" >/dev/null',
+				account,
+			),
+			"giving the account a real password and locking it the way passwd -l does",
+		)
+		const before = await shadowOf(host, account)
+		expect(before.startsWith("!$")).toBe(true)
+
+		const ran = await setUp(host, account, key.publicKey)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("It has a password.")
+		expect(ran.stderr).toContain(`usermod -U -- '${account}'`)
+		expect(await shadowOf(host, account)).toBe(before)
 	})
 
 	it("prints the fingerprint of the host key this machine's sshd presents", async () => {

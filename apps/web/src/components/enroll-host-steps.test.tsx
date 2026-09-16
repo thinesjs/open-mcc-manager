@@ -289,12 +289,26 @@ describe("testing the address before anything is run on the server", () => {
 })
 
 describe("choosing the account the bots run as", () => {
-	it("blocks Continue without an account", async () => {
+	it.each(["", "My Account", "9bots", "OPENMCC_SETUP", "pi'; rm -rf /"])(
+		"blocks Continue on the account name '%s'",
+		async (name) => {
+			await reachAccount()
+
+			type("Account name", name)
+
+			expect(isDisabled("Continue")).toBe(true)
+			expect(
+				screen.getByText("Use lowercase letters, digits, - and _, starting with a letter or _."),
+			).toBeDefined()
+		},
+	)
+
+	it("allows a name useradd would take", async () => {
 		await reachAccount()
 
-		type("Account name", "")
+		type("Account name", "bots-1")
 
-		expect(isDisabled("Continue")).toBe(true)
+		expect(isDisabled("Continue")).toBe(false)
 	})
 
 	it("offers to create one by default, and carries the default name into the command", async () => {
@@ -345,6 +359,16 @@ describe("changing an input after the setup command was copied", () => {
 		type("Account name", "bots")
 
 		expect(screen.getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+	})
+
+	it("says it on the step that shows the command too", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+		back()
+		type("Account name", "bots")
+		next()
+
+		expect(screen.getAllByText(STALE_COMMAND_NOTICE).length).toBeGreaterThan(0)
 	})
 
 	it("says nothing when no command has been copied", async () => {

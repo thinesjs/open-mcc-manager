@@ -55,6 +55,7 @@ export const ADDRESS_PROBE_OUTCOMES = [
 	"refused",
 	"timed-out",
 	"not-ssh",
+	"unclear",
 ] as const
 
 export const addressProbeOutcome = z.enum(ADDRESS_PROBE_OUTCOMES)
@@ -78,6 +79,8 @@ export const ADDRESS_PROBE_MESSAGES: Record<AddressProbeOutcome, string> = {
 	refused: "Nothing is listening on that port. Check the port number.",
 	"timed-out": "No answer in time. A firewall may be blocking this port.",
 	"not-ssh": "Something answered, but it is not SSH. Check the port number.",
+	unclear:
+		"Could not tell whether that is an SSH server. The check at the end will say for certain.",
 }
 
 export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {

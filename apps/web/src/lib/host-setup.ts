@@ -24,8 +24,13 @@ export const setupSummary = (
 	"Prints the host key fingerprint for the next step",
 ]
 
+export const ACCOUNT_NAME_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/
+
+export const ACCOUNT_NAME_REQUIREMENT =
+	"Use lowercase letters, digits, - and _, starting with a letter or _."
+
 const createAccountCommand = (username: string): string =>
-	`useradd --create-home --shell /bin/sh --password '*' ${singleQuote(username)}`
+	`useradd --create-home --shell /bin/sh --password '*' -- ${singleQuote(username)}`
 
 const createSection = (username: string): string => `
 if [ -z "$home" ]; then
@@ -54,34 +59,61 @@ if [ -z "$home" ]; then
 fi
 `
 
-const unlockCommand = (username: string): string => `usermod -p '*' ${singleQuote(username)}`
+const clearPasswordCommand = (username: string): string =>
+	`usermod -p '*' -- ${singleQuote(username)}`
 
-const LOCKED_FIELDS = `'!'*|*LK*`
+const restorePasswordCommand = (username: string): string =>
+	`usermod -U -- ${singleQuote(username)}`
+
+const shellCommand = (username: string): string => `chsh -s /bin/sh -- ${singleQuote(username)}`
+
+export const LOCK_STATE_FUNCTION = `lock_state() {
+  case "$1" in
+    '!'|'!!'|'!*') printf none ;;
+    '!'*) printf password ;;
+    *) printf open ;;
+  esac
+}`
+
+const READ_STATE = `lock_state "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)"`
 
 const lockSection = (username: string): string => `
-case "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)" in
-  ${LOCKED_FIELDS})
-    echo "The account $account is locked. A server can refuse it before it even looks at the key, which then looks like the key was rejected." >&2
-    echo "Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password." >&2
-    printf 'Unlock %s now? [y/N] ' "$account" >&2
-    answer=n
-    if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi
-    case "$answer" in
-      y|Y|yes|Yes|YES)
-        if ! ${unlockCommand(username)}; then
-          echo "Could not unlock $account." >&2
-          exit 1
-        fi
-        echo "  $account unlocked, and still has no password to sign in with"
-        ;;
-      *)
-        echo "Left $account locked, and changed nothing." >&2
-        echo ${singleQuote(`Unlock it yourself, then run this again: sudo ${unlockCommand(username)}`)} >&2
+${LOCK_STATE_FUNCTION}
+state=$(${READ_STATE})
+if [ "$state" != open ]; then
+  echo "The account $account is locked. A server can refuse it before it even looks at the key, which then looks like the key was rejected." >&2
+  if [ "$state" = password ]; then
+    echo "It has a password. Unlocking puts that password back exactly as it was, and changes nothing else." >&2
+  else
+    echo "It has no password. Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password." >&2
+  fi
+  printf 'Unlock %s now? [y/N] ' "$account" >&2
+  answer=n
+  if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi
+  case "$answer" in
+    y|Y|yes|Yes|YES)
+      if [ "$state" = password ]; then
+        ${restorePasswordCommand(username)} || true
+      else
+        ${clearPasswordCommand(username)} || true
+      fi
+      if [ "$(${READ_STATE})" != open ]; then
+        echo "Could not unlock $account." >&2
         exit 1
-        ;;
-    esac
-    ;;
-esac
+      fi
+      echo "  $account unlocked"
+      ;;
+    *)
+      echo "Left $account locked, and changed nothing." >&2
+      if [ "$state" = password ]; then
+        echo ${singleQuote(`Unlock it yourself, then run this again: sudo ${restorePasswordCommand(username)}`)} >&2
+      else
+        echo ${singleQuote(`Unlock it yourself, then run this again: sudo ${clearPasswordCommand(username)}`)} >&2
+      fi
+      exit 1
+      ;;
+  esac
+fi
 `
 
 const signInSection = (username: string): string => `
@@ -89,19 +121,23 @@ shell=$(getent passwd "$account" | cut -d: -f7)
 case "$shell" in
   */nologin|*/false)
     echo "The account $account cannot run anything: its shell is $shell." >&2
-    echo ${singleQuote(`Give it a login shell, then run this again: sudo chsh -s /bin/sh ${singleQuote(username)}`)} >&2
+    echo ${singleQuote(`Give it a login shell, then run this again: sudo ${shellCommand(username)}`)} >&2
     exit 1 ;;
 esac
 if [ ! -d "$home" ]; then
   echo "The account $account has no home folder at $home, so nothing can be stored for it." >&2
   exit 1
 fi
-case "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)" in
-  ${LOCKED_FIELDS})
-    echo "The account $account is locked, so a key login can still be refused." >&2
-    echo ${singleQuote(`Unlock it, then run this again: sudo ${unlockCommand(username)}`)} >&2
-    exit 1 ;;
-esac
+state=$(${READ_STATE})
+if [ "$state" != open ]; then
+  echo "The account $account is locked, so a key login can still be refused." >&2
+  if [ "$state" = password ]; then
+    echo ${singleQuote(`Unlock it, then run this again: sudo ${restorePasswordCommand(username)}`)} >&2
+  else
+    echo ${singleQuote(`Unlock it, then run this again: sudo ${clearPasswordCommand(username)}`)} >&2
+  fi
+  exit 1
+fi
 echo "  nothing on $account blocks a key login"
 `
 

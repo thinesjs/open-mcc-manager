@@ -15,6 +15,17 @@ stolen key yields that one unprivileged account rather than the host itself.
 Lingering is turned on once, by the setup script or by hand, so instances
 survive logout and start at boot; provisioning refuses to continue without it.
 
+The setup script itself runs as root, by the operator's own `sudo`, and the
+enrol wizard offers to have it create that account: a home directory, a
+`/bin/sh` login shell, and a password field of `*`, which no password can ever
+match. On an account that already exists it writes one field and only after
+asking on the terminal — a locked password field (`!` or `*LK*`), which
+OpenSSH can refuse before it looks at any key, so a locked account presents as
+a rejected key. It changes no shell, no group and no real password, and it
+leaves the account untouched when the answer is no or when there is no
+terminal to ask at, naming the one command that unlocks it
+(`host-setup.test.ts`, `host-setup.sandbox.ts`).
+
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an
 attacker gains on each host is bounded by that enrolled account. A compromise

@@ -291,6 +291,23 @@ describe("collecting across the fleet", () => {
 		expect(connect).not.toHaveBeenCalled()
 	})
 
+	it("★ names the bots a sweep could not finish and no others, so the run is not a bare count", async () => {
+		const { deps } = depsFor(playerListHost("alice\n"), {
+			instancesOn: async () => [instance, { ...instance, id: "spawn", playerListOffset: "bad" }],
+			storeAndAdvance: async () => {
+				throw new Error("the cursor moved")
+			},
+		})
+
+		const run = await createArtifactCollector(deps)()
+
+		expect({ failed: run.failed, refused: run.refused, named: run.failedInstanceIds }).toEqual({
+			failed: 1,
+			refused: 1,
+			named: ["afk"],
+		})
+	})
+
 	it("keeps collecting from a set-up host whose Repair failed", async () => {
 		const { deps } = depsFor(undefined, { hosts: async () => [{ ...host, status: "error" }] })
 
@@ -328,6 +345,7 @@ describe("reporting a sweep", () => {
 		oversize: 0,
 		refused: 0,
 		failed: 0,
+		failedInstanceIds: [],
 		replaysPruned: 0,
 		storedPruned: 0,
 		mailerStateOverBudget: 0,
@@ -350,6 +368,17 @@ describe("reporting a sweep", () => {
 		const logger = { info: vi.fn(), warn: vi.fn() }
 		artifactCollectReporter(logger)({ ...emptyRun, oversize: 1 })
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("too large"))
+		expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining(" on "))
+	})
+
+	it("★ names the bots it left uncollected, rather than only how many", () => {
+		const logger = { info: vi.fn(), warn: vi.fn() }
+		artifactCollectReporter(logger)({
+			...emptyRun,
+			failed: 2,
+			failedInstanceIds: ["afk", "spawn"],
+		})
+		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("2 uncollected on afk, spawn"))
 	})
 
 	it("reports the run the collector returned", async () => {

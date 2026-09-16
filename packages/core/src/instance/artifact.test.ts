@@ -65,7 +65,9 @@ const START: PlayerListCursor = { offset: 0, fingerprint: EMPTY_FINGERPRINT, ver
 
 const MCC_BACKUP_INTERVAL_DEFAULT_MINUTES = 300 / 60
 
-const TRUNCATE = "timeout -k 2 10 flock -n "
+const TRUNCATE = `timeout -k 2 10 sh -c 'f=`
+
+const TRUNCATE_GOLDEN = String.raw`timeout -k 2 10 sh -c 'f="$HOME"/.local/share/open-mcc/instances/afk/collect.lock; [ -f "$f" ] || exit 3; { flock -n 9 || exit 1; case "$(XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState --value '\''open-mcc@afk.service'\'')" in inactive|failed) ;; *) exit 1 ;; esac && case "$(XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ActiveState --value '\''open-mcc-auth@afk.service'\'')" in inactive|failed) ;; *) exit 1 ;; esac && [ "$(find "$HOME"/.local/share/open-mcc/instances/afk/state -maxdepth 1 -type f -name '\''playerlog.txt'\'' -printf '\''%s\n'\'')" = 24 ] && [ "$(dd if="$HOME"/.local/share/open-mcc/instances/afk/state/'\''playerlog.txt'\'' iflag=nofollow,nonblock,skip_bytes,count_bytes skip=0 count=24 bs=65536 status=none | sha256sum | cut -c1-64)" = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ] && dd if=/dev/null of="$HOME"/.local/share/open-mcc/instances/afk/state/'\''playerlog.txt'\'' oflag=nofollow,nonblock conv=nocreat status=none; } 9< "$f"'; s=$?; exit $s`
 
 const encoded = (text: string) => Buffer.from(text).toString("base64")
 
@@ -525,28 +527,47 @@ describe("★ collecting a player list without writing to a running bot's files"
 		expect(commands.some((command) => command.startsWith(TRUNCATE))).toBe(false)
 	})
 
-	it("renders its truncate under the lock, within 12 seconds, and only while nothing changed", () => {
-		const fingerprint = "f".repeat(64)
-		const command = truncateCommand("afk", "playerlog.txt", { offset: 24, fingerprint })
-		const checks = [
-			"'\\''open-mcc@afk.service'\\''",
-			"'\\''open-mcc-auth@afk.service'\\''",
-			`-type f -name '\\''playerlog.txt'\\'' -printf '\\''%s\\n'\\'')" = 24 ]`,
-			`iflag=nofollow,nonblock,skip_bytes,count_bytes skip=0 count=24 `,
-			`= ${fingerprint} ]`,
-			"dd if=/dev/null",
-		]
-		const at = checks.map((check) => command.indexOf(check))
+	it("★ reports a bot whose lock has gone as failed, while a lock another holds stays silent", async () => {
+		const text = "alice\n"
+		const cursor = collectedThrough(text, 1)
+		const truncatedWith = async (exitCode: number) =>
+			await sweepOn(
+				createFakeTransport({
+					[playerListReadCommand("afk", PLAYER_LIST_FILE_DEFAULT, cursor.offset)]: {
+						stdout: playerListOutput(Buffer.from(text), "inactive", "inactive", cursor.offset),
+						stderr: "",
+						exitCode: 0,
+					},
+					[truncateCommand("afk", PLAYER_LIST_FILE_DEFAULT, cursor)]: {
+						stdout: "",
+						stderr: "",
+						exitCode,
+					},
+				}),
+				cursor,
+			)
 
-		expect(command.startsWith(`${TRUNCATE}${DIRECTORY}/collect.lock sh -c '`)).toBe(true)
-		expect(
-			command.endsWith(
-				`&& dd if=/dev/null of=${STATE}/'\\''playerlog.txt'\\'' oflag=nofollow,nonblock conv=nocreat status=none'; s=$?; exit $s`,
-			),
-		).toBe(true)
-		expect(command.match(/in inactive\|failed\) ;; \*\) exit 1 ;; esac/g)).toHaveLength(2)
-		expect(at.every((position) => position > 0)).toBe(true)
-		expect([...at].sort((left, right) => left - right)).toEqual(at)
+		const gone = await truncatedWith(3)
+		const held = await truncatedWith(1)
+
+		expect({ failed: gone.sweep.failed, resets: gone.memory.state.resets }).toEqual({
+			failed: 1,
+			resets: [],
+		})
+		expect({ failed: held.sweep.failed, resets: held.memory.state.resets }).toEqual({
+			failed: 0,
+			resets: [],
+		})
+	})
+
+	it("renders its truncate opening a lock it can never create, within 12 seconds, and only while nothing changed", () => {
+		const command = truncateCommand("afk", "playerlog.txt", {
+			offset: 24,
+			fingerprint: "f".repeat(64),
+		})
+
+		expect(command).toBe(TRUNCATE_GOLDEN)
+		expect(command.match(/flock[^;]*/g)).toEqual(["flock -n 9 || exit 1"])
 	})
 
 	it("reads a player list named like a manager file inside state/, never the manager's own file", async () => {

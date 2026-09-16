@@ -609,25 +609,6 @@ describe("instance controller lifecycle guards", () => {
 		expect(transport.commands).toEqual([])
 	})
 
-	it("refuses to remove an instance whose auth claim is still live", async () => {
-		const { deps, transport } = makeDeps()
-		deps.instances.findById = vi.fn(async () =>
-			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date() }),
-		)
-		const controller = createInstanceController(deps)
-		await expect(controller.remove(owner, "abc123")).rejects.toThrow(InstanceAuthInProgressError)
-		expect(transport.commands).toEqual([])
-	})
-
-	it("allows removal once the auth claim has gone stale", async () => {
-		const { deps } = makeDeps()
-		deps.instances.findById = vi.fn(async () =>
-			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date(Date.now() - 3_600_000) }),
-		)
-		const controller = createInstanceController(deps)
-		await expect(controller.remove(owner, "abc123")).resolves.toBeUndefined()
-	})
-
 	it("reports a missing instance rather than reaching for a host", async () => {
 		const { deps, transport } = makeDeps()
 		deps.instances.findById = vi.fn(async () => undefined)
@@ -1133,7 +1114,8 @@ describe("removing an instance", () => {
 			hosts: { findById: vi.fn(async () => host) },
 			createTransport: () => transport,
 		})
-		return { instances, audit, outcome: createInstanceController(deps).remove(owner, "abc123") }
+		const controller = createInstanceController(deps)
+		return { instances, audit, run: () => controller.remove(owner, "abc123") }
 	}
 
 	const answering = (exitCodeFor: (command: string, time: number) => number | undefined) => {
@@ -1147,17 +1129,29 @@ describe("removing an instance", () => {
 		return transport
 	}
 
-	it("runs its seven steps in order, deleting the row only after the second verify", async () => {
+	const scope = { organizationId: owner.organizationId }
+
+	const takenClaim = (instances: InstanceRepository): string | undefined =>
+		vi.mocked(instances.claimForLifecycle).mock.calls[0]?.[2]
+
+	it("takes the claim first, then runs its seven steps, deleting the row only after the second verify", async () => {
 		const transport = createFakeTransport()
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
+		const { instances, audit, run } = removeOn(hostRow, transport)
 		const order: string[] = []
-		instances.delete = vi.fn(async () => {
+		const claim = instances.claimForLifecycle
+		instances.claimForLifecycle = async (...args) => {
+			order.push("take the claim")
+			return await claim(...args)
+		}
+		instances.deleteUnderClaim = async () => {
 			order.push(...transport.commands, "delete the row")
 			return true
-		})
-		await outcome
+		}
+
+		await run()
 
 		expect(order).toEqual([
+			"take the claim",
 			STEPS.timers,
 			STEPS.stop,
 			STEPS.containers,
@@ -1167,6 +1161,20 @@ describe("removing an instance", () => {
 			"delete the row",
 		])
 		expect(audit.record).toHaveBeenCalledTimes(1)
+	})
+
+	it("deletes the row under the claim it took, and leaves no claim to release", async () => {
+		const transport = createFakeTransport()
+		const { instances, run } = removeOn(hostRow, transport)
+
+		await run()
+
+		const claimId = takenClaim(instances)
+		expect(claimId).toEqual(expect.any(String))
+		expect(instances.deleteUnderClaim).toHaveBeenCalledTimes(1)
+		expect(instances.deleteUnderClaim).toHaveBeenCalledWith(scope, "abc123", claimId)
+		expect(instances.delete).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).not.toHaveBeenCalled()
 	})
 
 	it.each([
@@ -1213,16 +1221,21 @@ describe("removing an instance", () => {
 			ran: 5,
 		},
 	])(
-		"keeps the row and says the bot is still in use when $named",
+		"keeps the row, releases the claim and says the bot is still in use when $named",
 		async ({ step, time, exitCode, ran }) => {
 			const transport = answering((command, seen) =>
 				command === step && seen === time ? exitCode : undefined,
 			)
-			const { instances, audit, outcome } = removeOn(hostRow, transport)
+			const { instances, audit, run } = removeOn(hostRow, transport)
 
-			await expect(outcome).rejects.toBeInstanceOf(InstanceStillInUseError)
+			await expect(run()).rejects.toBeInstanceOf(InstanceStillInUseError)
 			expect(transport.commands).toHaveLength(ran)
-			expect(instances.delete).not.toHaveBeenCalled()
+			expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+			expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+				scope,
+				"abc123",
+				takenClaim(instances),
+			)
 			expect(audit.record).not.toHaveBeenCalled()
 		},
 	)
@@ -1230,34 +1243,163 @@ describe("removing an instance", () => {
 	it.each([
 		{ named: "a sleep timer cannot be taken away", step: STEPS.timers, ran: 1 },
 		{ named: "the directory cannot be deleted", step: STEPS.directory, ran: 5 },
-	])("keeps the row and says removal did not finish when $named", async ({ step, ran }) => {
-		const transport = answering((command) => (command === step ? 1 : undefined))
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
+	])(
+		"keeps the row, releases the claim and says removal did not finish when $named",
+		async ({ step, ran }) => {
+			const transport = answering((command) => (command === step ? 1 : undefined))
+			const { instances, audit, run } = removeOn(hostRow, transport)
 
-		await expect(outcome).rejects.toBeInstanceOf(InstanceRemovalFailedError)
-		expect(transport.commands).toHaveLength(ran)
-		expect(instances.delete).not.toHaveBeenCalled()
+			await expect(run()).rejects.toBeInstanceOf(InstanceRemovalFailedError)
+			expect(transport.commands).toHaveLength(ran)
+			expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+			expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+				scope,
+				"abc123",
+				takenClaim(instances),
+			)
+			expect(audit.record).not.toHaveBeenCalled()
+		},
+	)
+
+	it.each([
+		{
+			named: "a step never answers",
+			failure: new CommandTimedOutError("Command timed out"),
+			step: STEPS.stop,
+		},
+		{
+			named: "the session dies while a step runs",
+			failure: new Error("Unable to exec"),
+			step: STEPS.directory,
+		},
+	])(
+		"keeps the claim when $named, because the command may still be running",
+		async ({ failure, step }) => {
+			const transport = createFakeTransport({}, { exec: { [step]: failure } })
+			const { instances, audit, run } = removeOn(hostRow, transport)
+
+			await expect(run()).rejects.toThrow(failure.message)
+			expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+			expect(instances.releaseConfigClaim).not.toHaveBeenCalled()
+			expect(audit.record).not.toHaveBeenCalled()
+		},
+	)
+
+	it("releases the claim when the host refuses the session channel, because no command was sent", async () => {
+		const transport = createFakeTransport(
+			{},
+			{ exec: { [STEPS.containers]: new ChannelLimitReachedError("No channel") } },
+		)
+		const { instances, audit, run } = removeOn(hostRow, transport)
+
+		await expect(run()).rejects.toBeInstanceOf(ChannelLimitReachedError)
+		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+			scope,
+			"abc123",
+			takenClaim(instances),
+		)
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
-	it("gives the removal 155 seconds of remote work, its connection included", async () => {
+	it("refuses a removal as busy while another change holds the claim, without reaching the host", async () => {
 		const transport = createFakeTransport()
-		const connect = vi.spyOn(transport, "connect")
-		await removeOn(hostRow, transport).outcome
-		const waits = [
-			...connect.mock.calls.map(([options]) => options.timeoutMs),
-			...transport.timeouts,
-		]
+		const connected = vi.spyOn(transport, "connect")
+		const { instances, audit, run } = removeOn(hostRow, transport)
+		instances.claimForLifecycle = vi.fn(async () => undefined)
 
+		await expect(run()).rejects.toBeInstanceOf(InstanceBusyError)
+		expect(connected).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("refuses a removal while a sign-in is still live, without reaching the host", async () => {
+		const transport = createFakeTransport()
+		const connected = vi.spyOn(transport, "connect")
+		const { instances, audit, run } = removeOn(hostRow, transport)
+		instances.claimForLifecycle = vi.fn(async () => undefined)
+		instances.findById = vi.fn(async () =>
+			instanceRow({ authClaimId: "attempt-1", authClaimedAt: new Date() }),
+		)
+
+		await expect(run()).rejects.toBeInstanceOf(InstanceAuthInProgressError)
+		expect(connected).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("reports a removal whose row has gone as not found, without reaching the host", async () => {
+		const transport = createFakeTransport()
+		const connected = vi.spyOn(transport, "connect")
+		const { instances, audit, run } = removeOn(hostRow, transport)
+		instances.claimForLifecycle = vi.fn(async () => undefined)
+		let seen = 0
+		instances.findById = vi.fn(async () => {
+			seen += 1
+			return seen === 1 ? instanceRow() : undefined
+		})
+
+		await expect(run()).rejects.toBeInstanceOf(InstanceNotFoundError)
+		expect(connected).not.toHaveBeenCalled()
+		expect(transport.commands).toEqual([])
+		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("reports a removal whose claim was lost before the delete as busy, and records nothing", async () => {
+		const transport = createFakeTransport()
+		const { instances, audit, run } = removeOn(hostRow, transport)
+		instances.deleteUnderClaim = vi.fn(async () => false)
+
+		await expect(run()).rejects.toBeInstanceOf(InstanceBusyError)
+		expect(instances.deleteUnderClaim).toHaveBeenCalledTimes(1)
+		expect(transport.commands).toHaveLength(6)
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("gives the removal 155 seconds of remote work under the claim, well inside the lease", async () => {
+		const transport = createFakeTransport()
+		const { instances, run } = removeOn(hostRow, transport)
+		let held = false
+		const waits: number[] = []
+		const claim = instances.claimForLifecycle
+		instances.claimForLifecycle = async (...args) => {
+			const row = await claim(...args)
+			held = true
+			return row
+		}
+		const remove = instances.deleteUnderClaim
+		instances.deleteUnderClaim = async (...args) => {
+			held = false
+			return await remove(...args)
+		}
+		const connectInner = transport.connect
+		transport.connect = async (options) => {
+			if (held) waits.push(options.timeoutMs)
+			await connectInner(options)
+		}
+		const execInner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			if (held) waits.push(timeoutMs)
+			return await execInner(command, timeoutMs, stdin)
+		}
+
+		await run()
+
+		const budget = waits.reduce((total, each) => total + each, 0)
 		expect(waits).toEqual([10_000, 15_000, 45_000, 15_000, 15_000, 40_000, 15_000])
-		expect(waits.reduce((total, each) => total + each, 0)).toBe(155_000)
+		expect(budget).toBe(155_000)
+		expect(budget).toBeLessThan(CONFIG_CLAIM_LEASE_MS)
 	})
 
 	it("fails a start issued once the row is gone", async () => {
 		const { deps, instances } = makeDeps()
 		let removed = false
 		instances.findById = vi.fn(async () => (removed ? undefined : instanceRow()))
-		instances.delete = vi.fn(async () => {
+		instances.deleteUnderClaim = vi.fn(async () => {
 			removed = true
 			return true
 		})
@@ -1268,31 +1410,24 @@ describe("removing an instance", () => {
 		await expect(controller.start(owner, "abc123")).rejects.toBeInstanceOf(InstanceNotFoundError)
 	})
 
-	it("keeps the row when the host cannot be reached", async () => {
+	it("keeps the row and releases the claim when the host cannot be reached", async () => {
 		const transport = createFakeTransport({}, { connect: new Error("connection refused") })
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
+		const { instances, audit, run } = removeOn(hostRow, transport)
 
-		await expect(outcome).rejects.toThrow(HostUnreachableError)
+		await expect(run()).rejects.toThrow(HostUnreachableError)
 		expect(transport.commands).toEqual([])
-		expect(instances.delete).not.toHaveBeenCalled()
-		expect(audit.record).not.toHaveBeenCalled()
-	})
-
-	it("keeps the row when a step never answers", async () => {
-		const transport = createFakeTransport(
-			{},
-			{ exec: { [STEPS.stop]: new Error("Command timed out") } },
+		expect(instances.deleteUnderClaim).not.toHaveBeenCalled()
+		expect(instances.releaseConfigClaim).toHaveBeenCalledWith(
+			scope,
+			"abc123",
+			takenClaim(instances),
 		)
-		const { instances, audit, outcome } = removeOn(hostRow, transport)
-
-		await expect(outcome).rejects.toThrow("Command timed out")
-		expect(instances.delete).not.toHaveBeenCalled()
 		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("gives the units longer to stop than each waits before killing its client", async () => {
 		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
+		await removeOn(hostRow, transport).run()
 		const templates = renderUnitTemplates(UNIT_RUNTIME)
 		const stopSeconds = (unit: string) =>
 			Number(/^TimeoutStopSec=(\d+)$/m.exec(templates[unit] ?? "")?.[1])
@@ -1306,7 +1441,7 @@ describe("removing an instance", () => {
 
 	it("issues no account command, and never kills or deletes by account", async () => {
 		const transport = createFakeTransport()
-		await removeOn(hostRow, transport).outcome
+		await removeOn(hostRow, transport).run()
 
 		expect(
 			transport.commands.filter(
@@ -2239,7 +2374,7 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 		await createInstanceController(deps).remove(owner, "abc123")
 
 		expect(transport.commands).toContain(deleteDirectoryCommand("abc123"))
-		expect(instances.delete).toHaveBeenCalledTimes(1)
+		expect(instances.deleteUnderClaim).toHaveBeenCalledTimes(1)
 	})
 
 	it("is not joined by a new bot until a repair succeeds, and the host is never reached", async () => {
@@ -2365,7 +2500,7 @@ describe("a bot on a host with no recorded runtime", () => {
 			await createInstanceController(deps).remove(owner, "abc123")
 
 			expect(transport.commands).toContain(deleteDirectoryCommand("abc123"))
-			expect(instances.delete).toHaveBeenCalledTimes(1)
+			expect(instances.deleteUnderClaim).toHaveBeenCalledTimes(1)
 		})
 	})
 })
@@ -2615,6 +2750,23 @@ describe("saving settings under a claim", () => {
 		},
 	]
 
+	type Claimed = (controller: ReturnType<typeof createInstanceController>) => Promise<void>
+
+	const CLAIMED: Array<{ named: string; run: Claimed }> = [
+		...SAVES.map(({ named, run }) => ({
+			named,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await run(controller)
+			},
+		})),
+		{
+			named: "a removal",
+			run: async (controller) => {
+				await controller.remove(owner, "abc123")
+			},
+		},
+	]
+
 	const recordingInstances = (inner: InstanceRepository, note: () => void): InstanceRepository => ({
 		insert: (...args) => {
 			note()
@@ -2678,7 +2830,7 @@ describe("saving settings under a claim", () => {
 		},
 	})
 
-	it.each(SAVES)(
+	it.each(CLAIMED)(
 		"never reads the pool repository inside a transaction during $named",
 		async ({ run }) => {
 			const made = savedDeps()
@@ -2717,7 +2869,7 @@ describe("saving settings under a claim", () => {
 		},
 	)
 
-	it.each(SAVES)("never touches the host inside a transaction during $named", async ({ run }) => {
+	it.each(CLAIMED)("never touches the host inside a transaction during $named", async ({ run }) => {
 		const made = savedDeps()
 		let open = 0
 		const sightings: boolean[] = []

@@ -310,6 +310,28 @@ export const takeConfigClaim = async (
 	return { instance: claimed, config }
 }
 
+export type LifecycleClaimRepos = {
+	instances: Pick<InstanceRepository, "claimForLifecycle" | "findById">
+}
+
+export const takeLifecycleClaim = async (
+	repos: LifecycleClaimRepos,
+	scope: OrgScope,
+	instanceId: string,
+	claimId: string,
+): Promise<InstanceRow> => {
+	const claimed = await repos.instances.claimForLifecycle(scope, instanceId, claimId)
+	if (claimed) return claimed
+	const present = await repos.instances.findById(scope, instanceId)
+	if (!present) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
+	if (present.authClaimId !== null && !isAuthClaimStale(present.authClaimedAt)) {
+		throw new InstanceAuthInProgressError(
+			`Instance ${instanceId} is being authenticated and cannot be changed`,
+		)
+	}
+	throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+}
+
 export const createInstanceController = (deps: InstanceControllerDeps) => {
 	const scopeOf = (ctx: ActorContext) => ({ organizationId: ctx.organizationId })
 
@@ -1535,64 +1557,72 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 
 		remove: async (ctx: ActorContext, instanceId: string): Promise<void> => {
 			requireCapabilityFor(ctx.role, "instance.create")
+			const scope = scopeOf(ctx)
 			const instance = await requireInstance(ctx, instanceId)
-			if (instance.authClaimId !== null && !isAuthClaimStale(instance.authClaimedAt)) {
-				throw new InstanceAuthInProgressError(
-					`Instance ${instanceId} is being authenticated and cannot be removed`,
-				)
-			}
+			const loaded = await loadHost(scope, instance.hostId, "setUpOnce")
+			const claimId = randomUUID()
+			const flight: ExecFlight = { inFlight: false }
 
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "setUpOnce")
 			try {
-				const exitOf = async (command: string, timeoutMs: number): Promise<number> =>
-					(await transport.exec(command, timeoutMs)).exitCode
-				const stillInUse = () =>
-					new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
-				const unfinished = () =>
-					new InstanceRemovalFailedError(
-						`Instance ${instanceId} could not be fully removed from its host`,
-					)
-
-				if ((await exitOf(removeTimersCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
-					throw unfinished()
-				}
-				await transport.exec(stopUnitsCommand(instance.id), UNIT_STOP_TIMEOUT_MS)
-				forgetActive(instance.id)
-				if ((await exitOf(removeContainersCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
-					throw stillInUse()
-				}
-				if ((await exitOf(verifyGoneCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
-					throw stillInUse()
-				}
-				const deleted = await exitOf(
-					deleteDirectoryCommand(instance.id),
-					DIRECTORY_DELETE_TIMEOUT_MS,
+				const claimed = await deps.withTransaction(
+					async (repos) => await takeLifecycleClaim(repos, scope, instanceId, claimId),
 				)
-				if (endedByDeadline(deleted)) throw stillInUse()
-				if (deleted !== 0) throw unfinished()
-				if ((await exitOf(verifyGoneCommand(instance.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
-					throw stillInUse()
-				}
-			} finally {
-				await transport.close().catch(() => undefined)
-			}
 
-			await deps.withTransaction(async (repos) => {
-				const removed = await repos.instances.delete(scopeOf(ctx), instanceId)
-				if (!removed) {
-					throw new InstanceConcurrentlyModifiedError(
-						`Instance ${instanceId} changed before it could be removed`,
+				const transport = await connectLoaded(loaded)
+				try {
+					const exitOf = async (command: string, timeoutMs: number): Promise<number> =>
+						(await claimedExec(flight, transport, command, timeoutMs)).exitCode
+					const stillInUse = () =>
+						new InstanceStillInUseError(`Instance ${instanceId} is still in use on its host`)
+					const unfinished = () =>
+						new InstanceRemovalFailedError(
+							`Instance ${instanceId} could not be fully removed from its host`,
+						)
+
+					if ((await exitOf(removeTimersCommand(claimed.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+						throw unfinished()
+					}
+					await claimedExec(flight, transport, stopUnitsCommand(claimed.id), UNIT_STOP_TIMEOUT_MS)
+					forgetActive(claimed.id)
+					if ((await exitOf(removeContainersCommand(claimed.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+						throw stillInUse()
+					}
+					if ((await exitOf(verifyGoneCommand(claimed.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+						throw stillInUse()
+					}
+					const deleted = await exitOf(
+						deleteDirectoryCommand(claimed.id),
+						DIRECTORY_DELETE_TIMEOUT_MS,
 					)
+					if (endedByDeadline(deleted)) throw stillInUse()
+					if (deleted !== 0) throw unfinished()
+					if ((await exitOf(verifyGoneCommand(claimed.id), REMOVAL_STEP_TIMEOUT_MS)) !== 0) {
+						throw stillInUse()
+					}
+				} finally {
+					await transport.close().catch(() => undefined)
 				}
-				await repos.audit.record(scopeOf(ctx), {
-					actorId: ctx.memberId,
-					actorLabel: ctx.actorLabel,
-					action: "instance.remove",
-					subjectType: "instance",
-					subjectId: instanceId,
-					detail: {},
+
+				await deps.withTransaction(async (repos) => {
+					const removed = await repos.instances.deleteUnderClaim(scope, instanceId, claimId)
+					if (!removed) {
+						throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+					}
+					await repos.audit.record(scope, {
+						actorId: ctx.memberId,
+						actorLabel: ctx.actorLabel,
+						action: "instance.remove",
+						subjectType: "instance",
+						subjectId: instanceId,
+						detail: {},
+					})
 				})
-			})
+			} catch (error) {
+				if (!flight.inFlight) {
+					await deps.instances.releaseConfigClaim(scope, instanceId, claimId).catch(() => undefined)
+				}
+				throw error
+			}
 		},
 	}
 

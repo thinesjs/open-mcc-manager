@@ -3,6 +3,8 @@ import { Client } from "pg"
 
 const LOCK_KEY = 774_411_902
 
+export const SINGLETON_APPLICATION_NAME = "open-mcc-singleton"
+
 export type SingletonLock = {
 	acquired: boolean
 	onLost: (handler: () => void) => void
@@ -10,7 +12,11 @@ export type SingletonLock = {
 }
 
 export const acquireSingletonLock = async (url: string, logger: Logger): Promise<SingletonLock> => {
-	const client = new Client({ connectionString: url, keepAlive: true })
+	const client = new Client({
+		connectionString: url,
+		keepAlive: true,
+		application_name: SINGLETON_APPLICATION_NAME,
+	})
 	await client.connect()
 
 	const result = await client.query<{ locked: boolean }>({

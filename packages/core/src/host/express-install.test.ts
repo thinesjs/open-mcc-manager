@@ -166,6 +166,21 @@ describe("running the setup for an operator who has root", () => {
 		expect(await controller.expressInstall(ctx, input())).toEqual({ outcome: "refused" })
 	})
 
+	it.each([
+		"Cannot parse privateKey: Malformed OpenSSH private key",
+		"Cannot parse privateKey: Encrypted private OpenSSH key detected, but no passphrase given",
+		"Cannot parse privateKey: Unsupported key format",
+	])("blames the key, not the server, when ssh2 refuses it with %s", async (message) => {
+		const { controller } = harness({ connect: new Error(message) })
+
+		expect(
+			await controller.expressInstall(
+				ctx,
+				input({ credential: { kind: "key", privateKey: "not a usable key" } }),
+			),
+		).toEqual({ outcome: "credential-unreadable" })
+	})
+
 	it("names what went wrong on the wire so an operator knows where to look", async () => {
 		const unreachable = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })
 		const { controller } = harness({ connect: unreachable })

@@ -1,6 +1,7 @@
 import {
 	EXPRESS_HOST_KEY_CONFIRMATION,
 	EXPRESS_KEY_MISMATCH_MESSAGE,
+	EXPRESS_KEY_UNREADABLE_MESSAGE,
 	EXPRESS_MANUAL_FALLBACK,
 	EXPRESS_REFUSED_MESSAGE,
 	type ExpressInstallResult,
@@ -265,6 +266,24 @@ describe("where each way this can fail leaves the operator", () => {
 		})
 
 		expect(await screen.findByText("This distribution isn't supported yet.")).toBeTruthy()
+	})
+
+	it("blames the key rather than the server, and leaves the pasted key where it is", async () => {
+		mount()
+		fireEvent.click(screen.getByRole("radio", { name: /SSH key/ }))
+		fireEvent.change(screen.getByLabelText("Root private key"), {
+			target: { value: "PEM MATERIAL" },
+		})
+		await readTheKey()
+		confirmTheKey()
+		expressInstall.mockResolvedValue({ outcome: "credential-unreadable" })
+		setUp()
+
+		expect(await screen.findByText(EXPRESS_KEY_UNREADABLE_MESSAGE)).toBeTruthy()
+		const field = screen.getByLabelText("Root private key")
+		if (!(field instanceof HTMLTextAreaElement)) throw new Error("expected a textarea")
+		expect(field.value).toBe("PEM MATERIAL")
+		expect(screen.queryByRole("button", { name: EXPRESS_MANUAL_FALLBACK })).toBeNull()
 	})
 
 	it("always leaves a way out to the command an operator can run themselves", async () => {

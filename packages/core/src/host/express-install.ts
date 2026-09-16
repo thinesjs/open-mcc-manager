@@ -23,6 +23,8 @@ export const EXPRESS_NO_REASON = "The setup stopped without saying why."
 
 const KEY_REFUSED = "The server did not accept this SSH key"
 
+const UNREADABLE_KEY = /^Cannot parse privateKey/
+
 export const expressSetupCommand = (input: ExpressInstallInput, publicKey: string): string =>
 	hostSetupScript(
 		input.username,
@@ -41,6 +43,7 @@ export const secretOf = (input: ExpressInstallInput): string =>
 	input.credential.kind === "password" ? input.credential.password : input.credential.privateKey
 
 export const connectFailureOutcome = (error: Error): ExpressInstallResult => {
+	if (UNREADABLE_KEY.test(error.message)) return { outcome: "credential-unreadable" }
 	if (error instanceof RootHostKeyRejectedError) return { outcome: "key-mismatch" }
 	const reason = connectFailureReason(error)
 	if (reason === KEY_REFUSED) return { outcome: "refused" }

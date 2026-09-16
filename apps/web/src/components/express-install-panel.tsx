@@ -1,6 +1,7 @@
 import {
 	EXPRESS_HOST_KEY_CONFIRMATION,
 	EXPRESS_KEY_MISMATCH_MESSAGE,
+	EXPRESS_KEY_UNREADABLE_MESSAGE,
 	EXPRESS_LOCKED_TITLE,
 	EXPRESS_MANUAL_FALLBACK,
 	EXPRESS_REFUSED_MESSAGE,
@@ -26,6 +27,22 @@ const CREDENTIAL_OPTIONS = [
 	{ value: "password", label: "Password" },
 	{ value: "key", label: "SSH key" },
 ] as const
+
+const failureMessage = (outcome: ExpressInstallResult): string | null => {
+	switch (outcome.outcome) {
+		case "ready":
+		case "locked":
+		case "credential-unreadable":
+			return null
+		case "refused":
+			return EXPRESS_REFUSED_MESSAGE
+		case "key-mismatch":
+			return EXPRESS_KEY_MISMATCH_MESSAGE
+		case "unreachable":
+		case "script-failed":
+			return outcome.reason
+	}
+}
 
 export type ExpressInstallPanelProps = {
 	hostname: string
@@ -56,6 +73,7 @@ export const ExpressInstallPanel = ({
 	const [confirmed, setConfirmed] = useState("")
 	const [outcome, setOutcome] = useState<ExpressInstallResult | null>(null)
 
+	const failure = outcome === null ? null : failureMessage(outcome)
 	const secretReady = credentialKind === "password" ? password.length > 0 : privateKey.length > 0
 	const readKey = readKeyMutation.data
 	const installing = installMutation.isPending
@@ -219,15 +237,15 @@ export const ExpressInstallPanel = ({
 				</Alert>
 			) : null}
 
-			{outcome !== null && outcome.outcome !== "ready" && outcome.outcome !== "locked" ? (
+			{outcome?.outcome === "credential-unreadable" ? (
 				<Alert variant="error" icon={<CircleAlert />}>
-					<p>
-						{outcome.outcome === "refused"
-							? EXPRESS_REFUSED_MESSAGE
-							: outcome.outcome === "key-mismatch"
-								? EXPRESS_KEY_MISMATCH_MESSAGE
-								: outcome.reason}
-					</p>
+					{EXPRESS_KEY_UNREADABLE_MESSAGE}
+				</Alert>
+			) : null}
+
+			{failure !== null ? (
+				<Alert variant="error" icon={<CircleAlert />}>
+					<p>{failure}</p>
 					<div className="flex flex-wrap gap-2 pt-1">
 						<Button type="button" size="sm" variant="secondary" onClick={leaveForManual}>
 							{EXPRESS_MANUAL_FALLBACK}

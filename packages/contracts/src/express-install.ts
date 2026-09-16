@@ -56,6 +56,7 @@ export const EXPRESS_INSTALL_OUTCOMES = [
 	"locked",
 	"key-mismatch",
 	"refused",
+	"credential-unreadable",
 	"unreachable",
 	"script-failed",
 ] as const
@@ -67,6 +68,7 @@ export const expressInstallResult = z.discriminatedUnion("outcome", [
 	z.object({ outcome: z.literal("locked"), account: z.string(), keepsPassword: z.boolean() }),
 	z.object({ outcome: z.literal("key-mismatch") }),
 	z.object({ outcome: z.literal("refused") }),
+	z.object({ outcome: z.literal("credential-unreadable") }),
 	z.object({ outcome: z.literal("unreachable"), reason: z.string() }),
 	z.object({ outcome: z.literal("script-failed"), reason: z.string() }),
 ])
@@ -89,6 +91,9 @@ export const EXPRESS_REFUSED_MESSAGE = "The server did not accept that root pass
 
 export const EXPRESS_KEY_MISMATCH_MESSAGE =
 	"The server's key no longer matches the fingerprint you confirmed. Read it again before sending anything."
+
+export const EXPRESS_KEY_UNREADABLE_MESSAGE =
+	"That key could not be read. Paste the whole key, from its first line to its last. A key with a passphrase cannot be used here: use a key without one, or the root password."
 
 export const EXPRESS_LOCKED_TITLE = "That account is locked"
 

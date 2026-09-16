@@ -16,6 +16,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
 	configWriteCommand,
+	ENV_WRITTEN,
 	envWriteCommand,
 	INSTANCE_LAYOUT,
 	instanceDir,
@@ -75,7 +76,7 @@ describe("making a bot's directory", () => {
 		expect(steps.map((step) => step.command)).toEqual([
 			`install -d -m 0700 ${DIR} ${DIR}/config ${DIR}/state ${DIR}/replays ${DIR}/recording-cache`,
 			`(test -p ${DIR}/control || mkfifo -m 0600 ${DIR}/control) && (umask 077; : > ${DIR}/collect.lock && printf '%s' 'OPEN_MCC_PORT=33333\n' > ${DIR}/unit.env)`,
-			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && mv -f -- "$t" "$d"/env; then exit 0; fi; rm -f -- "$t"; exit 1`,
+			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && mv -f -- "$t" "$d"/env; then printf 'written\\n'; else rm -f -- "$t"; exit 1; fi`,
 			`timeout -k 2 10 sh -c 't=$(mktemp ${DIR}/config/.MinecraftClient.ini.XXXXXX) || exit 1; if cat > "$t" && [ "$(wc -c < "$t")" -eq 7 ] && mv -f -- "$t" ${DIR}/config/MinecraftClient.ini; then exit 0; fi; rm -f -- "$t"; exit 1'; s=$?; exit $s`,
 		])
 	})
@@ -165,6 +166,10 @@ describe("writing a bot's settings file so no reader ever sees half of one", () 
 		expect(readdirSync(configOf(home))).toEqual([CONFIG])
 	})
 
+	it("refuses an empty document, which the byte check could not tell from a channel that delivered nothing", () => {
+		expect(() => configWriteCommand("abc123", "")).toThrow(/empty/i)
+	})
+
 	it("fails rather than create a config directory that is gone", () => {
 		const home = scratchHome(false)
 
@@ -182,8 +187,19 @@ describe("writing a bot's token and port files so a start never reads half of ei
 
 	it("renames the port file before the token, so a half-finished write leaves the port stale", () => {
 		expect(envWriteCommand("abc123", ENVIRONMENT, 33333)).toBe(
-			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; u=$(mktemp "$d"/.unit.env.XXXXXX) || { rm -f -- "$t"; exit 1; }; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && printf '%s' 'OPEN_MCC_PORT=33333\n' > "$u" && mv -f -- "$u" "$d"/unit.env && mv -f -- "$t" "$d"/env; then exit 0; fi; rm -f -- "$t" "$u"; exit 1`,
+			`d=${DIR}; t=$(mktemp "$d"/.env.XXXXXX) || exit 1; u=$(mktemp "$d"/.unit.env.XXXXXX) || { rm -f -- "$t"; exit 1; }; if cat > "$t" && [ "$(wc -c < "$t")" -eq 52 ] && printf '%s' 'OPEN_MCC_PORT=33333\n' > "$u" && mv -f -- "$u" "$d"/unit.env && mv -f -- "$t" "$d"/env; then printf 'written\\n'; else rm -f -- "$t" "$u"; exit 1; fi`,
 		)
+	})
+
+	it("says nothing on stdout when it refuses, so a caller cannot read a refusal as a write", () => {
+		const home = scratchHome(false)
+		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), PREVIOUS)
+
+		const ran = runIn(home, envWriteCommand("abc123", ENVIRONMENT, 33333), ENVIRONMENT.slice(0, -1))
+
+		expect(ran.status).toBe(1)
+		expect(ran.stdout.toString()).toBe("")
+		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(PREVIOUS)
 	})
 
 	it("refuses a short stdin during creation, leaving the token file the bot already had", () => {
@@ -204,13 +220,14 @@ describe("writing a bot's token and port files so a start never reads half of ei
 		expect(readdirSync(instanceOf(home))).toEqual([INSTANCE_LAYOUT.env])
 	})
 
-	it("lands the token file whole when stdin arrives whole", () => {
+	it("lands the token file whole when stdin arrives whole, and says so on stdout for the caller that reads it", () => {
 		const home = scratchHome(false)
 		writeFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), PREVIOUS)
 
 		const ran = runIn(home, envWriteCommand("abc123", ENVIRONMENT), ENVIRONMENT)
 
 		expect(ran.status, ran.stderr.toString()).toBe(0)
+		expect(ran.stdout.toString()).toBe(`${ENV_WRITTEN}\n`)
 		expect(readFileSync(join(instanceOf(home), INSTANCE_LAYOUT.env), "utf8")).toBe(ENVIRONMENT)
 		expect(statSync(join(instanceOf(home), INSTANCE_LAYOUT.env)).mode & 0o777).toBe(0o600)
 		expect(readdirSync(instanceOf(home))).toEqual([INSTANCE_LAYOUT.env])

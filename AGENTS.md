@@ -1343,10 +1343,11 @@ each get a `--tmpfs` over `~/.local/share/containers`, because rootless overlay
 cannot nest on Docker's overlayfs. `scripts/sandbox/provision.sandbox.ts` provisions
 `pod1` on each target through `provisionHost`, and `scripts/sandbox/runtime.sandbox.ts`
 drives a bot through the instance controller: create, start, the console, a
-scheduled command, restart, a sleep window, a stop, both missing-settings refusals,
-a start refused while sign-in runs, and a start on settings put in place by a
-rename beside a write cut short that leaves the previous file and no temporary. Its client is a stand-in script inside the
-pinned runtime image, because a real client exits when it has no server to join.
+scheduled command, restart, a sleep window, a stop, both missing-settings
+refusals, a start refused while sign-in runs, a start on a settings file put in
+place by a rename, and a settings write cut short, which leaves the previous
+file and no temporary. Its client is a stand-in script inside the pinned
+runtime image, because a real client exits when it has no server to join.
 `scripts/sandbox/sign-in.sandbox.ts` runs the real client in the sign-in unit only
 after it has cut the host off every network and seen an HTTPS attempt to
 Microsoft's sign-in host fail, so no device code is ever requested: the client

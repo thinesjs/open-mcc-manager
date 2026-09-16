@@ -129,9 +129,11 @@ export const instanceConfigStored = instanceConfigInput.extend({
 	botConfig: storedBotConfigSchema.default({}),
 })
 
+export type InstanceConfigStored = z.infer<typeof instanceConfigStored>
+
 export const instanceConfigView = z.object({
 	config: instanceConfigStored,
-	version: z.number().int(),
+	version: z.number().int().min(1),
 })
 export type InstanceConfigView = z.infer<typeof instanceConfigView>
 
@@ -144,6 +146,7 @@ export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>
 export const updateInstanceConfigInput = z.object({
 	instanceId: z.string().min(1),
 	config: instanceSettingsInput,
+	expectedVersion: z.number().int().min(1),
 })
 export type UpdateInstanceConfigInput = z.infer<typeof updateInstanceConfigInput>
 
@@ -154,6 +157,7 @@ export type InstanceBotsInput = z.infer<typeof instanceBotsInput>
 
 export const updateBotConfigInput = instanceBotsInput.extend({
 	instanceId: z.string().min(1),
+	expectedVersion: z.number().int().min(1),
 })
 export type UpdateBotConfigInput = z.infer<typeof updateBotConfigInput>
 

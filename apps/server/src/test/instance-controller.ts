@@ -24,6 +24,7 @@ export const createTestInstanceController = async (
 	db: Db,
 	secrets?: SecretStore,
 	script: FakeScript = {},
+	collect: (transport: ReturnType<typeof createFakeTransport>) => void = () => undefined,
 ) =>
 	createInstanceController({
 		instances: createInstanceRepository(db),
@@ -32,7 +33,11 @@ export const createTestInstanceController = async (
 		hosts: createHostRepository(db),
 		sshKeys: createSshKeyRepository(db),
 		secrets: secrets ?? (await createSecretStore(await generateKeyPair("k1"))),
-		createTransport: () => createFakeTransport(script),
+		createTransport: () => {
+			const transport = createFakeTransport(script)
+			collect(transport)
+			return transport
+		},
 		readConnections: createReadConnections({
 			createTransport: () => createFakeTransport(),
 			idleMs: READ_CONNECTION_IDLE_MS,

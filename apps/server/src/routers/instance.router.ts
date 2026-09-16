@@ -138,24 +138,25 @@ export const instanceRouter = router({
 		return nullWhenAbsent(ctx.instanceController.getConfig(ctx.actor, input.instanceId))
 	}),
 
-	updateConfig: protectedProcedure
-		.input(updateInstanceConfigInput)
-		.mutation(async ({ ctx, input }) => {
-			requireCapability(ctx.actor.role, "config.edit")
-			await ctx.instanceController.updateSettings(ctx.actor, input.instanceId, input.config)
-			return { updated: true }
-		}),
+	updateConfig: protectedProcedure.input(updateInstanceConfigInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "config.edit")
+		return ctx.instanceController.updateSettings(
+			ctx.actor,
+			input.instanceId,
+			input.config,
+			input.expectedVersion,
+		)
+	}),
 
-	updateBotConfig: protectedProcedure
-		.input(updateBotConfigInput)
-		.mutation(async ({ ctx, input }) => {
-			requireCapability(ctx.actor.role, "config.edit")
-			await ctx.instanceController.updateBotConfig(ctx.actor, input.instanceId, {
-				botConfig: input.botConfig,
-				advancedKeys: input.advancedKeys,
-			})
-			return { updated: true }
-		}),
+	updateBotConfig: protectedProcedure.input(updateBotConfigInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "config.edit")
+		return ctx.instanceController.updateBotConfig(
+			ctx.actor,
+			input.instanceId,
+			{ botConfig: input.botConfig, advancedKeys: input.advancedKeys },
+			input.expectedVersion,
+		)
+	}),
 
 	authenticate: protectedProcedure.input(instanceIdInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "instance.authenticate")

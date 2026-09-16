@@ -114,6 +114,7 @@ export {
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
 	InstanceBotConfigUnusableError,
+	InstanceBusyError,
 	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
 	InstanceHostNotFoundError,

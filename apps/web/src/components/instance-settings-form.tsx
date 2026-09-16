@@ -1,6 +1,7 @@
 import type {
 	DelaySecondsRange,
 	InstanceConfigInput,
+	InstanceConfigView,
 	InstanceSettingsInput,
 } from "@open-mcc/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -13,7 +14,7 @@ import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { Spinner } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
-import { getErrorMessage } from "~/lib/errors"
+import { errorCodeOf, getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 const scalarsFrom = (config: InstanceConfigInput): InstanceSettingsInput => {
@@ -25,7 +26,7 @@ export type InstanceSettingsFormProps = {
 	instanceId: string
 	config: InstanceConfigInput
 	version: number
-	onSaved: () => Promise<void>
+	onSaved: () => Promise<InstanceConfigView | null>
 }
 
 const ON_OFF = [
@@ -103,11 +104,19 @@ export const InstanceSettingsForm = ({
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
 		saveMutation.mutate(
-			{ instanceId, config: draft },
+			{ instanceId, config: draft, expectedVersion: savedVersion },
 			{
-				onSuccess: async () => {
+				onSuccess: async (saved) => {
+					setSavedVersion(saved.version)
 					await queryClient.invalidateQueries()
 					await onSaved()
+				},
+				onError: async (error) => {
+					if (errorCodeOf(error) !== "INSTANCE_CONCURRENTLY_MODIFIED") return
+					const refreshed = await onSaved()
+					if (!refreshed) return
+					setDraft(scalarsFrom(refreshed.config))
+					setSavedVersion(refreshed.version)
 				},
 			},
 		)

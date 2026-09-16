@@ -219,6 +219,20 @@ describe("mapKnownError on integrity constraint violations", () => {
 		expect(mapped?.message).not.toContain("org-secret")
 	})
 
+	it("maps a duplicate config version to the conflict the forms already explain", () => {
+		const mapped = mapKnownError(
+			databaseError(
+				"23505",
+				"instanceConfig_instance_version_unique",
+				'Key ("instanceId", version)=(abc123, 2) already exists.',
+			),
+		)
+		expect(mapped?.code).toBe("CONFLICT")
+		expect(mapped?.errorCode).toBe("INSTANCE_CONCURRENTLY_MODIFIED")
+		expect(mapped?.message).not.toContain("abc123")
+		expect(mapped?.message).not.toContain("instanceConfig_instance_version_unique")
+	})
+
 	it("maps an unnamed constraint violation to a generic conflict rather than an internal error", () => {
 		const mapped = mapKnownError(
 			databaseError(

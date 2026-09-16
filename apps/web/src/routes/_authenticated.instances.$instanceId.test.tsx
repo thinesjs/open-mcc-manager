@@ -379,7 +379,7 @@ describe("waiting for a sign-in to land after Microsoft says it is done", () => 
 
 	const settle = async () => {
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(0)
+			await vi.advanceTimersByTimeAsync(1)
 		})
 	}
 
@@ -559,6 +559,7 @@ describe("waiting for a sign-in to land after Microsoft says it is done", () => 
 
 		signIn.hold = true
 		await advance(SIGN_IN_CHECK_INTERVAL_MS)
+		await settle()
 		expect(signIn.inFlight).toBe(1)
 
 		expect(getCode().hasAttribute("disabled")).toBe(false)

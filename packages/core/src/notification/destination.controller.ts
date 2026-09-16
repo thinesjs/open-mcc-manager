@@ -1,10 +1,12 @@
 import {
 	type CreateDestinationInput,
 	can,
-	type DeliveryFailureView,
 	type DeliveryProgress,
 	type DestinationView,
 	type EditDestinationInput,
+	FAILURES_PAGE_SIZE,
+	type FailuresInput,
+	type FailuresPage,
 	notificationCopy,
 	ROTATION_OVERLAP_MS,
 	type StoredDestinationConfig,
@@ -423,12 +425,16 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 			})
 		},
 
-		failures: async (actor: ActorContext): Promise<DeliveryFailureView[]> => {
+		failures: async (actor: ActorContext, input: FailuresInput): Promise<FailuresPage> => {
 			requireRead(actor)
-			return await deps.withTransaction(
-				async ({ notifications }) =>
-					await notifications.recentFailures({ organizationId: actor.organizationId }, 20),
-			)
+			const scope = { organizationId: actor.organizationId }
+			return await deps.withTransaction(async ({ notifications }) => {
+				const [items, total] = await Promise.all([
+					notifications.recentFailures(scope, FAILURES_PAGE_SIZE, input.offset),
+					notifications.failureCount(scope),
+				])
+				return { items, total, offset: input.offset }
+			})
 		},
 
 		dismiss: async (actor: ActorContext, deliveryId: string): Promise<void> => {

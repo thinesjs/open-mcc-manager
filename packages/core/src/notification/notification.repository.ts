@@ -194,7 +194,11 @@ export const createNotificationRepository = (db: Executor) => ({
 		return Number(rows[0]?.total ?? "0")
 	},
 
-	recentFailures: async (scope: OrgScope, limit: number): Promise<DeliveryFailureView[]> => {
+	recentFailures: async (
+		scope: OrgScope,
+		limit: number,
+		offset: number,
+	): Promise<DeliveryFailureView[]> => {
 		const rows = await db
 			.selectFrom("notificationDelivery")
 			.innerJoin("notification", (join) =>
@@ -223,9 +227,21 @@ export const createNotificationRepository = (db: Executor) => ({
 			.where("notificationDelivery.organizationId", "=", scope.organizationId)
 			.where("notificationDelivery.state", "=", "failed")
 			.orderBy("notificationDelivery.settledAt", "desc")
+			.orderBy("notificationDelivery.id", "desc")
 			.limit(limit)
+			.offset(offset)
 			.execute()
 		return rows.map((row) => ({ ...row, settledAt: row.settledAt?.toISOString() ?? null }))
+	},
+
+	failureCount: async (scope: OrgScope): Promise<number> => {
+		const rows = await db
+			.selectFrom("notificationDelivery")
+			.select(({ fn }) => fn.countAll<string>().as("total"))
+			.where("organizationId", "=", scope.organizationId)
+			.where("state", "=", "failed")
+			.execute()
+		return Number(rows[0]?.total ?? "0")
 	},
 
 	requeueDelivery: async (scope: OrgScope, deliveryId: string): Promise<boolean> => {

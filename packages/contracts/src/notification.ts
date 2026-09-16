@@ -293,6 +293,22 @@ export const deliveryFailureViewSchema = z.object({
 
 export type DeliveryFailureView = z.infer<typeof deliveryFailureViewSchema>
 
+export const FAILURES_PAGE_SIZE = 20
+
+export const failuresInput = z.object({
+	offset: z.number().int().nonnegative().default(0),
+})
+
+export type FailuresInput = z.infer<typeof failuresInput>
+
+export const failuresPageSchema = z.object({
+	items: z.array(deliveryFailureViewSchema),
+	total: z.number().int().nonnegative(),
+	offset: z.number().int().nonnegative(),
+})
+
+export type FailuresPage = z.infer<typeof failuresPageSchema>
+
 export const editDestinationInput = z.object({
 	destinationId: z.string().min(1),
 	name: z.string().min(1).max(64),

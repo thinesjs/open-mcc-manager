@@ -1054,7 +1054,10 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 		expect(result?.status).toBe("ready")
 		expect((await hosts.findById({ organizationId }, hostId))?.provisioningAttemptId).toBeNull()
 
-		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		const auditEvents = await createAuditRepository(db).list(
+			{ organizationId },
+			{ limit: 100, offset: 0 },
+		)
 		const reclaimEvent = auditEvents.find((event) => event.action === "host.provision.reclaim")
 		expect(reclaimEvent).toBeDefined()
 		expect(reclaimEvent?.detail).toMatchObject({ previousAttemptId: abandonedAttemptId })
@@ -1079,7 +1082,10 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 		const ctx = actorFor(organizationId, memberId)
 		await expect(controller.provision(ctx, hostId)).rejects.toThrow(HostProvisioningInProgressError)
 
-		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		const auditEvents = await createAuditRepository(db).list(
+			{ organizationId },
+			{ limit: 100, offset: 0 },
+		)
 		expect(auditEvents.find((event) => event.action === "host.provision.reclaim")).toBeUndefined()
 	})
 })
@@ -1555,7 +1561,10 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 
 		await provisionPromise
 
-		const auditEvents = await createAuditRepository(db).list({ organizationId })
+		const auditEvents = await createAuditRepository(db).list(
+			{ organizationId },
+			{ limit: 100, offset: 0 },
+		)
 		const reclaim = auditEvents.find((event) => event.action === "host.provision.reclaim")
 		expect(reclaim?.subjectId).toBe(hostId)
 		expect(abandonedAttemptId).toBeDefined()

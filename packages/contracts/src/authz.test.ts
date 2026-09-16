@@ -51,6 +51,14 @@ describe("roleSchema", () => {
 	})
 })
 
+describe("audit.read", () => {
+	it("is granted to owner only, because the trail carries member and SSH-key activity", () => {
+		expect(can("owner", "audit.read")).toBe(true)
+		expect(can("operator", "audit.read")).toBe(false)
+		expect(can("viewer", "audit.read")).toBe(false)
+	})
+})
+
 describe("instance.authenticate", () => {
 	it("is granted to owner only, because it binds a real account to a real host", () => {
 		expect(can("owner", "instance.authenticate")).toBe(true)

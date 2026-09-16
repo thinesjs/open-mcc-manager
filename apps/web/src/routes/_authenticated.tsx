@@ -8,6 +8,7 @@ import {
 	LayoutDashboard,
 	LogOut,
 	Menu,
+	ScrollText,
 	Search,
 	Server,
 	Users,
@@ -59,6 +60,7 @@ const SECTIONS = [
 		items: [
 			{ to: "/ssh-keys", icon: KeyRound, label: "SSH keys" },
 			{ to: "/members", icon: Users, label: "Members" },
+			{ to: "/audit", icon: ScrollText, label: "Audit log" },
 		],
 	},
 ] as const

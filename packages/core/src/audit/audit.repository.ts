@@ -11,6 +11,11 @@ export type AuditEntry = {
 	detail: Record<string, string>
 }
 
+export type AuditPageRequest = {
+	limit: number
+	offset: number
+}
+
 const SYSTEM_ACTOR_LABEL = "system"
 
 const resolveActorLabel = (entry: Pick<AuditEntry, "actorId" | "actorLabel">): string => {
@@ -39,14 +44,25 @@ export const createAuditRepository = (db: Executor) => ({
 		return row
 	},
 
-	list: async (scope: OrgScope, limit = 100): Promise<AuditEventRow[]> =>
+	list: async (scope: OrgScope, page: AuditPageRequest): Promise<AuditEventRow[]> =>
 		db
 			.selectFrom("auditEvent")
 			.selectAll()
 			.where("organizationId", "=", scope.organizationId)
 			.orderBy("createdAt", "desc")
-			.limit(limit)
+			.orderBy("id", "desc")
+			.limit(page.limit)
+			.offset(page.offset)
 			.execute(),
+
+	count: async (scope: OrgScope): Promise<number> => {
+		const rows = await db
+			.selectFrom("auditEvent")
+			.select(({ fn }) => fn.countAll<string>().as("total"))
+			.where("organizationId", "=", scope.organizationId)
+			.execute()
+		return Number(rows[0]?.total ?? "0")
+	},
 })
 
 export type AuditRepository = ReturnType<typeof createAuditRepository>

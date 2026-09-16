@@ -23,6 +23,13 @@ describe("which sidebar entries a role sees", () => {
 		expect(navItemVisible(undefined, "/members")).toBe(false)
 	})
 
+	it("shows the audit log to an owner alone, and hides it while the role is unknown", () => {
+		expect(navItemVisible("owner", "/audit")).toBe(true)
+		expect(navItemVisible("operator", "/audit")).toBe(false)
+		expect(navItemVisible("viewer", "/audit")).toBe(false)
+		expect(navItemVisible(undefined, "/audit")).toBe(false)
+	})
+
 	it("leaves every ungated entry alone", () => {
 		for (const to of ["/overview", "/instances", "/hosts", "/status", "/ssh-keys"]) {
 			expect(navItemVisible("viewer", to)).toBe(true)

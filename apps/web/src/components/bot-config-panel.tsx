@@ -19,25 +19,23 @@ import { useTRPC } from "~/lib/trpc"
 export type BotConfigPanelProps = {
 	instanceId: string
 	config: InstanceConfigInput
+	version: number
 	onSaved: () => Promise<void>
 }
 
-export const BotConfigPanel = ({ instanceId, config, onSaved }: BotConfigPanelProps) => {
+export const BotConfigPanel = ({ instanceId, config, version, onSaved }: BotConfigPanelProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const saveMutation = useMutation(trpc.instance.updateBotConfig.mutationOptions())
 	const [draft, setDraft] = useState<BotConfigDraft>(() => draftFrom(config))
-	const [boundTo, setBoundTo] = useState(instanceId)
-	if (boundTo !== instanceId) {
-		setBoundTo(instanceId)
-		setDraft(draftFrom(config))
-	}
+	const [savedVersion, setSavedVersion] = useState(version)
 	const issues = validateBotConfig(draft)
 	const blocked = Object.keys(issues).length > 0
 	const edited = !sameBotConfigDraft(draft, draftFrom(config))
 
 	const discard = () => {
 		setDraft(draftFrom(config))
+		setSavedVersion(version)
 	}
 
 	const save = () => {

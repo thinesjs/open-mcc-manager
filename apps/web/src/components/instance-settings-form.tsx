@@ -24,6 +24,7 @@ const scalarsFrom = (config: InstanceConfigInput): InstanceSettingsInput => {
 export type InstanceSettingsFormProps = {
 	instanceId: string
 	config: InstanceConfigInput
+	version: number
 	onSaved: () => Promise<void>
 }
 
@@ -83,6 +84,7 @@ const DelayRangeField = ({ id, label, value, onChange }: DelayRangeFieldProps) =
 export const InstanceSettingsForm = ({
 	instanceId,
 	config,
+	version,
 	onSaved,
 }: InstanceSettingsFormProps) => {
 	const trpc = useTRPC()
@@ -90,15 +92,12 @@ export const InstanceSettingsForm = ({
 	const saveMutation = useMutation(trpc.instance.updateConfig.mutationOptions())
 	const saved = scalarsFrom(config)
 	const [draft, setDraft] = useState<InstanceSettingsInput>(saved)
-	const [boundTo, setBoundTo] = useState(instanceId)
-	if (boundTo !== instanceId) {
-		setBoundTo(instanceId)
-		setDraft(saved)
-	}
+	const [savedVersion, setSavedVersion] = useState(version)
 	const edited = JSON.stringify(draft) !== JSON.stringify(saved)
 
 	const discard = () => {
 		setDraft(saved)
+		setSavedVersion(version)
 	}
 
 	const submit = (event: FormEvent) => {

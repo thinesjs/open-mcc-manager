@@ -34,7 +34,7 @@ const SIGN_IN_CODE = "WXYZ-1234"
 
 const server = {
 	instance: BOT,
-	config: { liveControlEnabled: true, entityDataEnabled: true },
+	config: { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 },
 	readsFail: false,
 }
 
@@ -115,7 +115,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 
 beforeEach(() => {
 	server.instance = BOT
-	server.config = { liveControlEnabled: true, entityDataEnabled: true }
+	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
 	issued.length = 0
 })
@@ -174,7 +174,7 @@ describe("a live reading once the bot is no longer live", () => {
 		await openTab("Live")
 		expect(await screen.findByText("Zombie")).toBeDefined()
 
-		server.config = { liveControlEnabled: true, entityDataEnabled: false }
+		server.config = { config: { liveControlEnabled: true, entityDataEnabled: false }, version: 1 }
 		await act(() => client.refetchQueries())
 
 		await waitFor(() => expect(screen.queryByText("Zombie")).toBeNull())

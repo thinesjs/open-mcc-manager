@@ -160,7 +160,9 @@ describe("how the route feeds the readouts", () => {
 	it.each(QUERIES)(
 		"gates $query itself on live control, not merely somewhere nearby",
 		({ query }) => {
-			expect(queryBlock(query)).toContain("enabled: configQuery.data?.liveControlEnabled === true")
+			expect(queryBlock(query)).toContain(
+				"enabled: configQuery.data?.config.liveControlEnabled === true",
+			)
 		},
 	)
 

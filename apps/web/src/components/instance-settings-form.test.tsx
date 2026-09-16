@@ -114,8 +114,10 @@ const mount = (advancedKeys: AdvancedKeys) => {
 	return render(
 		<QueryClientProvider client={client}>
 			<InstanceSettingsForm
+				key="i1"
 				instanceId="i1"
 				config={{ ...CONFIG, advancedKeys }}
+				version={1}
 				onSaved={async () => undefined}
 			/>
 		</QueryClientProvider>,
@@ -131,8 +133,10 @@ const remount = (
 	rerender(
 		<QueryClientProvider client={client}>
 			<InstanceSettingsForm
+				key={instanceId}
 				instanceId={instanceId}
 				config={config}
+				version={1}
 				onSaved={async () => undefined}
 			/>
 		</QueryClientProvider>,

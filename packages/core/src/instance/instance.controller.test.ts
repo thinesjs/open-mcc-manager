@@ -1420,7 +1420,7 @@ describe("running several instances on one host", () => {
 
 		const config = await controller.getConfig(owner, "abc123")
 
-		expect(config?.liveControlPort).toBe(33333)
+		expect(config?.config.liveControlPort).toBe(33333)
 	})
 
 	it("restarts by stopping, rewriting the config, then starting, in that order", async () => {
@@ -1914,7 +1914,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 			InstanceBotConfigUnusableError,
 		)
 		expect(transport.stdins.find((each) => each.includes("[Main.General]"))).toBeUndefined()
-		expect((await controller.getConfig(owner, "abc123"))?.botConfig).toEqual({
+		expect((await controller.getConfig(owner, "abc123"))?.config.botConfig).toEqual({
 			"ChatBot.PlayerListLogger.File": "SessionCache.db",
 		})
 	})
@@ -2020,7 +2020,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 
 		const readable = await controller.getConfig(owner, "abc123")
 
-		expect(readable?.serverAddress).toBe("x/../../tmp")
+		expect(readable?.config.serverAddress).toBe("x/../../tmp")
 	})
 
 	it("★ and lets the next settings save replace that bad value", async () => {

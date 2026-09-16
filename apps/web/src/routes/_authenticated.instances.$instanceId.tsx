@@ -55,61 +55,61 @@ function InstanceDetailPage() {
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))
 	const liveChatQuery = useQuery({
 		...trpc.instance.readLiveChat.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 3000,
 	})
 	const liveWorldQuery = useQuery({
 		...trpc.instance.readLiveWorld.queryOptions({ instanceId }),
-		enabled: configQuery.data?.worldDataEnabled === true,
+		enabled: configQuery.data?.config.worldDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveEntitiesQuery = useQuery({
 		...trpc.instance.readLiveEntities.queryOptions({ instanceId }),
-		enabled: configQuery.data?.entityDataEnabled === true,
+		enabled: configQuery.data?.config.entityDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveInventoryQuery = useQuery({
 		...trpc.instance.readLiveInventory.queryOptions({ instanceId }),
-		enabled: configQuery.data?.inventoryDataEnabled === true,
+		enabled: configQuery.data?.config.inventoryDataEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const livePlayerStatsQuery = useQuery({
 		...trpc.instance.readLivePlayerStats.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveStatusEffectsQuery = useQuery({
 		...trpc.instance.readLiveStatusEffects.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveBotsQuery = useQuery({
 		...trpc.instance.readLiveBots.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const livePlayersQuery = useQuery({
 		...trpc.instance.readLivePlayers.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveEventsQuery = useQuery({
 		...trpc.instance.readLiveEvents.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
 	const liveStatusQuery = useQuery({
 		...trpc.instance.readLiveStatus.queryOptions({ instanceId }),
-		enabled: configQuery.data?.liveControlEnabled === true,
+		enabled: configQuery.data?.config.liveControlEnabled === true,
 		retry: false,
 		refetchInterval: 5000,
 	})
@@ -160,7 +160,7 @@ function InstanceDetailPage() {
 	const interactive = instance ? needsInteractiveSignIn(instance.accountType) : false
 	const challenge = authenticateMutation.data
 	const running = instance?.status === "running"
-	const config = configQuery.data
+	const config = configQuery.data?.config
 	const liveOn = running && config?.liveControlEnabled === true
 	const liveStatus = liveReading(liveStatusQuery, liveOn)
 	const liveWorld = liveReading(liveWorldQuery, running && config?.worldDataEnabled === true)
@@ -351,14 +351,14 @@ function InstanceDetailPage() {
 						</TabsPanel>
 
 						<TabsPanel value="live">
-							{configQuery.data && !configQuery.data.liveControlEnabled ? (
+							{configQuery.data && !configQuery.data.config.liveControlEnabled ? (
 								<EmptyState
 									icon={Radio}
 									title="Live view is off"
 									description="Turn on live view in Settings to watch this bot's chat, surroundings and inventory."
 								/>
 							) : null}
-							{configQuery.data?.liveControlEnabled ? (
+							{configQuery.data?.config.liveControlEnabled ? (
 								<section className="space-y-3 rounded-[var(--radius)] border border-border bg-card p-4">
 									<div>
 										<h2 className="text-sm font-semibold text-foreground">Live state</h2>
@@ -476,7 +476,7 @@ function InstanceDetailPage() {
 											<LiveInventory
 												inventory={liveInventory}
 												instanceId={instanceId}
-												canInteract={configQuery.data?.inventoryDataEnabled === true}
+												canInteract={configQuery.data?.config.inventoryDataEnabled === true}
 											/>
 										</div>
 									) : null}
@@ -553,8 +553,10 @@ function InstanceDetailPage() {
 										</p>
 									</div>
 									<InstanceSettingsForm
+										key={instanceId}
 										instanceId={instanceId}
-										config={configQuery.data}
+										config={configQuery.data.config}
+										version={configQuery.data.version}
 										onSaved={async () => {
 											await configQuery.refetch()
 										}}
@@ -572,8 +574,10 @@ function InstanceDetailPage() {
 								</p>
 							) : (
 								<BotConfigPanel
+									key={instanceId}
 									instanceId={instanceId}
-									config={configQuery.data}
+									config={configQuery.data.config}
+									version={configQuery.data.version}
 									onSaved={async () => {
 										await configQuery.refetch()
 									}}

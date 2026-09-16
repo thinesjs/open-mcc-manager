@@ -418,7 +418,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 		},
 	)
 
-	it("★ kills a hung check-and-truncate within 12 seconds, and the next start's lock wait then proceeds", async () => {
+	it("★ ends a hung check-and-truncate within 12 seconds, and the next start's lock wait then proceeds", async () => {
 		expect(["inactive", "failed"]).toContain(await activeState())
 		succeeded(await shell(host, as, 'rm -f "$1/reached"', HUNG), "clearing the hang marker")
 
@@ -452,7 +452,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 				},
 				`${truncated.ran.stderr}\n${started.ran.stderr}`,
 			).toEqual({
-				status: 137,
+				status: 124,
 				withinTwelveSeconds: true,
 				started: "active",
 				startWaitedForTheLock: true,
@@ -505,7 +505,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 			await shell(
 				host,
 				as,
-				'for attempt in $(seq 100); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1',
+				'for attempt in $(seq 20); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1',
 				LOCK,
 			),
 			"waiting for the unit's own flock to take the lock",

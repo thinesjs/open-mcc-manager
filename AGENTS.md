@@ -972,11 +972,12 @@ what it is called:
   `collect.lock` and `withDeadline(2, 10, …)`, re-checking both units, the size
   and the fingerprint inside the lock; the cursor then resets. It takes that
   lock on a descriptor of a file that must already exist, so it can never
-  create one, and a bot whose `collect.lock` has gone is reported `failed`
-  until its next start remakes it. The unit's `ExecStartPre` takes the same
-  lock, so a start cannot pass it while the truncate runs, and a start that
-  passed first is `activating`. Every SSH step stays outside the transaction:
-  read, then commit, then truncate.
+  create one, and a bot whose `collect.lock` has gone stops truncating until
+  its next start remakes it — the sweep counts it `failed` and the hourly
+  report names it, which is the only signal an operator gets. The unit's
+  `ExecStartPre` takes the same lock, so a start cannot pass it while the
+  truncate runs, and a start that passed first is `activating`. Every SSH step
+  stays outside the transaction: read, then commit, then truncate.
 - `ChatBot.ReplayCapture` writes finished `.mcpr` archives to
   `replay_recordings/`, mounted from the instance's `replays/`, and a raw
   packet stream to `recording_cache/<run>/recording.tmcpr`, mounted from

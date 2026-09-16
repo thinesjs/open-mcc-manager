@@ -23,6 +23,7 @@ export type ArtifactCollectRun = {
 	readonly oversize: number
 	readonly refused: number
 	readonly failed: number
+	readonly failedInstanceIds: readonly string[]
 	readonly replaysPruned: number
 	readonly storedPruned: number
 	readonly mailerStateOverBudget: number
@@ -76,6 +77,7 @@ export const createArtifactCollector =
 		let oversize = 0
 		let refused = 0
 		let failed = 0
+		const failedInstanceIds: string[] = []
 		let replaysPruned = 0
 		let storedPruned = 0
 		let mailerStateOverBudget = 0
@@ -130,6 +132,7 @@ export const createArtifactCollector =
 					oversize += sweep.oversize
 					refused += sweep.refused
 					failed += sweep.failed
+					if (sweep.failed > 0) failedInstanceIds.push(sweep.instanceId)
 					replaysPruned += sweep.replaysPruned
 					if (sweep.mailerStateBytes > MAILER_STATE_WARN_BYTES) mailerStateOverBudget += 1
 					for (const kind of sweep.kindsCollected) {
@@ -152,11 +155,15 @@ export const createArtifactCollector =
 			oversize,
 			refused,
 			failed,
+			failedInstanceIds,
 			replaysPruned,
 			storedPruned,
 			mailerStateOverBudget,
 		}
 	}
+
+const namesOf = (instanceIds: readonly string[]): string =>
+	instanceIds.length === 0 ? "" : ` on ${instanceIds.join(", ")}`
 
 export type ArtifactCollectReporter = (run: ArtifactCollectRun) => void
 
@@ -170,7 +177,7 @@ export const artifactCollectReporter =
 		}
 		if (run.oversize > 0 || run.refused > 0 || run.failed > 0) {
 			logger.warn(
-				`Left ${run.oversize} artifacts too large to carry, ${run.refused} unusable and ${run.failed} uncollected`,
+				`Left ${run.oversize} artifacts too large to carry, ${run.refused} unusable and ${run.failed} uncollected${namesOf(run.failedInstanceIds)}`,
 			)
 		}
 		if (run.mailerStateOverBudget > 0) {

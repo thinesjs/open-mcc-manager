@@ -64,6 +64,7 @@ beforeAll(async () => {
 		sshKeys,
 		secrets,
 		probeHostKey: async () => ROTATED_HOST_KEY,
+		probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 		createTransport: () => createFakeTransport(),
 		evictHost: () => undefined,
 		now: () => new Date(),

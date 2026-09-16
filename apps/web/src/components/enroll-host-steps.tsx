@@ -1,7 +1,7 @@
-import { HOST_KEY_FINGERPRINT_PATTERN } from "@open-mcc/contracts"
+import { ADDRESS_PROBE_MESSAGES, HOST_KEY_FINGERPRINT_PATTERN } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CircleAlert, Info } from "lucide-react"
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react"
 import { useState } from "react"
 import { CommandBlock } from "~/components/command-block"
 import { CopyButton } from "~/components/copy-button"
@@ -9,6 +9,7 @@ import { HostCheckList } from "~/components/host-check-list"
 import { SetupCommand } from "~/components/setup-command"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
+import { Choice } from "~/components/ui/choice"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import {
@@ -25,7 +26,27 @@ import { fingerprintCommand, hostSetupScript, setupSummary } from "~/lib/host-se
 import { clampStep, directionBetween, isLastStep } from "~/lib/steps"
 import { useTRPC } from "~/lib/trpc"
 
-export const ENROLL_STEPS = ["Access", "Address", "Prepare", "Verify"] as const
+export const ENROLL_STEPS = ["Access", "Address", "Account", "Prepare", "Verify"] as const
+
+export const DEFAULT_ACCOUNT = "mcc"
+
+export const STALE_COMMAND_NOTICE =
+	"The setup command you copied is out of date. Copy it again and run it on the server."
+
+const ACCOUNT_OPTIONS = [
+	{
+		value: "create",
+		label: "Create it for me",
+		description: "The setup command adds the account if it is missing.",
+	},
+	{
+		value: "existing",
+		label: "I already have one",
+		description: "The setup command uses the account you name below.",
+	},
+] as const
+
+type AccountMode = (typeof ACCOUNT_OPTIONS)[number]["value"]
 
 export type EnrollHostStepsProps = {
 	onEnrolled: (hostId: string) => void
@@ -45,6 +66,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const sshKeysQuery = useQuery(trpc.sshKey.list.queryOptions())
 	const enrollMutation = useMutation(trpc.host.enroll.mutationOptions())
 	const checkMutation = useMutation(trpc.host.check.mutationOptions())
+	const probeMutation = useMutation(trpc.host.probeAddress.mutationOptions())
 
 	const [step, setStep] = useState(0)
 	const [direction, setDirection] = useState<1 | -1>(1)
@@ -52,8 +74,10 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const [name, setName] = useState("")
 	const [hostname, setHostname] = useState("")
 	const [port, setPort] = useState("22")
-	const [username, setUsername] = useState("mcc")
+	const [username, setUsername] = useState(DEFAULT_ACCOUNT)
+	const [accountMode, setAccountMode] = useState<AccountMode>("create")
 	const [expectedFingerprint, setExpectedFingerprint] = useState("")
+	const [copiedCommand, setCopiedCommand] = useState("")
 
 	const keys = sshKeysQuery.data ?? []
 	const selectedKey = keys.find((key) => key.id === sshKeyId)
@@ -72,16 +96,33 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 			set(value)
 		}
 
+	const addressInput =
+		(current: string, set: (value: string) => void) =>
+		(value: string): void => {
+			if (value === current) return
+			probeMutation.reset()
+			checkMutation.reset()
+			set(value)
+		}
+
 	const portNumber = portFrom(port)
-	const addressReady =
-		name.length > 0 && hostname.length > 0 && portNumber !== null && username.length > 0
+	const addressReady = name.length > 0 && hostname.length > 0 && portNumber !== null
+	const accountReady = username.length > 0
 	const fingerprintReady = HOST_KEY_FINGERPRINT_PATTERN.test(expectedFingerprint)
+
+	const createAccount = accountMode === "create"
+	const setupCommand = selectedKey
+		? hostSetupScript(username, selectedKey.publicKey, createAccount)
+		: ""
+	const commandStale = copiedCommand.length > 0 && copiedCommand !== setupCommand
 
 	const target =
 		portNumber === null
 			? null
 			: { hostname, port: portNumber, username, sshKeyId, expectedFingerprint }
-	const canCheck = target !== null && addressReady && sshKeyId.length > 0 && fingerprintReady
+	const canCheck =
+		target !== null && addressReady && accountReady && sshKeyId.length > 0 && fingerprintReady
+	const canProbe = hostname.length > 0 && portNumber !== null
 
 	const checked = checkMutation.variables
 	const checkedReady =
@@ -93,7 +134,14 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 		checked.username === username &&
 		checked.expectedFingerprint === expectedFingerprint
 
-	const canAdvance = step === 0 ? sshKeyId.length > 0 : step === 1 ? addressReady : true
+	const canAdvance =
+		step === 0 ? sshKeyId.length > 0 : step === 1 ? addressReady : step === 2 ? accountReady : true
+
+	const staleNotice = commandStale ? (
+		<Alert variant="warning" icon={<TriangleAlert />}>
+			{STALE_COMMAND_NOTICE}
+		</Alert>
+	) : null
 
 	const submit = () => {
 		if (portNumber === null) return
@@ -162,6 +210,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							</Select>
 						</div>
 
+						{staleNotice}
+
 						{selectedKey ? (
 							<div className="flex items-start justify-between gap-3 rounded-[var(--radius)] border border-border p-3">
 								<p className="min-w-0 break-all font-mono text-xs text-muted-foreground">
@@ -199,7 +249,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 									id="enroll-hostname"
 									value={hostname}
 									placeholder="100.64.0.9"
-									onChange={(event) => checkedInput(hostname, setHostname)(event.target.value)}
+									onChange={(event) => addressInput(hostname, setHostname)(event.target.value)}
 								/>
 							</div>
 							<div className="space-y-1.5">
@@ -209,23 +259,84 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 									value={port}
 									inputMode="numeric"
 									aria-invalid={portNumber === null}
-									onChange={(event) => checkedInput(port, setPort)(event.target.value)}
+									onChange={(event) => addressInput(port, setPort)(event.target.value)}
 								/>
 							</div>
 						</div>
 
-						<div className="space-y-1.5">
-							<Label htmlFor="enroll-username">Server username</Label>
-							<Input
-								id="enroll-username"
-								value={username}
-								onChange={(event) => checkedInput(username, setUsername)(event.target.value)}
-							/>
+						<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
+							<div className="flex items-start justify-between gap-3">
+								<div>
+									<p className="text-sm font-medium text-foreground">Test the connection</p>
+									<p className="mt-0.5 text-xs text-muted-foreground">
+										Optional. Checks the address before you run anything on the server.
+									</p>
+								</div>
+								<Button
+									type="button"
+									size="sm"
+									variant="secondary"
+									disabled={!canProbe || probeMutation.isPending}
+									onClick={() => {
+										if (portNumber !== null) probeMutation.mutate({ hostname, port: portNumber })
+									}}
+								>
+									{probeMutation.isPending ? <Spinner label="Testing" /> : "Test connection"}
+								</Button>
+							</div>
+							{probeMutation.isError ? (
+								<Alert variant="error" icon={<CircleAlert />}>
+									{getErrorMessage(probeMutation.error)}
+								</Alert>
+							) : null}
+							{probeMutation.data ? (
+								probeMutation.data.outcome === "answered" ? (
+									<Alert variant="success" icon={<CircleCheck />}>
+										{ADDRESS_PROBE_MESSAGES.answered}
+									</Alert>
+								) : (
+									<Alert variant="error" icon={<CircleAlert />}>
+										{ADDRESS_PROBE_MESSAGES[probeMutation.data.outcome]}
+									</Alert>
+								)
+							) : null}
 						</div>
 					</div>
 				) : null}
 
 				{step === 2 ? (
+					<div className="space-y-4 pb-1">
+						<div>
+							<h3 className="text-sm font-medium text-foreground">The account bots run as</h3>
+							<p className="mt-1 text-sm text-muted-foreground">
+								Bots run as an ordinary account on the server, never as root.
+							</p>
+						</div>
+
+						<Choice
+							label="Account for the bots"
+							value={accountMode}
+							options={ACCOUNT_OPTIONS}
+							onChange={setAccountMode}
+						/>
+
+						<div className="space-y-1.5">
+							<Label htmlFor="enroll-username">Account name</Label>
+							<Input
+								id="enroll-username"
+								value={username}
+								onChange={(event) => checkedInput(username, setUsername)(event.target.value)}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Leave it as {DEFAULT_ACCOUNT} if you have no preference.
+							</p>
+						</div>
+
+						{staleNotice}
+					</div>
+				) : null}
+
+				{step === 3 ? (
 					<div className="space-y-4 pb-1">
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Prepare the host</h3>
@@ -237,14 +348,15 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 
 						{selectedKey ? (
 							<SetupCommand
-								command={hostSetupScript(username, selectedKey.publicKey)}
-								summary={setupSummary(username)}
+								command={setupCommand}
+								summary={setupSummary(username, selectedKey.name, createAccount)}
+								onCopied={() => setCopiedCommand(setupCommand)}
 							/>
 						) : null}
 					</div>
 				) : null}
 
-				{step === 3 ? (
+				{step === 4 ? (
 					<div className="space-y-4 pb-1">
 						<div>
 							<h3 className="text-sm font-medium text-foreground">Confirm the host's identity</h3>

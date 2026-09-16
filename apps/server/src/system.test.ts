@@ -38,6 +38,7 @@ const hostController = createHostController({
 	probeHostKey: async () => {
 		throw new Error("no host is probed in this test")
 	},
+	probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 	createTransport: () => createFakeTransport(),
 	evictHost: () => undefined,
 	now: () => new Date(),

@@ -4,16 +4,17 @@ import { CopyButton } from "~/components/copy-button"
 export type SetupCommandProps = {
 	command: string
 	summary: readonly string[]
+	onCopied: () => void
 }
 
-export const SetupCommand = ({ command, summary }: SetupCommandProps) => (
+export const SetupCommand = ({ command, summary, onCopied }: SetupCommandProps) => (
 	<div className="space-y-3 rounded-[var(--radius)] border border-border p-3">
 		<div className="flex items-start justify-between gap-3">
 			<div className="min-w-0">
 				<p className="text-sm font-medium text-foreground">Setup command</p>
 				<p className="mt-0.5 text-xs text-muted-foreground">Run this once on the server.</p>
 			</div>
-			<CopyButton value={command} label="Setup command" />
+			<CopyButton value={command} label="Setup command" onCopied={onCopied} />
 		</div>
 
 		<ul className="space-y-1.5">

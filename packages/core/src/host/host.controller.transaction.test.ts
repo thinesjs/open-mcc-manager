@@ -7,6 +7,7 @@ import {
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
+	type SshHandshake,
 } from "@open-mcc/transport"
 import { sql } from "kysely"
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -96,6 +97,9 @@ const baseDeps = (): Omit<HostControllerDeps, "withTransaction" | "hosts"> => ({
 	sshKeys: { findById: vi.fn(async () => undefined) },
 	secrets: { activeKeyId: "k1", seal: vi.fn(), open: vi.fn() },
 	probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+	probeSshHandshake: vi.fn(
+		async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+	),
 	createTransport: vi.fn(),
 	evictHost: () => undefined,
 	now: () => new Date(),
@@ -303,6 +307,9 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			sshKeys: barrieredSshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -381,6 +388,9 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -454,6 +464,9 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() => createFakeTransport(attempts.shift() ?? {})),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -508,6 +521,9 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() => transports.shift() ?? createFakeTransport()),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -554,6 +570,9 @@ describe("host controller provisioning lock serialisation (real Postgres)", () =
 			sshKeys,
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport,
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -634,6 +653,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -656,6 +678,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -707,6 +732,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(gatedTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -737,6 +765,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -768,6 +799,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -790,6 +824,9 @@ describe("host controller refuses to delete a provisioning host (real Postgres)"
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -906,6 +943,9 @@ describe("host controller keeps no transaction open across remote provisioning w
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(instrumentedTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -956,6 +996,9 @@ describe("host controller keeps no transaction open across remote provisioning w
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(slowTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1037,6 +1080,9 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -1073,6 +1119,9 @@ describe("host controller provisioning lease reclaim (real Postgres)", () => {
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1178,6 +1227,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			evictHost: () => undefined,
 			now: () => new Date(),
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -1191,6 +1243,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1273,6 +1328,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(recordingTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1283,6 +1341,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1355,6 +1416,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(recordingTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1421,6 +1485,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport,
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1475,6 +1542,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport,
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1535,6 +1605,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -1601,6 +1674,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys: gatedSshKeys,
 			secrets: { open, activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport,
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1666,6 +1742,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(gatedTransport),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1676,6 +1755,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1715,6 +1797,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(() =>
 				createFakeTransport({
 					...PROVISIONABLE,
@@ -1733,6 +1818,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1756,6 +1844,9 @@ describe("host controller serialises re-trust against provisioning (real Postgre
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -1876,6 +1967,9 @@ describe("shared read connections open, read and close outside every transaction
 			sshKeys,
 			secrets,
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: (evictedOrganization, evictedHost) => {
 				sight("evict")
@@ -2007,6 +2101,9 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),
@@ -2201,6 +2298,9 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 			sshKeys,
 			secrets: { open: vi.fn(() => "PRIVATE KEY"), activeKeyId: "k1", seal: vi.fn() },
 			probeHostKey: vi.fn(async () => ROTATED_HOST_KEY_BLOB),
+			probeSshHandshake: vi.fn(
+				async (): Promise<SshHandshake> => ({ kind: "key", key: ROTATED_HOST_KEY_BLOB }),
+			),
 			createTransport: vi.fn(),
 			evictHost: () => undefined,
 			now: () => new Date(),

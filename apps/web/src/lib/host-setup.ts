@@ -9,14 +9,101 @@ export const SCAN_HEREDOC = "OPENMCC_AUTHKEY_SCAN"
 export const fingerprintCommand = (): string =>
 	"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}'"
 
-export const setupSummary = (username: string): readonly string[] => [
-	`Authorises this deployment's key for ${username}`,
+export const setupSummary = (
+	username: string,
+	keyName: string,
+	createAccount: boolean,
+): readonly string[] => [
+	...(createAccount ? [`Creates the account ${username} if it is missing`] : []),
+	`Offers to unlock ${username} if it is locked`,
+	`Authorises the key ${keyName} for ${username}`,
 	"Enables lingering, so instances keep running after you log out",
 	"Checks this machine has a client build",
 	"Installs Podman if it is missing",
 	`Lets ${username} run containers`,
 	"Prints the host key fingerprint for the next step",
 ]
+
+const createAccountCommand = (username: string): string =>
+	`useradd --create-home --shell /bin/sh --password '*' ${singleQuote(username)}`
+
+const createSection = (username: string): string => `
+if [ -z "$home" ]; then
+  if ! made=$(${createAccountCommand(username)} 2>&1); then
+    printf '%s\\n' "$made" | tr -d '\\000-\\010\\013-\\037\\177' >&2
+    echo "Could not create an account called $account on this host." >&2
+    exit 1
+  fi
+  home=$(getent passwd "$account" | cut -d: -f6 || true)
+  if [ -z "$home" ]; then
+    echo "Created $account but this host reports no home folder for it." >&2
+    exit 1
+  fi
+  echo "  account $account created"
+else
+  echo "  account $account already exists, left alone"
+fi
+`
+
+const missingSection = (username: string): string => `
+if [ -z "$home" ]; then
+  echo "There is no account called $account on this host." >&2
+  echo ${singleQuote('Either go back to the Account step and choose "Create it for me",')} >&2
+  echo ${singleQuote(`or run this first: sudo ${createAccountCommand(username)}`)} >&2
+  exit 1
+fi
+`
+
+const unlockCommand = (username: string): string => `usermod -p '*' ${singleQuote(username)}`
+
+const LOCKED_FIELDS = `'!'*|*LK*`
+
+const lockSection = (username: string): string => `
+case "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)" in
+  ${LOCKED_FIELDS})
+    echo "The account $account is locked. A server can refuse it before it even looks at the key, which then looks like the key was rejected." >&2
+    echo "Unlocking sets its password to *, which nothing matches, so it still cannot be signed in to with a password." >&2
+    printf 'Unlock %s now? [y/N] ' "$account" >&2
+    answer=n
+    if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi
+    case "$answer" in
+      y|Y|yes|Yes|YES)
+        if ! ${unlockCommand(username)}; then
+          echo "Could not unlock $account." >&2
+          exit 1
+        fi
+        echo "  $account unlocked, and still has no password to sign in with"
+        ;;
+      *)
+        echo "Left $account locked, and changed nothing." >&2
+        echo ${singleQuote(`Unlock it yourself, then run this again: sudo ${unlockCommand(username)}`)} >&2
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+`
+
+const signInSection = (username: string): string => `
+shell=$(getent passwd "$account" | cut -d: -f7)
+case "$shell" in
+  */nologin|*/false)
+    echo "The account $account cannot run anything: its shell is $shell." >&2
+    echo ${singleQuote(`Give it a login shell, then run this again: sudo chsh -s /bin/sh ${singleQuote(username)}`)} >&2
+    exit 1 ;;
+esac
+if [ ! -d "$home" ]; then
+  echo "The account $account has no home folder at $home, so nothing can be stored for it." >&2
+  exit 1
+fi
+case "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)" in
+  ${LOCKED_FIELDS})
+    echo "The account $account is locked, so a key login can still be refused." >&2
+    echo ${singleQuote(`Unlock it, then run this again: sudo ${unlockCommand(username)}`)} >&2
+    exit 1 ;;
+esac
+echo "  nothing on $account blocks a key login"
+`
 
 const ROOT_SECTION = `
 if [ "$(id -u "$account")" = 0 ]; then
@@ -148,6 +235,7 @@ fi`
 export const hostSetupScript = (
 	username: string,
 	publicKey: string,
+	createAccount: boolean,
 ): string => `sudo sh -s <<'${SCRIPT_HEREDOC}'
 set -eu
 
@@ -159,11 +247,7 @@ ${KEY_HEREDOC}
 )
 
 home=$(getent passwd "$account" | cut -d: -f6 || true)
-if [ -z "$home" ]; then
-  echo "There is no account called $account on this host." >&2
-  exit 1
-fi
-${ROOT_SECTION}
+${createAccount ? createSection(username) : missingSection(username)}${ROOT_SECTION}${lockSection(username)}
 authorise='${AUTHORISE}'
 if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
   printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2
@@ -177,7 +261,7 @@ case "$machine" in
   x86_64|amd64|aarch64|arm64) echo "  architecture $machine is supported" ;;
   *) echo "There is no client build for $machine. This host cannot run instances." >&2; exit 1 ;;
 esac
-${PODMAN_SECTION}${SUBORDINATE_SECTION}
+${PODMAN_SECTION}${SUBORDINATE_SECTION}${signInSection(username)}
 echo
 echo "Host key fingerprint - paste this into the dashboard:"
 ${fingerprintCommand()}

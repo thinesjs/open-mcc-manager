@@ -316,7 +316,15 @@ export const homeOf = (account: string): string =>
 export const newAccount = async (container: string): Promise<string> => {
 	const account = `u${randomUUID().slice(0, 8)}`
 	succeeded(
-		await exec(container, ROOT, ["useradd", "--create-home", "--shell", "/bin/bash", account]),
+		await exec(container, ROOT, [
+			"useradd",
+			"--create-home",
+			"--shell",
+			"/bin/bash",
+			"--password",
+			"*",
+			account,
+		]),
 		"adding an account",
 	)
 	return account

@@ -49,6 +49,37 @@ export const checkHostInput = z.object({
 
 export type CheckHostInput = z.infer<typeof checkHostInput>
 
+export const ADDRESS_PROBE_OUTCOMES = [
+	"answered",
+	"no-answer",
+	"refused",
+	"timed-out",
+	"not-ssh",
+] as const
+
+export const addressProbeOutcome = z.enum(ADDRESS_PROBE_OUTCOMES)
+
+export type AddressProbeOutcome = z.infer<typeof addressProbeOutcome>
+
+export const addressProbeReport = z.object({ outcome: addressProbeOutcome })
+
+export type AddressProbeReport = z.infer<typeof addressProbeReport>
+
+export const probeAddressInput = z.object({
+	hostname: z.string().min(1).max(255),
+	port: z.number().int().min(1).max(65535).default(22),
+})
+
+export type ProbeAddressInput = z.infer<typeof probeAddressInput>
+
+export const ADDRESS_PROBE_MESSAGES: Record<AddressProbeOutcome, string> = {
+	answered: "An SSH server answered. Whether it can run bots is checked at the end.",
+	"no-answer": "Nothing answered at that address. Check the hostname.",
+	refused: "Nothing is listening on that port. Check the port number.",
+	"timed-out": "No answer in time. A firewall may be blocking this port.",
+	"not-ssh": "Something answered, but it is not SSH. Check the port number.",
+}
+
 export const HOST_CHECK_LABELS: Record<HostCheckName, string> = {
 	reachable: "SSH reachable",
 	account: "Account",

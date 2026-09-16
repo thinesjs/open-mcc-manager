@@ -28,13 +28,13 @@ export const Route = createFileRoute("/_authenticated/overview")({
 
 function OverviewPage() {
 	const trpc = useTRPC()
-	const hostsQuery = useQuery({
-		...trpc.host.list.queryOptions(),
-		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
-	})
 	const instancesQuery = useSuspenseQuery({
 		...trpc.instance.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+	})
+	const hostsQuery = useQuery({
+		...trpc.host.list.queryOptions(),
+		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
 
 	const instances = instancesQuery.data

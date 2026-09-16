@@ -39,6 +39,11 @@ describe("loading UI a route renders for itself", () => {
 		expect(findViolations(source, label)).toHaveLength(1)
 	})
 
+	it("flags a specifier written with its file extension, which the bundler resolves the same", () => {
+		const source = 'import * as Busy from "~/components/ui/shimmer.tsx"\n'
+		expect(findViolations(source, label)).toHaveLength(1)
+	})
+
 	it("flags a dynamic import of the module, which no static binding would reveal", () => {
 		const source = 'const { Spinner: S } = await import("~/components/ui/spinner")\n'
 		expect(findViolations(source, label).length).toBeGreaterThan(0)

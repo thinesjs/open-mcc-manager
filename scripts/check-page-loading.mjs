@@ -19,6 +19,8 @@ export const EXEMPT_ROUTES = new Map([
 const NAMED_IMPORT = /import\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*["'][^"']+["']/g
 const MODULE_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g
 
+const MODULE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/
+
 const ADVICE =
 	"page content shimmers through the PageBoundary around <Outlet /> in _authenticated.tsx, so declare the page's data with useSuspenseQuery and delete the branch; a small in-place wait (modal, card, button, row action) belongs in a component under apps/web/src/components/"
 
@@ -50,7 +52,7 @@ export const findViolations = (source, label) => {
 		}
 	}
 	for (const match of source.matchAll(MODULE_SPECIFIER)) {
-		const specifier = match[1] ?? ""
+		const specifier = (match[1] ?? "").replace(MODULE_EXTENSION, "")
 		const owner = FORBIDDEN_MODULES.find((module) => specifier.endsWith(module))
 		if (owner === undefined) continue
 		found.push(`${label}:${lineOf(source, match.index ?? 0)} a route imports ${owner}; ${ADVICE}`)

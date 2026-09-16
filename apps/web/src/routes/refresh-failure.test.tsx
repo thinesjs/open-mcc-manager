@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Route as alerts } from "./_authenticated.alerts"
 import { Route as audit } from "./_authenticated.audit"
 import { Route as hostsIndex } from "./_authenticated.hosts.index"
+import { Route as instanceDetail } from "./_authenticated.instances.$instanceId"
 import { Route as instancesIndex } from "./_authenticated.instances.index"
 import { Route as members } from "./_authenticated.members"
 import { Route as overview } from "./_authenticated.overview"
@@ -54,6 +55,8 @@ const FIXTURES: Record<string, object | null> = {
 const answerFor = (router: string, procedure: string): object | null => {
 	if (router === "host" && procedure === "list") return [HOST]
 	if (router === "instance" && procedure === "list") return [INSTANCE]
+	if (router === "instance" && procedure === "get") return INSTANCE
+	if (router === "instance" && procedure === "getConfig") return null
 	if (router === "audit" && procedure === "list") return { items: [], total: 0, offset: 0 }
 	if (router === "sshKey" && procedure === "list") return []
 	if (router === "notification" && procedure === "list") return []
@@ -70,6 +73,12 @@ const procedure = (router: string, name: string) => ({
 				? Promise.reject(new Error(REFUSAL))
 				: answerFor(router, name),
 	}),
+	infiniteQueryOptions: (input: object | undefined, options: object) => ({
+		...options,
+		queryKey: [router, name, input ?? {}],
+		queryFn: () => ({ events: [], total: 0, nextCursor: null }),
+		initialPageParam: undefined,
+	}),
 	mutationOptions: (options: object) => ({ ...options, mutationFn: () => null }),
 })
 
@@ -85,7 +94,10 @@ vi.mock("~/lib/trpc", () => ({ useTRPC: () => trpc }))
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<object>()),
-	createFileRoute: () => (options: object) => ({ options }),
+	createFileRoute: () => (options: object) => ({
+		options,
+		useParams: () => ({ instanceId: "bot-1", hostId: "host-1" }),
+	}),
 	Link: ({ children }: { children?: ReactNode }) => <a href="/">{children}</a>,
 	useNavigate: () => () => undefined,
 }))
@@ -112,6 +124,12 @@ const PAGES = [
 	{ name: "overview", route: overview, settled: "Needs attention", primary: "instance.list" },
 	{ name: "members", route: members, settled: "Members", primary: "member.me" },
 	{ name: "audit", route: audit, settled: "Audit log", primary: "member.me" },
+	{
+		name: "instance detail",
+		route: instanceDetail,
+		settled: "Overview",
+		primary: "instance.get",
+	},
 ] as const
 
 describe.each(PAGES)("$name after a background refresh fails", ({ route, settled, primary }) => {

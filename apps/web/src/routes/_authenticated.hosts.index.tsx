@@ -25,11 +25,11 @@ function HostListPage() {
 	const [enrolling, setEnrolling] = useState(false)
 	const [view, setView] = useViewMode("open-mcc.view.hosts")
 	const trpc = useTRPC()
-	const offerQuery = useQuery(trpc.selfHost.offer.queryOptions())
 	const hostsQuery = useSuspenseQuery({
 		...trpc.host.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
+	const offerQuery = useQuery(trpc.selfHost.offer.queryOptions())
 	const offer = offerQuery.data
 
 	return (

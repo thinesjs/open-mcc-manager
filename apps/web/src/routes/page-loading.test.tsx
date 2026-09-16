@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PageBoundary } from "~/components/ui/shimmer"
@@ -103,7 +103,7 @@ const mount = async (
 }
 
 describe("the status page while a longer range is still loading", () => {
-	it("shimmers and says it is busy rather than blanking the page", async () => {
+	const settledStatusPage = async () => {
 		held.ranges.add("7d")
 		const Page = status.options.component
 		if (Page === undefined) throw new Error("the status route renders no page")
@@ -117,11 +117,34 @@ describe("the status page while a longer range is still loading", () => {
 			</QueryClientProvider>,
 		)
 		await screen.findByText("1 of 1 answering", {}, { timeout: 10_000 })
+		await waitFor(() =>
+			expect(container.querySelectorAll('[data-slot="shimmer-bar"]')).toHaveLength(0),
+		)
+		return container
+	}
+
+	it("keeps the readings it already has on screen rather than falling back", async () => {
+		const container = await settledStatusPage()
 
 		fireEvent.click(screen.getByText("7 days"))
 
-		expect(container.querySelectorAll('[data-slot="shimmer-bar"]').length).toBeGreaterThan(0)
-		expect(container.querySelector("[aria-busy]")?.getAttribute("aria-busy")).toBe("true")
+		expect(container.querySelectorAll('[data-slot="shimmer-bar"]')).toHaveLength(0)
+		expect(container.querySelector("[aria-busy]")?.getAttribute("aria-busy")).toBe("false")
+		const content = container.querySelector('[data-slot="page-content"]')
+		expect(content?.getAttribute("style") ?? "").not.toContain("display: none")
+		expect(screen.getByText("1 of 1 answering")).toBeDefined()
+	})
+
+	it("shows on the range row itself that it is working", async () => {
+		const container = await settledStatusPage()
+
+		fireEvent.click(screen.getByText("7 days"))
+
+		await waitFor(() => {
+			const row = container.querySelector('[data-slot="status-range"]')
+			expect(row?.getAttribute("aria-busy")).toBe("true")
+		})
+		expect(screen.getByRole("img", { name: "Loading status" })).toBeDefined()
 	})
 })
 

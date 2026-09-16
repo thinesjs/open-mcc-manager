@@ -2,7 +2,15 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query"
 import { CatchBoundary } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { type ReactNode, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react"
+import {
+	type ReactNode,
+	Suspense,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
@@ -63,7 +71,13 @@ const PendingSignal = ({ onPending }: { onPending: () => void }) => {
 
 const CELL = "col-start-1 row-start-1"
 
-const PageFade = ({ children }: { children: ReactNode }) => {
+const PageFade = ({
+	onWaiting,
+	children,
+}: {
+	onWaiting: (waiting: boolean) => void
+	children: ReactNode
+}) => {
 	const reduced = useReducedMotion() ?? false
 	const fade = fadeTransition(reduced)
 	const committed = useRef(false)
@@ -86,6 +100,10 @@ const PageFade = ({ children }: { children: ReactNode }) => {
 
 	const waiting = phase === "waiting"
 
+	useEffect(() => {
+		onWaiting(waiting)
+	}, [waiting, onWaiting])
+
 	return (
 		<div aria-busy={waiting} className="grid">
 			{phase === "instant" ? null : (
@@ -103,9 +121,6 @@ const PageFade = ({ children }: { children: ReactNode }) => {
 					) : null}
 				</AnimatePresence>
 			)}
-			<span role="status" className="sr-only">
-				{waiting ? PAGE_LOADING_LABEL : ""}
-			</span>
 			<Suspense fallback={<PendingSignal onPending={onPending} />}>
 				<motion.div
 					data-slot="page-content"
@@ -142,23 +157,32 @@ export type PageBoundaryProps = {
 	children: ReactNode
 }
 
-export const PageBoundary = ({ resetKey, children }: PageBoundaryProps) => (
-	<QueryErrorResetBoundary>
-		{({ reset }) => (
-			<CatchBoundary
-				getResetKey={() => resetKey}
-				errorComponent={({ error, reset: clearError }) => (
-					<PageLoadError
-						error={error}
-						onRetry={() => {
-							reset()
-							clearError()
-						}}
-					/>
-				)}
-			>
-				<PageFade key={resetKey}>{children}</PageFade>
-			</CatchBoundary>
-		)}
-	</QueryErrorResetBoundary>
-)
+export const PageBoundary = ({ resetKey, children }: PageBoundaryProps) => {
+	const [waiting, setWaiting] = useState(false)
+
+	return (
+		<QueryErrorResetBoundary>
+			{({ reset }) => (
+				<CatchBoundary
+					getResetKey={() => resetKey}
+					errorComponent={({ error, reset: clearError }) => (
+						<PageLoadError
+							error={error}
+							onRetry={() => {
+								reset()
+								clearError()
+							}}
+						/>
+					)}
+				>
+					<span role="status" className="sr-only">
+						{waiting ? PAGE_LOADING_LABEL : ""}
+					</span>
+					<PageFade key={resetKey} onWaiting={setWaiting}>
+						{children}
+					</PageFade>
+				</CatchBoundary>
+			)}
+		</QueryErrorResetBoundary>
+	)
+}

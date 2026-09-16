@@ -1,6 +1,9 @@
 import { type InstancePublic, minecraftNameOf } from "@open-mcc/contracts"
-import { useSuspenseQueries } from "@tanstack/react-query"
+import type { AppRouter } from "@open-mcc/server"
+import { type Query, useSuspenseQueries } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import type { TRPCClientErrorLike } from "@trpc/client"
+import type { TRPCQueryKeyWithoutPrefix } from "@trpc/tanstack-react-query"
 import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
@@ -30,8 +33,14 @@ function InstanceListPage() {
 		queries: [
 			{
 				...trpc.instance.list.queryOptions(),
-				refetchInterval: (query: { state: { data: InstancePublic[] | undefined } }) =>
-					pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
+				refetchInterval: (
+					query: Query<
+						InstancePublic[],
+						TRPCClientErrorLike<AppRouter>,
+						InstancePublic[],
+						TRPCQueryKeyWithoutPrefix
+					>,
+				) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
 			},
 			trpc.host.list.queryOptions(),
 		],

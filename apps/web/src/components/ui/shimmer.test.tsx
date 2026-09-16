@@ -39,6 +39,11 @@ const Surface = ({ answer }: { answer: () => Promise<string> }) => {
 	return <p>{query.data}</p>
 }
 
+const Other = ({ answer }: { answer: () => Promise<string> }) => {
+	const query = useSuspenseQuery({ queryKey: ["other"], queryFn: answer, retry: false })
+	return <p>{query.data}</p>
+}
+
 const mount = (answer: () => Promise<string>, seed?: string) => {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 	if (seed !== undefined) client.setQueryData(["surface"], seed)
@@ -134,6 +139,33 @@ describe("a page while its data is still arriving", () => {
 		await waitFor(() => {
 			expect(screen.getByRole("status").textContent).toBe("")
 		})
+	})
+
+	it("announces a navigation on the region already there, not on a freshly inserted one", async () => {
+		const first = gate()
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		client.setQueryData(["surface"], "arrived")
+		const { rerender } = render(
+			<QueryClientProvider client={client}>
+				<PageBoundary resetKey="/first">
+					<Surface answer={first.answer} />
+				</PageBoundary>
+			</QueryClientProvider>,
+		)
+		const region = screen.getByRole("status")
+		expect(region.textContent).toBe("")
+
+		const next = gate()
+		rerender(
+			<QueryClientProvider client={client}>
+				<PageBoundary resetKey="/second">
+					<Other answer={next.answer} />
+				</PageBoundary>
+			</QueryClientProvider>,
+		)
+
+		await waitFor(() => expect(region.textContent).toBe("Loading"))
+		expect(screen.getByRole("status")).toBe(region)
 	})
 
 	it("never flashes the shimmer when the data was already in the cache", () => {

@@ -1,15 +1,15 @@
-import { STATUS_RANGES, type StatusRange } from "@open-mcc/contracts"
+import type { StatusRange } from "@open-mcc/contracts"
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
-import { useState } from "react"
+import { useState, useTransition } from "react"
+import { StatusRangePicker } from "~/components/status-range-picker"
 import { Alert } from "~/components/ui/alert"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
 import { getErrorMessage } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 import { describeCoverage, describeUptime } from "~/lib/uptime"
-import { cn } from "~/lib/utils"
 
 export const Route = createFileRoute("/_authenticated/status")({
 	component: StatusPage,
@@ -30,15 +30,10 @@ const REACHABILITY_LABEL: Record<string, string> = {
 	unknown: "Not checked yet",
 }
 
-const RANGE_LABEL: Record<StatusRange, string> = {
-	"24h": "24 hours",
-	"7d": "7 days",
-	"30d": "30 days",
-}
-
 function StatusPage() {
 	const trpc = useTRPC()
 	const [range, setRange] = useState<StatusRange>("24h")
+	const [changingRange, startRangeChange] = useTransition()
 	const summaryQuery = useSuspenseQuery({
 		...trpc.status.summary.queryOptions({ range }),
 		refetchInterval: 60_000,
@@ -66,23 +61,11 @@ function StatusPage() {
 						<p className="text-sm tabular-nums text-muted-foreground">
 							{summaryQuery.data.answering} of {summaryQuery.data.total} answering
 						</p>
-						<div className="flex gap-1">
-							{STATUS_RANGES.map((option) => (
-								<button
-									key={option}
-									type="button"
-									onClick={() => setRange(option)}
-									className={cn(
-										"rounded-[var(--control-radius)] px-2 py-1 text-xs transition-colors active:scale-[0.97]",
-										option === range
-											? "bg-accent text-foreground"
-											: "text-muted-foreground hover:text-foreground",
-									)}
-								>
-									{RANGE_LABEL[option]}
-								</button>
-							))}
-						</div>
+						<StatusRangePicker
+							range={range}
+							pending={changingRange}
+							onChange={(option) => startRangeChange(() => setRange(option))}
+						/>
 					</div>
 				</div>
 

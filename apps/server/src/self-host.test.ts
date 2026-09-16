@@ -109,6 +109,7 @@ const appWith = (
 		sshKeys,
 		secrets,
 		probeHostKey: async () => presented,
+		probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 		createTransport: () => createFakeTransport(),
 		evictHost: () => undefined,
 		now: () => new Date(),

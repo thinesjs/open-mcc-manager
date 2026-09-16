@@ -7,11 +7,12 @@ import { decorativeDuration, variantsFor } from "~/lib/motion"
 export type CopyButtonProps = {
 	value: string
 	label: string
+	onCopied?: () => void
 }
 
 export const COPIED_FEEDBACK_MS = 1600
 
-export const CopyButton = ({ value, label }: CopyButtonProps) => {
+export const CopyButton = ({ value, label, onCopied }: CopyButtonProps) => {
 	const [copied, setCopied] = useState(false)
 	const reduced = useReducedMotion() ?? false
 	const variants = variantsFor(reduced)
@@ -29,7 +30,10 @@ export const CopyButton = ({ value, label }: CopyButtonProps) => {
 			size="icon"
 			aria-label={copied ? `${label} copied to clipboard` : `Copy ${label.toLowerCase()}`}
 			onClick={() => {
-				void navigator.clipboard.writeText(value).then(() => setCopied(true))
+				void navigator.clipboard.writeText(value).then(() => {
+					setCopied(true)
+					onCopied?.()
+				})
 			}}
 		>
 			<span aria-live="polite" className="sr-only">

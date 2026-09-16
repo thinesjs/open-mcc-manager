@@ -1,9 +1,13 @@
-import type { HostCheckReport } from "@open-mcc/contracts"
+import {
+	ADDRESS_PROBE_MESSAGES,
+	ADDRESS_PROBE_OUTCOMES,
+	type HostCheckReport,
+} from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { EnrollHostSteps } from "./enroll-host-steps"
+import { EnrollHostSteps, STALE_COMMAND_NOTICE } from "./enroll-host-steps"
 
 class UnmeasuredResizeObserver {
 	observe = () => undefined
@@ -11,8 +15,11 @@ class UnmeasuredResizeObserver {
 	disconnect = () => undefined
 }
 
+const writeText = vi.fn(async () => undefined)
+
 beforeAll(() => {
 	vi.stubGlobal("ResizeObserver", UnmeasuredResizeObserver)
+	Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
 })
 
 afterAll(() => {
@@ -21,6 +28,7 @@ afterAll(() => {
 
 const check = vi.fn()
 const enroll = vi.fn()
+const probe = vi.fn()
 
 const KEYS = [
 	{ id: "key-1", name: "deploy", publicKey: "ssh-ed25519 AAAAdeploy deploy" },
@@ -39,6 +47,7 @@ vi.mock("~/lib/trpc", () => ({
 		host: {
 			check: { mutationOptions: () => ({ mutationFn: check }) },
 			enroll: { mutationOptions: () => ({ mutationFn: enroll }) },
+			probeAddress: { mutationOptions: () => ({ mutationFn: probe }) },
 			list: { queryKey: () => ["host", "list"] },
 		},
 	}),
@@ -48,6 +57,8 @@ afterEach(() => {
 	cleanup()
 	check.mockReset()
 	enroll.mockReset()
+	probe.mockReset()
+	writeText.mockClear()
 })
 
 const FINGERPRINT = `SHA256:${"A".repeat(43)}`
@@ -75,6 +86,19 @@ const NOT_READY: HostCheckReport = {
 			outcome: "fail",
 			detail: "Bots would stop when you log out.",
 			command: "sudo loginctl enable-linger mcc",
+			hint: null,
+		},
+	],
+}
+
+const KEY_REFUSED: HostCheckReport = {
+	ready: false,
+	checks: [
+		{
+			name: "reachable",
+			outcome: "fail",
+			detail: "The server did not accept this SSH key",
+			command: null,
 			hint: null,
 		},
 	],
@@ -131,13 +155,21 @@ const fillAddress = () => {
 	type("Name", "vps")
 	type("Hostname or IP", "vps.example.com")
 	type("Port", "22")
-	type("Server username", "mcc")
 }
 
-const reachVerify = async () => {
+const reachAccount = async () => {
 	await reachAddress()
 	fillAddress()
 	next()
+}
+
+const reachPrepare = async () => {
+	await reachAccount()
+	next()
+}
+
+const reachVerify = async () => {
+	await reachPrepare()
 	next()
 	type("Server fingerprint", FINGERPRINT)
 }
@@ -146,6 +178,38 @@ const runCheck = async (report: HostCheckReport) => {
 	check.mockResolvedValueOnce(report)
 	fireEvent.click(button("Check host"))
 	await screen.findByText(report.checks[0]?.detail ?? "")
+}
+
+const runProbe = async (outcome: (typeof ADDRESS_PROBE_OUTCOMES)[number]) => {
+	probe.mockResolvedValueOnce({ outcome })
+	fireEvent.click(button("Test connection"))
+	await screen.findByText(ADDRESS_PROBE_MESSAGES[outcome])
+}
+
+const chooseAccountMode = (value: string) => {
+	const option = screen.getAllByRole("radio").find((radio) => radio.getAttribute("value") === value)
+
+	expect(option).toBeDefined()
+	if (option) fireEvent.click(option)
+}
+
+const prepareStep = (): HTMLElement => {
+	const heading = screen.getAllByText("Prepare the host").at(-1)
+	const panel = heading?.closest("div.space-y-4")
+
+	expect(panel).toBeInstanceOf(HTMLElement)
+	return panel instanceof HTMLElement ? panel : document.body
+}
+
+const copySetupCommand = async () => {
+	writeText.mockClear()
+	const copies = screen.getAllByRole("button", { name: /setup command/i })
+	const latest = copies.at(-1)
+
+	expect(latest).toBeDefined()
+	if (latest) fireEvent.click(latest)
+	await waitFor(() => expect(writeText).toHaveBeenCalled())
+	await act(async () => undefined)
 }
 
 describe("leaving the address step", () => {
@@ -166,14 +230,196 @@ describe("leaving the address step", () => {
 
 		expect(isDisabled("Continue")).toBe(false)
 	})
+})
 
-	it("blocks Continue without an account", async () => {
+describe("testing the address before anything is run on the server", () => {
+	it("asks only where the server is, with no key, account or fingerprint", async () => {
 		await reachAddress()
 		fillAddress()
 
-		type("Server username", "")
+		await runProbe("answered")
 
-		expect(isDisabled("Continue")).toBe(true)
+		expect(probe.mock.calls[0]?.[0]).toEqual({ hostname: "vps.example.com", port: 22 })
+	})
+
+	it("offers the test before a key has been authorised or a fingerprint read", async () => {
+		await reachAddress()
+		fillAddress()
+
+		expect(isDisabled("Test connection")).toBe(false)
+		expect(screen.queryByLabelText("Server fingerprint")).toBeNull()
+	})
+
+	it("offers no test until there is an address to test", async () => {
+		await reachAddress()
+
+		expect(isDisabled("Test connection")).toBe(true)
+	})
+
+	it.each(ADDRESS_PROBE_OUTCOMES)("says what happened on %s", async (outcome) => {
+		await reachAddress()
+		fillAddress()
+
+		await runProbe(outcome)
+
+		expect(screen.getByText(ADDRESS_PROBE_MESSAGES[outcome])).toBeDefined()
+	})
+
+	it("does not claim the host is ready when the address answers", async () => {
+		await reachAddress()
+		fillAddress()
+
+		await runProbe("answered")
+
+		expect(screen.getByText(ADDRESS_PROBE_MESSAGES.answered).textContent).toContain(
+			"checked at the end",
+		)
+	})
+
+	it("stays optional, so a failed test does not block the wizard", async () => {
+		await reachAddress()
+		fillAddress()
+
+		await runProbe("refused")
+
+		expect(isDisabled("Continue")).toBe(false)
+	})
+
+	it("drops the result once the address changes", async () => {
+		await reachAddress()
+		fillAddress()
+		await runProbe("answered")
+
+		type("Hostname or IP", "other.example.com")
+
+		expect(screen.queryByText(ADDRESS_PROBE_MESSAGES.answered)).toBeNull()
+	})
+})
+
+describe("choosing the account the bots run as", () => {
+	it.each(["", "My Account", "9bots", "OPENMCC_SETUP", "pi'; rm -rf /"])(
+		"blocks Continue on the account name '%s'",
+		async (name) => {
+			await reachAccount()
+
+			type("Account name", name)
+
+			expect(isDisabled("Continue")).toBe(true)
+			expect(
+				screen.getByText("Use lowercase letters, digits, - and _, starting with a letter or _."),
+			).toBeDefined()
+		},
+	)
+
+	it("allows a name useradd would take", async () => {
+		await reachAccount()
+
+		type("Account name", "bots-1")
+
+		expect(isDisabled("Continue")).toBe(false)
+	})
+
+	it("offers to create one by default, and carries the default name into the command", async () => {
+		await reachPrepare()
+
+		expect(screen.getByText("Creates the account mcc if it is missing")).toBeDefined()
+		expect(screen.getByText("Authorises the key deploy for mcc")).toBeDefined()
+	})
+
+	it("leaves the account alone when the operator already has one", async () => {
+		await reachAccount()
+
+		chooseAccountMode("existing")
+		next()
+
+		expect(screen.queryByText("Creates the account mcc if it is missing")).toBeNull()
+		expect(screen.getByText("Authorises the key deploy for mcc")).toBeDefined()
+	})
+
+	it("carries the account the operator typed into the command", async () => {
+		await reachAccount()
+
+		type("Account name", "bots")
+		next()
+
+		expect(screen.getByText("Creates the account bots if it is missing")).toBeDefined()
+	})
+})
+
+describe("changing an input after the setup command was copied", () => {
+	it("says the copied command must be run again when the key changes", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+
+		back()
+		back()
+		back()
+		await chooseKey("spare")
+
+		expect(screen.getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+	})
+
+	it("says it when the account changes too", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+
+		back()
+		type("Account name", "bots")
+
+		expect(screen.getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+	})
+
+	it("says it on the step that shows the command too", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+		back()
+		type("Account name", "bots")
+		next()
+
+		expect(within(prepareStep()).getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+	})
+
+	it("says nothing on that step while the copied command is still the one shown", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+
+		expect(within(prepareStep()).queryByText(STALE_COMMAND_NOTICE)).toBeNull()
+	})
+
+	it("says nothing when no command has been copied", async () => {
+		await reachPrepare()
+
+		back()
+		back()
+		back()
+		await chooseKey("spare")
+
+		expect(screen.queryByText(STALE_COMMAND_NOTICE)).toBeNull()
+	})
+
+	it("stops saying it once the new command is copied", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+		back()
+		type("Account name", "bots")
+		next()
+
+		await copySetupCommand()
+		back()
+
+		expect(screen.queryByText(STALE_COMMAND_NOTICE)).toBeNull()
+	})
+
+	it("stops saying it when the change is undone", async () => {
+		await reachPrepare()
+		await copySetupCommand()
+		back()
+		type("Account name", "bots")
+		expect(screen.getByText(STALE_COMMAND_NOTICE)).toBeDefined()
+
+		type("Account name", "mcc")
+
+		expect(screen.queryByText(STALE_COMMAND_NOTICE)).toBeNull()
 	})
 })
 
@@ -194,6 +440,14 @@ describe("enrolling only a host whose check came back ready", () => {
 		await runCheck(NOT_READY)
 
 		expect(isDisabled("Enroll host")).toBe(true)
+	})
+
+	it("shows the reason the server gave, rather than a failure of its own", async () => {
+		await reachVerify()
+
+		await runCheck(KEY_REFUSED)
+
+		expect(screen.getByText("The server did not accept this SSH key")).toBeDefined()
 	})
 
 	it("checks exactly the key, address, port, account and fingerprint entered", async () => {
@@ -229,7 +483,9 @@ describe("enrolling only a host whose check came back ready", () => {
 			edit: async () => {
 				back()
 				back()
+				back()
 				type("Hostname or IP", "other.example.com")
+				next()
 				next()
 				next()
 			},
@@ -239,7 +495,9 @@ describe("enrolling only a host whose check came back ready", () => {
 			edit: async () => {
 				back()
 				back()
+				back()
 				type("Port", "2222")
+				next()
 				next()
 				next()
 			},
@@ -249,7 +507,7 @@ describe("enrolling only a host whose check came back ready", () => {
 			edit: async () => {
 				back()
 				back()
-				type("Server username", "bots")
+				type("Account name", "bots")
 				next()
 				next()
 			},
@@ -260,7 +518,9 @@ describe("enrolling only a host whose check came back ready", () => {
 				back()
 				back()
 				back()
+				back()
 				await chooseKey("spare")
+				next()
 				next()
 				next()
 				next()

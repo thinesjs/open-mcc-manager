@@ -92,6 +92,7 @@ beforeAll(async () => {
 					sshKeys,
 					secrets,
 					probeHostKey: async () => PRESENTED_HOST_KEY,
+					probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 					createTransport: () => createFakeTransport(provisionableHost()),
 					evictHost: () => undefined,
 					now: () => new Date(),

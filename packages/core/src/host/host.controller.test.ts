@@ -1,10 +1,16 @@
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
-import { type ConnectionState, createFakeTransport, type HostTransport } from "@open-mcc/transport"
+import {
+	type ConnectionState,
+	createFakeTransport,
+	type HostTransport,
+	type SshHandshake,
+} from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { ADDRESS_PROBE_TIMEOUT_MS } from "./address-probe"
 import {
 	CONNECT_TIMEOUT_MS,
 	createHostController,
@@ -210,6 +216,9 @@ const deps = (
 			seal: vi.fn(),
 		} satisfies SecretStore,
 		probeHostKey: vi.fn(async () => DEFAULT_HOST_KEY_BLOB),
+		probeSshHandshake: vi.fn(
+			async (): Promise<SshHandshake> => ({ kind: "key", key: DEFAULT_HOST_KEY_BLOB }),
+		),
 		createTransport: vi.fn(() => createFakeTransport(PROVISIONABLE)),
 		evictHost: () => undefined,
 		now: () => new Date(),
@@ -217,6 +226,53 @@ const deps = (
 		...overrides,
 	}
 }
+
+describe("testing an address before anything is set up", () => {
+	it("rejects a role without host.enroll", async () => {
+		const d = deps()
+
+		await expect(
+			createHostController(d).probeAddress(
+				{ ...ctx, role: "operator" },
+				{ hostname: "10.0.0.1", port: 22 },
+			),
+		).rejects.toThrow(/forbidden/i)
+		expect(d.probeSshHandshake).not.toHaveBeenCalled()
+	})
+
+	it("asks the address alone, with a shorter wait than a real connect", async () => {
+		const d = deps()
+
+		const report = await createHostController(d).probeAddress(ctx, {
+			hostname: "10.0.0.1",
+			port: 2222,
+		})
+
+		expect(report).toEqual({ outcome: "answered" })
+		expect(d.probeSshHandshake).toHaveBeenCalledWith("10.0.0.1", 2222, ADDRESS_PROBE_TIMEOUT_MS)
+		expect(ADDRESS_PROBE_TIMEOUT_MS).toBeLessThan(CONNECT_TIMEOUT_MS)
+	})
+
+	it("needs no key, so it opens no transport and reads no secret", async () => {
+		const d = deps()
+
+		await createHostController(d).probeAddress(ctx, { hostname: "10.0.0.1", port: 22 })
+
+		expect(d.sshKeys.findById).not.toHaveBeenCalled()
+		expect(d.secrets.open).not.toHaveBeenCalled()
+		expect(d.createTransport).not.toHaveBeenCalled()
+	})
+
+	it("reports what answered rather than throwing, so the wizard can say what to fix", async () => {
+		const d = deps({
+			probeSshHandshake: vi.fn(async (): Promise<SshHandshake> => ({ kind: "closed" })),
+		})
+
+		await expect(
+			createHostController(d).probeAddress(ctx, { hostname: "10.0.0.1", port: 80 }),
+		).resolves.toEqual({ outcome: "unclear" })
+	})
+})
 
 describe("host controller enrollment", () => {
 	it("rejects a role without host.enroll", async () => {

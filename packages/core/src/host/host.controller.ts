@@ -1,14 +1,16 @@
 import {
+	type AddressProbeReport,
 	type CheckHostInput,
 	type CreateHostInput,
 	can,
 	type HostCheckReport,
 	type HostPublic,
+	type ProbeAddressInput,
 	type Role,
 } from "@open-mcc/contracts"
 import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { Db, HostRow } from "@open-mcc/db"
-import { type HostTransport, verifyHostKey } from "@open-mcc/transport"
+import { type HostTransport, type SshHandshake, verifyHostKey } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { createJobQueue, type JobQueue, type SendJob } from "../job/job.queue"
@@ -16,6 +18,7 @@ import { HOST_TEARDOWN_QUEUE } from "../job/queue-setup"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { ADDRESS_PROBE_TIMEOUT_MS, addressProbeOutcomeFor } from "./address-probe"
 import { checkHostOverTransport, unreachableReport } from "./check"
 import {
 	createHostRepository,
@@ -63,6 +66,7 @@ export type HostControllerDeps = {
 	sshKeys: Pick<SshKeyRepository, "findById">
 	secrets: SecretStore
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
+	probeSshHandshake: (hostname: string, port: number, timeoutMs: number) => Promise<SshHandshake>
 	createTransport: () => HostTransport
 	evictHost: (organizationId: string, hostId: string) => void
 	now: () => Date
@@ -126,6 +130,19 @@ export const createHostController = (deps: HostControllerDeps) => {
 	}
 
 	return {
+		probeAddress: async (
+			ctx: ActorContext,
+			input: ProbeAddressInput,
+		): Promise<AddressProbeReport> => {
+			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
+			const handshake = await deps.probeSshHandshake(
+				input.hostname,
+				input.port,
+				ADDRESS_PROBE_TIMEOUT_MS,
+			)
+			return { outcome: addressProbeOutcomeFor(handshake) }
+		},
+
 		checkHost: async (ctx: ActorContext, input: CheckHostInput): Promise<HostCheckReport> => {
 			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
 			const scope = { organizationId: ctx.organizationId }

@@ -54,6 +54,7 @@ import {
 	createReadConnections,
 	createSshTransport,
 	probeHostKey,
+	probeSshHandshake,
 	READ_CONNECTION_CHANNEL_LIMIT,
 	READ_CONNECTION_HARD_AGE_MS,
 	READ_CONNECTION_IDLE_MS,
@@ -168,6 +169,7 @@ export const startServer = async (
 		sshKeys,
 		secrets,
 		probeHostKey,
+		probeSshHandshake,
 		createTransport: createSshTransport,
 		now: () => new Date(),
 		evictHost: (organizationId, hostId) =>

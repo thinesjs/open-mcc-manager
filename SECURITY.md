@@ -15,6 +15,26 @@ stolen key yields that one unprivileged account rather than the host itself.
 Lingering is turned on once, by the setup script or by hand, so instances
 survive logout and start at boot; provisioning refuses to continue without it.
 
+The setup script itself runs as root, by the operator's own `sudo`, and the
+enrol wizard offers to have it create that account: a home directory, a
+`/bin/sh` login shell, and a password field of `*`, which no password can ever
+match. On an account that already exists it writes one password field, and only
+after asking on the terminal: a password field locked with a leading `!`, which
+OpenSSH refuses before it looks at any key wherever `UsePAM no` is set, so a
+locked account presents as a rejected key. Which write it offers depends on
+what is there, because the field holds both facts at once. A bare `!`, `!!` or
+`!*` is a locked account with no password, so it sets `*`. A `!` followed by
+anything else is a real password that someone locked, so it runs `usermod -U`,
+which strips the `!` and leaves the hash byte-identical — overwriting that field
+with `*` would destroy a password nothing could restore, so the script never
+does, and the prompt says which of the two is about to happen. It changes no
+shell and no group, and the only other thing it writes for that account is a
+subordinate UID/GID range, when it has none — that one is not consent-gated, and
+the wizard's summary discloses it as "Lets mcc run containers". It leaves the
+account untouched when the answer is no or when there is no terminal to ask at,
+naming the one command that fits what it found (`host-setup.test.ts`,
+`host-setup.sandbox.ts`).
+
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an
 attacker gains on each host is bounded by that enrolled account. A compromise

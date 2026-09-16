@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { setTimeout as delay } from "node:timers/promises"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import { hostSetupScript } from "../../apps/web/src/lib/host-setup"
@@ -31,14 +32,20 @@ import {
 
 const INSTALL_TIMEOUT_MS = 600_000
 
-const setUp = (host: string, account: string, publicKey: string) =>
+const setUp = (host: string, account: string, publicKey: string, createAccount = false) =>
 	shell(
 		host,
 		{ user: "tester", timeoutMs: INSTALL_TIMEOUT_MS },
-		hostSetupScript(account, publicKey),
+		hostSetupScript(account, publicKey, createAccount),
 	)
 
 const authorizedKeysOf = (account: string): string => `${homeOf(account)}/.ssh/authorized_keys`
+
+const shadowOf = async (host: string, account: string): Promise<string> =>
+	succeeded(
+		await shell(host, ROOT, 'getent shadow "$1" | cut -d: -f2', account),
+		"reading the account's password field",
+	).trim()
 
 const holdersOf = async (host: string, publicKey: string): Promise<string[]> => {
 	const found = await shell(
@@ -295,7 +302,73 @@ describe("the host setup script", () => {
 
 		expect(ran.status).not.toBe(0)
 		expect(ran.stderr).toContain("There is no account called nobody-by-that-name")
+		expect(ran.stderr).toContain("useradd --create-home --shell /bin/sh --password '*'")
 		expect(await snapshot(host, ...watched)).toBe(before)
+	})
+
+	it("creates the account when asked, and that key then signs in as it", async () => {
+		const account = `made${randomUUID().slice(0, 8)}`
+		const key = await mintKey(host)
+
+		const ran = await setUp(host, account, key.publicKey, true)
+
+		expect(ran.status, ran.stderr).toBe(0)
+		expect(ran.stdout).toContain(`account ${account} created`)
+		expect(ran.stdout).toContain(`nothing on ${account} blocks a key login`)
+		const signedIn = await signIn(host, ROOT, key.path, account, "id -un")
+		expect(signedIn.stdout.trim()).toBe(account)
+	})
+
+	it("leaves an account that is already there exactly as it was", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		const before = await shell(host, ROOT, 'getent passwd "$1"; getent shadow "$1"', account)
+
+		expect((await setUp(host, account, key.publicKey, true)).status).toBe(0)
+
+		const after = await shell(host, ROOT, 'getent passwd "$1"; getent shadow "$1"', account)
+		expect(after.stdout).toBe(before.stdout)
+	})
+
+	it("stops on a locked account rather than unlocking it with nobody to ask", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		succeeded(
+			await shell(host, ROOT, 'usermod -p "!" "$1"', account),
+			"locking the account the way useradd leaves one",
+		)
+		const before = await snapshot(host, homeOf(account))
+
+		const ran = await setUp(host, account, key.publicKey)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain(`The account ${account} is locked`)
+		expect(ran.stderr).toContain("It has no password, and unlocking gives it none.")
+		expect(ran.stderr).toContain(`usermod -p '*' -- '${account}'`)
+		expect(await snapshot(host, homeOf(account))).toBe(before)
+	})
+
+	it("offers to put a locked password back, and destroys nothing when it stops", async () => {
+		const account = await newAccount(host)
+		const key = await mintKey(host)
+		succeeded(
+			await shell(
+				host,
+				ROOT,
+				'printf "%s:%s\\n" "$1" "correct-horse-battery" | chpasswd && passwd -l "$1" >/dev/null',
+				account,
+			),
+			"giving the account a real password and locking it the way passwd -l does",
+		)
+		const before = await shadowOf(host, account)
+		expect(before.startsWith("!$")).toBe(true)
+
+		const ran = await setUp(host, account, key.publicKey)
+
+		expect(ran.status).not.toBe(0)
+		expect(ran.stderr).toContain("It has a password.")
+		expect(ran.stderr).toContain(`usermod -U -- '${account}'`)
+		expect(await shadowOf(host, account)).toBe(before)
 	})
 
 	it("prints the fingerprint of the host key this machine's sshd presents", async () => {

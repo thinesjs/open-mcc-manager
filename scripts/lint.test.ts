@@ -40,6 +40,16 @@ describe("lint runner", () => {
 		expect(results.every((each) => each.ok)).toBe(false)
 	})
 
+	it("runs the page-loading gate, or a route could go back to a spinner unnoticed", () => {
+		const ran: string[] = []
+		runAll(undefined, (command: string, args: readonly string[]) => {
+			ran.push([command, ...args].join(" "))
+			return spawned("", 0)
+		})
+
+		expect(ran).toContain("node scripts/check-page-loading.mjs")
+	})
+
 	it("surfaces a check that could not be spawned rather than counting it as a pass", () => {
 		const results = runAll([{ name: "missing", command: "nope", args: [] }], () => ({
 			...spawned("", 0),

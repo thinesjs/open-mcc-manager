@@ -56,6 +56,7 @@
 :root {
 	--control-radius: 0.5rem;
 	--spin-duration: 650ms;
+	--shimmer-duration: 1600ms;
 	--duration-press: 150ms;
 	--duration-surface: 270ms;
 	--ease-emphasis: cubic-bezier(0.26, 1, 0.5, 1);
@@ -187,4 +188,28 @@
 
 @utility animate-spin-quick {
 	animation: spin var(--spin-duration) linear infinite;
+}
+
+@keyframes shimmer {
+	from {
+		background-position: 200% 0;
+	}
+
+	to {
+		background-position: -200% 0;
+	}
+}
+
+@utility shimmer-bar {
+	background-image: linear-gradient(
+		90deg,
+		var(--muted) 0%,
+		color-mix(in srgb, var(--foreground) 8%, var(--muted)) 50%,
+		var(--muted) 100%
+	);
+	background-size: 200% 100%;
+}
+
+@utility animate-shimmer {
+	animation: shimmer var(--shimmer-duration) linear infinite;
 }

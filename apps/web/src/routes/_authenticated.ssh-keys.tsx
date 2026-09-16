@@ -1,16 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { CircleAlert, KeyRound, Plus, Trash2 } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { useState } from "react"
 import { CopyButton } from "~/components/copy-button"
 import { EmptyState } from "~/components/empty-state"
+import { GenerateSshKey } from "~/components/generate-ssh-key"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { ConfirmDialog } from "~/components/ui/dialog"
-import { Input } from "~/components/ui/input"
-import { Label } from "~/components/ui/label"
-import { Modal } from "~/components/ui/modal"
-import { LoadingBlock, Spinner } from "~/components/ui/spinner"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { keyTypeOf } from "~/lib/ssh-key-type"
@@ -26,28 +23,11 @@ function SshKeysPage() {
 	const [pendingDelete, setPendingDelete] = useState<string | undefined>(undefined)
 	const [creating, setCreating] = useState(false)
 	const [view, setView] = useViewMode("open-mcc.view.ssh-keys")
-	const sshKeysQuery = useQuery(trpc.sshKey.list.queryOptions())
-	const createMutation = useMutation(trpc.sshKey.create.mutationOptions())
+	const sshKeysQuery = useSuspenseQuery(trpc.sshKey.list.queryOptions())
 	const deleteMutation = useMutation(trpc.sshKey.remove.mutationOptions())
-
-	const [name, setName] = useState("")
 
 	const invalidateList = () => {
 		queryClient.invalidateQueries({ queryKey: trpc.sshKey.list.queryKey() })
-	}
-
-	const handleCreate = (event: FormEvent) => {
-		event.preventDefault()
-		createMutation.mutate(
-			{ name },
-			{
-				onSuccess: () => {
-					setName("")
-					setCreating(false)
-					invalidateList()
-				},
-			},
-		)
 	}
 
 	const handleDelete = () => {
@@ -82,21 +62,13 @@ function SshKeysPage() {
 				</div>
 			</div>
 
-			{sshKeysQuery.isPending ? <LoadingBlock label="Loading SSH keys" /> : null}
-
-			{sshKeysQuery.isError ? (
-				<Alert variant="error" icon={<CircleAlert />}>
-					{getErrorMessage(sshKeysQuery.error)}
-				</Alert>
-			) : null}
-
 			{deleteMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
 					{getErrorMessage(deleteMutation.error)}
 				</Alert>
 			) : null}
 
-			{sshKeysQuery.data && sshKeysQuery.data.length === 0 ? (
+			{sshKeysQuery.data.length === 0 ? (
 				<EmptyState
 					icon={KeyRound}
 					title="No SSH keys"
@@ -110,7 +82,7 @@ function SshKeysPage() {
 				/>
 			) : null}
 
-			{sshKeysQuery.data && sshKeysQuery.data.length > 0 ? (
+			{sshKeysQuery.data.length > 0 ? (
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{sshKeysQuery.data.map((sshKey) => (
@@ -176,43 +148,14 @@ function SshKeysPage() {
 				)
 			) : null}
 
-			<Modal
+			<GenerateSshKey
 				open={creating}
-				title="Generate an SSH key"
-				description="The key pair is generated on the server. The private key is encrypted at rest and never leaves it."
 				onClose={() => setCreating(false)}
-			>
-				<form onSubmit={handleCreate} className="space-y-4">
-					{createMutation.isError ? (
-						<Alert variant="error" icon={<CircleAlert />}>
-							{getErrorMessage(createMutation.error)}
-						</Alert>
-					) : null}
-					<div className="space-y-1.5">
-						<Label htmlFor="sshKeyName">Name</Label>
-						<Input
-							id="sshKeyName"
-							required
-							autoFocus
-							maxLength={64}
-							placeholder="fleet-production"
-							value={name}
-							onChange={(event) => setName(event.target.value)}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Names the key in this dashboard. It is not sent to any host.
-						</p>
-					</div>
-					<div className="flex justify-end gap-2">
-						<Button type="button" size="sm" variant="secondary" onClick={() => setCreating(false)}>
-							Cancel
-						</Button>
-						<Button type="submit" size="sm" disabled={createMutation.isPending}>
-							{createMutation.isPending ? <Spinner label="Generating" /> : "Generate key"}
-						</Button>
-					</div>
-				</form>
-			</Modal>
+				onGenerated={() => {
+					setCreating(false)
+					invalidateList()
+				}}
+			/>
 
 			<ConfirmDialog
 				open={pendingDelete !== undefined}

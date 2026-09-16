@@ -8,6 +8,7 @@ const CHECKS = [
 	{ name: "control-sizing", command: "node", args: ["scripts/check-control-sizing.mjs"] },
 	{ name: "runtime-deps", command: "node", args: ["scripts/check-runtime-deps.mjs"] },
 	{ name: "image-notices", command: "node", args: ["scripts/check-image-notices.mjs"] },
+	{ name: "page-loading", command: "node", args: ["scripts/check-page-loading.mjs"] },
 ]
 
 export const runCheck = (check, run = defaultRun) => {

@@ -1,12 +1,12 @@
 import { AUDIT_PAGE_SIZE, type AuditEventView, can } from "@open-mcc/contracts"
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { CircleAlert, ScrollText } from "lucide-react"
 import { useEffect, useState } from "react"
 import { EmptyState } from "~/components/empty-state"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
-import { LoadingBlock } from "~/components/ui/spinner"
+import { PageShimmer } from "~/components/ui/shimmer"
 import { Tooltip } from "~/components/ui/tooltip"
 import { describeAuditEvent } from "~/lib/audit-events"
 import { auditNextDisabled, auditPagerVisible, lastAuditOffset } from "~/lib/audit-paging"
@@ -36,8 +36,8 @@ const Sentence = ({ event }: { event: AuditEventView }) => {
 function AuditPage() {
 	const trpc = useTRPC()
 	const [offset, setOffset] = useState(0)
-	const me = useQuery(trpc.member.me.queryOptions())
-	const mayRead = me.data !== undefined && can(me.data.role, "audit.read")
+	const me = useSuspenseQuery(trpc.member.me.queryOptions())
+	const mayRead = can(me.data.role, "audit.read")
 	const page = useQuery({
 		...trpc.audit.list.queryOptions({ offset }),
 		enabled: mayRead,
@@ -62,16 +62,6 @@ function AuditPage() {
 		</div>
 	)
 
-	if (me.isPending) return <LoadingBlock label="Loading audit log" />
-
-	if (me.isError) {
-		return (
-			<Alert variant="error" icon={<CircleAlert />}>
-				{getErrorMessage(me.error)}
-			</Alert>
-		)
-	}
-
 	if (!mayRead) {
 		return (
 			<div className="space-y-6">
@@ -85,7 +75,7 @@ function AuditPage() {
 		<div className="space-y-6">
 			{header}
 
-			{page.isPending ? <LoadingBlock label="Loading audit log" /> : null}
+			{page.isPending ? <PageShimmer /> : null}
 
 			{page.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>

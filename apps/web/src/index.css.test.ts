@@ -113,6 +113,7 @@ const PINNED_DECLARATIONS: readonly string[] = [
 	":root --ring: var(--primary)",
 	":root --secondary-foreground: var(--color-zinc-800)",
 	":root --secondary: var(--color-zinc-50)",
+	":root --shimmer-duration: 1600ms",
 	":root --sidebar-border: var(--border)",
 	":root --sidebar-content-inset: 0.5rem",
 	":root --sidebar-foreground: var(--foreground)",

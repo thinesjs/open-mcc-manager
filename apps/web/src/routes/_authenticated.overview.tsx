@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react"
 import { EmptyState } from "~/components/empty-state"
@@ -6,7 +6,6 @@ import { HostStatusBadge } from "~/components/host-status-badge"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { ManagerHealth } from "~/components/manager-health"
 import { Alert } from "~/components/ui/alert"
-import { LoadingBlock } from "~/components/ui/spinner"
 import { getErrorMessage } from "~/lib/errors"
 import {
 	countByStatus,
@@ -29,7 +28,7 @@ export const Route = createFileRoute("/_authenticated/overview")({
 
 function OverviewPage() {
 	const trpc = useTRPC()
-	const instancesQuery = useQuery({
+	const instancesQuery = useSuspenseQuery({
 		...trpc.instance.list.queryOptions(),
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_INSTANCE_STATUSES),
 	})
@@ -38,10 +37,10 @@ function OverviewPage() {
 		refetchInterval: (query) => pollIntervalFor(query.state.data, TRANSIENT_HOST_STATUSES),
 	})
 
-	const instances = instancesQuery.data ?? []
+	const instances = instancesQuery.data
 	const hosts = hostsQuery.data ?? []
 	const attention = instancesNeedingAttention(instances)
-	const error = instancesQuery.error ?? hostsQuery.error
+	const error = hostsQuery.error
 
 	return (
 		<div className="space-y-8">
@@ -67,7 +66,7 @@ function OverviewPage() {
 						</Link>
 					</div>
 					<p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-						{instancesQuery.isPending ? "—" : instances.length}
+						{instances.length}
 					</p>
 					<dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
 						{countByStatus(INSTANCE_STATUS_ORDER, instances)
@@ -110,9 +109,7 @@ function OverviewPage() {
 
 			<section className="space-y-3">
 				<h2 className="text-sm font-semibold text-foreground">Needs attention</h2>
-				{instancesQuery.isPending ? (
-					<LoadingBlock label="Loading fleet" />
-				) : attention.length === 0 ? (
+				{attention.length === 0 ? (
 					<EmptyState
 						compact
 						icon={CircleCheck}

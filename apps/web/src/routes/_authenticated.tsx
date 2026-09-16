@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router"
+import {
+	createFileRoute,
+	Link,
+	Outlet,
+	redirect,
+	useLocation,
+	useNavigate,
+} from "@tanstack/react-router"
 import {
 	Activity,
 	BellRing,
@@ -18,6 +25,7 @@ import { AffiliationNotice } from "~/components/affiliation-notice"
 import { CommandPalette } from "~/components/command-palette"
 import { BuildBadge, ControlPlaneStatus } from "~/components/control-plane-status"
 import { ThemeToggle } from "~/components/theme-toggle"
+import { PageBoundary } from "~/components/ui/shimmer"
 import { UpdateModal } from "~/components/update-modal"
 import { authClient } from "~/lib/auth-client"
 import { navItemVisible } from "~/lib/nav-access"
@@ -67,6 +75,7 @@ const SECTIONS = [
 
 function AuthenticatedLayout() {
 	const navigate = useNavigate()
+	const location = useLocation()
 	const trpc = useTRPC()
 	const session = authClient.useSession()
 	const me = useQuery(trpc.member.me.queryOptions())
@@ -207,7 +216,9 @@ function AuthenticatedLayout() {
 						Menu
 					</button>
 					<ControlPlaneStatus />
-					<Outlet />
+					<PageBoundary resetKey={location.pathname}>
+						<Outlet />
+					</PageBoundary>
 				</div>
 			</main>
 		</div>

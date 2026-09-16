@@ -1,6 +1,6 @@
 import { type HostReader, type ReadCommand, readCommandText } from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
-import { UNOBSERVED_CONNECTION } from "./connection"
+import { type ConnectionChange, type ConnectionCurrent, UNOBSERVED_CONNECTION } from "./connection"
 import {
 	drainConnectionChanges,
 	JOURNAL_DRAIN_ROUNDS,
@@ -28,12 +28,16 @@ describe("asking the host what the client logged", () => {
 
 	it("looks back further on a first read, then resumes from where it left off", () => {
 		expect(journalSince(null)).toBe("-7d")
-		expect(journalSince("2026-09-06T06:16:10.000Z")).toBe("2026-09-06 06:16:10")
+		expect(journalSince("2026-09-06T06:16:10.000Z")).toBe("2026-09-06 06:16:10 UTC")
 	})
 
 	it("gives journalctl a timestamp it can actually parse", () => {
-		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toContain("T")
-		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toContain("Z")
+		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toMatch(/\dT\d/)
+		expect(journalSince("2026-09-06T06:16:10.000Z")).not.toMatch(/Z$/)
+	})
+
+	it("names the zone, because --utc governs output only and the cursor is UTC", () => {
+		expect(journalSince("2026-09-06T06:16:10.000Z")).toMatch(/ UTC$/)
 	})
 
 	it("reads the journal in UTC so the cursor and the output agree", () => {
@@ -168,7 +172,7 @@ const writerStatusIgnored = (command: string): boolean => /\|\|\s*true\s*;?\s*\}
 const sinceLimit = (command: string): number | undefined => {
 	const stamp = /--since\s+"([^"]+)"/.exec(command)?.[1]
 	if (stamp === undefined || stamp === SEED_WINDOW) return undefined
-	return Date.parse(`${stamp.replace(" ", "T")}Z`)
+	return Date.parse(`${stamp.replace(" UTC", "").replace(" ", "T")}Z`)
 }
 
 const loggedAt = (line: string): number => Date.parse(line.slice(0, line.indexOf(" ")))
@@ -212,10 +216,46 @@ const busyJournal = (total: number, joinAt: number, disconnectAt: number): strin
 				: journalLine(index, `Chat: line ${index}`),
 	)
 
-const sameSecondJournal = (total: number): string[] =>
-	Array.from({ length: total }, (_, index) => journalLine(0, `Chat: line ${index}`))
+const denseSecondJournal = (dense: number): string[] => [
+	...Array.from({ length: dense }, (_, index) => journalLine(0, `Chat: line ${index}`)),
+	journalLine(1, "Server was successfully joined."),
+]
+
+const twoJoinJournal = (total: number, first: number, second: number): string[] =>
+	Array.from({ length: total }, (_, index) =>
+		index === first || index === second
+			? journalLine(index, "Server was successfully joined.")
+			: journalLine(index, `Chat: line ${index}`),
+	)
+
+const kickSplitJournal = (total: number, at: number): string[] =>
+	Array.from({ length: total }, (_, index) =>
+		index === at
+			? journalLine(index, "Disconnected by Server :")
+			: index === at + 1
+				? journalLine(at, "Kicked by an operator")
+				: journalLine(index, `Chat: line ${index}`),
+	)
+
+const hostWhereJournalctlFails = () => {
+	const statuses: number[] = []
+	return {
+		statuses,
+		exec: vi.fn(async (command: ReadCommand) => {
+			const exitCode = writerStatusIgnored(readCommandText(command)) ? 0 : 1
+			statuses.push(exitCode)
+			return { stdout: "", stderr: "Failed to add filter for units", exitCode }
+		}),
+	}
+}
 
 const WAS_DOWN = { state: "down", since: new Date("2026-09-05T00:00:00Z"), pid: null } as const
+
+const WAS_JOINED = {
+	state: "joined",
+	since: new Date("2026-09-05T00:00:00Z"),
+	pid: "4242",
+} as const
 
 const RESUMED_FROM = "2026-09-05T00:00:00.000Z"
 
@@ -232,7 +272,7 @@ describe("a bot that logs more than one window between polls", () => {
 
 		expect(reading.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
 		expect(reading.changes[0]?.at.toISOString()).toBe("2026-09-06T00:00:05.000Z")
-		expect(reading.cursor).toBe("2026-09-06T00:33:19.000Z")
+		expect(reading.cursor).toBe("2026-09-06T00:33:18.000Z")
 	})
 
 	it("succeeds when the bounding step closes the pipe on journalctl", async () => {
@@ -265,6 +305,29 @@ describe("a bot that logs more than one window between polls", () => {
 
 		expect(reading.full).toBe(false)
 	})
+
+	it("withholds the last line of a full batch, which may carry a signal's continuation", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(kickSplitJournal(2_100, JOURNAL_MAX_LINES - 1)),
+			"abc123",
+			WAS_JOINED,
+			RESUMED_FROM,
+		)
+
+		expect(reading.changes).toEqual([])
+		expect(reading.cursor).toBe("2026-09-06T00:33:18.000Z")
+	})
+
+	it("holds its cursor when journalctl fails behind the bound that swallows its status", async () => {
+		const host = hostWhereJournalctlFails()
+
+		const reading = await readConnectionChanges(host, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(host.statuses).toEqual([0])
+		expect(reading.changes).toEqual([])
+		expect(reading.cursor).toBe(RESUMED_FROM)
+		expect(reading.full).toBe(false)
+	})
 })
 
 const OVERSIZED_JOURNAL = busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)
@@ -295,7 +358,7 @@ describe("which end of an oversized window each kind of read keeps", () => {
 			RESUMED_FROM,
 		)
 
-		expect(reading.cursor).toBe("2026-09-06T00:33:19.000Z")
+		expect(reading.cursor).toBe("2026-09-06T00:33:18.000Z")
 		expect(reading.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
 		expect(reading.full).toBe(true)
 	})
@@ -303,9 +366,11 @@ describe("which end of an oversized window each kind of read keeps", () => {
 
 const countingDrain = (host: Pick<HostReader, "exec"> | undefined) => {
 	const cursors: string[] = []
+	const changes: ConnectionChange[] = []
 	const counts = { leases: 0, releases: 0 }
 	return {
 		cursors,
+		changes,
 		counts,
 		lease: async () => {
 			if (host === undefined) return undefined
@@ -317,7 +382,9 @@ const countingDrain = (host: Pick<HostReader, "exec"> | undefined) => {
 				},
 			}
 		},
-		record: async () => undefined,
+		record: async (recorded: ConnectionChange[]) => {
+			changes.push(...recorded)
+		},
 		saveCursor: async (cursor: string) => {
 			cursors.push(cursor)
 		},
@@ -334,7 +401,7 @@ describe("draining a bot that has fallen behind", () => {
 		expect(drain.counts.leases).toBe(JOURNAL_DRAIN_ROUNDS)
 		expect(drain.counts.releases).toBe(JOURNAL_DRAIN_ROUNDS)
 		expect(drain.cursors).toHaveLength(JOURNAL_DRAIN_ROUNDS)
-		expect(drain.cursors.at(-1)).toBe("2026-09-06T02:13:16.000Z")
+		expect(drain.cursors.at(-1)).toBe("2026-09-06T02:13:12.000Z")
 	})
 
 	it("reads once when the batch did not fill the cap", async () => {
@@ -346,13 +413,50 @@ describe("draining a bot that has fallen behind", () => {
 		expect(drain.counts.releases).toBe(1)
 	})
 
-	it("stops rather than re-reading a batch the cursor cannot move past", async () => {
-		const drain = countingDrain(hostWithJournal(sameSecondJournal(JOURNAL_MAX_LINES + 500)))
+	it("escapes a second that overflows the cap instead of re-reading it forever", async () => {
+		const host = hostWithJournal(denseSecondJournal(JOURNAL_MAX_LINES + 500))
+		const recorded: ConnectionChange[] = []
+		let current: ConnectionCurrent = WAS_DOWN
+		let cursor: string | null = RESUMED_FROM
 
-		const outcome = await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+		for (let cycle = 0; cycle < 5; cycle += 1) {
+			await drainConnectionChanges(
+				{
+					lease: async () => ({ exec: host.exec, release: () => undefined }),
+					record: async (changes) => {
+						recorded.push(...changes)
+						const last = changes.at(-1)
+						if (last !== undefined) current = { state: last.state, since: last.at, pid: last.pid }
+					},
+					saveCursor: async (next) => {
+						cursor = next
+					},
+				},
+				"abc123",
+				current,
+				cursor,
+			)
+		}
 
-		expect(outcome).toBe("drained")
-		expect(drain.counts.leases).toBe(2)
+		expect(cursor).toBe("2026-09-06T00:00:01.000Z")
+		expect(recorded.map((change) => change.event)).toEqual(["instance.reconnected"])
+	})
+
+	it("carries the connection state between rounds, so a backlog is not double-reported", async () => {
+		const drain = countingDrain(hostWithJournal(twoJoinJournal(4_000, 5, JOURNAL_MAX_LINES + 500)))
+
+		await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(drain.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
+	})
+
+	it("keeps a disconnect's reason when the cap falls between it and the line carrying it", async () => {
+		const drain = countingDrain(hostWithJournal(kickSplitJournal(2_100, JOURNAL_MAX_LINES - 1)))
+
+		await drainConnectionChanges(drain, "abc123", WAS_JOINED, RESUMED_FROM)
+
+		expect(drain.changes.map((change) => change.event)).toEqual(["instance.kicked"])
+		expect(drain.changes[0]?.reason).toBe("Kicked by an operator")
 	})
 
 	it("gives up the cycle when the journal lease is refused", async () => {

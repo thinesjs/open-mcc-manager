@@ -13,7 +13,7 @@ export const SEED_WINDOW = "-7d"
 export const journalTimestamp = (iso: string): string => {
 	const at = new Date(iso)
 	if (Number.isNaN(at.getTime())) return SEED_WINDOW
-	return at.toISOString().slice(0, 19).replace("T", " ")
+	return `${at.toISOString().slice(0, 19).replace("T", " ")} UTC`
 }
 
 export const journalSince = (cursor: string | null): string =>
@@ -46,7 +46,8 @@ export const readConnectionChanges = async (
 	if (result.exitCode !== 0) return { changes: [], cursor, full: false }
 
 	const full = cursor !== null && journalLineCount(result.stdout) >= JOURNAL_MAX_LINES
-	const lines = parseJournal(result.stdout)
+	const parsed = parseJournal(result.stdout)
+	const lines = full ? parsed.slice(0, -1) : parsed
 	const signals = connectionSignals(lines)
 	const last = lines.at(-1)
 	const nextCursor = last === undefined ? cursor : last.at.toISOString()
@@ -100,6 +101,8 @@ export type JournalDrain = {
 
 export type DrainOutcome = "drained" | "unleased"
 
+const secondAfter = (iso: string): string => new Date(new Date(iso).getTime() + 1_000).toISOString()
+
 const connectionAfter = (
 	current: ConnectionCurrent,
 	changes: readonly ConnectionChange[],
@@ -132,12 +135,16 @@ export const drainConnectionChanges = async (
 		await drain.record(reading.changes)
 
 		const next = reading.cursor
-		if (next === null || next === at) return "drained"
-		await drain.saveCursor(next)
-		if (!reading.full) return "drained"
+		if (next === null) return "drained"
+		if (!reading.full) {
+			if (next !== at) await drain.saveCursor(next)
+			return "drained"
+		}
 
+		const resume = next === at ? secondAfter(next) : next
+		await drain.saveCursor(resume)
 		seen = connectionAfter(seen, reading.changes)
-		at = next
+		at = resume
 	}
 
 	return "drained"

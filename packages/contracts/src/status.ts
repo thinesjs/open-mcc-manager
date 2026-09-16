@@ -161,7 +161,7 @@ export const BUCKET_SECONDS: Record<StatusRange, number> = {
 
 export const statusSummaryInput = z.object({ range: statusRangeSchema.default("24h") })
 
-export const statusEventCursorSchema = z
+const statusEventCursorSchema = z
 	.string()
 	.min(1)
 	.transform(parseStatusEventCursor)

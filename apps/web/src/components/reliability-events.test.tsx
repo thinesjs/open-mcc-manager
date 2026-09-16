@@ -7,27 +7,46 @@ import { HostReliability } from "./host-reliability"
 const INSTANCE_ID = "inst-1"
 const HOST_ID = "host-1"
 
-const seeded = { total: 0 }
+type MockEvent = {
+	id: string
+	kind: string
+	subjectLabel: string
+	hostId: string
+	instanceId: string
+	occurredAt: string
+}
 
-const eventAt = (index: number) => ({
-	id: `ev-${index}`,
+const seeded: { events: MockEvent[]; refuse: boolean } = { events: [], refuse: false }
+
+const eventNamed = (id: string, secondsOld: number): MockEvent => ({
+	id,
 	kind: "instance.disconnected",
 	subjectLabel: "afk-one",
 	hostId: HOST_ID,
 	instanceId: INSTANCE_ID,
-	occurredAt: new Date(Date.UTC(2026, 8, 13, 10, 0, index)).toISOString(),
+	occurredAt: new Date(Date.UTC(2026, 8, 13, 10, 0, 0) - secondsOld * 1000).toISOString(),
 })
 
+const seed = (count: number) => {
+	seeded.events = Array.from({ length: count }, (_, index) => eventNamed(`ev-${index}`, index))
+}
+
+const arrive = (count: number) => {
+	seeded.events = [
+		...Array.from({ length: count }, (_, index) => eventNamed(`new-${index}`, -1 - index)),
+		...seeded.events,
+	]
+}
+
 const pageFrom = (limit: number, cursor: string | null) => {
-	const start = cursor === null ? 0 : Number(cursor)
-	const events = Array.from({ length: Math.min(limit, seeded.total - start) }, (_, offset) =>
-		eventAt(start + offset),
-	)
-	const next = start + events.length
+	if (seeded.refuse) throw new Error("Internal server error")
+	const resumeAt = cursor === null ? 0 : seeded.events.findIndex((each) => each.id === cursor) + 1
+	const events = seeded.events.slice(resumeAt, resumeAt + limit)
+	const last = events[events.length - 1]
 	return {
 		events,
-		total: seeded.total,
-		nextCursor: events.length < limit ? null : String(next),
+		total: seeded.events.length,
+		nextCursor: last === undefined || events.length < limit ? null : last.id,
 	}
 }
 
@@ -93,7 +112,8 @@ vi.mock("~/lib/trpc", () => ({
 }))
 
 beforeEach(() => {
-	seeded.total = 0
+	seeded.events = []
+	seeded.refuse = false
 })
 
 afterEach(() => {
@@ -120,7 +140,7 @@ const CARDS = [
 
 describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 	it("says how many events there were, not how many it is showing", async () => {
-		seeded.total = 47
+		seed(47)
 		mount(which)
 
 		expect(await screen.findByText("47 events")).toBeDefined()
@@ -130,7 +150,7 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 	})
 
 	it("reveals the next events in place when an operator asks for more", async () => {
-		seeded.total = 47
+		seed(47)
 		mount(which)
 
 		fireEvent.click(await screen.findByRole("button", { name: "Show more" }))
@@ -141,8 +161,45 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 		expect(screen.getByText("47 events")).toBeDefined()
 	})
 
+	it("reaches every event without repeating one", async () => {
+		seed(pageSize * 2 + 1)
+		mount(which)
+
+		fireEvent.click(await screen.findByRole("button", { name: "Show more" }))
+		await waitFor(() => {
+			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2)
+		})
+		fireEvent.click(screen.getByRole("button", { name: "Show more" }))
+		await waitFor(() => {
+			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2 + 1)
+		})
+
+		const shown = screen.getAllByRole("listitem").length
+		expect(new Set(seeded.events.slice(0, shown).map((each) => each.id)).size).toBe(shown)
+		expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
+	})
+
+	it("stops offering more once the last page is in, even as newer events arrive", async () => {
+		seed(pageSize * 2 + 5)
+		mount(which)
+
+		fireEvent.click(await screen.findByRole("button", { name: "Show more" }))
+		await waitFor(() => {
+			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2)
+		})
+
+		arrive(3)
+		fireEvent.click(screen.getByRole("button", { name: "Show more" }))
+		await waitFor(() => {
+			expect(screen.getAllByRole("listitem")).toHaveLength(pageSize * 2 + 5)
+		})
+
+		expect(screen.getByText(`${pageSize * 2 + 8} events`)).toBeDefined()
+		expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
+	})
+
 	it("offers nothing to press when every event already fits", async () => {
-		seeded.total = pageSize
+		seed(pageSize)
 		mount(which)
 
 		expect(await screen.findByText(`${pageSize} events`)).toBeDefined()
@@ -150,7 +207,7 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 	})
 
 	it("counts one event as one", async () => {
-		seeded.total = 1
+		seed(1)
 		mount(which)
 
 		expect(await screen.findByText("1 event")).toBeDefined()
@@ -158,12 +215,32 @@ describe.each(CARDS)("the $which card's event list", ({ which, pageSize }) => {
 	})
 
 	it("shows no list at all when nothing was recorded", async () => {
-		seeded.total = 0
+		seed(0)
 		mount(which)
 
 		await waitFor(() => {
 			expect(screen.queryByRole("list")).toBeNull()
 		})
 		expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
+	})
+
+	it("says so when the events cannot be read", async () => {
+		seed(47)
+		seeded.refuse = true
+		mount(which)
+
+		expect(await screen.findByRole("alert")).toBeDefined()
+	})
+
+	it("says so when asking for more fails, rather than looking like a dead button", async () => {
+		seed(47)
+		mount(which)
+
+		const more = await screen.findByRole("button", { name: "Show more" })
+		seeded.refuse = true
+		fireEvent.click(more)
+
+		expect(await screen.findByRole("alert")).toBeDefined()
+		expect(screen.getAllByRole("listitem")).toHaveLength(pageSize)
 	})
 })

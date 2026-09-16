@@ -12,6 +12,7 @@ const since = new Date(now.getTime() - 24 * 60 * 60 * 1000)
 
 const WATCHED_EVENTS = 25
 const TIED_MINUTES = 3
+const OUTSIDE_RANGE_MINUTES = 25 * 60
 
 let organizationId = ""
 let otherOrganizationId = ""
@@ -139,6 +140,16 @@ beforeAll(async () => {
 				hostId: null,
 				instanceId: quietInstanceId,
 			}),
+			event("ev-stale-instance", minutesAgo(OUTSIDE_RANGE_MINUTES), {
+				organizationId,
+				hostId: null,
+				instanceId: watchedInstanceId,
+			}),
+			event("ev-stale-host", minutesAgo(OUTSIDE_RANGE_MINUTES), {
+				organizationId,
+				hostId: watchedHostId,
+				instanceId: null,
+			}),
 			event("ev-stranger-a", minutesAgo(1), {
 				organizationId: otherOrganizationId,
 				hostId: null,
@@ -231,6 +242,30 @@ describe("paging the status events through the real database", () => {
 		expect(total).toBe(2)
 	})
 
+	it("leaves an event older than the range out of both the page and the total", async () => {
+		const rows = await repository.listEvents(
+			{ organizationId },
+			{ since, limit: 100, instanceId: watchedInstanceId },
+		)
+		const total = await repository.countEvents(
+			{ organizationId },
+			{ since, instanceId: watchedInstanceId },
+		)
+		const forHost = await repository.listEvents(
+			{ organizationId },
+			{ since, limit: 100, hostId: watchedHostId },
+		)
+		const hostTotal = await repository.countEvents(
+			{ organizationId },
+			{ since, hostId: watchedHostId },
+		)
+
+		expect(rows.map((row) => row.id)).not.toContain(idFor("ev-stale-instance"))
+		expect(total).toBe(WATCHED_EVENTS)
+		expect(forHost.map((row) => row.id)).not.toContain(idFor("ev-stale-host"))
+		expect(hostTotal).toBe(2)
+	})
+
 	it("shows another organization's events in neither the page nor the count", async () => {
 		const rows = await repository.listEvents({ organizationId }, { since, limit: 100 })
 		const total = await repository.countEvents({ organizationId }, { since })
@@ -280,6 +315,15 @@ describe("the events the controller hands the dashboard", () => {
 		expect(forHost.total).toBe(2)
 		expect(forHost.events).toHaveLength(2)
 		expect(forHost.nextCursor).toBeNull()
+	})
+
+	it("keeps an event older than the range out of the total the card shows", async () => {
+		const shown = await controller.events({ organizationId }, "24h", 100, {
+			instanceId: watchedInstanceId,
+		})
+
+		expect(shown.total).toBe(WATCHED_EVENTS)
+		expect(shown.events.map((each) => each.id)).not.toContain(idFor("ev-stale-instance"))
 	})
 
 	it("stops offering a cursor once the last page is short", async () => {

@@ -1,9 +1,12 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { CircleAlert } from "lucide-react"
+import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
+import { getErrorMessage } from "~/lib/errors"
 import { describeEventCount, describeStatusEvent } from "~/lib/status-events"
 import { useTRPC } from "~/lib/trpc"
 import { describeCoverage, describeUptime } from "~/lib/uptime"
@@ -32,7 +35,7 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 			{ range: "24h", limit: EVENTS_PER_PAGE, hostId },
 			{ getNextPageParam: (page) => page.nextCursor ?? undefined },
 		),
-		refetchInterval: 60_000,
+		refetchInterval: (query) => ((query.state.data?.pages.length ?? 0) > 1 ? false : 60_000),
 	})
 
 	const summary = summaryQuery.data
@@ -86,11 +89,19 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 					<p className="text-sm text-muted-foreground">Nothing measured yet.</p>
 				)}
 
+				{eventsQuery.isError ? (
+					<Alert variant="error" icon={<CircleAlert />}>
+						{getErrorMessage(eventsQuery.error)}
+					</Alert>
+				) : null}
+
 				{events.length > 0 ? (
 					<div className="space-y-2 border-t border-border pt-3">
 						<Tooltip
 							content="Everything OpenMCC recorded for this server in the last day."
-							render={<p className="font-medium text-foreground text-xs" />}
+							render={
+								<p className="w-fit cursor-help font-medium text-foreground text-xs underline decoration-dotted underline-offset-4" />
+							}
 						>
 							{describeEventCount(total)}
 						</Tooltip>
@@ -106,7 +117,7 @@ export const HostReliability = ({ hostId }: HostReliabilityProps) => {
 								</li>
 							))}
 						</ol>
-						{events.length < total ? (
+						{eventsQuery.hasNextPage && events.length < total ? (
 							<Button
 								size="xs"
 								variant="ghost"

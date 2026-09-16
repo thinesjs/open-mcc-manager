@@ -230,9 +230,6 @@ export const completeAuthentication = async (
 
 	const instance = await deps.instances.findById(scope, instanceId)
 	if (!instance) throw new InstanceNotFoundError(`Instance not found: ${instanceId}`)
-	if (instance.status !== "needs_auth") {
-		return { authenticated: instance.status !== "created", status: instance.status }
-	}
 
 	const host = await deps.hosts.findById(scope, instance.hostId)
 	if (!host?.sshKeyId || !host.hostKeyFingerprint) {
@@ -261,6 +258,9 @@ export const completeAuthentication = async (
 		if (probe.exitCode === 1) return { authenticated: false, status: instance.status }
 		if (probe.exitCode !== 0) {
 			throw new Error(`Could not read whether instance ${instance.id} has signed in`)
+		}
+		if (instance.status !== "needs_auth") {
+			return { authenticated: true, status: instance.status }
 		}
 
 		await stopAuthSession(transport, instance.id)

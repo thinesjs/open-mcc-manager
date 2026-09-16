@@ -541,14 +541,41 @@ describe("completeAuthentication", () => {
 		expect(transport.commands.some((each) => each.includes("test -s"))).toBe(false)
 	})
 
-	it("does not touch the host for an instance that never needed authenticating", async () => {
-		const { deps, transport, instances } = withProbe(0)
+	it("★ reports a row whose status moved underneath as not signed in, never as signed in", async () => {
+		const { deps, transport, instances } = withProbe(1)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "error" }))
+
+		const state = await completeAuthentication(deps, owner, "abc123")
+
+		expect(state).toEqual({ authenticated: false, status: "error" })
+		expect(transport.commands).toContain(STATE_PROBE)
+		expect(instances.update).not.toHaveBeenCalled()
+	})
+
+	it("reports a row whose status moved underneath as signed in only once the client has recorded it", async () => {
+		const { deps, instances, audit } = withProbe(0)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
 
 		const state = await completeAuthentication(deps, owner, "abc123")
 
 		expect(state).toEqual({ authenticated: true, status: "running" })
-		expect(transport.commands).toEqual([])
+		expect(instances.update).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("asks the host about every status, because a status is not a record of a sign-in", async () => {
+		const seen: string[] = []
+		for (const status of ["created", "stopped", "running", "error"] as const) {
+			const { deps, transport, instances } = withProbe(1)
+			vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status }))
+
+			const state = await completeAuthentication(deps, owner, "abc123")
+
+			expect(state).toEqual({ authenticated: false, status })
+			if (transport.commands.includes(STATE_PROBE)) seen.push(status)
+		}
+
+		expect(seen).toEqual(["created", "stopped", "running", "error"])
 	})
 })
 

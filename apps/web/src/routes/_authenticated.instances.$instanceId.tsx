@@ -2,7 +2,7 @@ import { ACCOUNT_TYPE_LABELS, minecraftNameOf, needsInteractiveSignIn } from "@o
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ChevronLeft, CircleAlert, KeyRound, Radio, Terminal } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { BotReliability } from "~/components/bot-reliability"
 import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
@@ -27,6 +27,13 @@ import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { describeExitCode, presentInstanceStatus } from "~/lib/instance-status"
 import { liveReading } from "~/lib/live-reading"
 import { consoleLines } from "~/lib/minecraft-text"
+import {
+	describeSignInWaitWindow,
+	endSignInWait,
+	noteSignInNotYet,
+	SIGN_IN_CHECK_INTERVAL_MS,
+	type SignInWait,
+} from "~/lib/sign-in-wait"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/instances/$instanceId")({
@@ -40,6 +47,7 @@ function InstanceDetailPage() {
 	const queryClient = useQueryClient()
 	const [actionError, setActionError] = useState<string | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
+	const [signInWait, setSignInWait] = useState<SignInWait | undefined>(undefined)
 
 	const instanceQuery = useSuspenseQuery(trpc.instance.get.queryOptions({ instanceId }))
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
@@ -123,21 +131,37 @@ function InstanceDetailPage() {
 	const startMutation = useMutation(trpc.instance.start.mutationOptions({ onSuccess, onError }))
 	const stopMutation = useMutation(trpc.instance.stop.mutationOptions({ onSuccess, onError }))
 	const authenticateMutation = useMutation(
-		trpc.instance.authenticate.mutationOptions({ onSuccess, onError }),
+		trpc.instance.authenticate.mutationOptions({
+			onSuccess: async () => {
+				setSignInWait(undefined)
+				await onSuccess()
+			},
+			onError,
+		}),
 	)
 	const completeMutation = useMutation(
 		trpc.instance.completeAuthentication.mutationOptions({
 			onSuccess: async (result) => {
-				if (result?.authenticated === true) authenticateMutation.reset()
-				await onSuccess()
+				setActionError(undefined)
+				if (result?.authenticated !== true) {
+					setSignInWait((current) => noteSignInNotYet(current, Date.now()))
+					return
+				}
+				setSignInWait(undefined)
+				authenticateMutation.reset()
+				await invalidate()
 			},
-			onError,
+			onError: (error: TRPCErrorLike) => {
+				setSignInWait(undefined)
+				onError(error)
+			},
 		}),
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
 	const cancelAuthMutation = useMutation(
 		trpc.instance.cancelAuthentication.mutationOptions({
 			onSuccess: async () => {
+				setSignInWait(undefined)
 				authenticateMutation.reset()
 				completeMutation.reset()
 				await onSuccess()
@@ -146,6 +170,19 @@ function InstanceDetailPage() {
 		}),
 	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
+
+	const checkSignIn = completeMutation.mutate
+	const checkingSignIn = completeMutation.isPending
+
+	useEffect(() => {
+		if (signInWait === undefined || signInWait.ended || checkingSignIn) return
+		if (Date.now() >= signInWait.until) {
+			setSignInWait(endSignInWait)
+			return
+		}
+		const timer = setTimeout(() => checkSignIn({ instanceId }), SIGN_IN_CHECK_INTERVAL_MS)
+		return () => clearTimeout(timer)
+	}, [signInWait, checkingSignIn, checkSignIn, instanceId])
 
 	const instance = instanceQuery.data
 	const interactive = needsInteractiveSignIn(instance.accountType)
@@ -225,10 +262,17 @@ function InstanceDetailPage() {
 				</Alert>
 			) : null}
 
-			{completeMutation.data?.authenticated === false ? (
+			{signInWait !== undefined && !signInWait.ended ? (
+				<Alert variant="info" icon={<KeyRound />}>
+					Waiting for the client to record the sign-in. It takes a few seconds — no need to press
+					again.
+				</Alert>
+			) : null}
+
+			{signInWait?.ended === true ? (
 				<Alert variant="warning" icon={<CircleAlert />}>
-					The client has not signed in yet. Open the link above, enter the code, and choose “I
-					finished signing in” once Microsoft says it is done.
+					Still no sign-in after {describeSignInWaitWindow()}. Press “I finished signing in” to
+					check again, or get a new code.
 				</Alert>
 			) : null}
 

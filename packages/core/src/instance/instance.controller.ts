@@ -983,10 +983,11 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			)
 			const takenPorts = onHost.map((instance) => instance.liveControlPort)
 			const transport = await connectToHost(scopeOf(ctx), input.hostId, "runtime")
-			let created: InstanceRow
 			try {
 				const liveControlToken = randomUUID().replaceAll("-", "")
 				const sealedToken = deps.secrets.seal(liveControlToken)
+				const claimId = randomUUID()
+				const flight: ExecFlight = { inFlight: false }
 				const claimed: number[] = [...takenPorts]
 				let initialConfig = defaultInstanceConfig({
 					accountType: input.accountType,
@@ -994,7 +995,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					serverAddress: input.serverAddress,
 				})
 
-				created = await insertWithFreePort(async () => {
+				const created = await insertWithFreePort(async () => {
 					const port = await unusedPortOnHost(transport, claimed)
 					claimed.push(port)
 					initialConfig = { ...initialConfig, liveControlPort: port }
@@ -1006,16 +1007,20 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 								`Host ${input.hostId} is not ready for a new bot`,
 							)
 						}
-						const row = await repos.instances.insert(scopeOf(ctx), {
-							hostId: input.hostId,
-							name: input.name,
-							accountType: input.accountType,
-							minecraftAccount: input.minecraftAccount,
-							status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
-							liveControlPort: port,
-							liveControlTokenEncrypted: sealedToken.ciphertext,
-							liveControlTokenKeyId: sealedToken.keyId,
-						})
+						const row = await repos.instances.insert(
+							scopeOf(ctx),
+							{
+								hostId: input.hostId,
+								name: input.name,
+								accountType: input.accountType,
+								minecraftAccount: input.minecraftAccount,
+								status: needsInteractiveSignIn(input.accountType) ? "needs_auth" : "stopped",
+								liveControlPort: port,
+								liveControlTokenEncrypted: sealedToken.ciphertext,
+								liveControlTokenKeyId: sealedToken.keyId,
+							},
+							claimId,
+						)
 						await repos.instances.insertConfigVersion(
 							scopeOf(ctx),
 							row.id,
@@ -1044,15 +1049,31 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					liveControlToken,
 					configDocument: renderInstanceConfig(initialConfig),
 				})
-				for (const { command, failure, stdin } of steps) {
-					const result = await transport.exec(command, INSTANCE_STEP_TIMEOUT_MS, stdin)
-					if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
-				}
+				return await releasingClaim(scopeOf(ctx), created.id, claimId, flight, async () => {
+					for (const { command, failure, stdin } of steps) {
+						const result = await claimedExec(
+							flight,
+							transport,
+							command,
+							INSTANCE_STEP_TIMEOUT_MS,
+							stdin,
+						)
+						if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
+					}
+					const finalized = await deps.instances.finalizeConfigClaim(
+						scopeOf(ctx),
+						created.id,
+						claimId,
+						{},
+					)
+					if (!finalized) {
+						throw new InstanceBusyError(`Instance ${created.id} is busy with another change`)
+					}
+					return toInstancePublic(created)
+				})
 			} finally {
 				await transport.close().catch(() => undefined)
 			}
-
-			return toInstancePublic(created)
 		},
 
 		start: async (ctx: ActorContext, instanceId: string): Promise<InstancePublic> => {

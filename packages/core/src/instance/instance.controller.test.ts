@@ -831,6 +831,7 @@ describe("instance creation prepares the host", () => {
 				liveControlTokenEncrypted: "sealed(32)",
 				liveControlTokenKeyId: "k1",
 			}),
+			expect.any(String),
 		)
 	})
 
@@ -2986,6 +2987,14 @@ describe("saving settings under a claim", () => {
 	const { botConfig: _savedBots, advancedKeys: _savedKeys, ...SAVED_SETTINGS } = SAVED_DOCUMENT
 	const SETTINGS = instanceSettingsInput.parse(SAVED_SETTINGS)
 
+	const NEW_BOT = {
+		hostId: "host-1",
+		name: "afk-2",
+		accountType: "offline",
+		minecraftAccount: "afk",
+		serverAddress: "play.example.com",
+	} as const
+
 	const BOTS = { botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: {} }
 
 	const savedDeps = () => {
@@ -3042,6 +3051,12 @@ describe("saving settings under a claim", () => {
 			named: "a stop",
 			run: async (controller) => {
 				await controller.stop(owner, "abc123")
+			},
+		},
+		{
+			named: "a create",
+			run: async (controller) => {
+				await controller.create(owner, NEW_BOT)
 			},
 		},
 	]
@@ -3204,6 +3219,12 @@ describe("saving settings under a claim", () => {
 			claimed = true
 			return row
 		}
+		const insert = made.instances.insert
+		made.instances.insert = async (...args) => {
+			const row = await insert(...args)
+			claimed = true
+			return row
+		}
 		const finalize = made.instances.finalizeConfigClaim
 		made.instances.finalizeConfigClaim = async (...args) => {
 			claimed = false
@@ -3256,6 +3277,13 @@ describe("saving settings under a claim", () => {
 			budget: 100_000,
 			run: async (controller: ReturnType<typeof createInstanceController>) => {
 				await controller.restart(owner, "abc123")
+			},
+		},
+		{
+			named: "a create",
+			budget: 60_000,
+			run: async (controller: ReturnType<typeof createInstanceController>) => {
+				await controller.create(owner, NEW_BOT)
 			},
 		},
 	])(
@@ -3405,5 +3433,142 @@ describe("saving settings under a claim", () => {
 		).rejects.toBeInstanceOf(InstanceBusyError)
 
 		expect(made.instances.insertConfigVersion).not.toHaveBeenCalled()
+	})
+})
+
+describe("creating a bot under its claim", () => {
+	const NEW_BOT = {
+		hostId: "host-1",
+		name: "afk-2",
+		accountType: "offline",
+		minecraftAccount: "afk",
+		serverAddress: "play.example.com",
+	} as const
+
+	const LAYOUT = instanceLayoutSteps({
+		instanceId: "abc123",
+		liveControlPort: 33334,
+		liveControlToken: "0".repeat(32),
+		configDocument: "[Main]\n",
+	})
+
+	const failingStep = (
+		made: ReturnType<typeof makeDeps>,
+		index: number,
+		outcome: { resolves: number } | { rejects: Error },
+	): string[] => {
+		const issued: string[] = []
+		const inner = made.transport.exec
+		made.transport.exec = async (command, timeoutMs, stdin) => {
+			issued.push(command)
+			if (issued.length - 1 !== index) return await inner(command, timeoutMs, stdin)
+			if ("rejects" in outcome) throw outcome.rejects
+			return { stdout: "", stderr: "refused", exitCode: outcome.resolves }
+		}
+		return issued
+	}
+
+	const claimOf = (made: ReturnType<typeof makeDeps>): string | undefined =>
+		vi.mocked(made.instances.insert).mock.calls[0]?.[2]
+
+	it("claims the row in the statement that inserts it, then gives that same claim back", async () => {
+		const made = makeDeps()
+
+		await createInstanceController(made.deps).create(owner, NEW_BOT)
+
+		expect(claimOf(made)).toEqual(expect.any(String))
+		expect(made.instances.finalizeConfigClaim).toHaveBeenCalledWith(
+			{ organizationId: owner.organizationId },
+			"abc123",
+			claimOf(made),
+			{},
+		)
+		expect(made.instances.releaseConfigClaim).not.toHaveBeenCalled()
+		expect(made.transport.commands).toHaveLength(LAYOUT.length)
+	})
+
+	it("mints a claim of its own for each bot, so two creations cannot share one", async () => {
+		const first = makeDeps()
+		const second = makeDeps()
+
+		await createInstanceController(first.deps).create(owner, NEW_BOT)
+		await createInstanceController(second.deps).create(owner, NEW_BOT)
+
+		expect(claimOf(first)).not.toBe(claimOf(second))
+	})
+
+	it.each(LAYOUT.map(({ failure }, index) => ({ index, failure })))(
+		"stops at step $index, $failure, and releases the claim it took",
+		async ({ index, failure }) => {
+			const made = makeDeps()
+			const issued = failingStep(made, index, { resolves: 1 })
+
+			await expect(createInstanceController(made.deps).create(owner, NEW_BOT)).rejects.toThrow(
+				failure,
+			)
+
+			expect(issued).toHaveLength(index + 1)
+			expect(made.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+			expect(made.instances.releaseConfigClaim).toHaveBeenCalledWith(
+				{ organizationId: owner.organizationId },
+				"abc123",
+				claimOf(made),
+			)
+		},
+	)
+
+	it.each([
+		{
+			named: "a refused session channel",
+			outcome: { rejects: new ChannelLimitReachedError("no channel") },
+			released: true,
+		},
+		{
+			named: "a command that timed out",
+			outcome: { rejects: new CommandTimedOutError("too slow") },
+			released: false,
+		},
+		{
+			named: "a channel that opened too late",
+			outcome: { rejects: new ChannelOpenTimedOutError("too slow") },
+			released: false,
+		},
+	])("leaves a layout step ending in $named released=$released", async ({ outcome, released }) => {
+		const made = makeDeps()
+		failingStep(made, 2, outcome)
+
+		await expect(createInstanceController(made.deps).create(owner, NEW_BOT)).rejects.toThrow()
+
+		expect(vi.mocked(made.instances.releaseConfigClaim).mock.calls.length > 0).toBe(released)
+		expect(made.instances.finalizeConfigClaim).not.toHaveBeenCalled()
+	})
+
+	it("refuses to call a bot created once the claim it was built under was lost", async () => {
+		const made = makeDeps()
+		vi.mocked(made.instances.finalizeConfigClaim).mockResolvedValue(undefined)
+
+		await expect(createInstanceController(made.deps).create(owner, NEW_BOT)).rejects.toBeInstanceOf(
+			InstanceBusyError,
+		)
+	})
+
+	it("inserts nothing, and releases nothing, when the host will not take the connection", async () => {
+		const made = makeDeps()
+		const deps: InstanceControllerDeps = {
+			...made.deps,
+			createTransport: () => ({
+				...made.transport,
+				connect: async () => {
+					throw new Error("Connection refused")
+				},
+			}),
+		}
+
+		await expect(createInstanceController(deps).create(owner, NEW_BOT)).rejects.toBeInstanceOf(
+			HostUnreachableError,
+		)
+
+		expect(made.instances.insert).not.toHaveBeenCalled()
+		expect(made.instances.releaseConfigClaim).not.toHaveBeenCalled()
 	})
 })

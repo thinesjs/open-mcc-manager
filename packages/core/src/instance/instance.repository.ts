@@ -6,7 +6,13 @@ import type { OrgScope } from "../host/host.repository"
 
 export type InstanceCreateValues = Omit<
 	InstanceInsert,
-	"id" | "organizationId" | "createdAt" | "authClaimId" | "authClaimedAt"
+	| "id"
+	| "organizationId"
+	| "createdAt"
+	| "authClaimId"
+	| "authClaimedAt"
+	| "configClaimId"
+	| "configClaimedAt"
 >
 
 const MUTABLE_INSTANCE_COLUMNS = [
@@ -48,10 +54,20 @@ const whitelistInstanceUpdate = (patch: InstanceUpdateValues): InstanceUpdateVal
 })
 
 export const createInstanceRepository = (db: Executor) => ({
-	insert: async (scope: OrgScope, values: InstanceCreateValues): Promise<InstanceRow> => {
+	insert: async (
+		scope: OrgScope,
+		values: InstanceCreateValues,
+		claimId: string,
+	): Promise<InstanceRow> => {
 		const row = await db
 			.insertInto("instance")
-			.values({ ...values, id: nanoid(), organizationId: scope.organizationId })
+			.values({
+				...values,
+				id: nanoid(),
+				organizationId: scope.organizationId,
+				configClaimId: claimId,
+				configClaimedAt: databaseClock,
+			})
 			.returningAll()
 			.executeTakeFirst()
 		if (!row) throw new Error("Instance insert returned no row")

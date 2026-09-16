@@ -127,7 +127,7 @@ export const memoryManager = async (
 	}
 
 	const instances: InstanceControllerDeps["instances"] = {
-		insert: async (_scope, values) => {
+		insert: async (_scope, values, claimId) => {
 			const row: InstanceRow = {
 				id: `bot${randomUUID().slice(0, 8)}`,
 				organizationId: ORGANIZATION,
@@ -143,8 +143,8 @@ export const memoryManager = async (
 				liveControlTokenKeyId: values.liveControlTokenKeyId ?? null,
 				authClaimId: null,
 				authClaimedAt: null,
-				configClaimId: null,
-				configClaimedAt: null,
+				configClaimId: claimId,
+				configClaimedAt: new Date(),
 				playerListOffset: "0",
 				playerListFingerprint: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 				playerListCursorVersion: "0",

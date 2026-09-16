@@ -115,14 +115,21 @@ const seedBot = async (slugPrefix: string) => {
 		.execute()
 	nextPort += 1
 	const instances = createInstanceRepository(db)
-	const instance = await instances.insert(scope, {
-		hostId: host.id,
-		name: `${slugPrefix}-bot`,
-		minecraftAccount: SAVED.minecraftAccount,
-		minecraftUsername: null,
-		liveControlPort: nextPort,
-	})
-	trackInstanceId(instance.id)
+	const seedClaim = `seed-${slugPrefix}`
+	const inserted = await instances.insert(
+		scope,
+		{
+			hostId: host.id,
+			name: `${slugPrefix}-bot`,
+			minecraftAccount: SAVED.minecraftAccount,
+			minecraftUsername: null,
+			liveControlPort: nextPort,
+		},
+		seedClaim,
+	)
+	trackInstanceId(inserted.id)
+	const instance = await instances.finalizeConfigClaim(scope, inserted.id, seedClaim, {})
+	if (!instance) throw new Error(`Seeded instance ${inserted.id} kept its claim`)
 	const version = await instances.insertConfigVersion(
 		scope,
 		instance.id,
@@ -139,6 +146,7 @@ const seedBot = async (slugPrefix: string) => {
 	return {
 		actor,
 		scope,
+		hostId: host.id,
 		instanceId: instance.id,
 		liveControlPort: instance.liveControlPort,
 		instances,
@@ -320,5 +328,63 @@ describe("a bot started while something else wants it", () => {
 		await expect(controller.start(actor, instanceId)).rejects.toBeInstanceOf(InstanceBusyError)
 
 		expect((await instances.findById(scope, instanceId))?.status).toBe("needs_auth")
+	})
+})
+
+describe("a bot still being created", () => {
+	const NEW_BOT = "claim-create-new"
+
+	const makeBot = async (
+		controller: ReturnType<typeof createInstanceController>,
+		actor: ActorContext,
+		hostId: string,
+	) => {
+		const made = await controller.create(actor, {
+			hostId,
+			name: NEW_BOT,
+			accountType: "offline",
+			minecraftAccount: "afk",
+			serverAddress: "play.example.net",
+		})
+		trackInstanceId(made.id)
+		return made
+	}
+
+	it("refuses a save aimed at it until the last of its four layout steps has run", async () => {
+		const { actor, scope, hostId, instances } = await seedBot("claim-create")
+		const { controller, transport } = controllerOver()
+		const inner = transport.exec
+		let refused: Error | undefined
+		let claimedDuring: { id: string | null; at: Date | null } | undefined
+		transport.exec = async (command, timeoutMs, stdin) => {
+			const made = (await instances.list(scope)).find((row) => row.name === NEW_BOT)
+			if (made && claimedDuring === undefined) {
+				claimedDuring = { id: made.configClaimId, at: made.configClaimedAt }
+				refused = await controller.updateSettings(actor, made.id, SETTINGS, 1).then(
+					() => undefined,
+					(error: Error) => error,
+				)
+			}
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		const created = await makeBot(controller, actor, hostId)
+
+		expect(claimedDuring?.id).toEqual(expect.any(String))
+		expect(claimedDuring?.at).toBeInstanceOf(Date)
+		expect(refused).toBeInstanceOf(InstanceBusyError)
+		const settled = await instances.findById(scope, created.id)
+		expect(settled?.configClaimId).toBeNull()
+		expect(settled?.configClaimedAt).toBeNull()
+	})
+
+	it("takes the same save once its creation has finished", async () => {
+		const { actor, hostId } = await seedBot("claim-created")
+		const { controller } = controllerOver()
+
+		const created = await makeBot(controller, actor, hostId)
+		const saved = await controller.updateSettings(actor, created.id, SETTINGS, 1)
+
+		expect(saved.version).toBe(2)
 	})
 })

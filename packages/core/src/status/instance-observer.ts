@@ -34,6 +34,7 @@ export type InstanceReading = {
 	changes: ConnectionChange[]
 	cursor: string | null
 	full: boolean
+	withheldAt: string | null
 }
 
 export const readConnectionChanges = async (
@@ -43,7 +44,7 @@ export const readConnectionChanges = async (
 	cursor: string | null,
 ): Promise<InstanceReading> => {
 	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
-	if (result.exitCode !== 0) return { changes: [], cursor, full: false }
+	if (result.exitCode !== 0) return { changes: [], cursor, full: false, withheldAt: null }
 
 	const full = cursor !== null && journalLineCount(result.stdout) > JOURNAL_MAX_LINES
 	const parsed = parseJournal(result.stdout)
@@ -51,12 +52,13 @@ export const readConnectionChanges = async (
 	const beyond = connectionSignals(full ? parsed.slice(-1) : []).length
 	const sighted = connectionSignals(parsed)
 	const signals = sighted.slice(0, sighted.length - beyond)
+	const withheldAt = full ? (parsed.at(-1)?.at.toISOString() ?? null) : null
 	const last = lines.at(-1)
 	const nextCursor = last === undefined ? cursor : last.at.toISOString()
 
 	if (cursor === null) {
 		const latest = signals.at(-1)
-		if (latest === undefined) return { changes: [], cursor: nextCursor, full }
+		if (latest === undefined) return { changes: [], cursor: nextCursor, full, withheldAt }
 		return {
 			changes: [
 				latest.kind === "joined"
@@ -85,10 +87,11 @@ export const readConnectionChanges = async (
 			],
 			cursor: nextCursor,
 			full,
+			withheldAt,
 		}
 	}
 
-	return { changes: changesFromSignals(current, signals), cursor: nextCursor, full }
+	return { changes: changesFromSignals(current, signals), cursor: nextCursor, full, withheldAt }
 }
 
 export const JOURNAL_DRAIN_ROUNDS = 4
@@ -145,7 +148,7 @@ export const drainConnectionChanges = async (
 		}
 
 		const escaped = next === at
-		if (escaped) drain.onSkipped(next)
+		if (escaped && reading.withheldAt === next) drain.onSkipped(next)
 		const resume = escaped ? secondAfter(next) : next
 		await drain.saveCursor(resume)
 		seen = connectionAfter(seen, reading.changes)

@@ -228,6 +228,11 @@ const cappedSecondJournal = (total: number): string[] =>
 			: journalLine(0, `Chat: line ${index}`),
 	)
 
+const cappedThenLaterJournal = (dense: number, later: number): string[] => [
+	...Array.from({ length: dense }, (_, index) => journalLine(0, `Chat: line ${index}`)),
+	...Array.from({ length: later }, (_, index) => journalLine(index + 1, `Chat: later ${index}`)),
+]
+
 const twoJoinJournal = (total: number, first: number, second: number): string[] =>
 	Array.from({ length: total }, (_, index) =>
 		index === first || index === second
@@ -324,6 +329,18 @@ describe("a bot that logs more than one window between polls", () => {
 		expect(reading.changes.map((change) => change.event)).toEqual(["instance.kicked"])
 		expect(reading.changes[0]?.reason).toBe("Kicked by an operator")
 		expect(reading.cursor).toBe("2026-09-06T00:33:19.000Z")
+	})
+
+	it("does not judge a signal that lies in the withheld lookahead line", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(busyJournal(2_100, 5, JOURNAL_MAX_LINES)),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.changes.map((change) => change.event)).toEqual(["instance.reconnected"])
+		expect(reading.withheldAt).toBe("2026-09-06T00:33:20.000Z")
 	})
 
 	it("reads every line of a second that exactly fills the cap, and does not call it full", async () => {
@@ -428,6 +445,24 @@ describe("draining a bot that has fallen behind", () => {
 		expect(drain.cursors).toHaveLength(JOURNAL_DRAIN_ROUNDS)
 		expect(drain.cursors.at(-1)).toBe("2026-09-06T02:13:16.000Z")
 		expect(drain.skipped).toEqual([])
+	})
+
+	it("holds back a signal sighted only as lookahead, so it is judged once with its reason", async () => {
+		const drain = countingDrain(hostWithJournal(kickSplitJournal(2_100, JOURNAL_MAX_LINES)))
+
+		await drainConnectionChanges(drain, "abc123", WAS_JOINED, RESUMED_FROM)
+
+		expect(drain.changes.map((change) => change.event)).toEqual(["instance.kicked"])
+		expect(drain.changes[0]?.reason).toBe("Kicked by an operator")
+	})
+
+	it("does not warn when the whole of a capped second was read and only later lines remain", async () => {
+		const drain = countingDrain(hostWithJournal(cappedThenLaterJournal(JOURNAL_MAX_LINES, 100)))
+
+		await drainConnectionChanges(drain, "abc123", WAS_DOWN, RESUMED_FROM)
+
+		expect(drain.skipped).toEqual([])
+		expect(drain.cursors.at(-1)).toBe("2026-09-06T00:01:40.000Z")
 	})
 
 	it("reads a second that exactly fills the cap instead of escaping past its last line", async () => {

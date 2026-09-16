@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { parseStatusEventCursor, type StatusEventCursor } from "./boundary/status-cursor"
 
 export const STATUS_SUBJECT_TYPES = ["organization", "host", "instance"] as const
 
@@ -160,11 +161,19 @@ export const BUCKET_SECONDS: Record<StatusRange, number> = {
 
 export const statusSummaryInput = z.object({ range: statusRangeSchema.default("24h") })
 
+export const statusEventCursorSchema = z
+	.string()
+	.min(1)
+	.transform(parseStatusEventCursor)
+	.refine((cursor): cursor is StatusEventCursor => cursor !== undefined, {
+		message: "That page marker is not one this list handed out.",
+	})
+
 export const statusEventsInput = z.object({
 	range: statusRangeSchema.default("24h"),
 	hostId: z.string().min(1).optional(),
 	instanceId: z.string().min(1).optional(),
-	cursor: z.string().min(1).optional(),
+	cursor: statusEventCursorSchema.optional(),
 	limit: z.number().int().min(1).max(100).default(50),
 })
 
@@ -255,4 +264,10 @@ export type StatusEventView = {
 	hostId: string | null
 	instanceId: string | null
 	occurredAt: Date
+}
+
+export type StatusEventPage = {
+	events: StatusEventView[]
+	total: number
+	nextCursor: string | null
 }

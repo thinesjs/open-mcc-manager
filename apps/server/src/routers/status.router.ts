@@ -12,6 +12,7 @@ export const statusRouter = router({
 		return ctx.statusController.events(ctx.actor, input.range, input.limit, {
 			...(input.hostId === undefined ? {} : { hostId: input.hostId }),
 			...(input.instanceId === undefined ? {} : { instanceId: input.instanceId }),
+			...(input.cursor === undefined ? {} : { cursor: input.cursor }),
 		})
 	}),
 })

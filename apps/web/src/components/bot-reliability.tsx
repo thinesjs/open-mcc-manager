@@ -1,15 +1,18 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { Button } from "~/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card"
 import { LoadingBlock } from "~/components/ui/spinner"
 import { Tooltip } from "~/components/ui/tooltip"
 import { UptimeBars } from "~/components/uptime-bars"
-import { describeStatusEvent } from "~/lib/status-events"
+import { describeEventCount, describeStatusEvent } from "~/lib/status-events"
 import { useTRPC } from "~/lib/trpc"
 import { describeCoverage, describeUptime } from "~/lib/uptime"
 
 export type BotReliabilityProps = {
 	instanceId: string
 }
+
+const EVENTS_PER_PAGE = 8
 
 const CONNECTION_LABEL: Record<string, string> = {
 	joined: "On its server",
@@ -25,14 +28,20 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 		...trpc.status.summary.queryOptions({ range: "24h" }),
 		refetchInterval: 60_000,
 	})
-	const eventsQuery = useQuery({
-		...trpc.status.events.queryOptions({ range: "24h", limit: 8, instanceId }),
+	const eventsQuery = useInfiniteQuery({
+		...trpc.status.events.infiniteQueryOptions(
+			{ range: "24h", limit: EVENTS_PER_PAGE, instanceId },
+			{ getNextPageParam: (page) => page.nextCursor ?? undefined },
+		),
 		refetchInterval: 60_000,
 	})
 
 	const summary = summaryQuery.data
 	const bot = summary?.bots.find((entry) => entry.instanceId === instanceId)
 	const coverage = bot ? describeCoverage(bot.availability) : undefined
+	const pages = eventsQuery.data?.pages ?? []
+	const events = pages.flatMap((page) => page.events)
+	const total = pages[pages.length - 1]?.total ?? 0
 
 	return (
 		<Card>
@@ -81,19 +90,39 @@ export const BotReliability = ({ instanceId }: BotReliabilityProps) => {
 					<p className="text-sm text-muted-foreground">Nothing measured yet.</p>
 				)}
 
-				{eventsQuery.data && eventsQuery.data.length > 0 ? (
-					<ol className="space-y-1 border-t border-border pt-3">
-						{eventsQuery.data.map((event) => (
-							<li key={event.id} className="flex items-baseline gap-2.5 text-xs">
-								<span className="shrink-0 tabular-nums text-muted-foreground">
-									{new Date(event.occurredAt).toLocaleTimeString()}
-								</span>
-								<span className="text-foreground">
-									{describeStatusEvent(event.kind, event.subjectLabel)}
-								</span>
-							</li>
-						))}
-					</ol>
+				{events.length > 0 ? (
+					<div className="space-y-2 border-t border-border pt-3">
+						<Tooltip
+							content="Everything OpenMCC recorded for this bot in the last day."
+							render={<p className="font-medium text-foreground text-xs" />}
+						>
+							{describeEventCount(total)}
+						</Tooltip>
+						<ol className="space-y-1">
+							{events.map((event) => (
+								<li key={event.id} className="flex items-baseline gap-2.5 text-xs">
+									<span className="shrink-0 tabular-nums text-muted-foreground">
+										{new Date(event.occurredAt).toLocaleTimeString()}
+									</span>
+									<span className="text-foreground">
+										{describeStatusEvent(event.kind, event.subjectLabel)}
+									</span>
+								</li>
+							))}
+						</ol>
+						{events.length < total ? (
+							<Button
+								size="xs"
+								variant="ghost"
+								disabled={eventsQuery.isFetchingNextPage}
+								onClick={() => {
+									eventsQuery.fetchNextPage()
+								}}
+							>
+								Show more
+							</Button>
+						) : null}
+					</div>
 				) : null}
 			</CardContent>
 		</Card>

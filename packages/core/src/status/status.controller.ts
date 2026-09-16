@@ -6,11 +6,15 @@ import {
 	INSTANCE_INTERRUPTED_TO_DOWN_MS,
 	RANGE_SECONDS,
 	rangeWithinRetention,
-	type StatusEventView,
+	type StatusEventPage,
 	type StatusRange,
 	type StatusState,
 	type StatusSummary,
 } from "@open-mcc/contracts"
+import {
+	encodeStatusEventCursor,
+	type StatusEventCursor,
+} from "@open-mcc/contracts/boundary/status-cursor"
 import type { Db } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
@@ -497,17 +501,22 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 		scope: OrgScope,
 		range: StatusRange,
 		limit: number,
-		filter: { hostId?: string; instanceId?: string } = {},
-	): Promise<StatusEventView[]> => {
+		options: { hostId?: string; instanceId?: string; cursor?: StatusEventCursor } = {},
+	): Promise<StatusEventPage> => {
 		const since = new Date(deps.now().getTime() - RANGE_SECONDS[range] * 1000)
+		const filter = {
+			since,
+			...(options.hostId === undefined ? {} : { hostId: options.hostId }),
+			...(options.instanceId === undefined ? {} : { instanceId: options.instanceId }),
+		}
 		return await deps.withTransaction(async ({ status }) => {
 			const rows = await status.listEvents(scope, {
-				since,
+				...filter,
 				limit,
-				...(filter.hostId === undefined ? {} : { hostId: filter.hostId }),
-				...(filter.instanceId === undefined ? {} : { instanceId: filter.instanceId }),
+				...(options.cursor === undefined ? {} : { cursor: options.cursor }),
 			})
-			return rows.map((row) => ({
+			const total = await status.countEvents(scope, filter)
+			const events = rows.map((row) => ({
 				id: row.id,
 				kind: row.kind,
 				subjectLabel: row.subjectLabel,
@@ -515,6 +524,15 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 				instanceId: row.instanceId,
 				occurredAt: row.occurredAt,
 			}))
+			const last = events[events.length - 1]
+			return {
+				events,
+				total,
+				nextCursor:
+					last === undefined || events.length < limit
+						? null
+						: encodeStatusEventCursor({ occurredAt: last.occurredAt, id: last.id }),
+			}
 		})
 	},
 })

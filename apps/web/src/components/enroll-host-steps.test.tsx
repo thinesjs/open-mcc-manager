@@ -577,6 +577,15 @@ describe("choosing between running the setup yourself and having it run for you"
 		expect(screen.getByRole("radio", { name: /I will run the command/ })).toBeTruthy()
 	})
 
+	it("says what the step is asking once, on the choice itself, not above it as well", async () => {
+		mount()
+
+		const heading = screen.getByText("How this server gets set up")
+
+		expect(heading.tagName).toBe("LEGEND")
+		expect(heading.className.split(" ")).not.toContain("sr-only")
+	})
+
 	it("starts on the path that needs no root, so nothing escalates by default", async () => {
 		mount()
 

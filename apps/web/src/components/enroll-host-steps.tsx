@@ -207,6 +207,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 					<div className="space-y-4 pb-1">
 						<Choice
 							label="How this server gets set up"
+							labelVisible
 							value={installMode}
 							options={INSTALL_OPTIONS}
 							onChange={setInstallMode}

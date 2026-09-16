@@ -408,6 +408,20 @@ describe("findViolations", () => {
 		expect(findViolations(root)).toEqual([])
 	})
 
+	it("skips the repository's own .claude, where its worktrees live, matching the biome exclusion list", () => {
+		const root = seed({
+			".claude/worktrees/agent/packages/core/src/z9.ts": "const x: unknown = 1\n",
+		})
+		expect(findViolations(root)).toEqual([])
+	})
+
+	it("scans a .claude directory anywhere but the repository root, as biome does", () => {
+		const root = seed({ "apps/web/.claude/za.ts": "const x: unknown = 1\n" })
+		expect(findViolations(root)).toEqual([
+			{ file: "apps/web/.claude/za.ts", line: 1, token: "unknown" },
+		])
+	})
+
 	it("scans a directory whose name merely begins with an excluded name", () => {
 		const root = seed({
 			"packages/core/build-scripts/z6.ts": "const x: unknown = 1\n",

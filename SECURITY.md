@@ -41,11 +41,14 @@ subordinate UID/GID range, when it has none — that one is not consent-gated, a
 the wizard's summary discloses it as "Lets mcc run containers". It leaves the
 account untouched when the answer is no or when there is no terminal to ask at,
 naming the one command that fits what it found (`host-setup.test.ts`,
-`host-setup.sandbox.ts`). Express has no terminal, so it always takes that
-second path first: the script declines, changes nothing and stops, and the
-wizard reports what it found and asks the same question on screen. Only if the
-operator answers yes there does it run the script again with the answer already
-given, which is the one thing that differs between the two paths' scripts
+`host-setup.sandbox.ts`). Express has no terminal, so when it meets a locked
+account it always takes that second path: the script declines, changes nothing
+and stops, and the wizard reports what it found and asks the same question on
+screen. Only if the operator answers yes there does it run the script again with
+the answer already given, which is the one thing that differs between the two
+paths' scripts; the command around them differs too, in that the manual path
+asks for root through `sudo` while Express, already connected as root, does not
+— `sudo` is an optional package a minimal Debian need not have
 (`host-setup.test.ts`, `express-install.test.ts`).
 
 A compromise of the control plane's application process, or of an

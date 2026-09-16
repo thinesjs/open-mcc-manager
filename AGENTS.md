@@ -186,9 +186,9 @@ have:
 | A host-side deadline on removal's and teardown's deletes, ending inside the manager's wait | `packages/core/src/instance/removal.test.ts` and `packages/core/src/host/teardown.test.ts` — each reads `timeout -k <k> <n>` off the commands a removal renders or a real `tearDownHost` issues, and requires `n + k` below that exec's wait; `packages/core/src/host/deadline.test.ts` pins the wrapper's shape. It proves the arithmetic, NOT that a host kills anything: `removal.sandbox.ts` and `collector.sandbox.ts` prove that, outside `pnpm test` |
 | The teardown queue retrying only after its longest host deadline | `packages/core/src/job/queue-setup.test.ts` — reads `retryLimit` 2 and `retryDelay` 60 off the reconciled queue and takes the longest deadline from the commands a real `tearDownHost` issues, so a deadline longer than the delay fails it |
 | A config claim taken before the version it guards is read | `packages/core/src/instance/instance.repository.test.ts` — on a real database a finalize is held open on the row while `takeConfigClaim` runs against it, so comparing before claiming reads the version that finalize is replacing and fails the test |
-| No repository call on the pool while a transaction is open, for either save | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving either a config read or `loadHost` inside the claim fails it |
-| No connect, exec or port probe while a transaction is open, for either save | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize fails it |
-| A save's claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued between the claim and the finalize and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs fails it |
+| No repository call on the pool while a transaction is open, for either save and for a removal | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
+| No connect, exec or port probe while a transaction is open, for either save and for a removal | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
+| A save's and a removal's claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, or connecting before the claim, fails it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -406,7 +406,19 @@ Dependency direction is one-way: router → controller → repository.
   it, so a stale save, a busy bot or an unusable document rolls the claim back
   before the host is touched at all. The write then runs with no transaction
   open, and a second short transaction finalizes the claim, records the version
-  and writes the audit event. A failure the manager can see the end of releases
+  and writes the audit event. A removal takes it too, through
+  `claimForLifecycle`: the claim commits before the host is touched, all six
+  removal steps run under it, and `deleteUnderClaim` carries the claim away with
+  the row, so no save and no sign-in can slip between the stop and the second
+  verify. Start, restart and stop take no claim yet — they still run unclaimed,
+  so a start issued mid-removal is not refused, and what keeps it from
+  outliving the removal is unchanged: the timer step, the stop that cancels a
+  `Restart=on-failure`, and the second verify. They move onto
+  `claimForLifecycle` with the slice that claims them.
+  A removal refused with no live sign-in is `InstanceBusyError`;
+  one refused by a live sign-in is `InstanceAuthInProgressError`, and that split
+  is decided by a re-read because `UPDATE ... RETURNING` cannot tell a gone row
+  from a held one. A failure the manager can see the end of releases
   the claim; one that could still be running on the host keeps it until the
   lease expires, because releasing it would let a second writer race a command
   that has not finished.
@@ -1019,6 +1031,9 @@ uninterruptible sleep can outlive both signals.
   deadline, is `InstanceStillInUseError`; a failed timer step or any other
   failed delete is `InstanceRemovalFailedError`. Both keep the row. The delete
   makes anything the bot locked writable first, and `rm -rf` follows no link.
+  Every step runs under the bot's config claim, and the row is deleted with
+  `deleteUnderClaim` only after the second verify, so the row outlives the host
+  tree until that tree is provably gone.
 - **Teardown runs on `HOST_TEARDOWN_QUEUE` with `retryLimit: 2` and
   `retryDelay: 60`**, longer than its longest host deadline of 55 seconds, so a
   retry starts only after the last attempt's deadlines have ended. It stops

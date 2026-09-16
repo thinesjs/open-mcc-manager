@@ -4,6 +4,7 @@ import {
 	EXPRESS_KEY_UNREADABLE_MESSAGE,
 	EXPRESS_MANUAL_FALLBACK,
 	EXPRESS_REFUSED_MESSAGE,
+	EXPRESS_REQUEST_CUT_SHORT,
 	type ExpressInstallResult,
 	LOCKED_KEEPS_PASSWORD,
 } from "@open-mcc/contracts"
@@ -284,6 +285,19 @@ describe("where each way this can fail leaves the operator", () => {
 		if (!(field instanceof HTMLTextAreaElement)) throw new Error("expected a textarea")
 		expect(field.value).toBe("PEM MATERIAL")
 		expect(screen.queryByRole("button", { name: EXPRESS_MANUAL_FALLBACK })).toBeNull()
+	})
+
+	it("says the setup may still be running when the request itself never came back", async () => {
+		mount()
+		typePassword(ROOT_PASSWORD)
+		await readTheKey()
+		confirmTheKey()
+		expressInstall.mockRejectedValue(new Error("Failed to fetch"))
+
+		setUp()
+
+		expect(await screen.findByText(EXPRESS_REQUEST_CUT_SHORT)).toBeTruthy()
+		expect(screen.getByText("Failed to fetch")).toBeTruthy()
 	})
 
 	it("always leaves a way out to the command an operator can run themselves", async () => {

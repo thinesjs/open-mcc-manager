@@ -5,6 +5,7 @@ import {
 	EXPRESS_LOCKED_TITLE,
 	EXPRESS_MANUAL_FALLBACK,
 	EXPRESS_REFUSED_MESSAGE,
+	EXPRESS_REQUEST_CUT_SHORT,
 	type ExpressInstallResult,
 	expressLockedPrompt,
 	LOCKED_HAS_NO_PASSWORD,
@@ -215,7 +216,8 @@ export const ExpressInstallPanel = ({
 
 			{installMutation.isError ? (
 				<Alert variant="error" icon={<CircleAlert />}>
-					{getErrorMessage(installMutation.error)}
+					<p>{getErrorMessage(installMutation.error)}</p>
+					<p>{EXPRESS_REQUEST_CUT_SHORT}</p>
 				</Alert>
 			) : null}
 

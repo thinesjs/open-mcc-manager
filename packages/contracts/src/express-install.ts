@@ -96,6 +96,9 @@ export const EXPRESS_KEY_MISMATCH_MESSAGE =
 export const EXPRESS_KEY_UNREADABLE_MESSAGE =
 	"That key could not be read. Paste the whole key, from its first line to its last. A key with a passphrase cannot be used here: use a key without one, or the root password."
 
+export const EXPRESS_REQUEST_CUT_SHORT =
+	"The setup may still be running on the server. Running it again is safe."
+
 export const EXPRESS_LOCKED_TITLE = "That account is locked"
 
 export const expressLockedPrompt = (account: string): string =>

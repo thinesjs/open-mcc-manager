@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { ACCOUNT_NAME_PATTERN, ACCOUNT_NAME_REQUIREMENT } from "./host-setup"
 
 export const hostStatusSchema = z.enum([
 	"pending",
@@ -27,7 +28,7 @@ export const createHostInput = z.object({
 	name: z.string().min(1).max(64),
 	hostname: z.string().min(1).max(255),
 	port: z.number().int().min(1).max(65535).default(22),
-	username: z.string().min(1).max(64),
+	username: z.string().regex(ACCOUNT_NAME_PATTERN, ACCOUNT_NAME_REQUIREMENT),
 	sshKeyId: z.string().min(1),
 	expectedFingerprint: hostKeyFingerprint,
 })

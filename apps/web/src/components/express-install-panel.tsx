@@ -27,8 +27,6 @@ const CREDENTIAL_OPTIONS = [
 	{ value: "key", label: "SSH key" },
 ] as const
 
-export const EXPRESS_READY_MESSAGE = "The server is set up. Continue to confirm and enroll it."
-
 export type ExpressInstallPanelProps = {
 	hostname: string
 	port: number
@@ -235,12 +233,6 @@ export const ExpressInstallPanel = ({
 							{EXPRESS_MANUAL_FALLBACK}
 						</Button>
 					</div>
-				</Alert>
-			) : null}
-
-			{outcome?.outcome === "ready" ? (
-				<Alert variant="success" icon={<CircleCheck />}>
-					{EXPRESS_READY_MESSAGE}
 				</Alert>
 			) : null}
 

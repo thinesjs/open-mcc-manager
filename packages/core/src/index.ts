@@ -1,4 +1,11 @@
-export type { AuditEntry, AuditRepository } from "./audit/audit.repository"
+export type {
+	AuditController,
+	AuditControllerDeps,
+	AuditTransactionRepos,
+	WithAuditTransaction,
+} from "./audit/audit.controller"
+export { createAuditController, createAuditControllerTransaction } from "./audit/audit.controller"
+export type { AuditEntry, AuditPageRequest, AuditRepository } from "./audit/audit.repository"
 export { createAuditRepository } from "./audit/audit.repository"
 export type { SealedValue, SecretStore } from "./crypto/sealed-box"
 export {

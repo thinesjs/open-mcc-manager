@@ -4,6 +4,8 @@ import {
 	adminFor,
 	attachQueueWarning,
 	type BuildInfo,
+	createAuditController,
+	createAuditControllerTransaction,
 	createCommandRepository,
 	createDestinationController,
 	createDestinationControllerTransaction,
@@ -220,6 +222,10 @@ export const startServer = async (
 		withTransaction: withSshKeyTransaction,
 	})
 
+	const auditController = createAuditController({
+		withTransaction: createAuditControllerTransaction(db),
+	})
+
 	const selfHostMaterials = selfHostMaterialsFrom(env)
 	if (!selfHostMaterials && selfHostConfigured(env)) logger.warn(SELF_HOST_UNUSABLE_WARNING)
 	const selfHostController = createSelfHostController({
@@ -258,6 +264,7 @@ export const startServer = async (
 				selfHostController,
 				destinationController,
 				memberController: memberControllerFor(db, auth, runtimeErrorReporter(logger)),
+				auditController,
 			}),
 		}),
 	)

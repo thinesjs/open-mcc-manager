@@ -1,5 +1,6 @@
 import { isRole } from "@open-mcc/contracts"
 import type {
+	AuditController,
 	BuildInfo,
 	DestinationController,
 	HostController,
@@ -29,6 +30,7 @@ export type AppDeps = {
 	selfHostController: SelfHostController
 	destinationController: DestinationController
 	memberController: MemberController
+	auditController: AuditController
 }
 
 const resolveActor = async (deps: AppDeps, headers: Headers): Promise<Actor | null> => {
@@ -78,6 +80,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			destinationController: deps.destinationController,
 			memberController: deps.memberController,
 			updateStates,
+			auditController: deps.auditController,
 			db: deps.db,
 		}
 	}

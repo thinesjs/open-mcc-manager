@@ -22,6 +22,7 @@ export const CAPABILITIES = [
 	"member.manage",
 	"notification.read",
 	"notification.manage",
+	"audit.read",
 ] as const
 export type Capability = (typeof CAPABILITIES)[number]
 

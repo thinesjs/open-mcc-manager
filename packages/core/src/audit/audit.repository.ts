@@ -1,3 +1,4 @@
+import type { AuditAction } from "@open-mcc/contracts"
 import type { AuditEventRow, Executor } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
@@ -5,10 +6,15 @@ import type { OrgScope } from "../host/host.repository"
 export type AuditEntry = {
 	actorId: string | null
 	actorLabel: string
-	action: string
+	action: AuditAction
 	subjectType: string
 	subjectId: string
 	detail: Record<string, string>
+}
+
+export type AuditPageRequest = {
+	limit: number
+	offset: number
 }
 
 const SYSTEM_ACTOR_LABEL = "system"
@@ -39,14 +45,25 @@ export const createAuditRepository = (db: Executor) => ({
 		return row
 	},
 
-	list: async (scope: OrgScope, limit = 100): Promise<AuditEventRow[]> =>
+	list: async (scope: OrgScope, page: AuditPageRequest): Promise<AuditEventRow[]> =>
 		db
 			.selectFrom("auditEvent")
 			.selectAll()
 			.where("organizationId", "=", scope.organizationId)
 			.orderBy("createdAt", "desc")
-			.limit(limit)
+			.orderBy("id", "desc")
+			.limit(page.limit)
+			.offset(page.offset)
 			.execute(),
+
+	count: async (scope: OrgScope): Promise<number> => {
+		const rows = await db
+			.selectFrom("auditEvent")
+			.select(({ fn }) => fn.countAll<string>().as("total"))
+			.where("organizationId", "=", scope.organizationId)
+			.execute()
+		return Number(rows[0]?.total ?? "0")
+	},
 })
 
 export type AuditRepository = ReturnType<typeof createAuditRepository>

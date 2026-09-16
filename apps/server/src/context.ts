@@ -1,5 +1,6 @@
 import type { Role } from "@open-mcc/contracts"
 import type {
+	AuditController,
 	BuildInfo,
 	DestinationController,
 	HostController,
@@ -37,5 +38,6 @@ export type RequestContext = {
 	destinationController: DestinationController
 	memberController: MemberController
 	updateStates: UpdateStateRepository
+	auditController: AuditController
 	db: Db
 }

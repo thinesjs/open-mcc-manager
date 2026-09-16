@@ -1,6 +1,8 @@
 import { trpcServer } from "@hono/trpc-server"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
+	createAuditController,
+	createAuditControllerTransaction,
 	createHostController,
 	createSshKeyController,
 	type HostControllerDeps,
@@ -128,6 +130,9 @@ const ctx: RequestContext = {
 		find: async () => undefined,
 		recordCheck: async () => undefined,
 	},
+	auditController: createAuditController({
+		withTransaction: createAuditControllerTransaction(db),
+	}),
 	db,
 }
 

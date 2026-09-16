@@ -1,5 +1,7 @@
 import { trpcServer } from "@hono/trpc-server"
 import {
+	createAuditController,
+	createAuditControllerTransaction,
 	createHostController,
 	createHostControllerTransaction,
 	createHostRepository,
@@ -93,6 +95,9 @@ const base: RequestContext = {
 	selfHostController: createTestSelfHostController(db, hostController.enroll),
 	destinationController: createTestDestinationController(db, secrets),
 	memberController: memberControllerFor(db, auth, () => undefined),
+	auditController: createAuditController({
+		withTransaction: createAuditControllerTransaction(db),
+	}),
 	updateStates: holding(undefined),
 	db,
 }

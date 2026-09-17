@@ -143,13 +143,16 @@ describe("who is offered a way to add a host", () => {
 		expect(await screen.findByRole("button", { name: "Add this machine" })).toBeDefined()
 	})
 
-	it("★ offers a viewer none of them, rather than a wizard the server will refuse to finish", async () => {
-		role = "viewer"
-		enrolled = []
-		await mount("No hosts enrolled")
-		await screen.findByText("Ask an owner to add a server.")
+	it.each(["operator", "viewer"] as const)(
+		"★ offers the %s role none of them, rather than a wizard the server refuses to finish",
+		async (refused) => {
+			role = refused
+			enrolled = []
+			await mount("No hosts enrolled")
+			await screen.findByText("Ask an owner to add a server.")
 
-		expect(screen.queryAllByRole("button", { name: "Enroll host" })).toHaveLength(0)
-		expect(screen.queryByRole("button", { name: "Add this machine" })).toBeNull()
-	})
+			expect(screen.queryAllByRole("button", { name: "Enroll host" })).toHaveLength(0)
+			expect(screen.queryByRole("button", { name: "Add this machine" })).toBeNull()
+		},
+	)
 })

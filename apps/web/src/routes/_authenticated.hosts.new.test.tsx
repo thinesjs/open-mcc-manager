@@ -81,11 +81,14 @@ describe("opening the enrolment page by its address", () => {
 		expect(screen.queryByText("Only an owner can add a server.")).toBeNull()
 	})
 
-	it("★ gives a viewer the reason instead, rather than a wizard they cannot finish", async () => {
-		role = "viewer"
-		await mount()
+	it.each(["operator", "viewer"] as const)(
+		"★ gives the %s role the reason instead, rather than a wizard the server refuses to finish",
+		async (refused) => {
+			role = refused
+			await mount()
 
-		expect(await screen.findByText("Only an owner can add a server.")).toBeDefined()
-		expect(screen.queryByRole("button", { name: "Continue" })).toBeNull()
-	})
+			expect(await screen.findByText("Only an owner can add a server.")).toBeDefined()
+			expect(screen.queryByRole("button", { name: "Continue" })).toBeNull()
+		},
+	)
 })

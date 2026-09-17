@@ -267,7 +267,7 @@ have:
 | No lookbehind in a pattern the browser parses | `packages/contracts/src/command-credentials.test.ts` — the whole of `command-credentials.ts` is read and checked for `(?<=` and `(?<!`, so `COMMAND_PATTERNS` and any list added later are covered as well as `UNAMBIGUOUS_SECRET_PATTERNS`, whose compiled sources are checked too. esbuild lowers a lookbehind to a `new RegExp` call that throws on Safari before 16.4, and the browser evaluates the whole module, not the one list it imports from. It checks text and compiled sources, NOT that the bundle loads in any browser; it covers that one module, which is the only one `apps/web` shares with the redactor |
 | The start step's wait covering what a start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the `flock -w` plus `TimeoutStartSec` the unit declares to stay **below** its `JobTimeoutSec`, so raising either past that order fails it; `packages/core/src/instance/instance.controller.test.ts` — reads `JobTimeoutSec` off the rendered unit and requires the wait a start and a restart give `startUnitCommand` to be at least that plus `INSTANCE_STEP_TIMEOUT_MS`, so shaving the margin to a bare `JobTimeoutSec + 1` fails it. Those two hold the **ceiling** on `TimeoutStartSec` and nothing else; the **floor** is held only by `runtime.sandbox.ts`, which holds `collect.lock` past `INSTANCE_STEP_TIMEOUT_MS` and requires the start to survive it, so shaving `TimeoutStartSec` to 10 fails there while `pnpm test` stays green. The same file reads `TimeoutStartUSec` and `JobTimeoutUSec` back off a real unit, and holds a lock past the start phase to require `Result=timeout` — read off `Result`, never off `ActiveState`, because `Restart=on-failure` leaves a just-failed unit reporting `activating`/`auto-restart` |
 | The sign-in step's wait covering what a sign-in's start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the sign-in unit's `flock -w` plus its `TimeoutStartSec` to stay **below** its `JobTimeoutSec`, and that `TimeoutStartSec` to stay **above** the longest the collector may hold `collect.lock`, so both reordering the three and shaving the phase under its one bounded lock holder fail it; `packages/core/src/instance/authenticate.test.ts` — reads `JobTimeoutSec` off the rendered sign-in unit and requires the wait `startAuthCommand` is given to be at least that plus `AUTH_SESSION_TIMEOUT_MS`, requires **exactly one** wait in a whole `beginAuthentication` to exceed a stop's, so buying that margin by raising the shared session wait fails it, and sums every wait the sign-in claim covers against `AUTH_LEASE_MS`. Those hold the order and the ceiling; that a start bounded this way **survives** a held lock is held only by `scripts/sandbox/sign-in.sandbox.ts`, which holds `collect.lock` past the collector's own deadline and requires the sign-in to reach `active` with its container running. The same file reads all three bounds back off a real unit, and holds a lock past the start phase to require `Result=timeout` and the manager to give the claim back — read off `Result`, never off `ActiveState` |
-| A start refused rather than run over a cache the host could not empty | `packages/core/src/host/unit-template.test.ts` — takes the cache step's own shell out of the rendered unit and runs it under `/bin/sh` against a scratch home, with a leaked cache, with no cache at all, and against an `rm` shim that deletes one entry and then fails. The third requires a non-zero status **and** the entries still there, so the `rm -rf … \|\| true` plus `mkdir -p` that keeps the first two green fails it; the same block requires the unit's one `rm -rf` to name the scratch directory the step remakes, so repointing it at `replays` fails. It proves the step refuses and leaves the evidence, NOT how long a delete takes: that is measured, not tested |
+| A start refused rather than run over a cache the host could not empty | `packages/core/src/host/unit-template.test.ts` — takes the cache step's own shell out of the rendered unit and runs it under `/bin/sh` against a scratch home: with a leaked cache, with none, against an `rm` shim that deletes one entry and fails, and against one that deletes the whole cache and fails. The third requires a non-zero status **and** the entries still there, so `rm -rf … \|\| true` with a `mkdir -p` passes the first two and fails it; the fourth requires a non-zero status **and** no remade directory, so a `;` in place of the `&&` — whose refusal would come from `mkdir` meeting a surviving directory rather than from the delete — fails there. The same block requires the delete to name **exactly one** path and that path to be the cache, so an extra operand, a dropped `--` or a repoint at `replays` fails; the shim reads the path from the test's own environment and refuses anything outside the scratch home, so no edit to the unit can point it at the machine running the suite. It proves the step refuses and leaves the evidence, NOT how long a delete takes: that is measured, not tested |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -641,11 +641,30 @@ Dependency direction is one-way: router → controller → repository.
   recording costs 13ms and **one** blocking read — 66ms with a competing writer
   saturating the disk — while 10,000 run directories cost 1.57s and 5,516 of
   them. Entries are what the client's own shape bounds: `ReplayHandler` makes
-  one directory per recording holding `recording.tmcpr` and `metaData.json`,
-  deletes it on a clean stop, and leaks it only on a hard kill — and this step
-  empties the cache at **every** start, so what it finds is one run's leak and
-  not a fleet's history. Reaching 25s needs on the order of two million entries,
-  or a single recording in the terabytes.
+  one directory per recording holding `recording.tmcpr` and `metaData.json`, and
+  this step empties the cache at **every** start — including every
+  `Restart=on-failure` attempt, which re-runs the whole start phase — so what it
+  finds is what one run left, not a fleet's history. On those filesystems
+  reaching 25s needs on the order of two million entries, or a single recording
+  in the terabytes. **That figure is a property of ext4, btrfs and overlay2, not
+  of the delete**: on NFSv4.2, where every entry costs round trips, 3,001 entries
+  took 8.1s, 61.7s and 112.7s at 0, 1 and 5ms of added latency, which puts 25s
+  near 1,200 entries — while the four-entry shape a real cache has is 270ms even
+  at 5ms. Rootless Podman's storage all but rules an NFS home out, but a reader
+  proposing one should know the cost model changes there and nowhere else.
+  **A cleanup that never runs is the way entries could accumulate**, and it is
+  why the sentence is "what one run left" rather than "one hard kill's leak":
+  `ReplayHandler` calls `CleanupWorkingFilesUnsafe` *after*
+  `WriteReplayArchiveUnsafe` inside the same `try`, on both the `/replay stop`
+  path and the process-exit one, so a full disk, a quota or a read-only
+  `replays/` skips the cleanup and nothing retries it; and `Program.Restart()`
+  re-initialises the bots in-process, so every reconnect builds a fresh working
+  directory. With `ChatBot.AutoRelog.Retries = -1` and a `Delay` the client
+  floors at 0.1s — both keys an operator can set through this manager — a bot
+  looping against a full disk leaves one directory per reconnect. It is still
+  three entries each and still emptied at the next start, so it does not reach
+  the numbers above on any local filesystem; it is stated because the entry
+  bound is what the measurements rest on.
   **A `timeout -k` here would buy nothing, and the contrast with removal and
   teardown is the reason.** Those deletes are wrapped because nothing else
   bounds them: the manager's wait ends a *channel*, not a host-side `rm`, so
@@ -654,10 +673,15 @@ Dependency direction is one-way: router → controller → repository.
   this repository's own — `TimeoutStartSec` ends the exec and fails the unit. A
   second number inside it cannot make a slow delete fit; it would only fail the
   same start sooner, and add a fourth number to an ordering whose three are
-  load-bearing. What the step must do instead is fail **visibly**, and it does:
-  `rm -rf … && mkdir -m 0700 …` refuses the start on a delete that only half
-  succeeds and leaves the rest where an operator can see it, rather than
-  reporting a clean cache and starting a client over a stale one.
+  load-bearing. If the cost ever did start to matter, the remedy is not a
+  deadline but a **rename**: move the cache aside, remake it, and delete the old
+  one in the background, which makes the start phase O(1) in entries instead of
+  bounding a cost it cannot change. Nothing measured asks for that today.
+  What the step must do instead is fail **visibly**, and the `&&` is what makes
+  it: `rm -rf … && mkdir -m 0700 …` refuses the start both when the delete only
+  half succeeds — leaving the rest where an operator can see it — and when it
+  fails having taken everything, where a `;` would read success off the empty
+  path and start a client behind a delete that reported failure.
   The **floor** on `TimeoutStartSec` is held only by the sandbox suite, not by
   `pnpm test`: `runtime.sandbox.ts`'s "starts a bot whose collect.lock is held
   past the ordinary step wait" holds the lock past `INSTANCE_STEP_TIMEOUT_MS`

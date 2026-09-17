@@ -82,7 +82,7 @@ export const SelfHostCard = ({ offer, onAdded }: SelfHostCardProps) => {
 			{adoptable && lingerMissing ? (
 				<CommandBlock
 					label="Run once on this machine"
-					command={lingerCommand(offer)}
+					command={lingerCommand(offer.username)}
 					caption="Keeps bots running after you log out."
 				/>
 			) : null}

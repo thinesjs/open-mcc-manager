@@ -11,6 +11,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { lingerCommand } from "@open-mcc/contracts"
 import { createFakeTransport, type FakeScript } from "@open-mcc/transport"
 import { afterEach, describe, expect, it } from "vitest"
 import { LINGER_COMMAND } from "./check"
@@ -580,4 +581,24 @@ describe("where provisioning puts a host's files", () => {
 		expect(transport.commands.some((command) => command.includes("install -d"))).toBe(false)
 		expect(transport.commands).not.toContain(HOST_FACTS_COMMAND)
 	})
+
+	it.each(["mcc", "bot runner", "o'brien"])(
+		"tells %s to run the command the rest of the manager offers, wrapped in no quotes of the sentence's own",
+		async (account) => {
+			const transport = await connected({
+				[LINGER_COMMAND]: answer("no"),
+				"id -un": answer(`${account}\n`),
+			})
+
+			const refusal = await provisionHost(transport).then(
+				() => "",
+				(error) => (error instanceof Error ? error.message : ""),
+			)
+
+			expect(refusal.split(", then provision again: ")).toEqual([
+				`Instances would stop when this session ends because lingering is off for ${account}. Run this on the host`,
+				lingerCommand(account),
+			])
+		},
+	)
 })

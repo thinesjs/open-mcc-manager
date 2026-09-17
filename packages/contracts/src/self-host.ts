@@ -28,6 +28,3 @@ export const canAdoptSelfHost = (offer: SelfHostPublicOffer): boolean =>
 	offer.reach === "proven" && offer.systemd
 
 export const needsLinger = (offer: SelfHostPublicOffer): boolean => !offer.linger
-
-export const lingerCommand = (offer: SelfHostPublicOffer): string =>
-	`sudo loginctl enable-linger ${offer.username}`

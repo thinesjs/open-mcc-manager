@@ -1,4 +1,4 @@
-import type { CheckHostInput, HostCheckReport } from "@open-mcc/contracts"
+import { type CheckHostInput, type HostCheckReport, lingerCommand } from "@open-mcc/contracts"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import {
@@ -464,6 +464,19 @@ describe("what an account needs to run containers", () => {
 
 		expect(resultOf(report, "lingering")?.command).toBe("sudo loginctl enable-linger 'bot runner'")
 	})
+
+	it.each(["mcc", "bot runner", "o'brien"])(
+		"gives the same command for %s as the self-host card gives, since one rule builds it",
+		async (account) => {
+			const transport = await connected(
+				hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }),
+			)
+
+			const report = await checkHostOverTransport(transport, account)
+
+			expect(resultOf(report, "lingering")?.command).toBe(lingerCommand(account))
+		},
+	)
 })
 
 describe("a cloud metadata service the bots could reach", () => {

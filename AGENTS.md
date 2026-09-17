@@ -235,7 +235,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Thirty-two rules stated further down this document are enforced too, and are
+Thirty-three rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -273,6 +273,7 @@ have:
 | The sign-in step's wait covering what a sign-in's start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the sign-in unit's `flock -w` plus its `TimeoutStartSec` to stay **below** its `JobTimeoutSec`, and that `TimeoutStartSec` to stay **above** the longest the collector may hold `collect.lock`, so both reordering the three and shaving the phase under its one bounded lock holder fail it; `packages/core/src/instance/authenticate.test.ts` — reads `JobTimeoutSec` off the rendered sign-in unit and requires the wait `startAuthCommand` is given to be at least that plus `AUTH_SESSION_TIMEOUT_MS`, requires **exactly one** wait in a whole `beginAuthentication` to exceed a stop's, so buying that margin by raising the shared session wait fails it, and sums every wait the sign-in claim covers against `AUTH_LEASE_MS`. Those hold the order and the ceiling; that a start bounded this way **survives** a held lock is held only by `scripts/sandbox/sign-in.sandbox.ts`, which holds `collect.lock` past the collector's own deadline and requires the sign-in to reach `active` with its container running. The same file reads all three bounds back off a real unit, and holds a lock past the start phase to require `Result=timeout` and the manager to give the claim back — read off `Result`, never off `ActiveState` |
 | A start refused rather than run over a cache the host could not empty | `packages/core/src/host/unit-template.test.ts` — takes the cache step's own shell out of the rendered unit and runs it under `/bin/sh` against a scratch home: with a leaked cache, with none, against an `rm` shim that deletes one entry and fails, and against one that deletes the whole cache and fails. The third requires a non-zero status **and** the entries still there, so `rm -rf … \|\| true` with a `mkdir -p` passes the first two and fails it; the fourth requires a non-zero status **and** no remade directory, so a `;` in place of the `&&` — whose refusal would come from `mkdir` meeting a surviving directory rather than from the delete — fails there. The same block requires the delete to name **exactly one** path and that path to be the cache, so an extra operand, a dropped `--` or a repoint at `replays` fails; the shim reads the path from the test's own environment and refuses anything outside the scratch home, so no edit to the unit can point it at the machine running the suite. It proves the step refuses and leaves the evidence, NOT how long a delete takes: that is measured, not tested |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
+| One rule turning an account name into a shell word | `packages/contracts/src/host-account.test.ts` — runs the rendered command under `/bin/sh` against a `sudo` shell function and requires `loginctl`, `enable-linger` and the account to arrive as exactly three words, for an account carrying a space, a quote, a substitution, a second command, a glob and a trailing backslash, so broken escaping fails rather than being pinned as a string; and requires a plain account to render **unquoted**, so quoting every account — which leaves every one of those cases green and changes the command every operator sees — fails there. `packages/core/src/host/check.test.ts` and `packages/core/src/host/provision.test.ts` each compare what their own surface offers against that one builder rather than against a literal, so a second builder in either fails even when it happens to agree on the day it is written, and the provision one splits the refusal at its colon so a sentence that wraps the command in quotes of its own fails; `apps/web/src/components/self-host-card.test.tsx` reads the quoted command off the rendered card. Nothing stops a fourth surface interpolating the account itself — that is review's |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -463,6 +464,21 @@ Dependency direction is one-way: router → controller → repository.
 - `packages/contracts` owns every zod schema. `packages/core` contains none.
 - `packages/core` and `packages/transport` stay framework-agnostic — no
   Hono, no tRPC, no HTTP types.
+- **One rule turns an account name into a shell word.** `accountWord`
+  (`packages/contracts/src/host-account.ts`) quotes an account the shell would
+  otherwise split and leaves every other one alone, and `lingerCommand` beside
+  it is the only thing that builds `sudo loginctl enable-linger`. Both live in
+  `contracts` because `core` imports `contracts` and never the reverse, so the
+  host check's remediation command, the dashboard's copy-and-run command and
+  provisioning's refusal are one string rather than three. There were two
+  builders once and they disagreed: the check quoted, the self-host card
+  interpolated bare, and an account with a space reached the operator as a
+  command that would have enabled lingering for the wrong user. A sentence
+  carrying that command must not wrap it in quotes of its own — the sentence's
+  quotes and the rule's are the same character — so `assertLingerEnabled`
+  (`provision.ts`) ends its refusal with the command after a colon and nothing
+  after it. The `shellQuote` helpers private to the command builders quote
+  unconditionally and are a different rule; do not fold them into this one.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
   the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,

@@ -30,7 +30,10 @@ const localTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 
 export const SleepWindow = ({ instanceId }: SleepWindowProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
-	const query = useQuery(trpc.instance.getSleepWindow.queryOptions({ instanceId }))
+	const query = useQuery({
+		...trpc.instance.getSleepWindow.queryOptions({ instanceId }),
+		refetchOnWindowFocus: true,
+	})
 
 	const [days, setDays] = useState<DayOfWeek[]>([])
 	const [stopAt, setStopAt] = useState("18:50")

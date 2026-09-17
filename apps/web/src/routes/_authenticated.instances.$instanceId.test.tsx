@@ -796,14 +796,17 @@ describe("coming back to a tab that was left open", () => {
 		expect(asked).toEqual(["get"])
 	})
 
-	it("★ reads the schedule again, which another operator may have changed", async () => {
+	it("★ reads the whole schedule again, which another operator may have changed", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true })
 		await mount()
 		await openTab("Schedule")
-		await waitFor(() => expect(asked).toContain("listScheduledCommands"))
+		await waitFor(() => {
+			expect(asked).toContain("listScheduledCommands")
+			expect(asked).toContain("getSleepWindow")
+		})
 
 		await comeBack()
 
-		expect([...asked].sort()).toEqual(["get", "listScheduledCommands"])
+		expect([...asked].sort()).toEqual(["get", "getSleepWindow", "listScheduledCommands"])
 	})
 })

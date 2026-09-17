@@ -1485,6 +1485,15 @@ Exec into a bot's container through the user manager, as `inContainer` in
 on Debian 12, Podman 4.3.1 with crun 1.8.1 can refuse a `podman exec` whose
 caller's open-file limit is below the container's. The product never execs into
 a bot; a feature that does must go through the user manager too.
+Assert on a unit's journal through `journalShowing` in
+`scripts/sandbox/sandbox.ts`, never a single `journalctl` read: journald ingests
+a unit's own stdout and stderr asynchronously, and `systemctl start` returns when
+the job completes, not when that output has landed. systemd's own lines are
+already there because systemd writes them itself, so a one-shot read looks
+convincing right up to the moment it loses the race, as Debian 12 did.
+`journalShowing` re-reads until the line it was given shows, or for
+`JOURNAL_WAIT_MS`, and returns what it last saw so the assertion, not the
+helper, is still what fails.
 `SANDBOX_PLATFORM=linux/amd64` builds and boots
 every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
 rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.

@@ -25,7 +25,18 @@ import {
 	startPodmanHost,
 	withUserManager,
 } from "./podman-account"
-import { type As, exec, ROOT, read, remove, shell, succeeded } from "./sandbox"
+import {
+	type As,
+	exec,
+	journalOf,
+	journalShowing,
+	neverShowed,
+	ROOT,
+	read,
+	remove,
+	shell,
+	succeeded,
+} from "./sandbox"
 
 const FILES = `${HOME}/.local/share/open-mcc`
 
@@ -96,16 +107,7 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		succeeded(await exec(host, ROOT, ["date", "+%s"]), "reading the host's clock").trim()
 
 	const journalSince = async (unit: string, since: string): Promise<string> =>
-		succeeded(
-			await shell(
-				host,
-				as,
-				'journalctl --user -u "$1" --since "@$2" --no-pager --output cat',
-				unit,
-				since,
-			),
-			`reading the journal of ${unit}`,
-		)
+		await journalOf(host, as, unit, since)
 
 	const consoleShowing = async (text: string): Promise<string> => {
 		let shown = ""
@@ -344,7 +346,6 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 
 		expect(started.status).not.toBe(0)
 		expect(await containers()).toBe("")
-		expect(await journalSince(unitOf(botId), since)).toContain(PREFLIGHT_REFUSAL)
 		succeeded(
 			await shell(
 				host,
@@ -355,6 +356,10 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			),
 			"stopping the refused restarts",
 		)
+		expect(
+			await journalShowing(host, as, unitOf(botId), PREFLIGHT_REFUSAL, since),
+			neverShowed(unitOf(botId), PREFLIGHT_REFUSAL),
+		).toContain(PREFLIGHT_REFUSAL)
 	})
 
 	it("fails an automatic restart with the settings file missing, starting no container (C8)", async () => {

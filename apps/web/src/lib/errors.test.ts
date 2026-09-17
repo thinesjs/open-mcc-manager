@@ -1,4 +1,4 @@
-import { ERROR_CODES } from "@open-mcc/contracts"
+import { AUTH_LEASE_MS, ERROR_CODES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { getErrorMessage, wasRefused } from "./errors"
 
@@ -20,6 +20,31 @@ describe("getErrorMessage", () => {
 		})
 
 		expect(message).toBe("Sign-in is running. Try again when it's done.")
+	})
+
+	it("★ says how long a sign-in holds the bot, counted off the lease that holds it", () => {
+		const message = getErrorMessage({
+			message: "This instance is being signed in to Microsoft; wait for that to finish",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+
+		expect(message).toBe("A sign-in is holding this bot. The hold can last 15 minutes.")
+		expect(message).toContain(`${AUTH_LEASE_MS / 60_000} minutes`)
+	})
+
+	it("★ claims a sign-in is running only where the host was asked, never off a held claim", () => {
+		const held = getErrorMessage({
+			message: "held",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+		const running = getErrorMessage({
+			message: "running",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+
+		expect(held).not.toMatch(/being signed in|is running|wait for (that|it) to finish/i)
+		expect(held).not.toBe(running)
+		expect(running).toMatch(/is running/i)
 	})
 
 	it("says a removal did not finish without naming a step that may have succeeded", () => {

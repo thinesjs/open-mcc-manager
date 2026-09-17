@@ -52,6 +52,7 @@ const instanceUnit = (network: string, imageId: string): string => `[Unit]
 Description=open-mcc-manager instance %i
 StartLimitIntervalSec=600
 StartLimitBurst=5
+JobTimeoutSec=60
 After=network-online.target
 Wants=network-online.target
 
@@ -68,6 +69,7 @@ ExecStart=/bin/sh -c 'exec 3<>"${DIR}/${control}"; exec /usr/bin/podman run --re
 ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout ${QUIT_WRITE_TIMEOUT_SECONDS} sh -c "echo /quit > \\"${DIR}/${control}\\"" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'
 StandardOutput=journal
 StandardError=journal
+TimeoutStartSec=25
 TimeoutStopSec=20
 Restart=on-failure
 RestartPreventExitStatus=4

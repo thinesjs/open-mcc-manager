@@ -182,6 +182,8 @@ export const parseEnvWriteAnswer = (
 	return undefined
 }
 
+export const UNIT_START_TIMEOUT_MS = 75_000
+
 export const startUnitCommand = (instanceId: string): string => {
 	const unit = shellQuote(unitName(instanceId))
 	const signIn = shellQuote(authUnitName(instanceId))

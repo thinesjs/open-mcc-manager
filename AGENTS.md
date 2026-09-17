@@ -265,6 +265,7 @@ have:
 | Every pattern the browser masks being applied by the log redactor too | `packages/core/src/security/redact.test.ts` — `REDACTION_PATTERNS` is compared against `UNAMBIGUOUS_SECRET_PATTERNS` by identity and by length, so a pattern registered in `contracts` and left out of `redact`'s list fails it. It proves the server applies every shared pattern, NOT that a pattern belongs on the shared side: that judgement is review's |
 | The console history keys swept on load and cleared by every sign-out | `apps/web/src/lib/command-history.test.tsx`, `apps/web/src/routes/_authenticated.sign-out.test.tsx` and `apps/web/src/components/sign-out.test.tsx` — all three drive the real `localStorage` jsdom provides rather than a stubbed map, seed more than one bot's key, and each also requires the theme and the real view-mode key to survive, so widening any of them to "remove everything" fails. The last two mount the shell, the palette and the invitation notice and click their real buttons, so unwiring `clearCommandHistories` from any of the three fails; a fourth `authClient.signOut` call site fails the exact-list assertion. That the clear runs *before* the sign-out is held in **all three** by a sign-out mock that never settles, so moving the clear after the call fails whichever path it is moved in. It proves each named path clears, NOT that a file with two sign-outs clears on both, and the exact-list assertion is textual — a fourth file destructuring `signOut` off `authClient` would evade it, as `read-command-allowlist.test.ts` can be evaded the same way |
 | No lookbehind in a pattern the browser parses | `packages/contracts/src/command-credentials.test.ts` — the whole of `command-credentials.ts` is read and checked for `(?<=` and `(?<!`, so `COMMAND_PATTERNS` and any list added later are covered as well as `UNAMBIGUOUS_SECRET_PATTERNS`, whose compiled sources are checked too. esbuild lowers a lookbehind to a `new RegExp` call that throws on Safari before 16.4, and the browser evaluates the whole module, not the one list it imports from. It checks text and compiled sources, NOT that the bundle loads in any browser; it covers that one module, which is the only one `apps/web` shares with the redactor |
+| The start step's wait covering what a start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the `flock -w` plus `TimeoutStartSec` the unit declares to stay **below** its `JobTimeoutSec`, so raising either past that order fails it; `packages/core/src/instance/instance.controller.test.ts` — reads `JobTimeoutSec` off the rendered unit and requires the wait a start and a restart give `startUnitCommand` to be at least that plus `INSTANCE_STEP_TIMEOUT_MS`, so shaving the margin to a bare `JobTimeoutSec + 1` fails it. Those two hold the **ceiling** on `TimeoutStartSec` and nothing else; the **floor** is held only by `runtime.sandbox.ts`, which holds `collect.lock` past `INSTANCE_STEP_TIMEOUT_MS` and requires the start to survive it, so shaving `TimeoutStartSec` to 10 fails there while `pnpm test` stays green. The same file reads `TimeoutStartUSec` and `JobTimeoutUSec` back off a real unit, and holds a lock past the start phase to require `Result=timeout` — read off `Result`, never off `ActiveState`, because `Restart=on-failure` leaves a just-failed unit reporting `activating`/`auto-restart` |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -555,6 +556,120 @@ Dependency direction is one-way: router → controller → repository.
   the claim; one that could still be running on the host keeps it until the
   lease expires, because releasing it would let a second writer race a command
   that has not finished.
+- Each step's wait is sized from what that step's own remote work can take, not
+  only against the lease above it. The stop has always been: `UNIT_STOP_TIMEOUT_MS`
+  is 45s against the unit's `TimeoutStopSec=20`, twice over because systemd arms
+  that timer once for `ExecStop` and again for the kill that follows. **The start
+  was not**, and a start merely waiting out the collector's `collect.lock` tripped
+  the ordinary 15s step wait while the unit went on to reach `active` — the
+  channel was destroyed, `claimedExec` set `inFlight`, the claim was correctly
+  kept for the rest of the lease, and the row was left `stopped` over a running
+  bot. Reproduced on a sandbox host, not reasoned: a lock held five seconds past
+  the step wait, the start refused, `INSTANCE_BUSY` on the retry, and
+  `Started open-mcc@…` in the unit's own journal.
+  Three ordered numbers fix it, and the order is the whole point:
+  **start phase 55s < `JobTimeoutSec=60` < `UNIT_START_TIMEOUT_MS` 75s.**
+  The unit's `[Service]` carries `TimeoutStartSec=25`, so its start phase is
+  bounded by the `flock -w 30` its own `ExecStartPre` declares plus 25s for the
+  container — 55s. That sum is deliberately loose: `TimeoutStartSec` also caps
+  the flock exec, so the real bound is 50s, but summing the two *declared*
+  numbers stays an upper bound if `TimeoutStartSec` is ever raised above the
+  `-w`, and the tests compare against the declared pair.
+  `JobTimeoutSec=60` sits above that as a backstop. It sets **both**
+  `JobTimeoutUSec` and `JobRunningTimeoutUSec` — measured: `JobTimeoutSec=6`
+  reports `JobTimeoutUSec=6s JobRunningTimeoutUSec=6s` — so it bounds the time
+  the job spends *queued*, behind `network-online.target`, which
+  `TimeoutStartSec` does not cover at all, and the time it spends *running*,
+  which is the bound that actually fires in the four-exec residue below.
+  `UNIT_START_TIMEOUT_MS` (`unit.ts`) is
+  `JobTimeoutSec` plus `INSTANCE_STEP_TIMEOUT_MS` — the ordinary wait this
+  repository gives any one exec, which is what the SSH round trip and the two
+  `systemctl show` reads `startUnitCommand` chains after the start amount to. A
+  start spends 115s of the lease, a restart 160s.
+  **`TimeoutStartSec` is the load-bearing one; `JobTimeoutSec` alone would not
+  do, and it is important to know why.** A job timeout cancels the *job* and
+  leaves the *unit* starting. Measured: a `Type=notify` unit with a 70s start
+  phase and `JobTimeoutSec=60` gives `systemctl start` exit 1 at 60s with
+  `Result=success ActiveState=activating SubState=start-pre`, and reaches
+  `active` at 70s regardless. That resolves the exec non-zero rather than
+  rejecting it, so `claimedExec` leaves `inFlight` false and the claim is
+  **released** — the manager reports a failure, lets go, and the bot comes up
+  behind it. `TimeoutStartSec` instead fails the unit: the same unit with
+  `TimeoutStartSec=25` gives exit 1 at 25s with `Result=timeout`. Only then is
+  the release correct, because the work the manager *commanded* has ended.
+  **It does not stay failed, and a reader must not assume it does.** The
+  instance unit carries `Restart=on-failure` and `RestartSec=30`, so a unit that
+  has just failed its start phase reports
+  `Result=timeout ActiveState=activating SubState=auto-restart` — not `failed` —
+  and systemd makes a fresh attempt 30s later, which on a host whose lock has
+  since been freed **starts the bot 30s after the manager reported failure and
+  released the claim**. That is not a hole in the release rule: the claim
+  excludes other *manager* actors, never the host's own systemd, exactly as a
+  sleep timer or any other `Restart=on-failure` start is unclaimed, and the
+  result surfaces as `stateDrift` at the next reconcile. It is why the sandbox
+  test reads the verdict off `Result` rather than `ActiveState`.
+  The honest caveat: `TimeoutStartSec` is re-armed for **each** exec in the
+  start phase — under `TimeoutStartSec=5` two `ExecStartPre=/bin/sleep 4` ran
+  eight seconds and succeeded — and `ExecCondition` is subject to it too
+  (`TimeoutStartSec=5` against `ExecCondition=/bin/sleep 20` failed the unit at
+  5s). So the *strict* worst case is the number of start-phase execs times
+  `TimeoutStartSec`, 100s, not 55s. 55s is the practical bound and rests on a
+  judgement: of the four execs only the `flock` and the `podman run` wait on
+  anything, the other two being a local `systemctl show` and three `test`
+  builtins. In the pathological case the job timeout fires at 60s and leaves
+  the unit activating, which is the residue this design does not close.
+  Do not reorder those three numbers. Raising `TimeoutStartSec` past
+  `JobTimeoutSec` minus the lock wait puts the job timeout back in front of the
+  phase timeout and restores the released-claim defect; raising `JobTimeoutSec`
+  without raising `UNIT_START_TIMEOUT_MS` with it restores the original one.
+  `flock -w 30` is bounded by `TimeoutStartSec` as well as by its own `-w`, so
+  with 25s the `-w 30` is never reached. The lock itself costs little — the only
+  holder is the collector's truncate under `withDeadline(2, 10, …)`, 12s — but
+  **that 25s is not all lock wait.** The same `ExecStartPre` goes on to
+  `rm -rf` the recording cache and remake it, inside the same 25s, and
+  **nothing bounds that delete**: the cache is a raw packet stream the client
+  leaks on every hard kill, so its size is a function of how long a recording
+  ran. It is the part of this budget with no anchor under it, and it deserves a
+  host-side deadline of its own the way removal's and teardown's deletes have.
+  The **floor** on `TimeoutStartSec` is held only by the sandbox suite, not by
+  `pnpm test`: `runtime.sandbox.ts`'s "starts a bot whose collect.lock is held
+  past the ordinary step wait" holds the lock past `INSTANCE_STEP_TIMEOUT_MS`
+  and requires the start to survive it, so shaving `TimeoutStartSec` to 10 fails
+  it with `start-pre operation timed out. Terminating.` while the unit suite
+  stays green. The ceiling is held by `unit-template.test.ts`. Do not treat the
+  sandbox job as optional: without it this constant is pinned from above only.
+  How the three numbers *relate* is tested both ways; how the load-bearing one
+  is **sized** rests on one empirical anchor — the collector's 12s truncate —
+  which covers the flock exec and not the other blocking one. `ExecStart` is
+  `podman run -d --sdnotify=conmon`, returning on conmon's `READY=1`, and no
+  measured number stands under it; 25s is judgement against a start that takes
+  well under a second on every sandbox host.
+- **Re-provisioning caps every start-phase exec at 25s where it had 90, and that
+  is a real widening, not only a narrowing.** A host whose `podman run`, or whose
+  `rm -rf` of the recording cache, legitimately needs longer than 25s now fails
+  its start where it previously succeeded. With `RestartSec=30`,
+  `StartLimitBurst=5` and `StartLimitIntervalSec=600`, such a host burns five
+  attempts in roughly 275s and then refuses to start at all until the limit
+  interval passes or an operator runs `reset-failed`. The 60-70s band the
+  previous shape had is genuinely gone rather than moved, and this replaces it —
+  but it differs in kind, and that is why the trade is right: the new failure is
+  **honest** (the unit is failed, the exec resolved, the claim is released
+  correctly and the row is consistent with the host), where the old one left the
+  row saying `stopped` over a running bot with the claim held for three minutes.
+  A host that hits this is misconfigured or under load in a way an operator
+  should see. The `rm -rf` half of it is the part to fix first, with a host-side
+  deadline.
+- **`open-mcc-auth@.service` is a known, unclosed instance of exactly that
+  inversion, and the rule above does not yet hold for it.** It carries the same
+  `ExecStartPre=/usr/bin/flock -w 30`, has no `TimeoutStartSec` and no
+  `JobTimeoutSec`, and `startAuthCommand` runs under `AUTH_SESSION_TIMEOUT_MS`
+  of 30s — so its lock wait alone can consume the whole wait, the exec rejects,
+  the claim is kept, and the lease it is kept for is `AUTH_LEASE_MS`, fifteen
+  minutes, not three. The remedy is **not** the one line the instance unit
+  needed: `AUTH_SESSION_TIMEOUT_MS` is shared by the connect, both stops, the
+  `cat` polls and the cleanup, so raising it inflates all of them. It needs a
+  start constant of its own plus the same `TimeoutStartSec` alignment on the
+  unit, or it inherits this defect exactly.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

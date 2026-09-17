@@ -753,6 +753,21 @@ describe("instance controller authorization", () => {
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
 	})
 
+	it("audits a password behind the double slash the console itself emits", async () => {
+		const { deps, transport, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.sendCommand(operator, "abc123", "//login hunter2")
+
+		expect(transport.stdins).toContain("///login hunter2\n")
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ detail: { command: "//login [redacted]" } }),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
 	it("audits an ordinary command as it was typed", async () => {
 		const { deps, instances, audit } = makeDeps()
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
@@ -1241,6 +1256,29 @@ describe("scheduled commands", () => {
 			{ organizationId: "org-1" },
 			expect.objectContaining({
 				detail: { command: "/login [redacted]", schedule: "morning wave" },
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("audits a password a schedule stored behind the internal prefix, which only fails later", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "!login hunter2",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { schedule: "morning wave", command: "!login [redacted]" },
 			}),
 		)
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")

@@ -586,8 +586,8 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			)
 
 		const elapsed = Date.now() - began
-		const state = await property(unitOf(botId), "ActiveState")
 		const result = await property(unitOf(botId), "Result")
+		const started = await containers()
 		succeeded(await holding, "holding the bot's collect.lock")
 		const retry = await ready()
 			.manager.controller.start(owner, botId)
@@ -600,8 +600,8 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			{
 				refused: refusal !== undefined,
 				endedBeforeTheManagerGaveUp: elapsed < UNIT_START_TIMEOUT_MS,
-				state,
 				result,
+				started,
 				recovered: retry === undefined ? undefined : mapKnownError(retry)?.errorCode,
 				unit: await property(unitOf(botId), "ActiveState"),
 			},
@@ -609,8 +609,8 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		).toEqual({
 			refused: true,
 			endedBeforeTheManagerGaveUp: true,
-			state: "failed",
 			result: "timeout",
+			started: "",
 			recovered: undefined,
 			unit: "active",
 		})

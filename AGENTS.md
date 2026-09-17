@@ -164,8 +164,8 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Twenty rules stated further down this document are enforced too, and are listed
-here for the same reason — so that nothing claims enforcement it does not
+Twenty-five rules stated further down this document are enforced too, and are
+listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
 | Rule | Enforced by |
@@ -191,6 +191,9 @@ have:
 | No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
 | No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
 | Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
+| Every pattern the browser masks being applied by the log redactor too | `packages/core/src/security/redact.test.ts` — `REDACTION_PATTERNS` is compared against `UNAMBIGUOUS_SECRET_PATTERNS` by identity and by length, so a pattern registered in `contracts` and left out of `redact`'s list fails it. It proves the server applies every shared pattern, NOT that a pattern belongs on the shared side: that judgement is review's |
+| The console history keys swept on load and cleared by every sign-out | `apps/web/src/lib/command-history.test.tsx`, `apps/web/src/routes/_authenticated.sign-out.test.tsx` and `apps/web/src/components/sign-out.test.tsx` — all three drive the real `localStorage` jsdom provides rather than a stubbed map, seed more than one bot's key, and each also requires the theme and the real view-mode key to survive, so widening any of them to "remove everything" fails. The last two mount the shell, the palette and the invitation notice and click their real buttons, so unwiring `clearCommandHistories` from any of the three fails; a fourth `authClient.signOut` call site fails the exact-list assertion. That the clear runs *before* the sign-out is held in **all three** by a sign-out mock that never settles, so moving the clear after the call fails whichever path it is moved in. It proves each named path clears, NOT that a file with two sign-outs clears on both, and the exact-list assertion is textual — a fourth file destructuring `signOut` off `authClient` would evade it, as `read-command-allowlist.test.ts` can be evaded the same way |
+| No lookbehind in a pattern the browser parses | `packages/contracts/src/command-credentials.test.ts` — the whole of `command-credentials.ts` is read and checked for `(?<=` and `(?<!`, so `COMMAND_PATTERNS` and any list added later are covered as well as `UNAMBIGUOUS_SECRET_PATTERNS`, whose compiled sources are checked too. esbuild lowers a lookbehind to a `new RegExp` call that throws on Safari before 16.4, and the browser evaluates the whole module, not the one list it imports from. It checks text and compiled sources, NOT that the bundle loads in any browser; it covers that one module, which is the only one `apps/web` shares with the redactor |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -1195,6 +1198,47 @@ same category as the server address they typed into the settings form. Known
 credential syntaxes continue through the redactor, which masks a
 `SEALBOX_KEYS=...` assignment and not a bare key value.
 
+**The redactor's pattern table is split across two packages on purpose.**
+`packages/contracts/src/command-credentials.ts` owns
+`UNAMBIGUOUS_SECRET_PATTERNS`, the thirteen whose marker is literal — a PEM
+armour line, `SEALBOX_KEYS=`, `whsec_`, `re_`, `X-Gotify-Key`,
+`Authorization: Bearer`, a URL query's `sig`, and the six webhook hosts.
+`packages/core/src/security/redact.ts` owns `LOG_ONLY_PATTERNS`, the five whose
+marker is only a shape: a bare `Bearer <token>`, `AUTH PLAIN <token>`, a bare
+Telegram bot token, the `AAAA-BBBB` device code, and a URL query's `sv` or `sp`.
+Three of those five are known to match ordinary Minecraft chat — `/team join
+BLUE-TEAM`, `/say bearer of bad news` and a YouTube link's `&sp=` filter all do;
+the bare Telegram token has no measured false positive and is held back on the
+rule rather than on evidence, because admitting one shape-only pattern makes the
+split a judgement per pattern instead of a rule. A Recent chip that silently
+disappears is a defect where a mangled audit detail is only cosmetic.
+
+`redact` applies all eighteen, in the order `REDACTION_PATTERNS` lists them, and
+that order is load-bearing rather than incidental: the device-code pattern runs
+after `Bearer` and before `SEALBOX_KEYS=`, `SEALBOX_KEYS=` runs before `whsec_`,
+and moving any of them changes what the later pattern can still see. Two of the
+eighteen are deliberate no-ops there, subsumed by a broader sibling that runs
+first — `Authorization: Bearer` under the bare `Bearer`, and `sig` alongside
+`sv`/`sp` — and that is what lets the browser have the narrow half without the
+server losing the wide one. Do not merge the two lists into one, do not reorder
+`REDACTION_PATTERNS` to group them, and do not give the browser the five.
+
+**Every pattern in `command-credentials.ts` is parsed by a browser** — the whole
+module evaluates there, not the one list `command-history.ts` imports from, so
+`COMMAND_PATTERNS` is as exposed as `UNAMBIGUOUS_SECRET_PATTERNS` — and both are
+limited to syntax the oldest engine this dashboard loads in accepts. `redact.ts`'s
+own `LOG_ONLY_PATTERNS` are not: `apps/web` has no runtime dependency on
+`@open-mcc/core`, so they never reach a browser. A
+lookbehind (`(?<=`, `(?<!`) is not: `apps/web` sets no `build.target` and no
+browserslist, so Vite's esbuild default includes safari14, esbuild lowers a
+lookbehind literal to a `new RegExp(...)` call, and that call throws
+`SyntaxError` at module evaluation on Safari before 16.4 — blanking the whole
+authenticated dashboard, not just the Recent list, because the module is
+statically imported by the `_authenticated` layout. `resendKey` uses a consumed
+leading group (`(^|[^A-Za-z0-9_-])`) rather than a lookbehind for exactly this
+reason. Narrowing `build.target` instead is not the fix: what this project
+supports is the owner's decision and is written down nowhere yet.
+
 That allowance is for logs alone. **A failure stored in a column or returned to
 the browser carries only this project's own fixed words**, never text a host,
 the SSH transport, the client, a Minecraft server or a notification provider
@@ -1333,6 +1377,30 @@ per service.
   exempt from the type-policy checker by its exact path, not by filename —
   see What enforces what above. A same-named file placed elsewhere is not
   exempt and must not be made so.
+- The console history is the one thing this dashboard writes to `localStorage`
+  that an operator typed. A command any pattern in `maskCommandCredentials` or
+  `maskUnambiguousSecrets` would change is not stored at all rather than stored
+  masked, because a masked entry invites a click that silently fails, and
+  `readCommandHistory` drops any such entry an earlier visit left behind and
+  writes the shortened list back. The purge is not left to that read alone:
+  `command-history.ts` sweeps **every** `open-mcc:command-history:` key as the
+  module loads, and `_authenticated.tsx` imports it, so the sweep runs when the
+  authenticated shell first renders — on any page, not on the first console
+  opened. Theme and view mode are the only other keys this dashboard stores and
+  neither the sweep nor the clear touches them. Every read and write stays inside
+  a `try`/`catch` — `localStorage` throws in a private window and with site data
+  blocked — and a new key holding what an operator typed belongs in both the
+  sweep and the clear.
+- **Every path that signs out clears those keys, and there are three of them**:
+  the shell's sidebar button, the command palette's "Sign out" action, and the
+  `SignedInNotice` an invited person meets when the machine is already signed in
+  as somebody else. That last one is the sharpest case — it exists precisely to
+  hand the machine to a different person. Each calls `clearCommandHistories()`
+  **before** it calls `authClient.signOut`, never after, so a refused or
+  unreachable sign-out still empties the history. A fourth call site must do the
+  same; `apps/web/src/components/sign-out.test.tsx` compares the set of files
+  naming `authClient.signOut` against an exact list, so adding one fails until
+  it is reviewed.
 
 ## Tests
 

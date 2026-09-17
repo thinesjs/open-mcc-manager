@@ -1,29 +1,58 @@
-import { maskCommandCredentials } from "@open-mcc/contracts"
+import { maskCommandCredentials, UNAMBIGUOUS_SECRET_PATTERNS } from "@open-mcc/contracts"
 
-const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-	[/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[redacted]"],
-	[
-		/-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g,
-		"[redacted private key]",
-	],
-	[/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, "[redacted code]"],
-	[/(SEALBOX_KEYS=)\S+/g, "$1[redacted]"],
-	[/whsec_[A-Za-z0-9+/=]+/g, "[redacted secret]"],
-	[/(https:\/\/api\.telegram\.org\/bot)[^/\s]+/gi, "$1[redacted]"],
-	[/\b\d{6,}:[A-Za-z0-9_-]{30,}\b/g, "[redacted token]"],
-	[/(https:\/\/hooks\.slack\.com\/services)\/\S+/gi, "$1/[redacted]"],
-	[/(https:\/\/(?:[^\s/]*\.)?discord(?:app)?\.com\/api\/webhooks)\/\S+/gi, "$1/[redacted]"],
-	[/(https:\/\/[^\s/]*webhook\.office\.com\/webhookb2)\/\S+/gi, "$1/[redacted]"],
-	[/(https:\/\/[^\s/]*\.environment\.api\.powerplatform\.[a-z]{2,})\/\S+/gi, "$1/[redacted]"],
-	[/(https:\/\/[^\s/]*\.logic\.azure\.com(?::\d+)?\/workflows)\/\S+/gi, "$1/[redacted]"],
-	[/([?&](?:sig|sv|sp)=)[^&\s"']+/gi, "$1[redacted]"],
-	[/((?:X-Gotify-Key|x-gotify-key)\s*[:=]\s*)\S+/g, "$1[redacted]"],
-	[/(AUTH\s+PLAIN\s+)\S+/gi, "$1[redacted]"],
-	[/(?<![A-Za-z0-9_-])(re_)[A-Za-z0-9]{16,}/g, "$1[redacted]"],
+const BEARER_TOKEN: readonly [RegExp, string] = [
+	/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi,
+	"$1[redacted]",
+]
+
+const DEVICE_CODE: readonly [RegExp, string] = [/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, "[redacted code]"]
+
+const TELEGRAM_BOT_TOKEN: readonly [RegExp, string] = [
+	/\b\d{6,}:[A-Za-z0-9_-]{30,}\b/g,
+	"[redacted token]",
+]
+
+const SIGNED_URL_VERSION_KEYS: readonly [RegExp, string] = [
+	/([?&](?:sv|sp)=)[^&\s"']+/gi,
+	"$1[redacted]",
+]
+
+const SMTP_AUTH_PLAIN: readonly [RegExp, string] = [/(AUTH\s+PLAIN\s+)\S+/gi, "$1[redacted]"]
+
+export const LOG_ONLY_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	BEARER_TOKEN,
+	DEVICE_CODE,
+	TELEGRAM_BOT_TOKEN,
+	SIGNED_URL_VERSION_KEYS,
+	SMTP_AUTH_PLAIN,
+]
+
+export const REDACTION_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	BEARER_TOKEN,
+	UNAMBIGUOUS_SECRET_PATTERNS.authorizationBearer,
+	UNAMBIGUOUS_SECRET_PATTERNS.privateKeyBlock,
+	DEVICE_CODE,
+	UNAMBIGUOUS_SECRET_PATTERNS.sealboxKeys,
+	UNAMBIGUOUS_SECRET_PATTERNS.signingSecret,
+	UNAMBIGUOUS_SECRET_PATTERNS.telegramBotUrl,
+	TELEGRAM_BOT_TOKEN,
+	UNAMBIGUOUS_SECRET_PATTERNS.slackWebhook,
+	UNAMBIGUOUS_SECRET_PATTERNS.discordWebhook,
+	UNAMBIGUOUS_SECRET_PATTERNS.teamsWebhook,
+	UNAMBIGUOUS_SECRET_PATTERNS.powerPlatformWorkflow,
+	UNAMBIGUOUS_SECRET_PATTERNS.azureLogicWorkflow,
+	UNAMBIGUOUS_SECRET_PATTERNS.signedUrlQuery,
+	SIGNED_URL_VERSION_KEYS,
+	UNAMBIGUOUS_SECRET_PATTERNS.gotifyKey,
+	SMTP_AUTH_PLAIN,
+	UNAMBIGUOUS_SECRET_PATTERNS.resendKey,
 ]
 
 export const redact = (value: string): string =>
-	PATTERNS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), value)
+	REDACTION_PATTERNS.reduce(
+		(acc, [pattern, replacement]) => acc.replace(pattern, replacement),
+		value,
+	)
 
 export const REDACTED_CREDENTIAL = "[redacted credential]"
 

@@ -20,6 +20,9 @@ export const HOST_KEY_FINGERPRINT_PATTERN = /^SHA256:[A-Za-z0-9+/]{43}$/
 
 export const HOST_KEY_FINGERPRINT_REQUIREMENT = "Expected an OpenSSH SHA256 fingerprint"
 
+export const HOST_KEY_FINGERPRINT_HELP =
+	"The fingerprint is the SHA256:… part on its own. In a line like 256 SHA256:… root@host (ED25519), nothing before or after it belongs."
+
 export const hostKeyFingerprint = z
 	.string()
 	.regex(HOST_KEY_FINGERPRINT_PATTERN, HOST_KEY_FINGERPRINT_REQUIREMENT)

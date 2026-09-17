@@ -12,7 +12,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import {
 	EnrollHostSteps,
-	NEEDS_ACCOUNT,
 	NEEDS_ADDRESS,
 	NEEDS_CHECK,
 	NEEDS_FINGERPRINT,
@@ -55,11 +54,18 @@ const KEYS: StoredKey[] = [
 
 let stored: StoredKey[] = KEYS
 
+let listFailure: Error | null = null
+
+const listKeys = async (): Promise<StoredKey[]> => {
+	if (listFailure !== null) throw listFailure
+	return stored
+}
+
 vi.mock("~/lib/trpc", () => ({
 	useTRPC: () => ({
 		sshKey: {
 			list: {
-				queryOptions: () => ({ queryKey: ["sshKey", "list"], queryFn: async () => stored }),
+				queryOptions: () => ({ queryKey: ["sshKey", "list"], queryFn: listKeys }),
 				queryKey: () => ["sshKey", "list"],
 			},
 			create: { mutationOptions: () => ({ mutationFn: createKey }) },
@@ -85,6 +91,7 @@ afterEach(() => {
 	createKey.mockReset()
 	writeText.mockClear()
 	stored = KEYS
+	listFailure = null
 })
 
 const FINGERPRINT = `SHA256:${"A".repeat(43)}`
@@ -229,6 +236,11 @@ const generateKey = async (name: string) => {
 	await waitFor(() => expect(createKey).toHaveBeenCalledTimes(1))
 	await act(async () => undefined)
 }
+
+const leaveFingerprint = () => fireEvent.blur(screen.getByLabelText("Server fingerprint"))
+
+const fingerprintInvalidity = (): string | null =>
+	screen.getByLabelText("Server fingerprint").getAttribute("aria-invalid")
 
 const chooseAccountMode = (value: string) => {
 	const option = screen.getAllByRole("radio").find((radio) => radio.getAttribute("value") === value)
@@ -775,19 +787,49 @@ describe("pasting a fingerprint copied out of a terminal", () => {
 		await reachBlankVerify()
 
 		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
+		expect(fingerprintInvalidity()).toBe("true")
+		expect(isDisabled("Check host")).toBe(true)
+	})
+
+	it("joins nothing up, so a fingerprint broken across a line stays refused", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", `SHA256:${"A".repeat(20)} ${"A".repeat(23)}`)
+		leaveFingerprint()
 
 		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
 		expect(isDisabled("Check host")).toBe(true)
 	})
 
+	it("waits until the operator leaves the field before saying any of it", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", "S")
+
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(fingerprintInvalidity()).not.toBe("true")
+	})
+
 	it("says nothing about the value while the field is still empty", async () => {
 		await reachBlankVerify()
 
+		leaveFingerprint()
+
 		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(fingerprintInvalidity()).not.toBe("true")
 	})
 })
 
 describe("enrolling the first host of an installation that has no keys", () => {
+	it("says what the key is for before asking anyone to make one", async () => {
+		await mountWithoutKeys()
+
+		expect(screen.getByText("OpenMCC signs in to this server with an SSH key.")).toBeDefined()
+	})
+
 	it("makes a key inside the wizard rather than sending the operator away for one", async () => {
 		await mountWithoutKeys()
 
@@ -804,8 +846,47 @@ describe("enrolling the first host of an installation that has no keys", () => {
 
 		await generateKey("fleet")
 
-		expect(isDisabled("Continue")).toBe(false)
 		expect(await screen.findByText("ssh-ed25519 AAAAnew new")).toBeDefined()
+		await waitFor(() => expect(isDisabled("Continue")).toBe(false))
+	})
+
+	it("keeps the step shut when the key it made never arrives in the list", async () => {
+		await mountWithoutKeys()
+		createKey.mockImplementationOnce(async (input: { name: string }) => {
+			listFailure = new Error("The key list could not be read")
+			return { id: "key-new", name: input.name, publicKey: "ssh-ed25519 AAAAnew new" }
+		})
+		type("Key name", "fleet")
+
+		fireEvent.click(button("Generate key"))
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		expect(isDisabled("Continue")).toBe(true)
+	})
+
+	it("takes one press only while the key is being made", async () => {
+		await mountWithoutKeys()
+		let finish: (key: StoredKey) => void = () => undefined
+		createKey.mockImplementationOnce(
+			() =>
+				new Promise<StoredKey>((resolve) => {
+					finish = resolve
+				}),
+		)
+		type("Key name", "fleet")
+
+		fireEvent.click(button("Generate key"))
+
+		await waitFor(() => expect(isDisabled("Generating")).toBe(true))
+		await act(async () => finish({ id: "key-new", name: "fleet", publicKey: "ssh-ed25519 new" }))
+	})
+
+	it("says the list could not be read, rather than showing an empty step", async () => {
+		listFailure = new Error("The key list could not be read")
+		mount()
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		expect(isDisabled("Continue")).toBe(true)
 	})
 
 	it("keeps what the operator had already chosen across the generation", async () => {
@@ -880,13 +961,15 @@ describe("a step the wizard will not let the operator leave", () => {
 		expect(screen.queryByText(NEEDS_PORT)).toBeNull()
 	})
 
-	it("says the account name is what the account step is waiting on", async () => {
+	it("leaves the account step's own requirement to say it, rather than saying it twice", async () => {
 		await reachAccount()
 
 		type("Account name", "My Account")
 
 		expect(isDisabled("Continue")).toBe(true)
-		expect(screen.getByText(NEEDS_ACCOUNT)).toBeDefined()
+		expect(
+			screen.getAllByText("Use lowercase letters, digits, - and _, starting with a letter or _."),
+		).toHaveLength(1)
 	})
 
 	it("says the host check is what Enroll is waiting on", async () => {
@@ -901,6 +984,16 @@ describe("a step the wizard will not let the operator leave", () => {
 
 		await runCheck(READY)
 
+		expect(screen.queryByText(NEEDS_CHECK)).toBeNull()
+	})
+
+	it("does not send the operator to a check that cannot run yet", async () => {
+		await reachPrepare()
+
+		next()
+
+		expect(isDisabled("Enroll host")).toBe(true)
+		expect(isDisabled("Check host")).toBe(true)
 		expect(screen.queryByText(NEEDS_CHECK)).toBeNull()
 	})
 

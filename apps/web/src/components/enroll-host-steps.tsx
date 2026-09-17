@@ -53,8 +53,6 @@ export const NEEDS_ADDRESS = "Enter a hostname or IP to continue."
 
 export const NEEDS_PORT = "Enter a port from 1 to 65535 to continue."
 
-export const NEEDS_ACCOUNT = "Fix the account name to continue."
-
 export const NEEDS_CHECK = "Check the host to enroll."
 
 export const NEEDS_FINGERPRINT = "Paste the fingerprint above to run this."
@@ -129,6 +127,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const [copiedCommand, setCopiedCommand] = useState("")
 	const [installMode, setInstallMode] = useState<InstallMode>("manual")
 	const [newKeyName, setNewKeyName] = useState("")
+	const [fingerprintTouched, setFingerprintTouched] = useState(false)
 
 	const keys = sshKeysQuery.data ?? []
 	const selectedKey = keys.find((key) => key.id === sshKeyId)
@@ -186,18 +185,24 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 		checked.expectedFingerprint === expectedFingerprint
 
 	const canAdvance =
-		step === 0 ? sshKeyId.length > 0 : step === 1 ? addressReady : step === 2 ? accountReady : true
+		step === 0
+			? selectedKey !== undefined
+			: step === 1
+				? addressReady
+				: step === 2
+					? accountReady
+					: true
 
-	const fingerprintMalformed = expectedFingerprint.length > 0 && !fingerprintReady
+	const fingerprintMalformed =
+		fingerprintTouched && expectedFingerprint.length > 0 && !fingerprintReady
 
 	const guidance = ((): string | null => {
-		if (step === 0) return keys.length > 0 && sshKeyId.length === 0 ? NEEDS_KEY : null
+		if (step === 0) return keys.length > 0 && selectedKey === undefined ? NEEDS_KEY : null
 		if (step === 1) {
 			if (name.length === 0) return NEEDS_NAME
 			if (hostname.length === 0) return NEEDS_ADDRESS
 			return portNumber === null ? NEEDS_PORT : null
 		}
-		if (step === 2) return accountReady ? null : NEEDS_ACCOUNT
 		if (step === 4) return fingerprintReady && !checkedReady ? NEEDS_CHECK : null
 		return null
 	})()
@@ -261,6 +266,16 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							<Alert variant="warning" icon={<TriangleAlert />}>
 								<p className="font-medium">{EXPRESS_WARNING_TITLE}</p>
 								<p>{EXPRESS_WARNING}</p>
+							</Alert>
+						) : null}
+
+						<p className="text-sm text-muted-foreground">
+							OpenMCC signs in to this server with an SSH key.
+						</p>
+
+						{sshKeysQuery.isError ? (
+							<Alert variant="error" icon={<CircleAlert />}>
+								{getErrorMessage(sshKeysQuery.error)}
 							</Alert>
 						) : null}
 
@@ -505,6 +520,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								value={expectedFingerprint}
 								placeholder="SHA256:…"
 								aria-invalid={fingerprintMalformed}
+								onBlur={() => setFingerprintTouched(true)}
 								onChange={(event) =>
 									checkedInput(
 										expectedFingerprint,

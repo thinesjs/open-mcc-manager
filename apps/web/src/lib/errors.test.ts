@@ -22,6 +22,26 @@ describe("getErrorMessage", () => {
 		expect(message).toBe("Sign-in is running. Try again when it's done.")
 	})
 
+	it("★ says a sign-in never started, where the codes beside it say it is running or holding", () => {
+		const notStarted = getErrorMessage({
+			message: "The sign-in did not start on the host",
+			data: { errorCode: "INSTANCE_SIGN_IN_DID_NOT_START" },
+		})
+		const running = getErrorMessage({
+			message: "running",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+		const holding = getErrorMessage({
+			message: "held",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+
+		expect(notStarted).toBe("The sign-in did not start on the host. Try again in a moment.")
+		expect(notStarted).not.toBe(running)
+		expect(notStarted).not.toBe(holding)
+		expect(notStarted).not.toMatch(/device code|is running|holding this bot/i)
+	})
+
 	it("★ says how long a sign-in holds the bot, counted off the lease that holds it", () => {
 		const message = getErrorMessage({
 			message: "This instance is being signed in to Microsoft; wait for that to finish",

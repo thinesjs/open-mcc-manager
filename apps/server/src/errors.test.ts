@@ -14,6 +14,7 @@ import {
 	HostNotFoundError,
 	HostProvisioningInProgressError,
 	InstanceRemovalFailedError,
+	InstanceSignInDidNotStartError,
 	InstanceSignInRunningError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
@@ -57,6 +58,25 @@ describe("mapKnownError", () => {
 		expect(
 			mapKnownError(new InstanceSignInRunningError("Sign-in is running for instance abc123")),
 		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_SIGN_IN_RUNNING" })
+	})
+
+	it("★ answers a sign-in that never started under its own code, in words the host did not write", () => {
+		const mapped = mapKnownError(
+			new InstanceSignInDidNotStartError(
+				[
+					"The sign-in unit for instance abc123 did not start: Job for open-mcc-auth@abc123.service failed because a timeout was exceeded.",
+					'See "journalctl --user -xeu open-mcc-auth@abc123.service" for details.',
+				].join("\n"),
+			),
+		)
+
+		expect(mapped).toEqual({
+			code: "CONFLICT",
+			errorCode: "INSTANCE_SIGN_IN_DID_NOT_START",
+			httpStatus: 409,
+			message: "The sign-in did not start on the host",
+		})
+		expect(mapped?.message).not.toMatch(/journalctl|systemctl|open-mcc-auth|abc123/)
 	})
 
 	it("maps HostNotFoundError to NOT_FOUND", () => {

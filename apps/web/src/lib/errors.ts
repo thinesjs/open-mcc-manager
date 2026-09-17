@@ -93,6 +93,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"This instance signs in without a device code, so there is nothing to approve.",
 	INSTANCE_AUTH_IN_PROGRESS: SIGN_IN_HOLD_MESSAGE,
 	INSTANCE_SIGN_IN_RUNNING: "Sign-in is running. Try again when it's done.",
+	INSTANCE_SIGN_IN_DID_NOT_START: "The sign-in did not start on the host. Try again in a moment.",
 	INSTANCE_CONCURRENTLY_MODIFIED:
 		"This instance was changed by someone else. Refresh and try again.",
 	INSTANCE_BUSY: "This bot is busy with another change. Try again in a moment.",

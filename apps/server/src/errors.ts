@@ -38,6 +38,7 @@ import {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInDidNotStartError,
 	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	LastOwnerError,
@@ -353,6 +354,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_AUTH_IN_PROGRESS",
 			"This instance is being signed in to Microsoft; wait for that to finish",
+		)
+	}
+	if (cause instanceof InstanceSignInDidNotStartError) {
+		return mapped(
+			"CONFLICT",
+			"INSTANCE_SIGN_IN_DID_NOT_START",
+			"The sign-in did not start on the host",
 		)
 	}
 	if (cause instanceof InstanceSignInRunningError) {

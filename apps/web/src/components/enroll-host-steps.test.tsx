@@ -137,10 +137,14 @@ const KEY_REFUSED: HostCheckReport = {
 	],
 }
 
-const mount = () => {
-	const client = new QueryClient({
+const newClient = () =>
+	new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	})
+
+const KEY_PURPOSE = "The key below is how OpenMCC reaches this server after setup."
+
+const mount = (client: QueryClient = newClient()) => {
 	render(
 		<QueryClientProvider client={client}>
 			<EnrollHostSteps onEnrolled={() => undefined} />
@@ -237,7 +241,11 @@ const generateKey = async (name: string) => {
 	await act(async () => undefined)
 }
 
+const opening = (sentence: string): string => sentence.split(" ").slice(0, 3).join(" ")
+
 const leaveFingerprint = () => fireEvent.blur(screen.getByLabelText("Server fingerprint"))
+
+const returnToFingerprint = () => screen.getByLabelText("Server fingerprint").focus()
 
 const fingerprintInvalidity = (): string | null =>
 	screen.getByLabelText("Server fingerprint").getAttribute("aria-invalid")
@@ -813,6 +821,29 @@ describe("pasting a fingerprint copied out of a terminal", () => {
 		expect(fingerprintInvalidity()).not.toBe("true")
 	})
 
+	it("keeps saying it while the value is corrected, with no second trip out of the field", async () => {
+		await reachBlankVerify()
+		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		returnToFingerprint()
+		type("Server fingerprint", "SHA256:still-not-one")
+
+		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
+		expect(fingerprintInvalidity()).toBe("true")
+	})
+
+	it("stops saying it the moment the value becomes a fingerprint", async () => {
+		await reachBlankVerify()
+		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		type("Server fingerprint", FINGERPRINT)
+
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(isDisabled("Check host")).toBe(false)
+	})
+
 	it("says nothing about the value while the field is still empty", async () => {
 		await reachBlankVerify()
 
@@ -827,7 +858,37 @@ describe("enrolling the first host of an installation that has no keys", () => {
 	it("says what the key is for before asking anyone to make one", async () => {
 		await mountWithoutKeys()
 
-		expect(screen.getByText("OpenMCC signs in to this server with an SSH key.")).toBeDefined()
+		expect(screen.getByText(KEY_PURPOSE)).toBeDefined()
+	})
+
+	it("says it to an operator who already has keys too", async () => {
+		mount()
+
+		await chooseKey("deploy")
+
+		expect(screen.getByText(KEY_PURPOSE)).toBeDefined()
+	})
+
+	it("does not open the way Express's own sentence does, so two sign-ins cannot read as one", () => {
+		mount()
+
+		const express = screen.getByText(/runs the setup over SSH/)
+
+		expect(opening(express.textContent ?? "")).not.toBe(opening(KEY_PURPOSE))
+	})
+
+	it("says the list could not be read even when it already had keys in it", async () => {
+		const client = newClient()
+		mount(client)
+		await chooseKey("deploy")
+		cleanup()
+		listFailure = new Error("The key list could not be read")
+
+		mount(client)
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		await chooseKey("deploy")
+		expect(screen.getByRole("combobox").textContent).toContain("deploy")
 	})
 
 	it("makes a key inside the wizard rather than sending the operator away for one", async () => {

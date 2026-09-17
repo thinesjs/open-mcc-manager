@@ -270,7 +270,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 						) : null}
 
 						<p className="text-sm text-muted-foreground">
-							OpenMCC signs in to this server with an SSH key.
+							The key below is how OpenMCC reaches this server after setup.
 						</p>
 
 						{sshKeysQuery.isError ? (

@@ -2,8 +2,11 @@ import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { AuditEventRow, HostRow, SshKeyRow } from "@open-mcc/db"
 import {
 	type ConnectionState,
+	type ConnectOptions,
 	createFakeRootSession,
 	createFakeTransport,
+	type FakeFailures,
+	type FakeScript,
 	type HostTransport,
 	type SshHandshake,
 } from "@open-mcc/transport"
@@ -11,7 +14,9 @@ import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { unusedHostRepository } from "../test/host-doubles"
 import { ADDRESS_PROBE_TIMEOUT_MS } from "./address-probe"
+import { LINGER_COMMAND } from "./check"
 import {
 	CONNECT_TIMEOUT_MS,
 	createHostController,
@@ -33,8 +38,9 @@ import type {
 	OrgScope,
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
+import { HOST_FACTS_COMMAND } from "./podman-facts"
 import { provisionHost, SYSTEM_COMMAND } from "./provision"
-import { provisionableHost, systemOutput } from "./provisionable-host"
+import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
@@ -462,6 +468,274 @@ describe("what the dashboard hears when a host cannot be reached", () => {
 		expect(reachable?.outcome).toBe("fail")
 		expect(reachable?.detail).toBe("The server refused the connection")
 	})
+})
+
+const READY_HOST = provisionableHost({
+	"systemctl --version | head -n 1": {
+		stdout: "systemd 252 (252.39-1~deb12u2)",
+		stderr: "",
+		exitCode: 0,
+	},
+	[LINGER_COMMAND]: { stdout: "yes", stderr: "", exitCode: 0 },
+	[HOST_FACTS_COMMAND]: {
+		stdout: factsOutput({
+			home: "/home/mcc",
+			"passwd-home": "/home/mcc",
+			os: "debian 12",
+			metadata: "000",
+		}),
+		stderr: "",
+		exitCode: 0,
+	},
+})
+
+const BLOCKED_HOST: FakeScript = {
+	...READY_HOST,
+	[LINGER_COMMAND]: { stdout: "no", stderr: "", exitCode: 0 },
+}
+
+const CUT_SHORT = new Error("The check channel closed mid-read")
+
+const CUTS_THE_CHECK_SHORT: FakeFailures = { exec: { "uname -m": CUT_SHORT } }
+
+const CHECKED_PRIVATE_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QjustEnoughMaterialToLookLikeARealKey9f3c1a7b4e2dAAAAAAAAAAAAAAAAAAAA
+-----END OPENSSH PRIVATE KEY-----`
+
+const rowFor = (outcome: string) => ({
+	actorId: "mem-1",
+	actorLabel: "actor@example.com",
+	action: "host.check",
+	subjectType: "host",
+	subjectId: "vps.example.net",
+	detail: {
+		hostname: "vps.example.net",
+		port: "2222",
+		account: "mcc",
+		sshKeyId: "key-1",
+		fingerprint: "SHA256:x",
+		outcome,
+	},
+})
+
+const recorded = (audit: Pick<AuditRepository, "record">): string[] =>
+	vi
+		.mocked(audit.record)
+		.mock.calls.flatMap(([, entry]) => [
+			entry.actorId ?? "",
+			entry.actorLabel,
+			entry.action,
+			entry.subjectType,
+			entry.subjectId,
+			...Object.values(entry.detail),
+		])
+
+const secretsYielding = (privateKey: string): SecretStore => ({
+	open: vi.fn(() => privateKey),
+	activeKeyId: "k1",
+	seal: vi.fn(),
+})
+
+const watchingConnect =
+	(script: FakeScript, failures: FakeFailures, offered: string[]) => (): HostTransport => {
+		const transport = createFakeTransport(script, failures)
+		return {
+			...transport,
+			connect: async (options: ConnectOptions) => {
+				offered.push(options.privateKey)
+				return transport.connect(options)
+			},
+		}
+	}
+
+describe("what a host check writes to the audit log", () => {
+	const target = {
+		hostname: "vps.example.net",
+		port: 2222,
+		username: "mcc",
+		sshKeyId: "key-1",
+		expectedFingerprint: "SHA256:x",
+	} as const
+
+	it("records who checked which host, with which key and fingerprint, when it answered", async () => {
+		const d = deps({ createTransport: vi.fn(() => createFakeTransport(READY_HOST)) })
+
+		const report = await createHostController(d).checkHost(ctx, target)
+
+		expect(report.ready).toBe(true)
+		expect(d.audit.record).toHaveBeenCalledTimes(1)
+		expect(d.audit.record).toHaveBeenCalledWith({ organizationId: "org-1" }, rowFor("ready"))
+	})
+
+	it("records a host that answered but is not ready the same way, and no more", async () => {
+		const d = deps({ createTransport: vi.fn(() => createFakeTransport(BLOCKED_HOST)) })
+
+		const report = await createHostController(d).checkHost(ctx, target)
+
+		expect(report.ready).toBe(false)
+		expect(d.audit.record).toHaveBeenCalledTimes(1)
+		expect(d.audit.record).toHaveBeenCalledWith({ organizationId: "org-1" }, rowFor("blocked"))
+	})
+
+	it("records the refusal the same way, which is the row worth reading", async () => {
+		const d = deps({
+			createTransport: vi.fn(() => createFakeTransport({}, { connect: REFUSED_AT_AN_ADDRESS })),
+		})
+
+		await createHostController(d).checkHost(ctx, target)
+
+		expect(d.audit.record).toHaveBeenCalledTimes(1)
+		expect(d.audit.record).toHaveBeenCalledWith({ organizationId: "org-1" }, rowFor("unreachable"))
+	})
+
+	it("records a check the host cut short, and raises what cut it short unwrapped", async () => {
+		const d = deps({
+			createTransport: vi.fn(() => createFakeTransport(READY_HOST, CUTS_THE_CHECK_SHORT)),
+		})
+
+		const raised = await createHostController(d)
+			.checkHost(ctx, target)
+			.then(
+				() => undefined,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
+			)
+
+		expect(raised).toBe(CUT_SHORT)
+		expect(d.secrets.open).toHaveBeenCalledTimes(1)
+		expect(d.audit.record).toHaveBeenCalledTimes(1)
+		expect(d.audit.record).toHaveBeenCalledWith({ organizationId: "org-1" }, rowFor("interrupted"))
+	})
+
+	for (const [exit, outcome, script, failures] of [
+		["answered", "ready", READY_HOST, {}],
+		["answered but is not ready", "blocked", BLOCKED_HOST, {}],
+		["refused the connection", "unreachable", {}, { connect: REFUSED_AT_AN_ADDRESS }],
+		["cut the check short", "interrupted", READY_HOST, CUTS_THE_CHECK_SHORT],
+	] as const) {
+		it(`never writes the key it authenticated with, though a host that ${exit} really used it`, async () => {
+			const offered: string[] = []
+			const d = deps({
+				secrets: secretsYielding(CHECKED_PRIVATE_KEY),
+				createTransport: vi.fn(watchingConnect(script, failures, offered)),
+			})
+
+			await createHostController(d)
+				.checkHost(ctx, target)
+				.catch(() => undefined)
+			const written = recorded(d.audit)
+
+			expect(offered).toEqual([CHECKED_PRIVATE_KEY])
+			expect(written).toContain("host.check")
+			expect(written).toContain(outcome)
+			expect(written.join("\n")).not.toContain(CHECKED_PRIVATE_KEY)
+			expect(written.join("\n")).not.toContain("BEGIN OPENSSH PRIVATE KEY")
+			expect(written.join("\n")).not.toContain("QjustEnoughMaterialToLookLikeARealKey")
+		})
+	}
+
+	it("repeats nothing the host itself printed, on any exit", async () => {
+		const banner = "systemd 252 (252.39-1~deb12u2)"
+		const answered = deps({ createTransport: vi.fn(() => createFakeTransport(READY_HOST)) })
+		const blocked = deps({ createTransport: vi.fn(() => createFakeTransport(BLOCKED_HOST)) })
+		const refused = deps({
+			createTransport: vi.fn(() => createFakeTransport({}, { connect: REFUSED_AT_AN_ADDRESS })),
+		})
+
+		await createHostController(answered).checkHost(ctx, target)
+		await createHostController(blocked).checkHost(ctx, target)
+		await createHostController(refused).checkHost(ctx, target)
+
+		expect(recorded(answered.audit).join("\n")).not.toContain(banner)
+		expect(recorded(blocked.audit).join("\n")).not.toContain(banner)
+		expect(recorded(blocked.audit).join("\n")).not.toContain("Bots would stop when you log out")
+		expect(recorded(refused.audit).join("\n")).not.toContain("refused the connection")
+		expect(recorded(refused.audit).join("\n")).not.toContain(REFUSED_AT_AN_ADDRESS.message)
+	})
+
+	it("opens nothing and records nothing when the key cannot be unsealed", async () => {
+		const d = deps({
+			secrets: {
+				open: vi.fn(() => {
+					throw new Error("sealed box is not openable with any known key")
+				}),
+				activeKeyId: "k1",
+				seal: vi.fn(),
+			} satisfies SecretStore,
+		})
+
+		await expect(createHostController(d).checkHost(ctx, target)).rejects.toThrow(/sealed box/)
+
+		expect(d.createTransport).not.toHaveBeenCalled()
+		expect(d.audit.record).not.toHaveBeenCalled()
+	})
+
+	for (const [exit, outcome, script, failures] of [
+		["reports a ready host", "ready", READY_HOST, {}],
+		["reports a blocked host", "blocked", BLOCKED_HOST, {}],
+		["is refused", "unreachable", {}, { connect: REFUSED_AT_AN_ADDRESS }],
+		["is cut short", "interrupted", READY_HOST, CUTS_THE_CHECK_SHORT],
+	] as const) {
+		it(`keeps every SSH step outside the transaction when the check ${exit}`, async () => {
+			const order: string[] = []
+			const outcomes: string[] = []
+			const audit: Pick<AuditRepository, "record"> = {
+				record: vi.fn(async (_scope: OrgScope, entry: AuditEntry) => {
+					order.push("audit")
+					outcomes.push(entry.detail.outcome ?? "")
+					return makeAuditEventRow({ ...entry })
+				}),
+			}
+			const withTransaction: WithTransaction = async (fn) => {
+				order.push("transaction-open")
+				const value = await fn({
+					hosts: unusedHostRepository(),
+					audit,
+					jobs: jobsDouble(),
+				})
+				order.push("transaction-close")
+				return value
+			}
+			const d = deps({
+				withTransaction,
+				createTransport: vi.fn(() => {
+					const transport = createFakeTransport(script, failures)
+					return {
+						...transport,
+						connect: async (options: ConnectOptions) => {
+							order.push("ssh")
+							return transport.connect(options)
+						},
+						exec: async (command: string, timeoutMs: number) => {
+							order.push("ssh")
+							return transport.exec(command, timeoutMs)
+						},
+						canForward: async (port: number, timeoutMs: number) => {
+							order.push("ssh")
+							return transport.canForward(port, timeoutMs)
+						},
+						close: async () => {
+							order.push("ssh")
+							return transport.close()
+						},
+					}
+				}),
+			})
+
+			await createHostController(d)
+				.checkHost(ctx, target)
+				.catch(() => undefined)
+
+			expect(outcomes).toEqual([outcome])
+			expect(order.filter((step) => step === "ssh").length).toBeGreaterThan(1)
+			expect(order.indexOf("transaction-open")).toBeGreaterThan(order.lastIndexOf("ssh"))
+			expect(order.slice(order.indexOf("transaction-open"))).toEqual([
+				"transaction-open",
+				"audit",
+				"transaction-close",
+			])
+		})
+	}
 })
 
 describe("host controller re-trust", () => {

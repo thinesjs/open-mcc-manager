@@ -1,7 +1,8 @@
-import type { HostCheckReport } from "@open-mcc/contracts"
+import type { CheckHostInput, HostCheckReport } from "@open-mcc/contracts"
 import { createFakeTransport } from "@open-mcc/transport"
 import { describe, expect, it } from "vitest"
 import {
+	checkAuditDetail,
 	checkHostOverTransport,
 	FORWARD_PROBE_PORT,
 	LINGER_COMMAND,
@@ -511,5 +512,61 @@ describe("checking that live control can reach an instance", () => {
 		expect(
 			unreachableReport("nope").checks.find((each) => each.name === "tcp-forwarding")?.outcome,
 		).toBe("skipped")
+	})
+})
+
+const AUDITED_TARGET: CheckHostInput = {
+	hostname: "vps.example.net",
+	port: 2222,
+	username: ACCOUNT,
+	sshKeyId: "key-1",
+	expectedFingerprint: "SHA256:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPq",
+}
+
+const auditedTarget = (outcome: string): Record<string, string> => ({
+	hostname: "vps.example.net",
+	port: "2222",
+	account: ACCOUNT,
+	sshKeyId: "key-1",
+	fingerprint: AUDITED_TARGET.expectedFingerprint,
+	outcome,
+})
+
+describe("what a host check hands the audit log", () => {
+	it("carries the target the operator typed, the key and fingerprint it used, and nothing else", async () => {
+		expect(checkAuditDetail(AUDITED_TARGET, await check(hostWith()))).toEqual(
+			auditedTarget("ready"),
+		)
+	})
+
+	it("says the same of a host that answered but is not ready, and no more", async () => {
+		const answered = await check(hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }))
+
+		expect(outcomeOf(answered, "reachable")).toBe("pass")
+		expect(answered.ready).toBe(false)
+		expect(checkAuditDetail(AUDITED_TARGET, answered)).toEqual(auditedTarget("blocked"))
+	})
+
+	it("says the same of a host that never answered, and no more", () => {
+		expect(checkAuditDetail(AUDITED_TARGET, unreachableReport("The server refused it"))).toEqual(
+			auditedTarget("unreachable"),
+		)
+	})
+
+	it("says the same of a check the host interrupted, and no more", () => {
+		expect(checkAuditDetail(AUDITED_TARGET, null)).toEqual(auditedTarget("interrupted"))
+	})
+
+	it("repeats no line the host itself printed, on any outcome", async () => {
+		const answered = await check(hostWith())
+		const blocked = await check(hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }))
+		const refused = unreachableReport("The server refused the connection")
+
+		for (const report of [answered, blocked, refused]) {
+			const written = Object.values(checkAuditDetail(AUDITED_TARGET, report)).join("\n")
+			for (const printed of report.checks.map((each) => each.detail)) {
+				expect(written).not.toContain(printed)
+			}
+		}
 	})
 })

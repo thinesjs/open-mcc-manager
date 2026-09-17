@@ -3,6 +3,7 @@ import { z } from "zod"
 export const AUDIT_ACTIONS = [
 	"host.enroll",
 	"host.express",
+	"host.check",
 	"host.provision",
 	"host.provision.reclaim",
 	"host.retrust",

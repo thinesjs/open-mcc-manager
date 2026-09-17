@@ -103,7 +103,7 @@ describe("mapKnownError", () => {
 		expect(refused?.message).not.toBe(quiet?.message)
 	})
 
-	it("★ calls a host command the manager watched fail a bad request, as removal and provisioning do", () => {
+	it("★ calls an ssh exec that resolved non-zero a bad request, as a removal step is", () => {
 		const watched = [
 			mapKnownError(new InstanceSignInDidNotStartError("the start exec resolved non-zero")),
 			mapKnownError(new InstanceSignInNoDeviceCodeError("every poll resolved empty")),

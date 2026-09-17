@@ -191,7 +191,7 @@ have:
 | No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
 | No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
 | Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
-| The start step's wait covering what a start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the `flock -w` plus `TimeoutStartSec` the unit declares to stay **below** its `JobTimeoutSec`, so raising either past that order fails it; `packages/core/src/instance/instance.controller.test.ts` — reads `JobTimeoutSec` off the rendered unit and requires the wait a start and a restart give `startUnitCommand` to be at least that plus `INSTANCE_STEP_TIMEOUT_MS`, so shaving the margin to a bare `JobTimeoutSec + 1` fails it. Neither proves a host obeys the order: `runtime.sandbox.ts` reads `TimeoutStartUSec` and `JobTimeoutUSec` back off a real unit, starts a bot whose `collect.lock` is held past the ordinary step wait, and holds a lock past the start phase to require the unit to end `failed`/`timeout` rather than activating |
+| The start step's wait covering what a start can legitimately take | `packages/core/src/host/unit-template.test.ts` — requires the `flock -w` plus `TimeoutStartSec` the unit declares to stay **below** its `JobTimeoutSec`, so raising either past that order fails it; `packages/core/src/instance/instance.controller.test.ts` — reads `JobTimeoutSec` off the rendered unit and requires the wait a start and a restart give `startUnitCommand` to be at least that plus `INSTANCE_STEP_TIMEOUT_MS`, so shaving the margin to a bare `JobTimeoutSec + 1` fails it. Those two hold the **ceiling** on `TimeoutStartSec` and nothing else; the **floor** is held only by `runtime.sandbox.ts`, which holds `collect.lock` past `INSTANCE_STEP_TIMEOUT_MS` and requires the start to survive it, so shaving `TimeoutStartSec` to 10 fails there while `pnpm test` stays green. The same file reads `TimeoutStartUSec` and `JobTimeoutUSec` back off a real unit, and holds a lock past the start phase to require `Result=timeout` — read off `Result`, never off `ActiveState`, because `Restart=on-failure` leaves a just-failed unit reporting `activating`/`auto-restart` |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -501,9 +501,13 @@ Dependency direction is one-way: router → controller → repository.
   the flock exec, so the real bound is 50s, but summing the two *declared*
   numbers stays an upper bound if `TimeoutStartSec` is ever raised above the
   `-w`, and the tests compare against the declared pair.
-  `JobTimeoutSec=60` sits above that as a backstop, covering
-  what `TimeoutStartSec` does not: time the job spends *queued*, behind
-  `network-online.target`. `UNIT_START_TIMEOUT_MS` (`unit.ts`) is
+  `JobTimeoutSec=60` sits above that as a backstop. It sets **both**
+  `JobTimeoutUSec` and `JobRunningTimeoutUSec` — measured: `JobTimeoutSec=6`
+  reports `JobTimeoutUSec=6s JobRunningTimeoutUSec=6s` — so it bounds the time
+  the job spends *queued*, behind `network-online.target`, which
+  `TimeoutStartSec` does not cover at all, and the time it spends *running*,
+  which is the bound that actually fires in the four-exec residue below.
+  `UNIT_START_TIMEOUT_MS` (`unit.ts`) is
   `JobTimeoutSec` plus `INSTANCE_STEP_TIMEOUT_MS` — the ordinary wait this
   repository gives any one exec, which is what the SSH round trip and the two
   `systemctl show` reads `startUnitCommand` chains after the start amount to. A
@@ -517,9 +521,19 @@ Dependency direction is one-way: router → controller → repository.
   rejecting it, so `claimedExec` leaves `inFlight` false and the claim is
   **released** — the manager reports a failure, lets go, and the bot comes up
   behind it. `TimeoutStartSec` instead fails the unit: the same unit with
-  `TimeoutStartSec=25` gives exit 1 at 25s with
-  `Result=timeout ActiveState=failed`, and it stays failed. Only then is the
-  release correct, because the remote work really has ended.
+  `TimeoutStartSec=25` gives exit 1 at 25s with `Result=timeout`. Only then is
+  the release correct, because the work the manager *commanded* has ended.
+  **It does not stay failed, and a reader must not assume it does.** The
+  instance unit carries `Restart=on-failure` and `RestartSec=30`, so a unit that
+  has just failed its start phase reports
+  `Result=timeout ActiveState=activating SubState=auto-restart` — not `failed` —
+  and systemd makes a fresh attempt 30s later, which on a host whose lock has
+  since been freed **starts the bot 30s after the manager reported failure and
+  released the claim**. That is not a hole in the release rule: the claim
+  excludes other *manager* actors, never the host's own systemd, exactly as a
+  sleep timer or any other `Restart=on-failure` start is unclaimed, and the
+  result surfaces as `stateDrift` at the next reconcile. It is why the sandbox
+  test reads the verdict off `Result` rather than `ActiveState`.
   The honest caveat: `TimeoutStartSec` is re-armed for **each** exec in the
   start phase — under `TimeoutStartSec=5` two `ExecStartPre=/bin/sleep 4` ran
   eight seconds and succeeded — and `ExecCondition` is subject to it too
@@ -535,8 +549,42 @@ Dependency direction is one-way: router → controller → repository.
   phase timeout and restores the released-claim defect; raising `JobTimeoutSec`
   without raising `UNIT_START_TIMEOUT_MS` with it restores the original one.
   `flock -w 30` is bounded by `TimeoutStartSec` as well as by its own `-w`, so
-  with 25s the `-w 30` is never reached; that costs nothing, because the only
-  holder is the collector's truncate under `withDeadline(2, 10, …)`, 12s.
+  with 25s the `-w 30` is never reached. The lock itself costs little — the only
+  holder is the collector's truncate under `withDeadline(2, 10, …)`, 12s — but
+  **that 25s is not all lock wait.** The same `ExecStartPre` goes on to
+  `rm -rf` the recording cache and remake it, inside the same 25s, and
+  **nothing bounds that delete**: the cache is a raw packet stream the client
+  leaks on every hard kill, so its size is a function of how long a recording
+  ran. It is the part of this budget with no anchor under it, and it deserves a
+  host-side deadline of its own the way removal's and teardown's deletes have.
+  The **floor** on `TimeoutStartSec` is held only by the sandbox suite, not by
+  `pnpm test`: `runtime.sandbox.ts`'s "starts a bot whose collect.lock is held
+  past the ordinary step wait" holds the lock past `INSTANCE_STEP_TIMEOUT_MS`
+  and requires the start to survive it, so shaving `TimeoutStartSec` to 10 fails
+  it with `start-pre operation timed out. Terminating.` while the unit suite
+  stays green. The ceiling is held by `unit-template.test.ts`. Do not treat the
+  sandbox job as optional: without it this constant is pinned from above only.
+  How the three numbers *relate* is tested both ways; how the load-bearing one
+  is **sized** rests on one empirical anchor — the collector's 12s truncate —
+  which covers the flock exec and not the other blocking one. `ExecStart` is
+  `podman run -d --sdnotify=conmon`, returning on conmon's `READY=1`, and no
+  measured number stands under it; 25s is judgement against a start that takes
+  well under a second on every sandbox host.
+- **Re-provisioning caps every start-phase exec at 25s where it had 90, and that
+  is a real widening, not only a narrowing.** A host whose `podman run`, or whose
+  `rm -rf` of the recording cache, legitimately needs longer than 25s now fails
+  its start where it previously succeeded. With `RestartSec=30`,
+  `StartLimitBurst=5` and `StartLimitIntervalSec=600`, such a host burns five
+  attempts in roughly 275s and then refuses to start at all until the limit
+  interval passes or an operator runs `reset-failed`. The 60-70s band the
+  previous shape had is genuinely gone rather than moved, and this replaces it —
+  but it differs in kind, and that is why the trade is right: the new failure is
+  **honest** (the unit is failed, the exec resolved, the claim is released
+  correctly and the row is consistent with the host), where the old one left the
+  row saying `stopped` over a running bot with the claim held for three minutes.
+  A host that hits this is misconfigured or under load in a way an operator
+  should see. The `rm -rf` half of it is the part to fix first, with a host-side
+  deadline.
 - **`open-mcc-auth@.service` is a known, unclosed instance of exactly that
   inversion, and the rule above does not yet hold for it.** It carries the same
   `ExecStartPre=/usr/bin/flock -w 30`, has no `TimeoutStartSec` and no

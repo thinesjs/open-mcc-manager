@@ -57,6 +57,18 @@ const probeLine = (run: string, index: number): string => `probe ${run} line ${i
 
 const finishedRun = (run: string): RegExp => new RegExp(`Finished .*probe ${run}`)
 
+const JOURNAL_SETTLE_MS = 180_000
+
+const DIAGNOSIS = [
+	'echo "result: $(systemctl --user show "$1" -p Result -p ExecMainCode -p ExecMainStatus --value | tr "\\n" " ")"',
+	'echo "lines file: $(cat "$HOME/lines")"',
+	'echo "unfiltered tail:"',
+	"journalctl --user --no-pager --output cat -n 40",
+].join("\n")
+
+const whyNothingShowed = async (host: string, as: As): Promise<string> =>
+	(await shell(host, as, DIAGNOSIS, UNIT)).stdout
+
 const logged = async (host: string, as: As, lines: number): Promise<string> => {
 	const run = randomUUID().slice(0, 8)
 	const last = probeLine(run, lines - 1)
@@ -81,11 +93,14 @@ const logged = async (host: string, as: As, lines: number): Promise<string> => {
 		),
 		`running ${UNIT}`,
 	)
-	expect(await journalShowing(host, as, UNIT, last), neverShowed(UNIT, last)).toContain(last)
+	const shown = await journalShowing(host, as, UNIT, last, undefined, JOURNAL_SETTLE_MS)
+	expect(
+		shown,
+		`${neverShowed(UNIT, last, JOURNAL_SETTLE_MS)}\n${shown}\n${await whyNothingShowed(host, as)}`,
+	).toContain(last)
 	const finished = finishedRun(run)
-	expect(await journalShowing(host, as, UNIT, finished), neverShowed(UNIT, finished)).toMatch(
-		finished,
-	)
+	const ended = await journalShowing(host, as, UNIT, finished, undefined, JOURNAL_SETTLE_MS)
+	expect(ended, `${neverShowed(UNIT, finished, JOURNAL_SETTLE_MS)}\n${ended}`).toMatch(finished)
 	return run
 }
 

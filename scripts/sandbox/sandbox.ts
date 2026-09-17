@@ -339,8 +339,9 @@ export const journalShowing = async (
 	unit: string,
 	wanted: string | RegExp,
 	since?: string,
+	waitMs: number = JOURNAL_WAIT_MS,
 ): Promise<string> => {
-	const deadline = Date.now() + JOURNAL_WAIT_MS
+	const deadline = Date.now() + waitMs
 	for (;;) {
 		const journal = await journalOf(container, as, unit, since)
 		if (shows(journal, wanted) || Date.now() >= deadline) return journal
@@ -348,8 +349,12 @@ export const journalShowing = async (
 	}
 }
 
-export const neverShowed = (unit: string, wanted: string | RegExp): string =>
-	`${unit} did not log ${typeof wanted === "string" ? JSON.stringify(wanted) : String(wanted)} within ${JOURNAL_WAIT_MS}ms; its journal follows`
+export const neverShowed = (
+	unit: string,
+	wanted: string | RegExp,
+	waitMs: number = JOURNAL_WAIT_MS,
+): string =>
+	`${unit} did not log ${typeof wanted === "string" ? JSON.stringify(wanted) : String(wanted)} within ${waitMs}ms; its journal follows`
 
 export const homeOf = (account: string): string =>
 	account === "root" ? "/root" : `/home/${account}`

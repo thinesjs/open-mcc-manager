@@ -7,7 +7,7 @@ import {
 	type HostCheckReport,
 	hostSetupScript,
 } from "@open-mcc/contracts"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import {
@@ -56,7 +56,10 @@ let stored: StoredKey[] = KEYS
 
 let listFailure: Error | null = null
 
+let keyReads = 0
+
 const listKeys = async (): Promise<StoredKey[]> => {
+	keyReads += 1
 	if (listFailure !== null) throw listFailure
 	return stored
 }
@@ -92,6 +95,8 @@ afterEach(() => {
 	writeText.mockClear()
 	stored = KEYS
 	listFailure = null
+	keyReads = 0
+	focusManager.setFocused(undefined)
 })
 
 const FINGERPRINT = `SHA256:${"A".repeat(43)}`
@@ -139,7 +144,10 @@ const KEY_REFUSED: HostCheckReport = {
 
 const newClient = () =>
 	new QueryClient({
-		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		defaultOptions: {
+			queries: { retry: false, refetchOnWindowFocus: false },
+			mutations: { retry: false },
+		},
 	})
 
 const KEY_PURPOSE = "The key below is how OpenMCC reaches this server after setup."
@@ -1072,5 +1080,19 @@ describe("a step the wizard will not let the operator leave", () => {
 
 		expect(screen.queryByText(NEEDS_FINGERPRINT)).toBeNull()
 		expect(screen.getByText("Confirms this server can run bots.")).toBeDefined()
+	})
+})
+
+describe("the key list under a step the operator is standing in", () => {
+	it("★ is left alone when the tab comes back, which once emptied step 3 mid-enrolment", async () => {
+		mount()
+		await waitFor(() => expect(keyReads).toBe(1))
+
+		focusManager.setFocused(false)
+		await act(async () => {
+			focusManager.setFocused(true)
+		})
+
+		expect(keyReads).toBe(1)
 	})
 })

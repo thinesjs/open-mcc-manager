@@ -1,5 +1,6 @@
+import { UNAMBIGUOUS_SECRET_PATTERNS } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
-import { redact, redactCommand } from "./redact"
+import { LOG_ONLY_PATTERNS, REDACTION_PATTERNS, redact, redactCommand } from "./redact"
 
 describe("redact", () => {
 	it("masks a bearer token", () => {
@@ -130,5 +131,37 @@ describe("a console command on its way into the audit log", () => {
 
 	it("mangles the ordinary command that reads as a device code, which is the price of the composition", () => {
 		expect(redactCommand("/team join BLUE-TEAM")).toBe("/team join [redacted code]")
+	})
+})
+
+describe("the patterns the log redactor shares with the browser", () => {
+	it("applies every one of them, so a pattern added there is never skipped here", () => {
+		for (const pattern of Object.values(UNAMBIGUOUS_SECRET_PATTERNS)) {
+			expect(REDACTION_PATTERNS).toContain(pattern)
+		}
+	})
+
+	it("applies four more that the browser must not, and nothing besides", () => {
+		for (const pattern of LOG_ONLY_PATTERNS) {
+			expect(REDACTION_PATTERNS).toContain(pattern)
+		}
+		expect(REDACTION_PATTERNS).toHaveLength(
+			Object.keys(UNAMBIGUOUS_SECRET_PATTERNS).length + LOG_ONLY_PATTERNS.length,
+		)
+		expect(LOG_ONLY_PATTERNS).toHaveLength(4)
+	})
+
+	it("still masks each of the four, which only a log line sees", () => {
+		expect(redact("Authorization: Bearer abc123def456")).toBe("Authorization: Bearer [redacted]")
+		expect(redact("enter code ABCD-EFGH")).toBe("enter code [redacted code]")
+		expect(redact("token=123456789:AAF-abcdefghijklmnopqrstuvwxyz012345")).toBe(
+			"token=[redacted token]",
+		)
+		expect(redact("AUTH PLAIN AGFiYwBkZWY=")).toBe("AUTH PLAIN [redacted]")
+	})
+
+	it("keeps the order it has always had, which decides what a later pattern can still see", () => {
+		expect(redact("Authorization: Bearer ABCD-EFGH")).toBe("Authorization: Bearer [redacted]")
+		expect(redact("SEALBOX_KEYS=ABCD-EFGH")).toBe("SEALBOX_KEYS=[redacted] code]")
 	})
 })

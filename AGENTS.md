@@ -1356,9 +1356,13 @@ per service.
   `maskUnambiguousSecrets` would change is not stored at all rather than stored
   masked, because a masked entry invites a click that silently fails, and
   `readCommandHistory` drops any such entry an earlier visit left behind and
-  writes the shortened list back. Every read and write stays inside a
-  `try`/`catch` — `localStorage` throws in a private window and with site data
-  blocked.
+  writes the shortened list back. The purge is not left to that read alone:
+  `command-history.ts` sweeps **every** `open-mcc:command-history:` key as the
+  module loads, so a secret in another bot's history dies with the first console
+  anyone opens rather than surviving until someone opens that one. Theme and
+  view mode are the only other keys this dashboard stores and the sweep leaves
+  both alone. Every read and write stays inside a `try`/`catch` — `localStorage`
+  throws in a private window and with site data blocked.
 
 ## Tests
 

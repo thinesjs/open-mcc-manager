@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
 	COMMAND_HISTORY_LIMIT,
 	COMMAND_HISTORY_PREFIX,
+	purgeCommandHistories,
 	readCommandHistory,
 	rememberCommand,
 	writeCommandHistory,
 } from "./command-history"
+
+const THEME_KEY = "open-mcc-theme"
+const VIEW_KEY = "hosts"
 
 const keyFor = (instanceId: string): string => `${COMMAND_HISTORY_PREFIX}${instanceId}`
 
@@ -117,8 +121,44 @@ describe("a secret left in storage by an earlier visit", () => {
 		}
 		vi.spyOn(Storage.prototype, "getItem").mockImplementation(blocked)
 		vi.spyOn(Storage.prototype, "setItem").mockImplementation(blocked)
+		vi.spyOn(Storage.prototype, "key").mockImplementation(blocked)
 
 		expect(readCommandHistory("abc123")).toEqual([])
 		expect(() => writeCommandHistory("abc123", ["/list"])).not.toThrow()
+		expect(() => purgeCommandHistories()).not.toThrow()
+	})
+})
+
+describe("every bot's history, not only the console being opened", () => {
+	it("is swept as the module loads", async () => {
+		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("def456", [
+			"/notify https://hooks.slack.com/services/T000/B000/XXXXXXXX",
+			"/say keep me",
+		])
+		writeCommandHistory("ghi789", ["/team join BLUE-TEAM"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+		window.localStorage.setItem(VIEW_KEY, "list")
+
+		vi.resetModules()
+		await import("./command-history")
+
+		expect(stored("abc123")).toBe("/list")
+		expect(stored("def456")).toBe("/say keep me")
+		expect(stored("ghi789")).toBe("/team join BLUE-TEAM")
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+		expect(window.localStorage.getItem(VIEW_KEY)).toBe("list")
+	})
+
+	it("is swept without disturbing a history that carries no secret", () => {
+		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("def456", ["/say hi", "/list"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+
+		purgeCommandHistories()
+
+		expect(stored("abc123")).toBe("/list")
+		expect(stored("def456")).toBe("/say hi\n/list")
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
 	})
 })

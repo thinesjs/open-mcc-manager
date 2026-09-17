@@ -558,12 +558,13 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 	it("fails the unit, rather than letting it start behind the manager, when the lock outlasts its start phase", async () => {
 		await ready().manager.controller.stop(owner, botId)
 		const lock = `${botDir(botId)}/collect.lock`
+		const enforced = unitSeconds(await property(unitOf(botId), "TimeoutStartUSec"))
 		const holding = shell(
 			host,
-			{ ...as, timeoutMs: 120_000 },
-			'/usr/bin/flock -w 60 "$1" sleep "$2"',
+			{ ...as, timeoutMs: 240_000 },
+			'/usr/bin/flock -w 180 "$1" sleep "$2"',
 			lock,
-			String(START_TIMEOUT_SECONDS + LOCK_HOLD_MARGIN_SECONDS),
+			String(enforced + LOCK_HOLD_MARGIN_SECONDS),
 		)
 		succeeded(
 			await shell(

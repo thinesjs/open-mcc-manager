@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { CLIENT_PROBE_TIMEOUT_MS } from "./provision"
 import {
 	AUTH_UNIT_NAME,
 	INSTANCE_UNIT_NAME,
@@ -41,6 +40,7 @@ const instanceUnit = (network: string): string =>
 		String.raw`ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout 5 sh -c "echo /quit > \"${DIR}/control\"" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'`,
 		"StandardOutput=journal",
 		"StandardError=journal",
+		"TimeoutStartSec=25",
 		"TimeoutStopSec=20",
 		"Restart=on-failure",
 		"RestartPreventExitStatus=4",
@@ -159,13 +159,15 @@ describe("the unit that runs a bot in its container", () => {
 		expect(lineOf(instance, "ExecStart=")).toMatch(/ <&3'$/)
 	})
 
-	it("bounds its whole start job, with room for the lock it waits on and the container it starts", () => {
+	it("bounds its own start phase, and leaves the job timeout above it as a backstop", () => {
 		const unitSection = instance.slice(0, instance.indexOf("[Service]"))
 		const jobSeconds = Number(/^JobTimeoutSec=(\d+)$/m.exec(unitSection)?.[1])
+		const startSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(instance)?.[1])
 		const lockSeconds = Number(/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(instance)?.[1])
 
 		expect(lockSeconds).toBeGreaterThan(0)
-		expect(jobSeconds).toBeGreaterThanOrEqual(lockSeconds + CLIENT_PROBE_TIMEOUT_MS / 1000)
+		expect(startSeconds).toBeGreaterThan(0)
+		expect(lockSeconds + startSeconds).toBeLessThan(jobSeconds)
 	})
 
 	it("keeps the start rate limit where systemd reads it, and the watchdog policy", () => {

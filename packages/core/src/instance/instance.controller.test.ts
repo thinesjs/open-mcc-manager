@@ -77,6 +77,7 @@ import {
 	createInstanceController,
 	ForbiddenError,
 	HostUnreachableError,
+	INSTANCE_STEP_TIMEOUT_MS,
 	InstanceAuthInProgressError,
 	InstanceBotConfigUnusableError,
 	InstanceBusyError,
@@ -3408,7 +3409,7 @@ describe("saving settings under a claim", () => {
 		},
 		{
 			named: "a start",
-			budget: 110_000,
+			budget: 115_000,
 			run: async (controller: ReturnType<typeof createInstanceController>) => {
 				await controller.start(owner, "abc123")
 			},
@@ -3422,7 +3423,7 @@ describe("saving settings under a claim", () => {
 		},
 		{
 			named: "a restart",
-			budget: 155_000,
+			budget: 160_000,
 			run: async (controller: ReturnType<typeof createInstanceController>) => {
 				await controller.restart(owner, "abc123")
 			},
@@ -3476,7 +3477,9 @@ describe("saving settings under a claim", () => {
 
 			expect(jobSeconds).toBeGreaterThan(0)
 			expect(started).toBeGreaterThanOrEqual(0)
-			expect(made.transport.timeouts[started]).toBeGreaterThan(jobSeconds * 1000)
+			expect(made.transport.timeouts[started]).toBeGreaterThanOrEqual(
+				jobSeconds * 1000 + INSTANCE_STEP_TIMEOUT_MS,
+			)
 		},
 	)
 

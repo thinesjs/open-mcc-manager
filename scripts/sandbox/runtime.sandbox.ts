@@ -68,6 +68,12 @@ const PREFLIGHT_REFUSAL =
 
 const JOB_TIMEOUT_SECONDS = Number(/^JobTimeoutSec=(\d+)$/m.exec(INSTANCE_UNIT)?.[1])
 
+const START_TIMEOUT_SECONDS = Number(/^TimeoutStartSec=(\d+)$/m.exec(INSTANCE_UNIT)?.[1])
+
+const LOCK_WAIT_SECONDS = Number(
+	/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(INSTANCE_UNIT)?.[1],
+)
+
 const unitSeconds = (reported: string): number =>
 	Number(/(\d+)min/.exec(reported)?.[1] ?? "0") * 60 +
 	Number(/(?:^|\s)(\d+)s/.exec(reported)?.[1] ?? "0")
@@ -259,13 +265,14 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		).toBe("active")
 	})
 
-	it("bounds its whole start job where the manager's start wait was sized from", async () => {
+	it("orders its start phase inside its job timeout inside the manager's wait", async () => {
 		const job = await property(unitOf(botId), "JobTimeoutUSec")
 		const perExec = await property(unitOf(botId), "TimeoutStartUSec")
 
 		expect(unitSeconds(job), `JobTimeoutUSec is ${job}`).toBe(JOB_TIMEOUT_SECONDS)
+		expect(unitSeconds(perExec), `TimeoutStartUSec is ${perExec}`).toBe(START_TIMEOUT_SECONDS)
+		expect(LOCK_WAIT_SECONDS + unitSeconds(perExec)).toBeLessThan(unitSeconds(job))
 		expect(UNIT_START_TIMEOUT_MS).toBeGreaterThan(unitSeconds(job) * 1000)
-		expect(unitSeconds(perExec), `TimeoutStartUSec is ${perExec}`).toBeGreaterThan(unitSeconds(job))
 	})
 
 	it("stops the bot for its sleep window and starts it again when the window ends", async () => {
@@ -545,6 +552,66 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			unit: "active",
 			row: "running",
 			retry: undefined,
+		})
+	}, 300_000)
+
+	it("fails the unit, rather than letting it start behind the manager, when the lock outlasts its start phase", async () => {
+		await ready().manager.controller.stop(owner, botId)
+		const lock = `${botDir(botId)}/collect.lock`
+		const holding = shell(
+			host,
+			{ ...as, timeoutMs: 120_000 },
+			'/usr/bin/flock -w 60 "$1" sleep "$2"',
+			lock,
+			String(START_TIMEOUT_SECONDS + LOCK_HOLD_MARGIN_SECONDS),
+		)
+		succeeded(
+			await shell(
+				host,
+				as,
+				'for attempt in $(seq 50); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1',
+				lock,
+			),
+			"waiting for the held lock",
+		)
+		const since = await hostClock()
+		const began = Date.now()
+
+		const refusal = await ready()
+			.manager.controller.start(owner, botId)
+			.then(
+				() => undefined,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
+			)
+
+		const elapsed = Date.now() - began
+		const state = await property(unitOf(botId), "ActiveState")
+		const result = await property(unitOf(botId), "Result")
+		succeeded(await holding, "holding the bot's collect.lock")
+		const retry = await ready()
+			.manager.controller.start(owner, botId)
+			.then(
+				() => undefined,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
+			)
+
+		expect(
+			{
+				refused: refusal !== undefined,
+				endedBeforeTheManagerGaveUp: elapsed < UNIT_START_TIMEOUT_MS,
+				state,
+				result,
+				recovered: retry === undefined ? undefined : mapKnownError(retry)?.errorCode,
+				unit: await property(unitOf(botId), "ActiveState"),
+			},
+			await journalSince(unitOf(botId), since),
+		).toEqual({
+			refused: true,
+			endedBeforeTheManagerGaveUp: true,
+			state: "failed",
+			result: "timeout",
+			recovered: undefined,
+			unit: "active",
 		})
 	}, 300_000)
 })

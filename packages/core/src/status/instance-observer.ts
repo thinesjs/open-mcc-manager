@@ -1,4 +1,10 @@
-import { connectionSignals, parseJournal } from "@open-mcc/contracts/boundary/journal"
+import {
+	connectionSignals,
+	isJournalCursor,
+	journalBatch,
+	journalRefusedCursor,
+	parseJournal,
+} from "@open-mcc/contracts/boundary/journal"
 import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { journalctl } from "../host/profile"
 import { unitName } from "../instance/unit"
@@ -10,31 +16,23 @@ export const JOURNAL_MAX_LINES = 2_000
 
 export const SEED_WINDOW = "-7d"
 
-export const journalTimestamp = (iso: string): string => {
-	const at = new Date(iso)
-	if (Number.isNaN(at.getTime())) return SEED_WINDOW
-	return `${at.toISOString().slice(0, 19).replace("T", " ")} UTC`
-}
-
-export const journalSince = (cursor: string | null): string =>
-	cursor === null ? SEED_WINDOW : journalTimestamp(cursor)
+export const journalResume = (cursor: string | null): string | null =>
+	cursor !== null && isJournalCursor(cursor) ? cursor : null
 
 export const journalCommand = (instanceId: string, cursor: string | null): string => {
-	const window = `-u ${unitName(instanceId)} --since ${JSON.stringify(journalSince(cursor))} --utc -o short-iso --no-pager`
-	if (cursor === null) return journalctl(`${window} -n ${JOURNAL_MAX_LINES}`)
-	return `{ ${journalctl(window)} || true; } | head -n ${JOURNAL_MAX_LINES + 1}`
-}
-
-export const journalLineCount = (raw: string): number => {
-	const parts = raw.split("\n")
-	return parts.at(-1) === "" ? parts.length - 1 : parts.length
+	const resume = journalResume(cursor)
+	const read = `-u ${unitName(instanceId)} --utc -o short-iso --no-pager --show-cursor`
+	if (resume === null) {
+		return journalctl(`${read} --since ${JSON.stringify(SEED_WINDOW)} -n ${JOURNAL_MAX_LINES}`)
+	}
+	return journalctl(`${read} --cursor ${JSON.stringify(resume)} -n ${JOURNAL_MAX_LINES + 1}`)
 }
 
 export type InstanceReading = {
 	changes: ConnectionChange[]
 	cursor: string | null
 	full: boolean
-	withheldAt: string | null
+	refused: boolean
 }
 
 export const readConnectionChanges = async (
@@ -43,22 +41,29 @@ export const readConnectionChanges = async (
 	current: ConnectionCurrent,
 	cursor: string | null,
 ): Promise<InstanceReading> => {
+	const resume = journalResume(cursor)
 	const result = await reader.exec(asReadCommand(journalCommand(instanceId, cursor)))
-	if (result.exitCode !== 0) return { changes: [], cursor, full: false, withheldAt: null }
+	if (result.exitCode !== 0) {
+		return {
+			changes: [],
+			cursor,
+			full: false,
+			refused: resume !== null && journalRefusedCursor(result.stderr),
+		}
+	}
 
-	const full = cursor !== null && journalLineCount(result.stdout) > JOURNAL_MAX_LINES
-	const parsed = parseJournal(result.stdout)
-	const lines = full ? parsed.slice(0, -1) : parsed
-	const beyond = connectionSignals(full ? parsed.slice(-1) : []).length
-	const sighted = connectionSignals(parsed)
+	const batch = journalBatch(result.stdout)
+	const full = resume !== null && batch.lines.length > JOURNAL_MAX_LINES
+	const sighted = connectionSignals(parseJournal(batch.lines.join("\n")))
+	const beyond = connectionSignals(
+		parseJournal(full ? batch.lines.slice(-1).join("\n") : ""),
+	).length
 	const signals = sighted.slice(0, sighted.length - beyond)
-	const withheldAt = full ? (parsed.at(-1)?.at.toISOString() ?? null) : null
-	const last = lines.at(-1)
-	const nextCursor = last === undefined ? cursor : last.at.toISOString()
+	const next = batch.cursor ?? cursor
 
-	if (cursor === null) {
+	if (resume === null) {
 		const latest = signals.at(-1)
-		if (latest === undefined) return { changes: [], cursor: nextCursor, full, withheldAt }
+		if (latest === undefined) return { changes: [], cursor: next, full, refused: false }
 		return {
 			changes: [
 				latest.kind === "joined"
@@ -85,13 +90,13 @@ export const readConnectionChanges = async (
 								reason: latest.reason,
 							},
 			],
-			cursor: nextCursor,
+			cursor: next,
 			full,
-			withheldAt,
+			refused: false,
 		}
 	}
 
-	return { changes: changesFromSignals(current, signals), cursor: nextCursor, full, withheldAt }
+	return { changes: changesFromSignals(current, signals), cursor: next, full, refused: false }
 }
 
 export const JOURNAL_DRAIN_ROUNDS = 4
@@ -102,12 +107,10 @@ export type JournalDrain = {
 	lease: () => Promise<JournalLease | undefined>
 	record: (changes: ConnectionChange[]) => Promise<void>
 	saveCursor: (cursor: string) => Promise<void>
-	onSkipped: (second: string) => void
+	onRefused: (cursor: string) => void
 }
 
 export type DrainOutcome = "drained" | "unleased"
-
-const secondAfter = (iso: string): string => new Date(new Date(iso).getTime() + 1_000).toISOString()
 
 const connectionAfter = (
 	current: ConnectionCurrent,
@@ -140,6 +143,12 @@ export const drainConnectionChanges = async (
 
 		await drain.record(reading.changes)
 
+		if (reading.refused && at !== null) {
+			drain.onRefused(at)
+			at = null
+			continue
+		}
+
 		const next = reading.cursor
 		if (next === null) return "drained"
 		if (!reading.full) {
@@ -147,12 +156,9 @@ export const drainConnectionChanges = async (
 			return "drained"
 		}
 
-		const escaped = next === at
-		if (escaped && reading.withheldAt === next) drain.onSkipped(next)
-		const resume = escaped ? secondAfter(next) : next
-		await drain.saveCursor(resume)
+		await drain.saveCursor(next)
 		seen = connectionAfter(seen, reading.changes)
-		at = resume
+		at = next
 	}
 
 	return "drained"

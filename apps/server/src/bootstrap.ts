@@ -333,11 +333,11 @@ export const startServer = async (
 								changes,
 							),
 						saveCursor: (next) => statusController.saveConnectionCursor(scope, instance.id, next),
-						onSkipped: (second) =>
-							logger.warn("Journal second over the read cap, its remaining lines were skipped", {
+						onRefused: (refused) =>
+							logger.warn("Journal position no longer usable, reading this bot's journal afresh", {
 								instanceId: instance.id,
 								instanceName: instance.name,
-								second,
+								cursor: refused,
 							}),
 					},
 					instance.id,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import {
 	isJournalCursor,
@@ -9,6 +10,7 @@ import {
 	type As,
 	buildImage,
 	exec,
+	journalOf,
 	journalShowing,
 	neverShowed,
 	ROOT,
@@ -32,37 +34,74 @@ const INSTANCE = "cursorprobe"
 const UNIT = `open-mcc@${INSTANCE}.service`
 
 const PROBE = [
-	'count=$(cat "$HOME/lines")',
+	'read -r count run < "$HOME/lines"',
 	"i=0",
-	'while [ "$i" -lt "$count" ]; do echo "probe line $i"; i=$((i + 1)); done',
+	'while [ "$i" -lt "$count" ]; do echo "probe $run line $i"; i=$((i + 1)); done',
 	"",
 ].join("\n")
 
-const UNIT_FILE = [
-	"[Unit]",
-	"Description=open-mcc-manager instance %i",
-	"[Service]",
-	"Type=oneshot",
-	`ExecStart=/bin/sh /home/${ACCOUNT}/probe.sh`,
-	"",
-].join("\n")
+const unitFile = (run: string): string =>
+	[
+		"[Unit]",
+		`Description=probe ${run}`,
+		"[Service]",
+		"Type=oneshot",
+		`ExecStart=/bin/sh /home/${ACCOUNT}/probe.sh`,
+		"",
+	].join("\n")
 
 const hosts = new Map<string, string>()
 const accounts = new Map<string, As>()
 
-const logged = async (host: string, as: As, lines: number): Promise<void> => {
+const probeLine = (run: string, index: number): string => `probe ${run} line ${index}`
+
+const finishedRun = (run: string): RegExp => new RegExp(`Finished .*probe ${run}`)
+
+const JOURNAL_SETTLE_MS = 180_000
+
+const DIAGNOSIS = [
+	'echo "result: $(systemctl --user show "$1" -p Result -p ExecMainCode -p ExecMainStatus --value | tr "\\n" " ")"',
+	'echo "lines file: $(cat "$HOME/lines")"',
+	'echo "unfiltered tail:"',
+	"journalctl --user --no-pager --output cat -n 40",
+].join("\n")
+
+const whyNothingShowed = async (host: string, as: As): Promise<string> =>
+	(await shell(host, as, DIAGNOSIS, UNIT)).stdout
+
+const logged = async (host: string, as: As, lines: number): Promise<string> => {
+	const run = randomUUID().slice(0, 8)
+	const last = probeLine(run, lines - 1)
+	expect(
+		await journalOf(host, as, UNIT),
+		`${last} is already in the journal, so waiting for it would wait for nothing`,
+	).not.toContain(last)
 	succeeded(
 		await shell(
 			host,
-			{ ...as, input: String(lines) },
+			{ ...as, input: unitFile(run) },
+			`cat > "$HOME/.config/systemd/user/open-mcc@.service" && systemctl --user daemon-reload`,
+		),
+		"naming the run in the unit",
+	)
+	succeeded(
+		await shell(
+			host,
+			{ ...as, input: `${String(lines)} ${run}\n` },
 			'cat > "$HOME/lines" && systemctl --user start "$1"',
 			UNIT,
 		),
 		`running ${UNIT}`,
 	)
-	const wanted = `probe line ${lines - 1}`
-	const journal = await journalShowing(host, as, UNIT, wanted)
-	if (!journal.includes(wanted)) throw new Error(neverShowed(UNIT, wanted))
+	const shown = await journalShowing(host, as, UNIT, last, undefined, JOURNAL_SETTLE_MS)
+	expect(
+		shown,
+		`${neverShowed(UNIT, last, JOURNAL_SETTLE_MS)}\n${shown}\n${await whyNothingShowed(host, as)}`,
+	).toContain(last)
+	const finished = finishedRun(run)
+	const ended = await journalShowing(host, as, UNIT, finished, undefined, JOURNAL_SETTLE_MS)
+	expect(ended, `${neverShowed(UNIT, finished, JOURNAL_SETTLE_MS)}\n${ended}`).toMatch(finished)
+	return run
 }
 
 const ran = async (host: string, as: As, command: string): Promise<string> => {
@@ -106,16 +145,12 @@ beforeAll(async () => {
 			"waiting for the account's systemd",
 		)
 		succeeded(
-			await shell(host, { ...as, input: PROBE }, 'cat > "$HOME/probe.sh"'),
-			"writing the probe",
-		)
-		succeeded(
 			await shell(
 				host,
-				{ ...as, input: UNIT_FILE },
-				'mkdir -p "$HOME/.config/systemd/user" && cat > "$HOME/.config/systemd/user/open-mcc@.service" && systemctl --user daemon-reload',
+				{ ...as, input: PROBE },
+				'mkdir -p "$HOME/.config/systemd/user" && cat > "$HOME/probe.sh"',
 			),
-			"writing the probe unit",
+			"writing the probe",
 		)
 	}
 }, 1_800_000)
@@ -175,12 +210,16 @@ describe.each(TARGETS.map((target) => ({ ...target })))("$name", ({ name }) => {
 		const as = accountOf(name)
 		const seeded = journalBatch(await ran(host, as, SEED))
 		const resume = seeded.cursor ?? ""
-		await logged(host, as, 5)
+		const run = await logged(host, as, 5)
 
-		const batch = journalBatch(await ran(host, as, journalCommand(INSTANCE, resume)))
+		const answer = await ran(host, as, journalCommand(INSTANCE, resume))
+		const batch = journalBatch(answer)
 
-		expect(batch.lines[0]).toBe(seeded.lines.at(-1))
-		expect(batch.lines.filter((line) => line.endsWith("probe line 4"))).toHaveLength(1)
+		expect(batch.lines[0], answer).toBe(seeded.lines.at(-1))
+		expect(
+			batch.lines.filter((line) => line.endsWith(probeLine(run, 4))),
+			answer,
+		).toHaveLength(1)
 		expect(batch.cursor).not.toBe(resume)
 	})
 
@@ -193,11 +232,15 @@ describe.each(TARGETS.map((target) => ({ ...target })))("$name", ({ name }) => {
 			await shell(host, ROOT, "journalctl --rotate && journalctl --vacuum-files=1 >/dev/null"),
 			"vacuuming the journal",
 		)
-		await logged(host, as, 7)
+		const run = await logged(host, as, 7)
 
-		const batch = journalBatch(await ran(host, as, journalCommand(INSTANCE, resume)))
+		const answer = await ran(host, as, journalCommand(INSTANCE, resume))
+		const batch = journalBatch(answer)
 
-		expect(batch.lines.filter((line) => line.endsWith("probe line 6"))).toHaveLength(1)
+		expect(
+			batch.lines.filter((line) => line.endsWith(probeLine(run, 6))),
+			answer,
+		).toHaveLength(1)
 		expect(isJournalCursor(batch.cursor ?? "")).toBe(true)
 	})
 
@@ -217,14 +260,15 @@ describe.each(TARGETS.map((target) => ({ ...target })))("$name", ({ name }) => {
 		const as = accountOf(name)
 		const seeded = journalBatch(await ran(host, as, SEED))
 		const resume = seeded.cursor ?? ""
-		await logged(host, as, JOURNAL_MAX_LINES + 500)
+		const run = await logged(host, as, JOURNAL_MAX_LINES + 500)
 
-		const batch = journalBatch(await ran(host, as, journalCommand(INSTANCE, resume)))
+		const answer = await ran(host, as, journalCommand(INSTANCE, resume))
+		const batch = journalBatch(answer)
 
-		expect(batch.lines).toHaveLength(JOURNAL_MAX_LINES + 1)
+		expect(batch.lines, `${batch.lines.length} lines`).toHaveLength(JOURNAL_MAX_LINES + 1)
 		expect(batch.lines[0]).toBe(seeded.lines.at(-1))
-		expect(batch.lines.some((line) => line.endsWith("probe line 100"))).toBe(true)
-		expect(batch.lines.some((line) => line.endsWith(`probe line ${JOURNAL_MAX_LINES + 400}`))).toBe(
+		expect(batch.lines.some((line) => line.endsWith(probeLine(run, 100)))).toBe(true)
+		expect(batch.lines.some((line) => line.endsWith(probeLine(run, JOURNAL_MAX_LINES + 400)))).toBe(
 			false,
 		)
 	})

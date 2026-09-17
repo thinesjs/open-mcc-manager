@@ -167,16 +167,14 @@ function InstanceDetailPage() {
 		}),
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
+	const afterCancel = async () => {
+		setSignInWait(undefined)
+		authenticateMutation.reset()
+		completeMutation.reset()
+		await onSuccess()
+	}
 	const cancelAuthMutation = useMutation(
-		trpc.instance.cancelAuthentication.mutationOptions({
-			onSuccess: async () => {
-				setSignInWait(undefined)
-				authenticateMutation.reset()
-				completeMutation.reset()
-				await onSuccess()
-			},
-			onError,
-		}),
+		trpc.instance.cancelAuthentication.mutationOptions({ onSuccess: afterCancel, onError }),
 	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
@@ -281,9 +279,9 @@ function InstanceDetailPage() {
 			{actionError ? (
 				<InstanceActionError
 					error={actionError}
+					instanceId={instanceId}
 					busy={busy}
-					cancelAuthPending={cancelAuthMutation.isPending}
-					onCancelAuth={() => cancelAuthMutation.mutate({ instanceId })}
+					onCancelled={afterCancel}
 				/>
 			) : null}
 

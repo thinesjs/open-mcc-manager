@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { authClient } from "~/lib/auth-client"
 import { clearCommandHistories } from "~/lib/command-history"
 import { groupPaletteItems, type PaletteItem, rankPaletteItems } from "~/lib/command-palette"
+import type { TRPCErrorLike } from "~/lib/errors"
 import { applyTheme, resolveTheme, storePreference, type ThemePreference } from "~/lib/theme"
 import { useTRPC } from "~/lib/trpc"
 import { cn } from "~/lib/utils"
@@ -32,9 +33,10 @@ export type CommandPaletteProps = {
 	open: boolean
 	instant: boolean
 	onClose: () => void
+	onActionError: (instanceId: string, error: TRPCErrorLike) => void
 }
 
-export const CommandPalette = ({ open, instant, onClose }: CommandPaletteProps) => {
+export const CommandPalette = ({ open, instant, onClose, onActionError }: CommandPaletteProps) => {
 	const reduced = useReducedMotion() ?? false
 	const navigate = useNavigate()
 	const trpc = useTRPC()
@@ -45,10 +47,14 @@ export const CommandPalette = ({ open, instant, onClose }: CommandPaletteProps) 
 	const queryClient = useQueryClient()
 	const instancesQuery = useQuery({ ...trpc.instance.list.queryOptions(), enabled: open })
 	const hostsQuery = useQuery({ ...trpc.host.list.queryOptions(), enabled: open })
-	const refresh = { onSuccess: () => queryClient.invalidateQueries() }
-	const startMutation = useMutation(trpc.instance.start.mutationOptions(refresh))
-	const stopMutation = useMutation(trpc.instance.stop.mutationOptions(refresh))
-	const restartMutation = useMutation(trpc.instance.restart.mutationOptions(refresh))
+	const reportOrRefresh = {
+		onSuccess: () => queryClient.invalidateQueries(),
+		onError: (error: TRPCErrorLike, variables: { instanceId: string }) =>
+			onActionError(variables.instanceId, error),
+	}
+	const startMutation = useMutation(trpc.instance.start.mutationOptions(reportOrRefresh))
+	const stopMutation = useMutation(trpc.instance.stop.mutationOptions(reportOrRefresh))
+	const restartMutation = useMutation(trpc.instance.restart.mutationOptions(reportOrRefresh))
 
 	const setTheme = useCallback((preference: ThemePreference) => {
 		storePreference(window.localStorage, preference)

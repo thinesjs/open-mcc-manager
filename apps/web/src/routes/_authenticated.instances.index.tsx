@@ -8,6 +8,7 @@ import { Boxes, ChevronRight, CircleAlert, Plus, Server } from "lucide-react"
 import { useState } from "react"
 import { CreateInstanceForm } from "~/components/create-instance-form"
 import { EmptyState } from "~/components/empty-state"
+import { InstanceActionError } from "~/components/instance-action-error"
 import { InstanceContextMenu } from "~/components/instance-context-menu"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
 import { PlayerAvatar } from "~/components/player-avatar"
@@ -15,7 +16,7 @@ import { Alert } from "~/components/ui/alert"
 import { Button, buttonVariants } from "~/components/ui/button"
 import { Modal } from "~/components/ui/modal"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
-import { getErrorMessage } from "~/lib/errors"
+import { getErrorMessage, type TRPCErrorLike } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_INSTANCE_STATUSES } from "~/lib/freshness"
 import { describeExitCode } from "~/lib/instance-status"
 import { useTRPC } from "~/lib/trpc"
@@ -28,6 +29,9 @@ function InstanceListPage() {
 	const navigate = useNavigate()
 	const trpc = useTRPC()
 	const [view, setView] = useViewMode("open-mcc.view.instances")
+	const [refused, setRefused] = useState<{ instanceId: string; error: TRPCErrorLike } | undefined>(
+		undefined,
+	)
 	const [creating, setCreating] = useState(false)
 	const [instancesQuery, hostsQuery] = useSuspenseQueries({
 		queries: [
@@ -73,6 +77,15 @@ function InstanceListPage() {
 				</Alert>
 			) : null}
 
+			{refused ? (
+				<InstanceActionError
+					error={refused.error}
+					instanceId={refused.instanceId}
+					busy={false}
+					onCancelled={() => setRefused(undefined)}
+				/>
+			) : null}
+
 			{instancesQuery.data.length === 0 ? (
 				<EmptyState
 					icon={Boxes}
@@ -101,7 +114,11 @@ function InstanceListPage() {
 				view === "cards" ? (
 					<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 						{instancesQuery.data.map((instance) => (
-							<InstanceContextMenu key={instance.id} instance={instance}>
+							<InstanceContextMenu
+								key={instance.id}
+								instance={instance}
+								onActionError={(instanceId, error) => setRefused({ instanceId, error })}
+							>
 								<Link
 									to="/instances/$instanceId"
 									params={{ instanceId: instance.id }}
@@ -151,6 +168,7 @@ function InstanceListPage() {
 									<InstanceContextMenu
 										key={instance.id}
 										instance={instance}
+										onActionError={(instanceId, error) => setRefused({ instanceId, error })}
 										render={<tr className="hover:bg-accent" />}
 									>
 										<td className="px-4 py-2.5">

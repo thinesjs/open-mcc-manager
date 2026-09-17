@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ReactElement, ReactNode } from "react"
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "~/components/ui/context-menu"
+import type { TRPCErrorLike } from "~/lib/errors"
 import { useTRPC } from "~/lib/trpc"
 
 export type InstanceContextTarget = Pick<
@@ -13,6 +14,7 @@ export type InstanceContextTarget = Pick<
 export type InstanceContextMenuProps = {
 	instance: InstanceContextTarget
 	children: ReactNode
+	onActionError: (instanceId: string, error: TRPCErrorLike) => void
 	className?: string | undefined
 	render?: ReactElement | undefined
 }
@@ -24,6 +26,7 @@ const copy = (value: string): void => {
 export const InstanceContextMenu = ({
 	instance,
 	children,
+	onActionError,
 	className,
 	render,
 }: InstanceContextMenuProps) => {
@@ -31,10 +34,13 @@ export const InstanceContextMenu = ({
 	const navigate = useNavigate()
 	const queryClient = useQueryClient()
 
-	const refresh = { onSuccess: () => queryClient.invalidateQueries() }
-	const startMutation = useMutation(trpc.instance.start.mutationOptions(refresh))
-	const stopMutation = useMutation(trpc.instance.stop.mutationOptions(refresh))
-	const restartMutation = useMutation(trpc.instance.restart.mutationOptions(refresh))
+	const reportOrRefresh = {
+		onSuccess: () => queryClient.invalidateQueries(),
+		onError: (error: TRPCErrorLike) => onActionError(instance.id, error),
+	}
+	const startMutation = useMutation(trpc.instance.start.mutationOptions(reportOrRefresh))
+	const stopMutation = useMutation(trpc.instance.stop.mutationOptions(reportOrRefresh))
+	const restartMutation = useMutation(trpc.instance.restart.mutationOptions(reportOrRefresh))
 
 	const href = `/instances/${instance.id}`
 	const running = instance.status === "running"

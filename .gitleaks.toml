@@ -60,3 +60,26 @@ id = "generic-api-key"
   regexes = [
     '''^0123456789abcdef0123456789abcdef$''',
   ]
+
+  [[rules.allowlists]]
+  condition = "AND"
+  paths = [
+    '''^packages/core/src/security/redact\.test\.ts$''',
+    '''^packages/core/src/notification/delivery\.job\.test\.ts$''',
+    '''^packages/contracts/src/command-credentials\.test\.ts$''',
+    '''^apps/web/src/lib/command-history\.test\.tsx$''',
+  ]
+  regexes = [
+    '''^whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw$''',
+  ]
+
+  [[rules.allowlists]]
+  condition = "AND"
+  paths = [
+    '''^scripts/sandbox/provision\.sandbox\.ts$''',
+    '''^scripts/sandbox/collector\.sandbox\.ts$''',
+    '''^scripts/sandbox/sign-in\.sandbox\.ts$''',
+  ]
+  regexes = [
+    '''^0123456789abcdef0123456789abcdef$''',
+  ]

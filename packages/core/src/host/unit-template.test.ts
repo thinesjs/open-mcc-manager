@@ -337,32 +337,47 @@ const leaked = (home: string, runs: number): string => {
 	return cache
 }
 
-const refusingAfterOne = (home: string): void => {
+const FENCED = [
+	"#!/bin/sh",
+	'case "$OPEN_MCC_TEST_CACHE" in',
+	'"$OPEN_MCC_TEST_HOME"/*) ;;',
+	'*) echo "the rm shim was given $OPEN_MCC_TEST_CACHE, outside the scratch home" >&2; exit 111;;',
+	"esac",
+].join("\n")
+
+const failingRm = (home: string, body: string): void => {
 	const stub = join(home, "bin", "rm")
-	writeFileSync(
-		stub,
-		'#!/bin/sh\nfor each in "$3"/*; do /bin/rm -rf -- "$each"; break; done\nexit 1\n',
-	)
+	writeFileSync(stub, `${FENCED}\n${body}\nexit 1\n`)
 	chmodSync(stub, 0o755)
 }
+
+const rmThatStopsAfterOneEntry = (home: string): void =>
+	failingRm(home, 'for each in "$OPEN_MCC_TEST_CACHE"/*; do /bin/rm -rf -- "$each"; break; done')
+
+const rmThatTakesEverythingAndFails = (home: string): void =>
+	failingRm(home, '/bin/rm -rf -- "$OPEN_MCC_TEST_CACHE"')
 
 const emptyTheCache = (home: string) => {
 	const [, step = ""] = CACHE_STEP ?? []
 	return spawnSync("/bin/sh", ["-c", step.replaceAll("%h", home).replaceAll("%i", BOT)], {
-		env: { PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: home },
+		env: {
+			PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+			HOME: home,
+			OPEN_MCC_TEST_HOME: home,
+			OPEN_MCC_TEST_CACHE: cacheOf(home),
+		},
 	})
 }
 
 describe("the start step that empties a bot's recording cache", () => {
-	it("deletes the scratch directory it remakes, and no directory the bot keeps", () => {
-		const deletes = instance.split("\n").filter((line) => line.includes("rm -rf"))
-		const [deleting = ""] = deletes
+	it("deletes exactly one path, and it is the scratch directory it remakes", () => {
+		const [, step = ""] = CACHE_STEP ?? []
+		const [deleting = "", remaking = "", ...rest] = step.split(" && ")
 
-		expect(deletes).toHaveLength(1)
-		expect(deleting).toContain(`rm -rf -- "${DIR}/recording-cache"`)
-		for (const kept of ["config", "state", "replays"]) {
-			expect(deleting).not.toContain(`${DIR}/${kept}`)
-		}
+		expect(instance.split("\n").filter((line) => line.includes("rm -rf"))).toHaveLength(1)
+		expect(deleting).toBe(`rm -rf -- "${DIR}/recording-cache"`)
+		expect(remaking).toBe(`mkdir -m 0700 "${DIR}/recording-cache"`)
+		expect(rest).toEqual([])
 	})
 
 	it("takes away what a hard kill leaked and remakes the cache the client writes into", () => {
@@ -389,13 +404,45 @@ describe("the start step that empties a bot's recording cache", () => {
 	it("refuses the start when the delete only half-succeeds, and leaves the rest where a person can see it", () => {
 		const home = scratchHome()
 		const cache = leaked(home, 3)
-		refusingAfterOne(home)
+		rmThatStopsAfterOneEntry(home)
 
 		const ran = emptyTheCache(home)
 
 		expect({ refused: ran.status !== 0, left: readdirSync(cache).length }).toEqual({
 			refused: true,
 			left: 2,
+		})
+	})
+
+	it("refuses the start on a delete that failed having taken everything, rather than reading success off the empty path", () => {
+		const home = scratchHome()
+		const cache = leaked(home, 3)
+		rmThatTakesEverythingAndFails(home)
+
+		const ran = emptyTheCache(home)
+
+		expect({ refused: ran.status !== 0, remade: existsSync(cache) }).toEqual({
+			refused: true,
+			remade: false,
+		})
+	})
+
+	it("refuses to run its own rm shim against a path outside the scratch home", () => {
+		const home = scratchHome()
+		leaked(home, 1)
+		rmThatStopsAfterOneEntry(home)
+
+		const ran = spawnSync("/bin/sh", ["-c", 'rm -rf -- "$OPEN_MCC_TEST_CACHE"'], {
+			env: {
+				PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+				OPEN_MCC_TEST_HOME: home,
+				OPEN_MCC_TEST_CACHE: "/",
+			},
+		})
+
+		expect({ status: ran.status, cache: existsSync(cacheOf(home)) }).toEqual({
+			status: 111,
+			cache: true,
 		})
 	})
 })

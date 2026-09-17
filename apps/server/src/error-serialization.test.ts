@@ -12,7 +12,7 @@ import {
 	type WithTransaction,
 } from "@open-mcc/core"
 import { createDb } from "@open-mcc/db"
-import { createFakeTransport } from "@open-mcc/transport"
+import { createFakeRootSession, createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
@@ -83,6 +83,7 @@ const hostControllerDeps: HostControllerDeps = {
 	probeHostKey: probeHostKeyMock,
 	probeSshHandshake: async () => ({ kind: "key", key: Buffer.alloc(0) }),
 	createTransport: () => createFakeTransport(),
+	createRootSession: () => createFakeRootSession(),
 	evictHost: () => undefined,
 	now: () => new Date(),
 	withTransaction,

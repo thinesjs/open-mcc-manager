@@ -4,6 +4,7 @@ type Template = (subject: string) => string
 
 const TEMPLATES: Record<AuditAction, Template> = {
 	"host.enroll": (subject) => `enrolled the host ${subject}.`,
+	"host.express": (subject) => `ran an Express setup as root on ${subject}.`,
 	"host.provision": (subject) => `set up the host ${subject}.`,
 	"host.provision.reclaim": (subject) => `took over a stalled setup of the host ${subject}.`,
 	"host.retrust": (subject) => `trusted a new key for the host ${subject}.`,

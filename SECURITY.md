@@ -7,15 +7,23 @@ ability to install and start systemd units — for every host it manages. Every
 host is managed the same way. The manager connects as the one account enrolled
 for that host, works only inside that account's home directory under its
 systemd user manager, and runs each bot in a rootless Podman container as that
-account. It never gains root: the host check, provisioning and the setup script
-all refuse uid 0, and provisioning requires Podman to report itself rootless
-before any bot runs (`check.test.ts`, `provision.test.ts`,
-`podman-facts.test.ts`, `host-setup.test.ts`). Enrol an ordinary account, so a
+account. The manager never runs as root in normal operation: the host check,
+provisioning and the setup script all refuse uid 0 for the account bots run as,
+and provisioning requires Podman to report itself rootless before any bot runs
+(`check.test.ts`, `provision.test.ts`, `podman-facts.test.ts`,
+`host-setup.test.ts`). Setup is the one exception, and only at the operator's
+explicit choice: an Express install accepts a root password or root SSH key,
+connects as root once to run that same setup script, and holds that credential
+in memory for that single connection — it is never written to the database,
+never logged, and never reused afterwards (`express-install.test.ts`,
+`express-credential.test.ts`). Nothing after setup uses it, and every bot still
+runs rootless as the enrolled unprivileged account. Enrol an ordinary account, so a
 stolen key yields that one unprivileged account rather than the host itself.
 Lingering is turned on once, by the setup script or by hand, so instances
 survive logout and start at boot; provisioning refuses to continue without it.
 
-The setup script itself runs as root, by the operator's own `sudo`, and the
+The setup script itself runs as root — by the operator's own `sudo` on the
+manual path, or over the Express connection — and the
 enrol wizard offers to have it create that account: a home directory, a
 `/bin/sh` login shell, and a password field of `*`, which no password can ever
 match. On an account that already exists it writes one password field, and only
@@ -33,7 +41,15 @@ subordinate UID/GID range, when it has none — that one is not consent-gated, a
 the wizard's summary discloses it as "Lets mcc run containers". It leaves the
 account untouched when the answer is no or when there is no terminal to ask at,
 naming the one command that fits what it found (`host-setup.test.ts`,
-`host-setup.sandbox.ts`).
+`host-setup.sandbox.ts`). Express has no terminal, so when it meets a locked
+account it always takes that second path: the script declines, changes nothing
+and stops, and the wizard reports what it found and asks the same question on
+screen. Only if the operator answers yes there does it run the script again with
+the answer already given, which is the one thing that differs between the two
+paths' scripts; the command around them differs too, in that the manual path
+asks for root through `sudo` while Express, already connected as root, does not
+— `sudo` is an optional package a minimal Debian need not have
+(`host-setup.test.ts`, `express-install.test.ts`).
 
 A compromise of the control plane's application process, or of an
 authenticated operator's session, is a compromise of the entire fleet. What an

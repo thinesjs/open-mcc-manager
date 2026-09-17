@@ -75,21 +75,42 @@ export const LOCK_STATE_FUNCTION = `lock_state() {
   esac
 }`
 
+export const UNLOCK_MODES = ["ask", "grant"] as const
+
+export type UnlockMode = (typeof UNLOCK_MODES)[number]
+
+export const SETUP_PRIVILEGES = ["sudo", "none"] as const
+
+export type SetupPrivilege = (typeof SETUP_PRIVILEGES)[number]
+
+export const lockedNotice = (username: string): string =>
+	`The account ${username} is locked, so the server may refuse it even with the right key.`
+
+export const LOCKED_KEEPS_PASSWORD =
+	"It has a password. Unlocking puts that password back exactly as it was, and changes nothing else."
+
+export const LOCKED_HAS_NO_PASSWORD =
+	"It has no password, and unlocking gives it none. It stays key-only."
+
+const askSection = (): string => `  printf 'Unlock %s now? [y/N] ' "$account" >&2
+  answer=n
+  if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi`
+
+const grantSection = (): string => `  answer=y`
+
 const READ_STATE = `lock_state "$(getent shadow "$account" 2>/dev/null | cut -d: -f2 || true)"`
 
-const lockSection = (username: string): string => `
+const lockSection = (username: string, unlock: UnlockMode): string => `
 ${LOCK_STATE_FUNCTION}
 state=$(${READ_STATE})
 if [ "$state" != open ]; then
-  echo "The account $account is locked, so the server may refuse it even with the right key." >&2
+  echo ${singleQuote(lockedNotice(username))} >&2
   if [ "$state" = password ]; then
-    echo "It has a password. Unlocking puts that password back exactly as it was, and changes nothing else." >&2
+    echo ${singleQuote(LOCKED_KEEPS_PASSWORD)} >&2
   else
-    echo "It has no password, and unlocking gives it none. It stays key-only." >&2
+    echo ${singleQuote(LOCKED_HAS_NO_PASSWORD)} >&2
   fi
-  printf 'Unlock %s now? [y/N] ' "$account" >&2
-  answer=n
-  if { read -r reply < /dev/tty; } 2>/dev/null; then answer=$reply; fi
+${unlock === "grant" ? grantSection() : askSection()}
   case "$answer" in
     y|Y|yes|Yes|YES)
       if [ "$state" = password ]; then
@@ -272,7 +293,9 @@ export const hostSetupScript = (
 	username: string,
 	publicKey: string,
 	createAccount: boolean,
-): string => `sudo sh -s <<'${SCRIPT_HEREDOC}'
+	unlock: UnlockMode = "ask",
+	privilege: SetupPrivilege = "sudo",
+): string => `${privilege === "sudo" ? "sudo " : ""}sh -s <<'${SCRIPT_HEREDOC}'
 set -eu
 
 account=${singleQuote(username)}
@@ -283,7 +306,7 @@ ${KEY_HEREDOC}
 )
 
 home=$(getent passwd "$account" | cut -d: -f6 || true)
-${createAccount ? createSection(username) : missingSection(username)}${ROOT_SECTION}${lockSection(username)}
+${createAccount ? createSection(username) : missingSection(username)}${ROOT_SECTION}${lockSection(username, unlock)}
 authorise='${AUTHORISE}'
 if ! said=$(printf '%s\\n' "$key" | setsid su -s /bin/sh "$account" -c "$authorise" 2>&1); then
   printf '%s\\n' "$said" | tr -d '\\000-\\010\\013-\\037\\177' >&2

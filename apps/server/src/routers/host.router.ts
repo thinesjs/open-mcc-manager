@@ -1,8 +1,10 @@
 import {
 	checkHostInput,
 	createHostInput,
+	expressInstallInput,
 	hostIdInput,
 	probeAddressInput,
+	readHostKeyInput,
 	retrustHostKeyInput,
 } from "@open-mcc/contracts"
 import { protectedProcedure, requireCapability, router } from "../trpc"
@@ -16,6 +18,16 @@ export const hostRouter = router({
 	probeAddress: protectedProcedure.input(probeAddressInput).mutation(({ ctx, input }) => {
 		requireCapability(ctx.actor.role, "host.enroll")
 		return ctx.hostController.probeAddress(ctx.actor, input)
+	}),
+
+	readHostKey: protectedProcedure.input(readHostKeyInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "host.enroll")
+		return ctx.hostController.readHostKey(ctx.actor, input)
+	}),
+
+	expressInstall: protectedProcedure.input(expressInstallInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "host.enroll")
+		return ctx.hostController.expressInstall(ctx.actor, input)
 	}),
 
 	check: protectedProcedure.input(checkHostInput).mutation(({ ctx, input }) => {

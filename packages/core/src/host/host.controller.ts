@@ -3,14 +3,24 @@ import {
 	type CheckHostInput,
 	type CreateHostInput,
 	can,
+	EXPRESS_ROOT_USERNAME,
+	type ExpressInstallInput,
+	type ExpressInstallResult,
 	type HostCheckReport,
+	type HostKeyReport,
 	type HostPublic,
 	type ProbeAddressInput,
+	type ReadHostKeyInput,
 	type Role,
 } from "@open-mcc/contracts"
-import { algorithmFromKey } from "@open-mcc/contracts/boundary/ssh"
+import { algorithmFromKey, fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import type { Db, HostRow } from "@open-mcc/db"
-import { type HostTransport, type SshHandshake, verifyHostKey } from "@open-mcc/transport"
+import {
+	type HostTransport,
+	type RootSession,
+	type SshHandshake,
+	verifyHostKey,
+} from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
 import { createJobQueue, type JobQueue, type SendJob } from "../job/job.queue"
@@ -20,6 +30,17 @@ import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { ADDRESS_PROBE_TIMEOUT_MS, addressProbeOutcomeFor } from "./address-probe"
 import { checkHostOverTransport, unreachableReport } from "./check"
+import {
+	connectFailureOutcome,
+	EXPRESS_CONNECT_TIMEOUT_MS,
+	EXPRESS_SETUP_TIMEOUT_MS,
+	expressAuditDetail,
+	expressSetupCommand,
+	rootCredentialFor,
+	runFailureOutcome,
+	scriptOutcome,
+	secretOf,
+} from "./express-install"
 import {
 	createHostRepository,
 	type HostKeyTrustUpdate,
@@ -68,6 +89,7 @@ export type HostControllerDeps = {
 	probeHostKey: (hostname: string, port: number, timeoutMs: number) => Promise<Buffer>
 	probeSshHandshake: (hostname: string, port: number, timeoutMs: number) => Promise<SshHandshake>
 	createTransport: () => HostTransport
+	createRootSession: () => RootSession
 	evictHost: (organizationId: string, hostId: string) => void
 	now: () => Date
 	withTransaction: WithTransaction
@@ -87,6 +109,7 @@ export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
 export class HostConcurrentlyModifiedError extends Error {}
 export class HostProvisioningInProgressError extends Error {}
+export class HostKeyUnreadableError extends Error {}
 
 const toHostPublic = (row: HostRow): HostPublic => ({
 	id: row.id,
@@ -141,6 +164,79 @@ export const createHostController = (deps: HostControllerDeps) => {
 				ADDRESS_PROBE_TIMEOUT_MS,
 			)
 			return { outcome: addressProbeOutcomeFor(handshake) }
+		},
+
+		readHostKey: async (ctx: ActorContext, input: ReadHostKeyInput): Promise<HostKeyReport> => {
+			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
+			let presented: Buffer
+			try {
+				presented = await deps.probeHostKey(input.hostname, input.port, PROBE_TIMEOUT_MS)
+			} catch (error) {
+				throw new HostKeyUnreadableError(
+					error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
+				)
+			}
+			return {
+				fingerprint: fingerprintFromKey(presented),
+				algorithm: algorithmFromKey(presented),
+			}
+		},
+
+		expressInstall: async (
+			ctx: ActorContext,
+			input: ExpressInstallInput,
+		): Promise<ExpressInstallResult> => {
+			if (!can(ctx.role, "host.enroll")) throw new ForbiddenError("Forbidden: host.enroll")
+			const scope = { organizationId: ctx.organizationId }
+
+			const key = await deps.sshKeys.findById(scope, input.sshKeyId)
+			if (!key) throw new SshKeyNotFoundError(`SSH key not found: ${input.sshKeyId}`)
+
+			const secret = secretOf(input)
+			const session = deps.createRootSession()
+			const outcome = await (async (): Promise<ExpressInstallResult> => {
+				try {
+					await session.connect({
+						hostname: input.hostname,
+						port: input.port,
+						username: EXPRESS_ROOT_USERNAME,
+						credential: rootCredentialFor(input),
+						expectedFingerprint: input.expectedFingerprint,
+						timeoutMs: EXPRESS_CONNECT_TIMEOUT_MS,
+					})
+				} catch (error) {
+					return connectFailureOutcome(
+						error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+					)
+				}
+				try {
+					const result = await session.run(
+						expressSetupCommand(input, key.publicKey),
+						EXPRESS_SETUP_TIMEOUT_MS,
+					)
+					return scriptOutcome(result, input, secret)
+				} catch (error) {
+					return runFailureOutcome(
+						error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+						secret,
+					)
+				} finally {
+					session.close()
+				}
+			})()
+
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "host.express",
+					subjectType: "host",
+					subjectId: input.hostname,
+					detail: expressAuditDetail(input, outcome),
+				})
+			})
+
+			return outcome
 		},
 
 		checkHost: async (ctx: ActorContext, input: CheckHostInput): Promise<HostCheckReport> => {

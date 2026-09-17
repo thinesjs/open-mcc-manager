@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { setTimeout as delay } from "node:timers/promises"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
-import { hostSetupScript } from "../../apps/web/src/lib/host-setup"
+import { hostSetupScript } from "../../packages/contracts/src/host-setup"
 import {
 	lingerCommand,
 	networkHelperCommand,

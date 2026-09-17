@@ -52,6 +52,7 @@ import {
 import { appliedSchemaVersion, createDb, type Db } from "@open-mcc/db"
 import {
 	createReadConnections,
+	createRootSession,
 	createSshTransport,
 	probeHostKey,
 	probeSshHandshake,
@@ -171,6 +172,7 @@ export const startServer = async (
 		probeHostKey,
 		probeSshHandshake,
 		createTransport: createSshTransport,
+		createRootSession,
 		now: () => new Date(),
 		evictHost: (organizationId, hostId) =>
 			readConnections.evict(hostReadKey(organizationId, hostId)),

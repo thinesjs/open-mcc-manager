@@ -18,6 +18,12 @@ const fieldsetOf = (container: HTMLElement): HTMLElement => {
 	return found
 }
 
+const legendOf = (container: HTMLElement): HTMLElement => {
+	const found = container.querySelector("legend")
+	if (found === null) throw new Error("expected a legend")
+	return found
+}
+
 describe("a two-option choice with nothing to explain", () => {
 	it("★ sits inline rather than stretching, which is what makes it read as a switch", () => {
 		const { container } = render(
@@ -82,5 +88,26 @@ describe("a choice whose options need explaining", () => {
 		)
 
 		expect(spansIn("A")).toBe(2)
+	})
+})
+
+describe("the label a choice is given", () => {
+	it("stays for screen readers alone, since a heading above it usually says the same thing", () => {
+		const { container } = render(
+			<Choice label="Rejoin" value="on" options={PAIR} onChange={vi.fn()} />,
+		)
+
+		expect(legendOf(container).className.split(" ")).toContain("sr-only")
+	})
+
+	it("is the visible heading when the choice is the only thing saying what is being asked", () => {
+		const { container } = render(
+			<Choice label="Rejoin" labelVisible value="on" options={PAIR} onChange={vi.fn()} />,
+		)
+		const legend = legendOf(container)
+
+		expect(legend.className.split(" ")).not.toContain("sr-only")
+		expect(legend.className.split(" ")).toContain("text-foreground")
+		expect(legend.textContent).toBe("Rejoin")
 	})
 })

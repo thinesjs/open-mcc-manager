@@ -6,6 +6,7 @@ import {
 	fingerprintCommand,
 	hostSetupScript,
 	LOCK_STATE_FUNCTION,
+	lockedNotice,
 	setupSummary,
 } from "./host-setup"
 
@@ -29,6 +30,17 @@ describe("the command an operator pastes onto a new host", () => {
 
 		expect(script.startsWith("sudo sh -s <<'OPENMCC_SETUP'")).toBe(true)
 		expect(script.trimEnd().endsWith("OPENMCC_SETUP")).toBe(true)
+	})
+
+	it("asks for root through sudo, since the operator pasting it is not root yet", () => {
+		expect(hostSetupScript("pi", KEY, false)).toBe(hostSetupScript("pi", KEY, false, "ask", "sudo"))
+	})
+
+	it("asks for nothing on a connection that is already root, since a minimal Debian has no sudo", () => {
+		const asRoot = hostSetupScript("pi", KEY, false, "ask", "none")
+
+		expect(asRoot.startsWith("sh -s <<'OPENMCC_SETUP'")).toBe(true)
+		expect(`sudo ${asRoot}`).toBe(hostSetupScript("pi", KEY, false, "ask", "sudo"))
 	})
 
 	it("resolves the account's own home, so running it as root does not write to root's", () => {
@@ -368,9 +380,7 @@ describe("an account that is already there but locked", () => {
 
 	it("says what being locked means before it asks anything", () => {
 		const script = hostSetupScript("pi", KEY, false)
-		const said = script.indexOf(
-			"The account $account is locked, so the server may refuse it even with the right key.",
-		)
+		const said = script.indexOf(lockedNotice("pi"))
 
 		expect(said).toBeGreaterThan(-1)
 		expect(said).toBeLessThan(script.indexOf(LOCK_PROMPT))

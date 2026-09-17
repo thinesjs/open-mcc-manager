@@ -44,6 +44,12 @@ describe("the one host model", () => {
 		expect(createHostInput.safeParse({ ...withoutAccount, hostname: "vps-1" }).success).toBe(false)
 	})
 
+	it("refuses an account name the setup command could not have created", () => {
+		expect(createHostInput.safeParse({ ...HOST, hostname: "vps-1", username: "Mcc" }).success).toBe(
+			false,
+		)
+	})
+
 	it("takes no mode, and drops one sent anyway", () => {
 		const parsed = createHostInput.safeParse({ ...HOST, hostname: "vps-1", mode: "system" })
 

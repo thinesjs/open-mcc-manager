@@ -1,7 +1,10 @@
 import {
 	ADDRESS_PROBE_MESSAGES,
 	ADDRESS_PROBE_OUTCOMES,
+	EXPRESS_WARNING,
+	EXPRESS_WARNING_TITLE,
 	type HostCheckReport,
+	hostSetupScript,
 } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -29,6 +32,8 @@ afterAll(() => {
 const check = vi.fn()
 const enroll = vi.fn()
 const probe = vi.fn()
+const readHostKey = vi.fn()
+const expressInstall = vi.fn()
 
 const KEYS = [
 	{ id: "key-1", name: "deploy", publicKey: "ssh-ed25519 AAAAdeploy deploy" },
@@ -48,6 +53,8 @@ vi.mock("~/lib/trpc", () => ({
 			check: { mutationOptions: () => ({ mutationFn: check }) },
 			enroll: { mutationOptions: () => ({ mutationFn: enroll }) },
 			probeAddress: { mutationOptions: () => ({ mutationFn: probe }) },
+			readHostKey: { mutationOptions: () => ({ mutationFn: readHostKey }) },
+			expressInstall: { mutationOptions: () => ({ mutationFn: expressInstall }) },
 			list: { queryKey: () => ["host", "list"] },
 		},
 	}),
@@ -58,6 +65,8 @@ afterEach(() => {
 	check.mockReset()
 	enroll.mockReset()
 	probe.mockReset()
+	readHostKey.mockReset()
+	expressInstall.mockReset()
 	writeText.mockClear()
 })
 
@@ -555,5 +564,150 @@ describe("enrolling only a host whose check came back ready", () => {
 		})
 
 		expect(isDisabled("Enroll host")).toBe(true)
+	})
+})
+
+const chooseExpress = () => fireEvent.click(screen.getByRole("radio", { name: /Set it up for me/ }))
+
+describe("choosing between running the setup yourself and having it run for you", () => {
+	it("offers the choice at the top, before anything else is asked", async () => {
+		mount()
+
+		expect(screen.getByRole("radio", { name: /Set it up for me/ })).toBeTruthy()
+		expect(screen.getByRole("radio", { name: /I will run the command/ })).toBeTruthy()
+	})
+
+	it("says what the step is asking once, on the choice itself, not above it as well", async () => {
+		mount()
+
+		const heading = screen.getByText("How this server gets set up")
+
+		expect(heading.tagName).toBe("LEGEND")
+		expect(heading.className.split(" ")).not.toContain("sr-only")
+	})
+
+	it("starts on the path that needs no root, so nothing escalates by default", async () => {
+		mount()
+
+		expect(screen.queryByText(EXPRESS_WARNING)).toBeNull()
+		expect(screen.queryByText(EXPRESS_WARNING_TITLE)).toBeNull()
+	})
+
+	it("puts the warning in front of the operator the moment Express is chosen", async () => {
+		mount()
+
+		chooseExpress()
+
+		expect(screen.getByText(EXPRESS_WARNING_TITLE)).toBeTruthy()
+		expect(screen.getByText(EXPRESS_WARNING)).toBeTruthy()
+	})
+
+	it("says it needs root, that commands run as root, and that a critical machine is the wrong place", () => {
+		expect(EXPRESS_WARNING).toContain("root account")
+		expect(EXPRESS_WARNING).toContain("as root on your server")
+		expect(EXPRESS_WARNING).toContain("critical machine")
+	})
+
+	it("takes the warning away again when the operator goes back to running it themselves", async () => {
+		mount()
+		chooseExpress()
+
+		fireEvent.click(screen.getByRole("radio", { name: /I will run the command/ }))
+
+		expect(screen.queryByText(EXPRESS_WARNING)).toBeNull()
+	})
+
+	it("shows the command to copy on the manual path, and no root credential field", async () => {
+		await reachPrepare()
+
+		expect(screen.getByText("Setup command")).toBeTruthy()
+		expect(screen.queryByLabelText("Root password")).toBeNull()
+	})
+
+	it("asks for a root credential on the Express path, and shows nothing to copy", async () => {
+		mount()
+		chooseExpress()
+		await chooseKey("deploy")
+		next()
+		fillAddress()
+		next()
+		next()
+
+		expect(screen.getByLabelText("Root password")).toBeTruthy()
+		expect(screen.queryByText("Setup command")).toBeNull()
+	})
+
+	it("returns the operator to the copyable command when Express hands them back", async () => {
+		mount()
+		chooseExpress()
+		await chooseKey("deploy")
+		next()
+		fillAddress()
+		next()
+		next()
+		readHostKey.mockResolvedValue({ fingerprint: FINGERPRINT, algorithm: "ssh-ed25519" })
+		type("Root password", "a-root-password")
+		fireEvent.click(button("Read host key"))
+		await screen.findByText(FINGERPRINT)
+		fireEvent.click(await screen.findByRole("button", { name: /This matches/ }))
+		expressInstall.mockResolvedValue({ outcome: "refused" })
+		fireEvent.click(button("Set up the server"))
+
+		fireEvent.click(await screen.findByRole("button", { name: "Run the command myself instead" }))
+
+		expect(await screen.findByText("Setup command")).toBeTruthy()
+	})
+
+	it("asks the server for the very command the manual path puts on screen", async () => {
+		mount()
+		chooseExpress()
+		await chooseKey("deploy")
+		next()
+		fillAddress()
+		next()
+		type("Account name", "bots")
+		fireEvent.click(screen.getByRole("radio", { name: /I already have one/ }))
+		next()
+		readHostKey.mockResolvedValue({ fingerprint: FINGERPRINT, algorithm: "ssh-ed25519" })
+		type("Root password", "a-root-password")
+		fireEvent.click(button("Read host key"))
+		await screen.findByText(FINGERPRINT)
+		fireEvent.click(await screen.findByRole("button", { name: /This matches/ }))
+		expressInstall.mockResolvedValue({ outcome: "refused" })
+		fireEvent.click(button("Set up the server"))
+		await waitFor(() => expect(expressInstall).toHaveBeenCalledTimes(1))
+		const sent = expressInstall.mock.calls[0]?.[0]
+
+		fireEvent.click(await screen.findByRole("button", { name: "Run the command myself instead" }))
+		await screen.findByText("Setup command")
+		const shown = document.querySelector("code")?.textContent ?? ""
+
+		expect(sent.username).toBe("bots")
+		expect(sent.createAccount).toBe(false)
+		expect(sent.sshKeyId).toBe("key-1")
+		expect(shown).toBe(hostSetupScript(sent.username, KEYS[0]?.publicKey ?? "", sent.createAccount))
+		expect(shown).toContain("account='bots'")
+	})
+
+	it("carries the confirmed fingerprint into the verify step rather than asking for it again", async () => {
+		mount()
+		chooseExpress()
+		await chooseKey("deploy")
+		next()
+		fillAddress()
+		next()
+		next()
+		readHostKey.mockResolvedValue({ fingerprint: FINGERPRINT, algorithm: "ssh-ed25519" })
+		type("Root password", "a-root-password")
+		fireEvent.click(button("Read host key"))
+		await screen.findByText(FINGERPRINT)
+		fireEvent.click(await screen.findByRole("button", { name: /This matches/ }))
+		expressInstall.mockResolvedValue({ outcome: "ready", fingerprint: FINGERPRINT })
+
+		fireEvent.click(button("Set up the server"))
+
+		const field = await screen.findByLabelText("Server fingerprint")
+		if (!(field instanceof HTMLInputElement)) throw new Error("expected an input")
+		expect(field.value).toBe(FINGERPRINT)
 	})
 })

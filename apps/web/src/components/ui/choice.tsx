@@ -10,6 +10,7 @@ export type ChoiceOption<Value extends string> = {
 
 export type ChoiceProps<Value extends string> = {
 	label: string
+	labelVisible?: boolean
 	value: Value
 	options: readonly ChoiceOption<Value>[]
 	onChange: (value: Value) => void
@@ -17,6 +18,7 @@ export type ChoiceProps<Value extends string> = {
 
 export const Choice = <Value extends string>({
 	label,
+	labelVisible = false,
 	value,
 	options,
 	onChange,
@@ -28,7 +30,9 @@ export const Choice = <Value extends string>({
 
 	return (
 		<fieldset className={cn("grid gap-2", compact ? "w-fit grid-cols-2" : "sm:grid-cols-2")}>
-			<legend className="sr-only">{label}</legend>
+			<legend className={labelVisible ? "mb-2 text-sm font-medium text-foreground" : "sr-only"}>
+				{label}
+			</legend>
 			{options.map((option) => {
 				const selected = option.value === value
 				return (

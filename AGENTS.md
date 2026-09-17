@@ -235,7 +235,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Thirty-one rules stated further down this document are enforced too, and are
+Thirty-two rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -243,7 +243,8 @@ have:
 | --- | --- |
 | Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
-| The sign-in hold's refusal naming its own duration, and carrying the way out of it | `apps/web/src/lib/errors.test.ts` — the sentence is compared whole and its minute count against `AUTH_LEASE_MS`, and it is required not to say a sign-in is running, which only `INSTANCE_SIGN_IN_RUNNING` may say; `apps/web/src/routes/_authenticated.instances.$instanceId.test.tsx` — a refused start must put Cancel sign-in inside the refusal alert itself, and a refusal no sign-in is holding must not |
+| The sign-in hold's refusal naming its own duration, and carrying the way out of it | `apps/web/src/lib/errors.test.ts` — the sentence is compared whole and its minute count against `AUTH_LEASE_MS`, and it is required not to say a sign-in is running, which only `INSTANCE_SIGN_IN_RUNNING` may say; `apps/web/src/components/instance-action-error.test.tsx` — walks **every** `ErrorCode` and requires the Cancel sign-in button, and the "Ask an owner" line, on `INSTANCE_AUTH_IN_PROGRESS` and on no other, so widening the condition to a second code fails rather than passing on the one code a sample happens to take; the same file walks every `Role` and requires the button for `owner` alone |
+| The refusal reaching an operator on every surface that can raise it | TypeScript — `onActionError` is a required prop of `CommandPaletteProps` and `InstanceContextMenuProps`, so a surface that fires start, stop or restart without wiring the refusal does not compile; `apps/web/src/routes/_authenticated.instances.index.test.tsx` and `apps/web/src/components/command-palette.test.tsx` drive a refused start through the context menu and through the palette and read the guidance text off the rendered alert |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
 | The host status union matching between `packages/db` and `packages/contracts` | TypeScript in one direction only — `host.controller.ts`'s `toHostPublic` rejects a database union wider than the contract's. A contract union wider than the database's compiles and passes every test, so that direction rests on review |
@@ -523,12 +524,19 @@ Dependency direction is one-way: router → controller → repository.
   Where the manager *has* asked the host, it says so with a different code —
   `INSTANCE_SIGN_IN_RUNNING`, raised by `startedOrThrow` off the unit's real
   state. That split is the rule: only a host read may claim a sign-in is running.
-  Cancel sign-in is the way out, and the refusal carries it — the alert on the
-  instance page renders the same Cancel sign-in button the Danger zone holds, so
-  the operator never has to find the tab. It works only when the host answers: it
-  releases the claim *after* its connect and its two execs, so on an unreachable
-  host it throws first and the operator waits the lease out. Saves are
-  deliberately still allowed through, on `claimForConfig`.
+  Cancel sign-in is the way out, and the refusal carries it — on the instance
+  page, on the instance list and under the command palette alike, one
+  `InstanceActionError` renders the same Cancel sign-in button the Danger zone
+  holds. **It is offered only to a role that may press it.** `start`, `stop`,
+  `restart` and `remove` need `instance.start`; `cancelAuthentication` needs
+  `instance.authenticate`, which is owner-only, so an **operator** can raise this
+  refusal and cannot end it. Offering them the button would answer `FORBIDDEN`
+  and replace the refusal with a permission error, leaving them worse off than
+  before; they are told "Ask an owner to cancel the sign-in." instead. A viewer
+  cannot reach the refusal at all. Cancel also works only when the host answers:
+  it releases the claim *after* its connect and its two execs, so on an
+  unreachable host it throws first and even an owner waits the lease out. Saves
+  are deliberately still allowed through, on `claimForConfig`.
   `claimForAuth` refuses a live config claim and
   clears a stale one it takes over, so the superseded flow's
   `finalizeConfigClaim` matches nothing rather than writing a status nothing

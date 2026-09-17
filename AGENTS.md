@@ -1656,6 +1656,12 @@ the unit's **own** last line too, not only the process's: `systemctl start`
 returns once the job completes, so systemd's `Finished` is submitted after the
 program's last write but travels a different transport, and seeing one says
 nothing about the other.
+`journalShowing` and `neverShowed` take an optional deadline, defaulting to
+`JOURNAL_WAIT_MS`. Raise it for a file that runs alongside the rest of the suite
+rather than raising the shared constant: on a full run with images still building,
+a unit's `Finished` has been seen in the journal while the five lines its own
+process wrote were still not there **thirty seconds later**. That is a deadline,
+not an expected duration — a green run says nothing about how much of it was used.
 `SANDBOX_PLATFORM=linux/amd64` builds and boots
 every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
 rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.

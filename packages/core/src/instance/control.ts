@@ -1,3 +1,4 @@
+import { maskCommandCredentials } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
 import { instanceDir, validateInstanceId } from "./unit"
 
@@ -57,6 +58,15 @@ const hasControlCharacter = (value: string): boolean => {
 
 export class DisallowedInternalCommandError extends Error {}
 
+export class DoubleSlashCredentialError extends Error {}
+
+export const refuseDoubleSlashCredential = (command: string): void => {
+	if (!command.startsWith("//") || maskCommandCredentials(command) === command) return
+	throw new DoubleSlashCredentialError(
+		"A credential command written with two slashes never reaches the server",
+	)
+}
+
 export const controlLine = (input: string): string => {
 	if (!input.startsWith(INTERNAL_COMMAND_PREFIX)) {
 		return input.startsWith("/") ? `/${input}` : input
@@ -86,6 +96,7 @@ export const sendCommand = async (
 	if (hasControlCharacter(command)) {
 		throw new Error("Instance commands must not contain a control character")
 	}
+	refuseDoubleSlashCredential(command)
 	const line = controlLine(command)
 	const result = await transport.exec(`cat > ${controlPath(id)}`, CONTROL_TIMEOUT_MS, `${line}\n`)
 	if (result.exitCode !== 0) {

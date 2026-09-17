@@ -34,6 +34,18 @@ describe("a console command that carries a player's password", () => {
 		)
 	})
 
+	it("masks the subcommand aliases the admin command answers to", () => {
+		for (const [command, expected] of [
+			["/authme reg Bob hunter2", "/authme reg [redacted]"],
+			["/authme r Bob hunter2", "/authme r [redacted]"],
+			["/authme changepassword Bob hunter2", "/authme changepassword [redacted]"],
+			["/authme changepass Bob hunter2", "/authme changepass [redacted]"],
+			["/authme cp Bob hunter2", "/authme cp [redacted]"],
+		] as const) {
+			expect(maskCommandCredentials(command)).toBe(expected)
+		}
+	})
+
 	it("masks it behind every prefix the console accepts", () => {
 		for (const [command, expected] of [
 			["login hunter2", "login [redacted]"],

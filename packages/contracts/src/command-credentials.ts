@@ -1,6 +1,6 @@
 const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[
-		/^([ \t]*[/!]{0,2}(?:authme[ \t]+(?:register|password)|email[ \t]+setpassword))[ \t]+\S[^\r\n]*/gim,
+		/^([ \t]*[/!]{0,2}(?:authme[ \t]+(?:register|reg|r|password|changepassword|changepass|cp)|email[ \t]+setpassword))[ \t]+\S[^\r\n]*/gim,
 		"$1 [redacted]",
 	],
 	[

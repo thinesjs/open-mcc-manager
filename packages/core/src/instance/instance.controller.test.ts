@@ -71,6 +71,7 @@ import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
+import { DoubleSlashCredentialError } from "./control"
 import {
 	type ActorContext,
 	createInstanceController,
@@ -753,19 +754,16 @@ describe("instance controller authorization", () => {
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
 	})
 
-	it("audits a password behind the double slash the console itself emits", async () => {
+	it("refuses a password behind two slashes rather than silently sending nothing", async () => {
 		const { deps, transport, instances, audit } = makeDeps()
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
 		const controller = createInstanceController(deps)
 
-		await controller.sendCommand(operator, "abc123", "//login hunter2")
-
-		expect(transport.stdins).toContain("///login hunter2\n")
-		expect(audit.record).toHaveBeenCalledWith(
-			{ organizationId: "org-1" },
-			expect.objectContaining({ detail: { command: "//login [redacted]" } }),
+		await expect(controller.sendCommand(operator, "abc123", "//login hunter2")).rejects.toThrow(
+			DoubleSlashCredentialError,
 		)
-		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+		expect(transport.stdins).toEqual([])
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("audits an ordinary command as it was typed", async () => {
@@ -1282,6 +1280,25 @@ describe("scheduled commands", () => {
 			}),
 		)
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("refuses to store a password behind two slashes, which would never log the bot in", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setScheduledCommand(owner, {
+				instanceId: "abc123",
+				name: "morning wave",
+				command: "//login hunter2",
+				daysOfWeek: ["Mon"],
+				runAt: { hour: 9, minute: 0 },
+				timezone: "UTC",
+				enabled: true,
+			}),
+		).rejects.toThrow(DoubleSlashCredentialError)
+		expect(deps.commands.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("audits an ordinary scheduled command as it was stored", async () => {

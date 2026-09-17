@@ -79,6 +79,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"This instance refused the manager's live control token. Save its settings again and restart it.",
 	INSTANCE_COMMAND_NOT_ALLOWED:
 		"That client command is not one this manager will run. Chat and server commands still work.",
+	INSTANCE_COMMAND_DOUBLE_SLASH:
+		"Use /login, not //login. Two slashes are for plugin commands whose own name starts with one.",
 	INSTANCE_ACCOUNT_NOT_INTERACTIVE:
 		"This instance signs in without a device code, so there is nothing to approve.",
 	INSTANCE_AUTH_IN_PROGRESS:

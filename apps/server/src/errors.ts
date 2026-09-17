@@ -17,6 +17,7 @@ import {
 	DestinationRejectedError,
 	DestinationTestThrottledError,
 	DisallowedInternalCommandError,
+	DoubleSlashCredentialError,
 	FingerprintMismatchError,
 	ForbiddenError,
 	HostConcurrentlyModifiedError,
@@ -319,6 +320,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_COMMAND_NOT_ALLOWED",
 			"That client command is not one this manager will run",
+		)
+	}
+	if (cause instanceof DoubleSlashCredentialError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_COMMAND_DOUBLE_SLASH",
+			"A command written with two slashes does not reach the server",
 		)
 	}
 	if (cause instanceof InstanceAccountNotInteractiveError) {

@@ -100,6 +100,7 @@ export {
 	CONTROL_TIMEOUT_MS,
 	controlLine,
 	DisallowedInternalCommandError,
+	DoubleSlashCredentialError,
 	INTERNAL_COMMAND_PREFIX,
 	INTERNAL_COMMANDS,
 	sendCommand,

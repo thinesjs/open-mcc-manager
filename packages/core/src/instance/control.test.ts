@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
 	controlLine,
 	DisallowedInternalCommandError,
+	DoubleSlashCredentialError,
 	INTERNAL_COMMANDS,
 	sendCommand,
 } from "./control"
@@ -77,6 +78,33 @@ describe("instance control channel", () => {
 
 	it("routes a slash line to the server rather than the client's own handler", () => {
 		expect(controlLine("/home")).toBe("//home")
+	})
+
+	it("refuses a password behind two slashes, which the server would never act on", async () => {
+		const transport = await connected()
+
+		await expect(sendCommand(transport, "abc", "//login hunter2")).rejects.toThrow(
+			DoubleSlashCredentialError,
+		)
+		expect(transport.stdins).toEqual([])
+	})
+
+	it("still sends the plugin commands that need two slashes", async () => {
+		const transport = await connected()
+
+		for (const command of ["//wand", "//set stone", "//copy", "//paste"]) {
+			await sendCommand(transport, "abc", command)
+		}
+
+		expect(transport.stdins).toEqual(["///wand\n", "///set stone\n", "///copy\n", "///paste\n"])
+	})
+
+	it("sends a password behind one slash, which is the form that works", async () => {
+		const transport = await connected()
+
+		await sendCommand(transport, "abc", "/login hunter2")
+
+		expect(transport.stdins).toEqual(["//login hunter2\n"])
 	})
 
 	it("preserves a doubled slash so plugin commands still reach the server", () => {

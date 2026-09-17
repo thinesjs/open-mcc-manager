@@ -71,10 +71,21 @@ describe("a password left in storage by an earlier visit", () => {
 
 	it("is neither returned nor left on disk", () => {
 		const entries = stub()
-		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("abc123", ["/login hunter2", "/list", "/say keep me"])
 
-		expect(readCommandHistory("abc123")).toEqual(["/list"])
-		expect([...entries.values()].join("\n")).not.toContain("hunter2")
+		expect(readCommandHistory("abc123")).toEqual(["/list", "/say keep me"])
+		expect(entries.get("open-mcc:command-history:abc123")).toBe("/list\n/say keep me")
+		expect(readCommandHistory("abc123")).toEqual(["/list", "/say keep me"])
+	})
+
+	it("purges only the instance whose console was opened", () => {
+		const entries = stub()
+		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("def456", ["/login hunter2", "/list"])
+
+		readCommandHistory("abc123")
+
+		expect(entries.get("open-mcc:command-history:def456")).toBe("/login hunter2\n/list")
 	})
 
 	it("leaves a history with nothing to purge untouched", () => {

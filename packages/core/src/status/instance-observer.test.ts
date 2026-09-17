@@ -186,14 +186,10 @@ describe("turning a journal read into connection changes", () => {
 		expect(reading.refused).toBe(false)
 	})
 
-	it("keeps the old position when the journal had nothing new", async () => {
+	it("keeps the old position when the read showed nothing and named none", async () => {
 		const reading = await readConnectionChanges(
 			{
-				exec: vi.fn(async () => ({
-					stdout: `-- No entries --\n-- cursor: ${cursorAt(99)}\n`,
-					stderr: "",
-					exitCode: 0,
-				})),
+				exec: vi.fn(async () => ({ stdout: "-- No entries --\n", stderr: "", exitCode: 0 })),
 			},
 			"abc123",
 			UNOBSERVED_CONNECTION,
@@ -202,6 +198,20 @@ describe("turning a journal read into connection changes", () => {
 
 		expect(reading.cursor).toBe(cursorAt(4))
 		expect(reading.changes).toEqual([])
+		expect(reading.refused).toBe(false)
+	})
+
+	it("reads back just the line its position names when nothing has happened since", async () => {
+		const reading = await readConnectionChanges(
+			hostWithJournal(busyJournal(5, 0, -1)),
+			"abc123",
+			WAS_JOINED,
+			cursorAt(4),
+		)
+
+		expect(reading.cursor).toBe(cursorAt(4))
+		expect(reading.changes).toEqual([])
+		expect(reading.full).toBe(false)
 	})
 })
 
@@ -308,6 +318,17 @@ const hostWithJournal = (journal: readonly string[]) => {
 	}
 }
 
+const hostIgnoringTheCap = (journal: readonly string[]) => {
+	const entries: Entry[] = journal.map((line, index) => ({ line, cursor: cursorAt(index) }))
+	return {
+		exec: vi.fn(async (command: ReadCommand) => {
+			const resume = quotedAfter(readCommandText(command), "--cursor")
+			const from = resume === undefined ? 0 : entries.findIndex((entry) => entry.cursor === resume)
+			return answered(entries.slice(Math.max(from, 0)), entries.at(-1)?.cursor ?? "")
+		}),
+	}
+}
+
 const WAS_DOWN = { state: "down", since: new Date("2026-09-05T00:00:00Z"), pid: null } as const
 
 const WAS_JOINED = {
@@ -356,15 +377,26 @@ describe("a bot that logs more than one batch between polls", () => {
 		expect(reading.full).toBe(false)
 	})
 
-	it("does not flag a seed read, which is behind nothing", async () => {
+	it("does not flag a seed read as behind, however many lines the host sent back", async () => {
 		const reading = await readConnectionChanges(
-			hostWithJournal(busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)),
+			hostIgnoringTheCap(busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)),
 			"abc123",
 			UNOBSERVED_CONNECTION,
 			null,
 		)
 
 		expect(reading.full).toBe(false)
+	})
+
+	it("flags a resumed read as behind on the same oversized answer", async () => {
+		const reading = await readConnectionChanges(
+			hostIgnoringTheCap(busyJournal(JOURNAL_MAX_LINES + 500, 5, JOURNAL_MAX_LINES + 400)),
+			"abc123",
+			WAS_DOWN,
+			RESUMED_FROM,
+		)
+
+		expect(reading.full).toBe(true)
 	})
 
 	it("reads the line at the batch boundary using the withheld line as lookahead", async () => {

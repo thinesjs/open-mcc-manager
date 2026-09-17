@@ -139,6 +139,19 @@ describe("telling a journald cursor from anything else stored in its place", () 
 		expect(isJournalCursor("2026-09-06T06:16:10.000Z")).toBe(false)
 		expect(isJournalCursor("2026-09-06 06:16:10 UTC")).toBe(false)
 	})
+
+	it.each(
+		[
+			{ what: "a command substitution in front", value: `$(id) ${CURSOR}` },
+			{ what: "a command substitution behind", value: `${CURSOR} $(id)` },
+			{ what: "a backquoted command behind", value: `${CURSOR} \`id\`` },
+			{ what: "a second command on a new line", value: `${CURSOR}\nid` },
+			{ what: "a semicolon and a command behind", value: `${CURSOR};$(id)` },
+			{ what: "a trailing newline alone", value: `${CURSOR}\n` },
+		].map((each) => ({ ...each })),
+	)("refuses a cursor with $what, which the command would hand to a shell", ({ value }) => {
+		expect(isJournalCursor(value)).toBe(false)
+	})
 })
 
 describe("splitting a journal read from the position journalctl reported", () => {
@@ -166,6 +179,12 @@ describe("splitting a journal read from the position journalctl reported", () =>
 
 		expect(batch.cursor).toBeUndefined()
 		expect(batch.lines).toHaveLength(3)
+	})
+
+	it("refuses a shown cursor carrying anything a shell would run, which is where host text enters", () => {
+		const batch = journalBatch(`${REAL}\n-- cursor: ${CURSOR} $(id)\n`)
+
+		expect(batch.cursor).toBeUndefined()
 	})
 })
 

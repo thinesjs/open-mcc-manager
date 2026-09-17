@@ -144,6 +144,32 @@ describe.each(TARGETS.map((target) => ({ ...target })))("$name", ({ name }) => {
 		expect(isJournalCursor(batch.cursor ?? "")).toBe(true)
 	})
 
+	it("reads back just the line its position names when nothing has happened since", async () => {
+		const host = hostOf(name)
+		const as = accountOf(name)
+		const seeded = journalBatch(await ran(host, as, SEED))
+		const resume = seeded.cursor ?? ""
+
+		const batch = journalBatch(await ran(host, as, journalCommand(INSTANCE, resume)))
+
+		expect(batch.lines).toEqual([seeded.lines.at(-1)])
+		expect(batch.cursor).toBe(resume)
+	})
+
+	it("shows nothing and names no position when its position is ahead of the journal", async () => {
+		const host = hostOf(name)
+		const as = accountOf(name)
+		const seeded = journalBatch(await ran(host, as, SEED))
+		const ahead = (seeded.cursor ?? "").replace(/;i=[0-9a-f]+;/, ";i=ffffffff;")
+
+		const answer = await shell(host, as, journalCommand(INSTANCE, ahead))
+		const batch = journalBatch(answer.stdout)
+
+		expect(batch.lines).toEqual([])
+		expect(batch.cursor).toBeUndefined()
+		expect(journalRefusedCursor(answer.stderr)).toBe(false)
+	})
+
 	it("resumes at the line the stored cursor names, and shows what followed it", async () => {
 		const host = hostOf(name)
 		const as = accountOf(name)

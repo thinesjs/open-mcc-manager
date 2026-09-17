@@ -48,10 +48,20 @@ The position `packages/core/src/status/instance-observer.ts` stores between poll
 is **journald's own cursor**, taken from `--show-cursor` and spent as
 `--cursor`, never a clock reading. A timestamp window worked, but it was a
 wall-clock value compared against lines stamped by the same wall clock: a
-backwards step — a VM resume, a snapshot restore, an NTP correction large enough
-to step rather than slew — left the stored value in the future relative to new
-lines, and the window matched nothing until real time caught up. A cursor is an
-opaque sequence identifier and is immune to that.
+backwards **clock step** — an NTP correction large enough to step rather than
+slew, or a VM resuming with a stale clock — left the stored value in the future
+relative to new lines, and the window matched nothing until real time caught up.
+A cursor is an opaque sequence identifier and is immune to that. Say clock step,
+not snapshot restore: a snapshot restore rolls the journal back **with** the
+clock, and that case is not proven here.
+
+The command that was replaced hid a second fault worth knowing about, because it
+is the shape to avoid rather than repeat: `{ journalctl … || true; } | head -n
+2001` turned a genuine refusal — exit 1, empty stdout, `Failed to seek to cursor`
+on stderr — into exit 0 with empty stdout, which the observer read as "no new
+lines". A read whose failure is indistinguishable from silence stalls for good
+and reports nothing. That is why the bound is now journalctl's own `-n` and there
+is no pipe: the exit status is the reader's again.
 
 - The resume is `--cursor`, which is **inclusive**, and the batch is bounded by
   journalctl's own `-n`, which counts **forward** from the cursor. So the cursor
@@ -74,7 +84,34 @@ opaque sequence identifier and is immune to that.
   refuses it in the manager, before any host sees it, and the read takes the seed
   path. That is how the timestamps stored before this change migrate: one seed
   read each, reporting only the latest signal, so no history is replayed as fresh
-  alerts.
+  alerts. Its pattern is **anchored at both ends, and that is load-bearing**: the
+  cursor is interpolated into a command a shell evaluates, `JSON.stringify`
+  escapes `"` and `\` but not `$` or a backquote, and the value's source is text
+  the host sent. Unanchoring it is a shell injection, and
+  `packages/contracts/src/boundary/journal.test.ts` refuses a cursor carrying
+  `$(id)`, a backquoted command, a trailing newline and a second line, in front
+  and behind.
+- **A usable position with nothing new returns exactly one line — its own.**
+  `--cursor` is inclusive, so a resumed read can only come back empty if the
+  entry it names is gone. Zero lines is therefore a signal, not a silence, which
+  is what makes the residual below legible rather than mysterious.
+
+**Residual, accepted, and not to be "fixed".** A position whose sequence number is
+ahead of anything in the journal comes back exit 0, `-- No entries --`, no lines
+and **no cursor note** — on Debian 12 it comes back exit 1 with an empty stderr
+instead, which is the one place the three images disagree and it changes nothing,
+because the refusal is recognised from journalctl's message and not from its exit
+status. The observer keeps the stored position and reports nothing, so that state
+would look like a quiet bot. It is left that way deliberately:
+
+- The realistic route to zero lines is not a position ahead of the journal — it is
+  **a quiet bot whose cursor entry was vacuumed on a busy host**, and that bot
+  resumes correctly from the very same position as soon as it logs again.
+- Treating zero lines as a refusal would force a seed read every poll for every
+  quiet bot, and the seed branch records its latest signal unconditionally.
+
+So `batch.cursor ?? cursor` — keep the position when the host named none — is the
+correct call, and turning it into a re-seed is a regression, not an improvement.
 
 ### Why the scheduler needs no actor context
 
@@ -1579,10 +1616,11 @@ removal and tears a host down. `scripts/sandbox/instance-stop.sandbox.ts` proves
 a bot's stop on Debian 12.
 `scripts/sandbox/journal-cursor.sandbox.ts` runs the status observer's own
 journal commands on all three base images and holds what journald does with a
-position: it resumes at the line the cursor names, still resumes after that
-entry has been vacuumed away, bounds a resumed read forward from the cursor
-rather than back from the newest line, and refuses a position it cannot seek to
-in the words the manager reads.
+position: it resumes at the line the cursor names, returns just that one line
+when nothing has happened since, still resumes after that entry has been vacuumed
+away, bounds a resumed read forward from the cursor rather than back from the
+newest line, shows nothing and names no position when the cursor is ahead of the
+journal, and refuses a position it cannot seek to in the words the manager reads.
 Start every Podman command in a sandbox test through `shell`, never a direct
 `exec`: a process started straight from `docker exec` is AppArmor-unconfined, so
 on a kernel with `apparmor_restrict_unprivileged_userns=1`, as on GitHub's Ubuntu

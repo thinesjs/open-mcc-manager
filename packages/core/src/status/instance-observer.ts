@@ -59,7 +59,7 @@ export const readConnectionChanges = async (
 		parseJournal(full ? batch.lines.slice(-1).join("\n") : ""),
 	).length
 	const signals = sighted.slice(0, sighted.length - beyond)
-	const next = batch.lines.length === 0 || batch.cursor === undefined ? cursor : batch.cursor
+	const next = batch.cursor ?? cursor
 
 	if (resume === null) {
 		const latest = signals.at(-1)

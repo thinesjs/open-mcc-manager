@@ -36,9 +36,20 @@ let role = "owner"
 
 let enrolled: object[] = HOSTS
 
+const OFFER = {
+	name: "kitchen-pi",
+	hostname: "host.docker.internal",
+	port: 22,
+	username: "mcc",
+	reach: "proven",
+	systemd: true,
+	linger: true,
+}
+
 const answer = async (procedure: string): Promise<object | null> => {
 	if (procedure === "list") return enrolled
 	if (procedure === "me") return { role }
+	if (procedure === "offer") return OFFER
 	return null
 }
 
@@ -47,6 +58,7 @@ const procedure = (router: string, name: string) => ({
 		queryKey: [router, name, input ?? {}],
 		queryFn: () => answer(name),
 	}),
+	queryKey: (input?: object) => [router, name, input ?? {}],
 	mutationOptions: (options: object) => ({ ...options, mutationFn: () => answer(name) }),
 })
 
@@ -124,10 +136,11 @@ describe.each([
 })
 
 describe("who is offered a way to add a host", () => {
-	it("offers an owner the way in", async () => {
+	it("offers an owner both ways in", async () => {
 		await mount()
 
 		expect(await screen.findByRole("button", { name: "Enroll host" })).toBeDefined()
+		expect(await screen.findByRole("button", { name: "Add this machine" })).toBeDefined()
 	})
 
 	it("★ offers a viewer none of them, rather than a wizard the server will refuse to finish", async () => {
@@ -137,5 +150,6 @@ describe("who is offered a way to add a host", () => {
 		await screen.findByText("Ask an owner to add a server.")
 
 		expect(screen.queryAllByRole("button", { name: "Enroll host" })).toHaveLength(0)
+		expect(screen.queryByRole("button", { name: "Add this machine" })).toBeNull()
 	})
 })

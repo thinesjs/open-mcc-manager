@@ -1640,6 +1640,22 @@ convincing right up to the moment it loses the race, as Debian 12 did.
 `journalShowing` re-reads until the line it was given shows, or for
 `JOURNAL_WAIT_MS`, and returns what it last saw so the assertion, not the
 helper, is still what fails.
+**A sandbox test that asserts on journal content must reach it through
+`journalShowing`, never through a bare read.** The write path is asynchronous and
+a bare read only loses under load, so it passes locally and on two of three
+images and fails on the third, on someone else's branch. Two newly-added tests
+have now raced journald *after* this helper existed to prevent it.
+**And the text waited for must be unique to the run that just wrote it.** The
+second of those two did call `journalShowing` — and still raced, because it waited
+for `probe line 4` while an earlier run in the same file had already written that
+exact line. The helper matched history, returned at once, and the wait was a no-op.
+A marker a previous run could have written is not a wait. Tag each run
+(`scripts/sandbox/journal-cursor.sandbox.ts` puts a `randomUUID` slice in both the
+lines it logs and the unit's `Description`) and wait for the tagged form. Wait for
+the unit's **own** last line too, not only the process's: `systemctl start`
+returns once the job completes, so systemd's `Finished` is submitted after the
+program's last write but travels a different transport, and seeing one says
+nothing about the other.
 `SANDBOX_PLATFORM=linux/amd64` builds and boots
 every host on that platform; on an arm64 Mac, emulation boots Debian 12 but not
 rootless Podman, and boots neither Debian 13 nor Ubuntu 24.04.

@@ -87,8 +87,11 @@ export const DELIVERY_TIMEOUT_MS = 20_000
 
 export const DELIVERY_MAX_RESPONSE_BYTES = 64 * 1024
 
+export const NOT_AN_ADDRESS_MESSAGE =
+	"That does not look like a web address. Check it and try again."
+
 export const webhookConfigInput = z.object({
-	url: z.string().url().max(2048),
+	url: z.string().url(NOT_AN_ADDRESS_MESSAGE).max(2048),
 })
 
 export const telegramConfigInput = z.object({
@@ -98,17 +101,17 @@ export const telegramConfigInput = z.object({
 })
 
 export const incomingWebhookConfigInput = z.object({
-	url: z.string().url().max(2048),
+	url: z.string().url(NOT_AN_ADDRESS_MESSAGE).max(2048),
 })
 
 export const gotifyConfigInput = z.object({
-	serverUrl: z.string().url().max(2048),
+	serverUrl: z.string().url(NOT_AN_ADDRESS_MESSAGE).max(2048),
 	appToken: z.string().min(1).max(256),
 	priority: z.number().int().min(0).max(10).default(5),
 })
 
 export const ntfyConfigInput = z.object({
-	serverUrl: z.string().url().max(2048),
+	serverUrl: z.string().url(NOT_AN_ADDRESS_MESSAGE).max(2048),
 	topic: z.string().regex(/^[-_A-Za-z0-9]{1,64}$/),
 	accessToken: z.string().max(256).optional(),
 	priority: z.number().int().min(1).max(5).default(3),

@@ -169,6 +169,17 @@ const postEnroll = (body: string) =>
 		body,
 	})
 
+const postDestination = (url: string) =>
+	app.request("/trpc/notification.create", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			name: "On-call webhook",
+			destination: { kind: "webhook", config: { url } },
+			subscribedTo: ["host.unreachable"],
+		}),
+	})
+
 describe("HTTP error serialization of a fingerprint mismatch", () => {
 	it("returns a client error without echoing the presented or expected fingerprint", async () => {
 		const res = await postEnroll(enrollBody())
@@ -254,6 +265,15 @@ describe("what a rejected input tells the dashboard", () => {
 		expect(raw).not.toContain("invalid_string")
 		expect(raw).not.toContain('"validation"')
 		expect(raw).not.toMatch(/"path":\s*\[/)
+	})
+
+	it("★ tells an operator their address is not a web address, not to check what they entered", async () => {
+		const { body } = await readError(await postDestination("hooks.example.com/alerts"))
+
+		expect(body.error.data.httpStatus).toBe(400)
+		expect(body.error.message).toBe(
+			"That does not look like a web address. Check it and try again.",
+		)
 	})
 
 	it("sends no field names, which nothing on the dashboard reads", async () => {

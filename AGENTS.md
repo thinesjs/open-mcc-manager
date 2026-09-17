@@ -567,21 +567,32 @@ Dependency direction is one-way: router → controller → repository.
   seconds past that wait, and it is worse than the bot unit's case was: the exec
   **rejected** at 30.3s, `claimedExec` set `inFlight`, and the claim was
   correctly kept — for `AUTH_LEASE_MS`, fifteen minutes, not three. What the
-  operator saw: the sign-in itself failed with `Command timed out`, which
-  `mapKnownError` does not map, so the dashboard showed **"Internal server
-  error"**; then start, restart, stop and remove were every one of them refused
+  operator saw: the sign-in itself reported "The host did not answer in time.
+  Try again in a moment." — `CommandTimedOutError` extends
+  `TransportInterruptedError`, which `mapKnownError` answers
+  `HOST_NOT_ANSWERING` — which is true of the exec and says nothing of the claim
+  it left behind; then start, restart, stop and remove were every one of them refused
   `INSTANCE_AUTH_IN_PROGRESS` — "This instance is being signed in to Microsoft.
   Wait for that to finish, then try again." — which **names no duration**, while
   the unit had in fact failed within a second of the manager giving up and the
   cleanup's `reset-failed` had already wiped that evidence. Cancel sign-in, in
   the Danger zone, is still the way out.
   Three ordered numbers fix it, and as on the bot unit the order is the point:
-  **start phase 50s < `JobTimeoutSec=55` < `AUTH_START_TIMEOUT_MS` 85s.**
+  **declared pair 50s < `JobTimeoutSec=55` < `AUTH_START_TIMEOUT_MS` 85s.**
   The sign-in unit's start phase is four execs, and `TimeoutStartSec` re-arms
   for each: the `ExecCondition` that skips a running bot, the settings
   preflight, `flock -w 30 … /bin/true`, and `podman run -d --sdnotify=conmon`.
-  Only the third waits on anything a third party holds. `TimeoutStartSec=20`
-  bounds each of them, so the declared phase is the `-w 30` plus 20 — 50s.
+  Only the third waits on anything a third party holds, and `TimeoutStartSec=20`
+  bounds every one of them.
+  **The 50s is not the phase, and nothing should read it as one.** It is the sum
+  of the two numbers the unit *declares*, `-w 30` and `TimeoutStartSec 20`, and
+  it is a deliberate over-estimate: the per-exec bound caps the lock exec at 20s
+  so the `-w 30` is never reached, which puts the phase at **at most 40s** for
+  the two execs that wait and at most 4x20 = 80s strictly. The tests compare the
+  declared pair because that sum stays an upper bound on the practical phase
+  even if `TimeoutStartSec` were ever raised above the `-w`. What the comparison
+  buys is a ceiling: `lock + start < job` caps `TimeoutStartSec` at 24, and so
+  caps the practical two-exec phase at 48s, still under the job bound.
   **How 20 is arrived at.** Its floor is the longest a single one of those execs
   can legitimately take. For the lock exec that is the collector's truncate, the
   only holder in this product whose hold is bounded: it takes `collect.lock`
@@ -622,10 +633,13 @@ Dependency direction is one-way: router → controller → repository.
   `test` builtins, so the practical phase is 20 + 20 = 40s.
   Re-provisioning caps every start-phase exec at 20s where it had systemd's 90,
   so a host whose `podman run` legitimately needs longer now fails its sign-in
-  where it used to succeed. Two of the bot unit's residues are absent here: this
-  unit declares no `Restart=`, so there is no start limit to burn and no
-  container coming up behind the manager's back after it reported failure. The
-  operator presses the button again.
+  where it used to succeed. Two of the bot unit's residues are absent here, and
+  both for the same reason — this unit declares no `Restart=`, so there is no
+  start limit to burn, and systemd never makes a fresh attempt half a minute
+  after a failed start. The operator presses the button again. That is **not** a
+  claim that nothing can be running once the manager has reported failure: the
+  job-timeout residue above is exactly that case, and in it the `ExecStart`
+  child is still alive.
   One floor this design does **not** own: the bot unit's own start-phase `flock`
   also holds `collect.lock`, for as long as *that* unit's start phase allows. A
   sign-in that waits behind it needs both units' `ExecCondition`s to have passed

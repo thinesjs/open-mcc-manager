@@ -42,6 +42,40 @@ line the wedged client prints. The markers in `STUCK_MARKERS` were observed from
 build 511, not guessed. If you add a supervision feature, assume a live process
 proves nothing and find a signal that distinguishes working from present.
 
+### Where the status observer resumes from
+
+The position `packages/core/src/status/instance-observer.ts` stores between polls
+is **journald's own cursor**, taken from `--show-cursor` and spent as
+`--cursor`, never a clock reading. A timestamp window worked, but it was a
+wall-clock value compared against lines stamped by the same wall clock: a
+backwards step — a VM resume, a snapshot restore, an NTP correction large enough
+to step rather than slew — left the stored value in the future relative to new
+lines, and the window matched nothing until real time caught up. A cursor is an
+opaque sequence identifier and is immune to that.
+
+- The resume is `--cursor`, which is **inclusive**, and the batch is bounded by
+  journalctl's own `-n`, which counts **forward** from the cursor. So the cursor
+  `--show-cursor` reports always names the last line of the batch, which is the
+  line the next read starts at. A full batch withholds that line as lookahead
+  rather than judging it, so no disconnect is ever judged without the line that
+  may carry its reason; a short batch judges it and re-reads it once next poll,
+  which yields the same signals and so no change.
+- **A vacuumed cursor still resumes.** `scripts/sandbox/journal-cursor.sandbox.ts`
+  deletes the journal file holding the cursor's own entry on Debian 12, Debian 13
+  and Ubuntu 24.04 and reads again: journalctl exits 0 and returns everything
+  logged since. Vacuuming is not a hazard, and nothing fabricates a fallback for
+  it.
+- **A position the host cannot seek to is not silence.** journalctl exits
+  non-zero with `Failed to seek to cursor`, identically on all three images.
+  `journalRefusedCursor` recognises exactly that, the drain reads the journal
+  afresh in the same cycle, and the server logs it. Treating it as "no new lines"
+  would be indistinguishable from the stall this design removes.
+- **A stored value that is not a cursor is never spent as one.** `isJournalCursor`
+  refuses it in the manager, before any host sees it, and the read takes the seed
+  path. That is how the timestamps stored before this change migrate: one seed
+  read each, reporting only the latest signal, so no history is replayed as fresh
+  alerts.
+
 ### Why the scheduler needs no actor context
 
 `runScheduledCommand` takes an `InstanceCommandRow` and no `ActorContext`. It
@@ -1543,6 +1577,12 @@ FIFOs at every name the collector takes, and holds a truncate past its deadline.
 `scripts/sandbox/removal.sandbox.ts` removes running bots, races starts against
 removal and tears a host down. `scripts/sandbox/instance-stop.sandbox.ts` proves
 a bot's stop on Debian 12.
+`scripts/sandbox/journal-cursor.sandbox.ts` runs the status observer's own
+journal commands on all three base images and holds what journald does with a
+position: it resumes at the line the cursor names, still resumes after that
+entry has been vacuumed away, bounds a resumed read forward from the cursor
+rather than back from the newest line, and refuses a position it cannot seek to
+in the words the manager reads.
 Start every Podman command in a sandbox test through `shell`, never a direct
 `exec`: a process started straight from `docker exec` is AppArmor-unconfined, so
 on a kernel with `apparmor_restrict_unprivileged_userns=1`, as on GitHub's Ubuntu

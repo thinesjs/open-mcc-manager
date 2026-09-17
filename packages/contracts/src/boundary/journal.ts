@@ -30,6 +30,40 @@ export const parseJournal = (raw: string): JournalLine[] => {
 	return lines
 }
 
+const JOURNAL_CURSOR =
+	/^s=[0-9a-f]{32};i=[0-9a-f]+;b=[0-9a-f]{32};m=[0-9a-f]+;t=[0-9a-f]+;x=[0-9a-f]+$/
+
+export const isJournalCursor = (value: string): boolean => JOURNAL_CURSOR.test(value)
+
+const NOTE = "-- "
+
+const CURSOR_NOTE = "-- cursor: "
+
+export type JournalBatch = {
+	lines: string[]
+	cursor: string | undefined
+}
+
+export const journalBatch = (raw: string): JournalBatch => {
+	const lines: string[] = []
+	let cursor: string | undefined
+	for (const candidate of raw.split("\n")) {
+		if (candidate.trim().length === 0) continue
+		if (candidate.startsWith(CURSOR_NOTE)) {
+			const shown = candidate.slice(CURSOR_NOTE.length).trim()
+			cursor = isJournalCursor(shown) ? shown : undefined
+			continue
+		}
+		if (candidate.startsWith(NOTE)) continue
+		lines.push(candidate)
+	}
+	return { lines, cursor }
+}
+
+const CURSOR_REFUSED = "Failed to seek to cursor"
+
+export const journalRefusedCursor = (stderr: string): boolean => stderr.includes(CURSOR_REFUSED)
+
 export const JOINED_MARKER = "Server was successfully joined"
 
 export const DISCONNECTED_MARKER = "Disconnected by Server"

@@ -99,6 +99,45 @@ export const explainClientFailure = (output: string): string => {
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
+export const DOWNLOAD_ATTEMPTS = 3
+
+export const DOWNLOAD_DEADLINE_SECONDS = 170
+
+export const DOWNLOAD_FIRST_BACKOFF_SECONDS = 1
+
+const RETRYABLE_HTTP_CODES = ["408", "429", "5??"] as const
+
+const RETRYABLE_CURL_EXITS = [6, 7, 18, 28, 35, 52, 55, 56] as const
+
+const TRANSIENT = [
+	...RETRYABLE_HTTP_CODES.map((code) => `22:${code}`),
+	...RETRYABLE_CURL_EXITS.map((exit) => `${exit}:*`),
+].join("|")
+
+export const clientDownloadCommand = (url: string): string =>
+	[
+		"dir=$(mktemp -d) || exit 1",
+		`deadline=$(($(date +%s) + ${DOWNLOAD_DEADLINE_SECONDS}))`,
+		`pause=${DOWNLOAD_FIRST_BACKOFF_SECONDS}`,
+		"attempt=1",
+		"while :; do",
+		"	left=$((deadline - $(date +%s)))",
+		'	[ "$left" -gt 0 ] || exit 28',
+		`	code=$(curl -fsSL --max-time "$left" -w '%{http_code}' -o "$dir/mcc" ${shellQuote(url)})`,
+		"	status=$?",
+		'	[ "$status" -eq 0 ] && break',
+		'	case "$status:$code" in',
+		`	${TRANSIENT}) ;;`,
+		'	*) exit "$status" ;;',
+		"	esac",
+		`	[ "$attempt" -lt ${DOWNLOAD_ATTEMPTS} ] || exit "$status"`,
+		"	attempt=$((attempt + 1))",
+		'	sleep "$pause"',
+		"	pause=$((pause * 2))",
+		"done",
+		`printf '%s' "$dir"`,
+	].join("\n")
+
 export const imagePullCommand = (image: RuntimeImage): string =>
 	`podman pull ${shellQuote(runtimeImageReference(image))}`
 
@@ -211,7 +250,7 @@ export const provisionHost = async (
 	advance()
 	const workDir = await step(
 		transport,
-		`d=$(mktemp -d) && curl -fsSL ${shellQuote(release.url)} -o "$d/mcc" && printf '%s' "$d"`,
+		clientDownloadCommand(release.url),
 		"Failed to download the Minecraft Console Client",
 		PROVISION_DOWNLOAD_TIMEOUT_MS,
 	)

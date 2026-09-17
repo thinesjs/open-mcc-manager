@@ -14,9 +14,11 @@ import { join } from "node:path"
 import { createFakeTransport, type FakeScript } from "@open-mcc/transport"
 import { afterEach, describe, expect, it } from "vitest"
 import { LINGER_COMMAND } from "./check"
+import { mccReleaseForMachine } from "./mcc-release"
 import { HOST_FACTS_COMMAND, STORAGE_CONF, storageStepCommand } from "./podman-facts"
 import {
 	clientCheckCommand,
+	clientDownloadCommand,
 	explainClientFailure,
 	imageIdCommand,
 	imagePullCommand,
@@ -180,6 +182,14 @@ describe("provisionHost", () => {
 		const download = transport.commands.find((command) => command.includes("curl -fsSL"))
 		expect(download).toContain("mktemp -d")
 		expect(transport.commands.some((command) => command.includes("/tmp/mcc-download"))).toBe(false)
+	})
+
+	it("downloads through the retrying command client-download.test.ts drives, not a bare curl", async () => {
+		const transport = await connected(ON_ARM64)
+
+		await provisionHost(transport)
+
+		expect(transport.commands).toContain(clientDownloadCommand(mccReleaseForMachine("aarch64").url))
 	})
 
 	it("★ records our own Unknown for a systemd line it cannot trust", async () => {

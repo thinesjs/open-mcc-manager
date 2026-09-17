@@ -310,6 +310,47 @@ export const shell = (
 export const read = async (container: string, path: string): Promise<string> =>
 	succeeded(await exec(container, ROOT, ["cat", path]), `reading ${path}`)
 
+const JOURNAL = 'journalctl --user -u "$1" --no-pager --output cat'
+
+const JOURNAL_SINCE = 'journalctl --user -u "$1" --since "@$2" --no-pager --output cat'
+
+export const journalOf = async (
+	container: string,
+	as: As,
+	unit: string,
+	since?: string,
+): Promise<string> =>
+	(
+		await (since === undefined
+			? shell(container, as, JOURNAL, unit)
+			: shell(container, as, JOURNAL_SINCE, unit, since))
+	).stdout
+
+export const JOURNAL_WAIT_MS = 30_000
+
+const JOURNAL_POLL_MS = 250
+
+const shows = (journal: string, wanted: string | RegExp): boolean =>
+	typeof wanted === "string" ? journal.includes(wanted) : wanted.test(journal)
+
+export const journalShowing = async (
+	container: string,
+	as: As,
+	unit: string,
+	wanted: string | RegExp,
+	since?: string,
+): Promise<string> => {
+	const deadline = Date.now() + JOURNAL_WAIT_MS
+	for (;;) {
+		const journal = await journalOf(container, as, unit, since)
+		if (shows(journal, wanted) || Date.now() >= deadline) return journal
+		await delay(JOURNAL_POLL_MS)
+	}
+}
+
+export const neverShowed = (unit: string, wanted: string | RegExp): string =>
+	`${unit} did not log ${typeof wanted === "string" ? JSON.stringify(wanted) : String(wanted)} within ${JOURNAL_WAIT_MS}ms; its journal follows`
+
 export const homeOf = (account: string): string =>
 	account === "root" ? "/root" : `/home/${account}`
 

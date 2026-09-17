@@ -10,6 +10,8 @@ import {
 	type As,
 	buildImage,
 	exec,
+	journalShowing,
+	neverShowed,
 	ROOT,
 	remove,
 	SANDBOX_PLATFORM,
@@ -57,6 +59,8 @@ const CONTAINER_STORAGE = ACCOUNTS.map(
 )
 
 const BUSYBOX = "docker.io/library/busybox:1.36.1"
+
+const QUIT_AND_BYE = "got:/quit\nbye"
 
 const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -366,11 +370,8 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 				`waiting until ${what}`,
 			)
 
-		const journal = async (id: string): Promise<string> =>
-			succeeded(
-				await exec(host, as, ["journalctl", "--user", "-u", unit(id), "-o", "cat", "--no-pager"]),
-				"reading the unit's journal",
-			)
+		const journalShows = async (id: string, wanted: string | RegExp): Promise<string> =>
+			await journalShowing(host, as, unit(id), wanted)
 
 		const journalHas = (id: string, line: string, count = 1) =>
 			until(
@@ -446,7 +447,10 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			await journalHas("exits", "standin-up", 3)
 
 			expect(Number(await property("exits", "NRestarts"))).toBeGreaterThanOrEqual(1)
-			expect(await journal("exits")).toMatch(/status=3/)
+			expect(
+				await journalShows("exits", /status=3/),
+				neverShowed(unit("exits"), /status=3/),
+			).toMatch(/status=3/)
 			await manager("stop", unit("exits"))
 		})
 
@@ -462,7 +466,10 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			expect(await property("stops", "ActiveState")).toBe("inactive")
 			expect(await property("stops", "Result")).toBe("success")
 			expect(await property("stops", "ExecMainStatus")).toBe("0")
-			expect(await journal("stops")).toContain("got:/quit\nbye")
+			expect(
+				await journalShows("stops", QUIT_AND_BYE),
+				neverShowed(unit("stops"), QUIT_AND_BYE),
+			).toContain(QUIT_AND_BYE)
 			const containers = succeeded(
 				await exec(host, as, ["podman", "ps", "-a", "--format", "{{.Names}}"]),
 				"listing containers",
@@ -497,7 +504,10 @@ describe.each(TARGETS)("a Podman host on $name", (target) => {
 			await journalHas("kills", "standin-up", 2)
 
 			expect(Number(await property("kills", "NRestarts"))).toBeGreaterThanOrEqual(1)
-			expect(await journal("kills")).toMatch(/status=137/)
+			expect(
+				await journalShows("kills", /status=137/),
+				neverShowed(unit("kills"), /status=137/),
+			).toMatch(/status=137/)
 			await send("kills", "after-the-kill")
 			await journalHas("kills", "got:after-the-kill")
 			await manager("stop", unit("kills"))

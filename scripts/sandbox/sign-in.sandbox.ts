@@ -24,7 +24,7 @@ import {
 	startPodmanHost,
 	withUserManager,
 } from "./podman-account"
-import { type As, docker, ROOT, remove, shell, succeeded } from "./sandbox"
+import { type As, docker, journalOf, ROOT, remove, shell, succeeded } from "./sandbox"
 
 const BOT = "sandbox-sign-in"
 
@@ -116,15 +116,7 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 		(await shell(host, as, SKIPPED, unit, since, SKIP_LINE)).status === 0
 
 	const journalSince = async (unit: string, since: string): Promise<string> =>
-		(
-			await shell(
-				host,
-				as,
-				'journalctl --user -u "$1" --since "@$2" --no-pager --output cat',
-				unit,
-				since,
-			)
-		).stdout
+		await journalOf(host, as, unit, since)
 
 	const running = async (): Promise<string> =>
 		succeeded(

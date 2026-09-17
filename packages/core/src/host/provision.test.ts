@@ -22,6 +22,7 @@ import {
 	explainClientFailure,
 	imageIdCommand,
 	imagePullCommand,
+	PROVISION_DOWNLOAD_TIMEOUT_MS,
 	PROVISION_STEPS,
 	parseSystem,
 	provisionHost,
@@ -184,12 +185,37 @@ describe("provisionHost", () => {
 		expect(transport.commands.some((command) => command.includes("/tmp/mcc-download"))).toBe(false)
 	})
 
-	it("downloads through the retrying command client-download.test.ts drives, not a bare curl", async () => {
+	it("issues the exact command client-download.test.ts drives, so its retry proofs are about this step", async () => {
 		const transport = await connected(ON_ARM64)
 
 		await provisionHost(transport)
 
 		expect(transport.commands).toContain(clientDownloadCommand(mccReleaseForMachine("aarch64").url))
+	})
+
+	it("retries the download, and finishes every attempt and every backoff inside the wait it is given", async () => {
+		const transport = await connected(ON_ARM64)
+
+		await provisionHost(transport)
+
+		const index = transport.commands.findIndex((command) => command.includes("curl -fsSL"))
+		const download = transport.commands[index] ?? ""
+		const waitMs = transport.timeouts[index] ?? 0
+		const deadline = /deadline=\$\(\(\$\(date \+%s\) \+ (\d+)\)\)/.exec(download)
+		const attempts = /\[ "\$attempt" -lt (\d+) \]/.exec(download)
+		const firstPause = /(?:^|\n)pause=(\d+)(?:\n|$)/.exec(download)
+		const growth = /pause=\$\(\(pause \* (\d+)\)\)/.exec(download)
+		expect(deadline, download).not.toBeNull()
+		expect(attempts, download).not.toBeNull()
+		expect(firstPause, download).not.toBeNull()
+		expect(growth, download).not.toBeNull()
+
+		const seconds = Number(deadline?.[1])
+		const tries = Number(attempts?.[1])
+		const lastPause = Number(firstPause?.[1]) * Number(growth?.[1]) ** (tries - 2)
+		expect(tries).toBeGreaterThan(1)
+		expect(waitMs).toBe(PROVISION_DOWNLOAD_TIMEOUT_MS)
+		expect((seconds + lastPause) * 1000).toBeLessThan(waitMs)
 	})
 
 	it("★ records our own Unknown for a systemd line it cannot trust", async () => {

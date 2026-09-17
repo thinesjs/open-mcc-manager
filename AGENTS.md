@@ -252,6 +252,8 @@ have:
 | The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
 | Only reviewed read builders turning text into a command a shared connection runs | `packages/core/src/instance/read-command-allowlist.test.ts` — every source file naming `asReadCommand` is compared against an exact list, so a new caller fails. It proves who can mint a read command, NOT that the command only reads: `asReadCommand` accepts any string, so a write minted inside an allowlisted file passes, and `HostReader.forward` is not covered at all |
 | The provisioning lease covering the worst-case remote work | `packages/core/src/host/host.controller.test.ts` — the budget is computed from the steps `provisionHost` actually runs, so adding one fails the test |
+| The client download's retries and backoffs ending inside the wait that step is given | `packages/core/src/host/provision.test.ts` — reads the deadline, the attempt bound, the first backoff and its growth off the command `provisionHost` actually issues, and requires `deadline + first × growth^(attempts − 2)` below that exec's wait, so raising either constant past the other fails it and a command with no retry at all fails it for want of the numbers. It proves the arithmetic, NOT that curl honours it: `packages/core/src/host/client-download.test.ts` runs the rendered command under `/bin/sh` against a stand-in origin for that, and `provision.sandbox.ts` runs it against the real one |
+| Which download failures are worth retrying | `packages/core/src/host/client-download.test.ts` — drives the rendered command against an origin that answers 500, 503, a reset connection and a cut-short body, and one that answers 404 and 403, so widening the classification to everything fails the permanent cases and narrowing it fails the transient ones. It covers the codes the tests name, NOT every code in the two lists |
 | Registration closed to every authentication method once a user exists | `apps/server/src/registration-gate.test.ts` — the gate is driven with a `create-user` source for each method better-auth can report as well as over HTTP, so unwiring it from `createAuth` or making it always admit both fail it |
 | No sandbox container is given a host path, home directory, `~/.ssh` or the Docker socket | `scripts/sandbox/sandbox.test.ts` — every `docker` call the sandbox suite makes goes through one guard, which refuses, among the arguments of a `run` or `create` up to a `--` (a bind mount can only come from a docker-level flag before the image, never from the command run inside a container; every harness `run` builder passes `--` right before its image, and a call without `--` is scanned to its end, so a `v`-flag after the image is refused there too), any argument that is a short-flag group containing `v`, `--volume`, `--mount` or `--volumes-from`; refuses any argument naming `docker.sock` anywhere; and refuses every `docker cp` or `docker container cp` in either direction. So an in-container `grep -v` or `tar -xvf` under `docker exec` is allowed, while `run -dv /host:/c img` is not. Files reach a container on `docker exec` stdin. A direct `spawn("docker", ...)` would go around it |
 | No sandbox container is killed or force-removed | `scripts/sandbox/sandbox.test.ts` — the same guard refuses `kill` and `restart`, an `rm` or `remove` carrying `--force`, `--force=…` or a short-flag group containing `f`, and any `stop` that is not `stop --timeout -1` or that carries `--signal` or `-s`, each with or without the `container` prefix, and the harness's own stop arguments are checked against it. A direct `spawn("docker", ...)` would go around it |
@@ -473,6 +475,32 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
+- The client download retries, and its three bounds are coupled to the 180s
+  that step is given. `clientDownloadCommand` (`provision.ts`) renders a loop
+  around `curl` bounded by `DOWNLOAD_ATTEMPTS`, by `DOWNLOAD_DEADLINE_SECONDS`
+  recomputed each pass into `--max-time`, and by a backoff that starts at
+  `DOWNLOAD_FIRST_BACKOFF_SECONDS` and doubles. The worst case is
+  `deadline + first × 2^(attempts − 2)` — the deadline bounds every `curl`, but
+  the last backoff is slept **after** the last one and is not inside it — and
+  that must stay under `PROVISION_DOWNLOAD_TIMEOUT_MS`, or the exec is killed
+  mid-retry and the operator is told the command did not finish rather than
+  what the origin said. 170 + 2 = 172s against 180s today. Four numbers in one
+  file and a fifth above them, tied by nothing but that arithmetic, so
+  `provision.test.ts` reads all four back off the command `provisionHost`
+  issues and checks the relationship rather than the values: five attempts
+  still fits and passes, six does not and fails.
+- **What that retry treats as transient is a decision, not a default.** A 500,
+  a 502, a 503, a 408 and a 429, and curl's 6, 7, 18, 28, 35, 52, 55 and 56 —
+  DNS, connect, partial file, timeout, SSL connect, empty reply, send and recv
+  failure — are retried. **A 404 is not, nor a 403, nor a 401, nor any other
+  status or exit**: an artefact that is permanently unfetchable must stay a
+  fast, clear failure, and retrying one turns eleven milliseconds into seconds
+  of nothing. The classification is read from `-w '%{http_code}'`, which still
+  prints under `-f`, paired with curl's exit code. Do not reach for
+  `--retry-all-errors` to cover the reset: it was measured, and it turns a 404
+  into four requests over seven seconds. Do not reach for curl's own `--retry`
+  alone either — it classifies HTTP correctly and leaves a reset connection
+  unretried, which is why the loop exists rather than the flag.
 - `CONFIG_CLAIM_LEASE_MS` (`instance.repository.ts`) leases one bot's config
   claim for 180s. `claimForConfig` and `claimForLifecycle` take it — the second
   also refuses a live sign-in claim, because start, restart, stop and remove

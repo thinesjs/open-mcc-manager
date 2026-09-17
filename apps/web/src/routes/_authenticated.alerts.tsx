@@ -126,6 +126,7 @@ function AlertsPage() {
 	const failures = useQuery({
 		...trpc.notification.failures.queryOptions({ offset: failuresOffset }),
 		placeholderData: keepPreviousData,
+		refetchOnWindowFocus: true,
 	})
 	const retry = useMutation(trpc.notification.retry.mutationOptions())
 	const dismiss = useMutation(trpc.notification.dismiss.mutationOptions())

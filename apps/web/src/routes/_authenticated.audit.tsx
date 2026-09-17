@@ -42,6 +42,7 @@ function AuditPage() {
 		...trpc.audit.list.queryOptions({ offset }),
 		enabled: mayRead,
 		placeholderData: keepPreviousData,
+		refetchOnWindowFocus: true,
 	})
 
 	const total = page.data?.total

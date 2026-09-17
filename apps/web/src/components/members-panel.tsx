@@ -32,10 +32,15 @@ export const MembersPanel = ({ role }: MembersPanelProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
 	const mayManage = can(role, "member.manage")
-	const membersQuery = useQuery({ ...trpc.member.list.queryOptions(), enabled: mayManage })
+	const membersQuery = useQuery({
+		...trpc.member.list.queryOptions(),
+		enabled: mayManage,
+		refetchOnWindowFocus: true,
+	})
 	const invitationsQuery = useQuery({
 		...trpc.member.invitations.queryOptions(),
 		enabled: mayManage,
+		refetchOnWindowFocus: true,
 	})
 	const removeMutation = useMutation(trpc.member.remove.mutationOptions())
 	const cancelMutation = useMutation(trpc.member.cancelInvitation.mutationOptions())

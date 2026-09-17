@@ -51,7 +51,10 @@ function InstanceDetailPage() {
 	const [signInWait, setSignInWait] = useState<SignInWait | undefined>(undefined)
 	const [checkingByHand, setCheckingByHand] = useState(false)
 
-	const instanceQuery = useSuspenseQuery(trpc.instance.get.queryOptions({ instanceId }))
+	const instanceQuery = useSuspenseQuery({
+		...trpc.instance.get.queryOptions({ instanceId }),
+		refetchOnWindowFocus: true,
+	})
 	const running = instanceQuery.data.status === "running"
 	const hostsQuery = useQuery(trpc.host.list.queryOptions())
 	const configQuery = useQuery(trpc.instance.getConfig.queryOptions({ instanceId }))

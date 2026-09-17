@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -59,11 +59,14 @@ const answer = async (name: string): Promise<object | null> => {
 
 let failuresDelayMs = 0
 
+let failureReads = 0
+
 const procedure = (router: string, name: string) => ({
 	queryOptions: (input?: QueryInput) => ({
 		queryKey: input === undefined ? [router, name] : [router, name, input],
 		queryFn: async () => {
 			if (router !== "notification" || name !== "failures") return answer(name)
+			failureReads += 1
 			if (failuresDelayMs > 0) {
 				await new Promise((resolve) => setTimeout(resolve, failuresDelayMs))
 			}
@@ -104,15 +107,21 @@ beforeEach(() => {
 	seedFailures(0)
 	failuresOverride = undefined
 	failuresDelayMs = 0
+	failureReads = 0
 })
 
-afterEach(cleanup)
+afterEach(() => {
+	focusManager.setFocused(undefined)
+	cleanup()
+})
 
 const mount = async () => {
 	const Page = Route.options.component
 	if (Page === undefined) throw new Error("the alerts route renders no page")
 	await Page.preload?.()
-	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+	})
 	render(
 		<QueryClientProvider client={client}>
 			<Suspense fallback={null}>
@@ -254,5 +263,21 @@ describe("paging through alerts that did not arrive", () => {
 		await screen.findByText("21–25 of 25")
 		expect(screen.getByText("Alert 20")).toBeDefined()
 		expect(screen.getByRole("button", { name: "Next" })).toHaveProperty("disabled", true)
+	})
+})
+
+describe("coming back to the alerts page after a while away", () => {
+	it("★ reads what did not arrive again, since a worker writes it while nobody is looking", async () => {
+		seedFailures(25)
+		await mount()
+		await screen.findByText("1–20 of 25")
+		const before = failureReads
+
+		focusManager.setFocused(false)
+		await act(async () => {
+			focusManager.setFocused(true)
+		})
+
+		expect(failureReads).toBe(before + 1)
 	})
 })

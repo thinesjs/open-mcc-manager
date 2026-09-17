@@ -1,5 +1,5 @@
 import { AUDIT_PAGE_SIZE, type AuditPage, type Role } from "@open-mcc/contracts"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -96,6 +96,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	gate.release?.()
+	focusManager.setFocused(undefined)
 	cleanup()
 })
 
@@ -103,7 +104,9 @@ const mount = async (): Promise<QueryClient> => {
 	const Page = Route.options.component
 	if (Page === undefined) throw new Error("the audit route renders no page")
 	await Page.preload?.()
-	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+	})
 	render(
 		<QueryClientProvider client={client}>
 			<Suspense fallback={null}>
@@ -305,4 +308,19 @@ describe("a role that may not read the trail", () => {
 			expect(screen.queryByRole("button", { name: "Next" })).toBeNull()
 		},
 	)
+})
+
+describe("coming back to the audit log after a while away", () => {
+	it("★ reads it again, since every entry on it is written by somebody else", async () => {
+		await mount()
+		await waitFor(() => expect(screen.getByText("137 actions recorded")).toBeDefined())
+		const before = asked.length
+
+		focusManager.setFocused(false)
+		await act(async () => {
+			focusManager.setFocused(true)
+		})
+
+		expect(asked.length).toBe(before + 1)
+	})
 })

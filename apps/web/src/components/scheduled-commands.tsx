@@ -30,7 +30,10 @@ const localTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 
 export const ScheduledCommands = ({ instanceId }: ScheduledCommandsProps) => {
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
-	const query = useQuery(trpc.instance.listScheduledCommands.queryOptions({ instanceId }))
+	const query = useQuery({
+		...trpc.instance.listScheduledCommands.queryOptions({ instanceId }),
+		refetchOnWindowFocus: true,
+	})
 
 	const [adding, setAdding] = useState(false)
 	const [name, setName] = useState("")

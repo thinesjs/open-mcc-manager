@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
 	COMMAND_HISTORY_LIMIT,
 	COMMAND_HISTORY_PREFIX,
+	clearCommandHistories,
 	purgeCommandHistories,
 	readCommandHistory,
 	rememberCommand,
@@ -160,5 +161,30 @@ describe("every bot's history, not only the console being opened", () => {
 		expect(stored("abc123")).toBe("/list")
 		expect(stored("def456")).toBe("/say hi\n/list")
 		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+	})
+})
+
+describe("signing out", () => {
+	it("takes every bot's history with it and leaves the rest alone", () => {
+		writeCommandHistory("abc123", ["/list", "/say hi"])
+		writeCommandHistory("def456", ["/time set day"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+		window.localStorage.setItem(VIEW_KEY, "list")
+
+		clearCommandHistories()
+
+		expect(stored("abc123")).toBeNull()
+		expect(stored("def456")).toBeNull()
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+		expect(window.localStorage.getItem(VIEW_KEY)).toBe("list")
+	})
+
+	it("costs nothing but the history when storage refuses", () => {
+		writeCommandHistory("abc123", ["/list"])
+		vi.spyOn(Storage.prototype, "key").mockImplementation(() => {
+			throw new Error("blocked")
+		})
+
+		expect(() => clearCommandHistories()).not.toThrow()
 	})
 })

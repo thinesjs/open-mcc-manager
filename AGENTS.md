@@ -164,7 +164,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Twenty-three rules stated further down this document are enforced too, and are
+Twenty-four rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -192,6 +192,7 @@ have:
 | No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
 | Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
 | Every pattern the browser masks being applied by the log redactor too | `packages/core/src/security/redact.test.ts` — `REDACTION_PATTERNS` is compared against `UNAMBIGUOUS_SECRET_PATTERNS` by identity and by length, so a pattern registered in `contracts` and left out of `redact`'s list fails it. It proves the server applies every shared pattern, NOT that a pattern belongs on the shared side: that judgement is review's |
+| The console history keys swept on load and cleared on sign-out | `apps/web/src/lib/command-history.test.tsx` and `apps/web/src/routes/_authenticated.sign-out.test.tsx` — both drive the real `localStorage` jsdom provides rather than a stubbed map, seed more than one bot's key, and each also requires the theme and the view-mode key to survive, so widening either to "remove everything" fails. The sign-out one mounts the shell and clicks the button, so unwiring `clearCommandHistories` from `handleSignOut` fails it |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -1359,10 +1360,15 @@ per service.
   writes the shortened list back. The purge is not left to that read alone:
   `command-history.ts` sweeps **every** `open-mcc:command-history:` key as the
   module loads, so a secret in another bot's history dies with the first console
-  anyone opens rather than surviving until someone opens that one. Theme and
-  view mode are the only other keys this dashboard stores and the sweep leaves
-  both alone. Every read and write stays inside a `try`/`catch` — `localStorage`
-  throws in a private window and with site data blocked.
+  anyone opens rather than surviving until someone opens that one. The shell
+  clears every one of those keys on sign-out, and it does so **before** it calls
+  `authClient.signOut`, so a refused or unreachable sign-out cannot leave one
+  operator's commands on a shared machine for the next person. Theme and view
+  mode are the only other keys this dashboard stores and neither the sweep nor
+  the clear touches them. Every read and write stays inside a `try`/`catch` —
+  `localStorage` throws in a private window and with site data blocked — and a
+  new key holding what an operator typed belongs in both the sweep and the
+  clear.
 
 ## Tests
 

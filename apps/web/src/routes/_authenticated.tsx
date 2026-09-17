@@ -28,6 +28,7 @@ import { ThemeToggle } from "~/components/theme-toggle"
 import { PageBoundary } from "~/components/ui/shimmer"
 import { UpdateModal } from "~/components/update-modal"
 import { authClient } from "~/lib/auth-client"
+import { clearCommandHistories } from "~/lib/command-history"
 import { navItemVisible } from "~/lib/nav-access"
 import { useNavDrawer } from "~/lib/nav-drawer"
 import { decideFromSession } from "~/lib/session-guard"
@@ -96,6 +97,7 @@ function AuthenticatedLayout() {
 	}, [])
 
 	const handleSignOut = async () => {
+		clearCommandHistories()
 		await authClient.signOut()
 		navigate({ to: "/sign-in" })
 	}

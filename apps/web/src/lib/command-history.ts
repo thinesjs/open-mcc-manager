@@ -64,4 +64,13 @@ export const purgeCommandHistories = (): void => {
 	}
 }
 
+export const clearCommandHistories = (): void => {
+	try {
+		const storage = window.localStorage
+		for (const key of historyKeys(storage)) storage.removeItem(key)
+	} catch {
+		return
+	}
+}
+
 purgeCommandHistories()

@@ -23,7 +23,7 @@ describe("which host page actions a role is offered", () => {
 		}
 	})
 
-	it("covers every action the host page renders", () => {
-		expect([...HOST_CONTROLS]).toEqual(["createInstance", "setUp", "remove"])
+	it("covers every action the host pages render", () => {
+		expect([...HOST_CONTROLS]).toEqual(["enroll", "createInstance", "setUp", "remove"])
 	})
 })

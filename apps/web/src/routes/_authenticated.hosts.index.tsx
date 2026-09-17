@@ -14,6 +14,7 @@ import { Modal } from "~/components/ui/modal"
 import { useViewMode, ViewToggle } from "~/components/view-toggle"
 import { getErrorMessage } from "~/lib/errors"
 import { pollIntervalFor, TRANSIENT_HOST_STATUSES } from "~/lib/freshness"
+import { mayUseHostControl } from "~/lib/host-actions"
 import { useTRPC } from "~/lib/trpc"
 
 export const Route = createFileRoute("/_authenticated/hosts/")({
@@ -31,6 +32,8 @@ function HostListPage() {
 	})
 	const offerQuery = useQuery(trpc.selfHost.offer.queryOptions())
 	const offer = offerQuery.data
+	const me = useQuery(trpc.member.me.queryOptions())
+	const mayEnroll = mayUseHostControl(me.data?.role, "enroll")
 
 	return (
 		<div className="space-y-6">
@@ -43,10 +46,12 @@ function HostListPage() {
 				</div>
 				<div className="flex items-center gap-2">
 					<ViewToggle mode={view} onChange={setView} label="Host layout" />
-					<Button size="sm" onClick={() => setEnrolling(true)}>
-						<Plus className="size-4" />
-						Enroll host
-					</Button>
+					{mayEnroll ? (
+						<Button size="sm" onClick={() => setEnrolling(true)}>
+							<Plus className="size-4" />
+							Enroll host
+						</Button>
+					) : null}
 				</div>
 			</div>
 
@@ -56,7 +61,7 @@ function HostListPage() {
 				</Alert>
 			) : null}
 
-			{shouldOfferSelfHost(offer, hostsQuery.data) ? (
+			{mayEnroll && shouldOfferSelfHost(offer, hostsQuery.data) ? (
 				<SelfHostCard
 					offer={offer}
 					onAdded={(hostId) => navigate({ to: "/hosts/$hostId", params: { hostId } })}
@@ -67,12 +72,18 @@ function HostListPage() {
 				<EmptyState
 					icon={Server}
 					title="No hosts enrolled"
-					description="Add a Linux server to run your bots on. You will need SSH access to it."
+					description={
+						mayEnroll
+							? "Add a Linux server to run your bots on. You will need SSH access to it."
+							: "Ask an owner to add a server."
+					}
 					action={
-						<Button size="sm" onClick={() => setEnrolling(true)}>
-							<Plus className="size-4" />
-							Enroll host
-						</Button>
+						mayEnroll ? (
+							<Button size="sm" onClick={() => setEnrolling(true)}>
+								<Plus className="size-4" />
+								Enroll host
+							</Button>
+						) : undefined
 					}
 				/>
 			) : null}

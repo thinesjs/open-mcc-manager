@@ -10,6 +10,7 @@ const COMMAND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 ]
 
 export const UNAMBIGUOUS_SECRET_PATTERNS = {
+	authorizationBearer: [/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[redacted]"],
 	privateKeyBlock: [
 		/-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g,
 		"[redacted private key]",
@@ -31,9 +32,9 @@ export const UNAMBIGUOUS_SECRET_PATTERNS = {
 		/(https:\/\/[^\s/]*\.logic\.azure\.com(?::\d+)?\/workflows)\/\S+/gi,
 		"$1/[redacted]",
 	],
-	signedUrlQuery: [/([?&](?:sig|sv|sp)=)[^&\s"']+/gi, "$1[redacted]"],
+	signedUrlQuery: [/([?&]sig=)[^&\s"']+/gi, "$1[redacted]"],
 	gotifyKey: [/((?:X-Gotify-Key|x-gotify-key)\s*[:=]\s*)\S+/g, "$1[redacted]"],
-	resendKey: [/(?<![A-Za-z0-9_-])(re_)[A-Za-z0-9]{16,}/g, "$1[redacted]"],
+	resendKey: [/(^|[^A-Za-z0-9_-])(re_)[A-Za-z0-9]{16,}/g, "$1$2[redacted]"],
 } as const
 
 const mask = (patterns: ReadonlyArray<readonly [RegExp, string]>, value: string): string =>

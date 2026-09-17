@@ -141,27 +141,57 @@ describe("the patterns the log redactor shares with the browser", () => {
 		}
 	})
 
-	it("applies four more that the browser must not, and nothing besides", () => {
+	it("applies five more that the browser must not, and nothing besides", () => {
 		for (const pattern of LOG_ONLY_PATTERNS) {
 			expect(REDACTION_PATTERNS).toContain(pattern)
 		}
 		expect(REDACTION_PATTERNS).toHaveLength(
 			Object.keys(UNAMBIGUOUS_SECRET_PATTERNS).length + LOG_ONLY_PATTERNS.length,
 		)
-		expect(LOG_ONLY_PATTERNS).toHaveLength(4)
+		expect(LOG_ONLY_PATTERNS).toHaveLength(5)
 	})
 
-	it("still masks each of the four, which only a log line sees", () => {
-		expect(redact("Authorization: Bearer abc123def456")).toBe("Authorization: Bearer [redacted]")
+	it("still masks each of the five, which only a log line sees", () => {
+		expect(redact("bearer abc123def456")).toBe("bearer [redacted]")
 		expect(redact("enter code ABCD-EFGH")).toBe("enter code [redacted code]")
 		expect(redact("token=123456789:AAF-abcdefghijklmnopqrstuvwxyz012345")).toBe(
 			"token=[redacted token]",
 		)
+		expect(redact("GET /invoke?sp=%2Frun&sv=1.0 failed")).toBe(
+			"GET /invoke?sp=[redacted]&sv=[redacted] failed",
+		)
 		expect(redact("AUTH PLAIN AGFiYwBkZWY=")).toBe("AUTH PLAIN [redacted]")
+	})
+
+	it("keeps every pattern at the index it has always held", () => {
+		const indices: ReadonlyArray<readonly [readonly [RegExp, string], number]> = [
+			[UNAMBIGUOUS_SECRET_PATTERNS.authorizationBearer, 1],
+			[UNAMBIGUOUS_SECRET_PATTERNS.privateKeyBlock, 2],
+			[UNAMBIGUOUS_SECRET_PATTERNS.sealboxKeys, 4],
+			[UNAMBIGUOUS_SECRET_PATTERNS.signingSecret, 5],
+			[UNAMBIGUOUS_SECRET_PATTERNS.telegramBotUrl, 6],
+			[UNAMBIGUOUS_SECRET_PATTERNS.slackWebhook, 8],
+			[UNAMBIGUOUS_SECRET_PATTERNS.discordWebhook, 9],
+			[UNAMBIGUOUS_SECRET_PATTERNS.teamsWebhook, 10],
+			[UNAMBIGUOUS_SECRET_PATTERNS.powerPlatformWorkflow, 11],
+			[UNAMBIGUOUS_SECRET_PATTERNS.azureLogicWorkflow, 12],
+			[UNAMBIGUOUS_SECRET_PATTERNS.signedUrlQuery, 13],
+			[UNAMBIGUOUS_SECRET_PATTERNS.gotifyKey, 15],
+			[UNAMBIGUOUS_SECRET_PATTERNS.resendKey, 17],
+		]
+		const logOnlyIndices = [0, 3, 7, 14, 16]
+
+		for (const [pattern, index] of indices) {
+			expect(REDACTION_PATTERNS.indexOf(pattern)).toBe(index)
+		}
+		LOG_ONLY_PATTERNS.forEach((pattern, offset) => {
+			expect(REDACTION_PATTERNS.indexOf(pattern)).toBe(logOnlyIndices[offset])
+		})
 	})
 
 	it("keeps the order it has always had, which decides what a later pattern can still see", () => {
 		expect(redact("Authorization: Bearer ABCD-EFGH")).toBe("Authorization: Bearer [redacted]")
 		expect(redact("SEALBOX_KEYS=ABCD-EFGH")).toBe("SEALBOX_KEYS=[redacted] code]")
+		expect(redact("SEALBOX_KEYS=whsec_aaaaaaaaaaaa")).toBe("SEALBOX_KEYS=[redacted]")
 	})
 })

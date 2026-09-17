@@ -12,17 +12,24 @@ const TELEGRAM_BOT_TOKEN: readonly [RegExp, string] = [
 	"[redacted token]",
 ]
 
+const SIGNED_URL_VERSION_KEYS: readonly [RegExp, string] = [
+	/([?&](?:sv|sp)=)[^&\s"']+/gi,
+	"$1[redacted]",
+]
+
 const SMTP_AUTH_PLAIN: readonly [RegExp, string] = [/(AUTH\s+PLAIN\s+)\S+/gi, "$1[redacted]"]
 
 export const LOG_ONLY_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	BEARER_TOKEN,
 	DEVICE_CODE,
 	TELEGRAM_BOT_TOKEN,
+	SIGNED_URL_VERSION_KEYS,
 	SMTP_AUTH_PLAIN,
 ]
 
 export const REDACTION_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	BEARER_TOKEN,
+	UNAMBIGUOUS_SECRET_PATTERNS.authorizationBearer,
 	UNAMBIGUOUS_SECRET_PATTERNS.privateKeyBlock,
 	DEVICE_CODE,
 	UNAMBIGUOUS_SECRET_PATTERNS.sealboxKeys,
@@ -35,6 +42,7 @@ export const REDACTION_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	UNAMBIGUOUS_SECRET_PATTERNS.powerPlatformWorkflow,
 	UNAMBIGUOUS_SECRET_PATTERNS.azureLogicWorkflow,
 	UNAMBIGUOUS_SECRET_PATTERNS.signedUrlQuery,
+	SIGNED_URL_VERSION_KEYS,
 	UNAMBIGUOUS_SECRET_PATTERNS.gotifyKey,
 	SMTP_AUTH_PLAIN,
 	UNAMBIGUOUS_SECRET_PATTERNS.resendKey,

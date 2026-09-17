@@ -110,6 +110,7 @@ describe("a console command that carries a player's password", () => {
 describe("a secret pasted into a command", () => {
 	it("is recognised behind every marker the browser can trust", () => {
 		const cases: ReadonlyArray<readonly [string, string]> = [
+			["/header Authorization: Bearer abc123def456", "/header Authorization: Bearer [redacted]"],
 			[
 				"/paste -----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
 				"/paste [redacted private key]",
@@ -142,7 +143,7 @@ describe("a secret pasted into a command", () => {
 			],
 			[
 				"/fetch /invoke?api-version=1&sp=%2Frun&sv=1.0&sig=zAbC123",
-				"/fetch /invoke?api-version=1&sp=[redacted]&sv=[redacted]&sig=[redacted]",
+				"/fetch /invoke?api-version=1&sp=%2Frun&sv=1.0&sig=[redacted]",
 			],
 			["/header X-Gotify-Key: A1b2C3d4E5", "/header X-Gotify-Key: [redacted]"],
 			["/mail re_abcdefghij0123456789", "/mail re_[redacted]"],
@@ -154,7 +155,14 @@ describe("a secret pasted into a command", () => {
 	})
 
 	it("carries one pattern per marker, with none left over", () => {
-		expect(Object.keys(UNAMBIGUOUS_SECRET_PATTERNS)).toHaveLength(12)
+		expect(Object.keys(UNAMBIGUOUS_SECRET_PATTERNS)).toHaveLength(13)
+	})
+
+	it("is written in the syntax every browser this dashboard loads in can parse", () => {
+		for (const [pattern] of Object.values(UNAMBIGUOUS_SECRET_PATTERNS)) {
+			expect(pattern.source).not.toContain("(?<=")
+			expect(pattern.source).not.toContain("(?<!")
+		}
 	})
 })
 
@@ -167,10 +175,13 @@ describe("an ordinary Minecraft command", () => {
 			"/say AUTH PLAIN text please",
 			"/say enter code ABCD-EFGH",
 			"/say check https://example.com/page?id=5",
+			"/say watch https://youtube.com/results?search_query=creeper&sp=EgIIAg%3D%3D",
+			"/say the map is at https://tiles.example.com/z?x=1&sv=2&sp=world",
 			"/say sig figs matter",
 			"/say ?sp is a weird acronym",
 			"/say pre_release build is up",
 			"/say i re_joined the game",
+			"/say feature_re_engineering0123456789 is the ticket",
 			"/give @p minecraft:stone 64",
 			"/w Steve meet me at 123:456",
 			"/tp @p 100 64 -200",

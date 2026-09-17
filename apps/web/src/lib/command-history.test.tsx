@@ -88,6 +88,7 @@ describe("a command that carries a secret which is not a password", () => {
 			"/team join BLUE-TEAM",
 			"/say bearer of bad news",
 			"/say AUTH PLAIN text please",
+			"/say watch https://youtube.com/results?search_query=creeper&sp=EgIIAg%3D%3D",
 		]) {
 			expect(rememberCommand(["/list"], command)).toEqual([command, "/list"])
 		}

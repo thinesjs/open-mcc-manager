@@ -51,6 +51,8 @@ export const VERIFICATION_URI_PATTERN = /(https:\/\/[A-Za-z0-9.\-/]*microsoft\.c
 
 export const AUTH_SESSION_TIMEOUT_MS = 30_000
 
+export const AUTH_START_TIMEOUT_MS = 85_000
+
 export const DEVICE_CODE_POLL_ATTEMPTS = 10
 
 export const DEVICE_CODE_POLL_INTERVAL_MS = 2_000
@@ -177,7 +179,7 @@ export const beginAuthentication = async (
 
 		await claimedExec(flight, transport, stopAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
 
-		await claimedExec(flight, transport, startAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
+		await claimedExec(flight, transport, startAuthCommand(instance.id), AUTH_START_TIMEOUT_MS)
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
 			const read = await claimedExec(

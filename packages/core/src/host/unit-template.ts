@@ -79,6 +79,7 @@ WantedBy=default.target
 
 const signInUnit = (network: string, imageId: string): string => `[Unit]
 Description=open-mcc-manager sign-in for instance %i
+JobTimeoutSec=55
 
 [Service]
 Type=notify
@@ -89,6 +90,7 @@ ${skipWhileActive("open-mcc@%i.service")}
 ${CONFIG_PREFLIGHT}
 ExecStartPre=/usr/bin/flock -w 30 "${DIR}/${collectLock}" /bin/true
 ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v ${ROOT}/bin:/opt/mcc:ro -v "${DIR}/${config}":/config:ro -v "${DIR}/${state}":/data -w /data --network=${network} ${imageId} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'
+TimeoutStartSec=20
 TimeoutStopSec=10
 `
 

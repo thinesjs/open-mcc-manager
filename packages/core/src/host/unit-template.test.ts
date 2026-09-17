@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { TRUNCATE_DEADLINE_SECONDS, TRUNCATE_KILL_AFTER_SECONDS } from "../instance/artifact"
 import {
 	AUTH_UNIT_NAME,
 	INSTANCE_UNIT_NAME,
@@ -53,6 +54,7 @@ const signInUnit = (network: string): string =>
 	[
 		"[Unit]",
 		"Description=open-mcc-manager sign-in for instance %i",
+		"JobTimeoutSec=55",
 		"",
 		"[Service]",
 		"Type=notify",
@@ -63,6 +65,7 @@ const signInUnit = (network: string): string =>
 		PREFLIGHT,
 		`ExecStartPre=/usr/bin/flock -w 30 "${DIR}/collect.lock" /bin/true`,
 		`ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v %h/.local/share/open-mcc/bin:/opt/mcc:ro -v "${DIR}/config":/config:ro -v "${DIR}/state":/data -w /data --network=${network} ${IMAGE} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'`,
+		"TimeoutStartSec=20",
 		"TimeoutStopSec=10",
 		"",
 	].join("\n")
@@ -196,6 +199,23 @@ describe("the unit that signs a bot in", () => {
 		expect(lineOf(signIn, "ExecStart=")).toMatch(
 			new RegExp(` </dev/null >"${DIR.replaceAll("%", "%")}/auth\\.log" 2>&1'$`),
 		)
+	})
+
+	it("bounds its own start phase, and leaves the job timeout above it as a backstop", () => {
+		const unitSection = signIn.slice(0, signIn.indexOf("[Service]"))
+		const jobSeconds = Number(/^JobTimeoutSec=(\d+)$/m.exec(unitSection)?.[1])
+		const startSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(signIn)?.[1])
+		const lockSeconds = Number(/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(signIn)?.[1])
+
+		expect(lockSeconds).toBeGreaterThan(0)
+		expect(startSeconds).toBeGreaterThan(0)
+		expect(lockSeconds + startSeconds).toBeLessThan(jobSeconds)
+	})
+
+	it("gives one start-phase exec longer than the collector may hold the lock it waits for", () => {
+		const startSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(signIn)?.[1])
+
+		expect(startSeconds).toBeGreaterThan(TRUNCATE_DEADLINE_SECONDS + TRUNCATE_KILL_AFTER_SECONDS)
 	})
 
 	it("stops within ten seconds, never restarts, and is started only on demand", () => {

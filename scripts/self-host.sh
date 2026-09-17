@@ -309,14 +309,13 @@ if command -v loginctl >/dev/null 2>&1; then
 	LINGER="$(loginctl show-user "$ACCOUNT" --property=Linger --value 2>/dev/null || printf no)"
 fi
 if [ "$LINGER" != "yes" ] && [ "$SYSTEMD" = "yes" ]; then
-	# The account goes into a command a person pastes, so only single quotes
-	# will do: double quotes would let a $ or a backquote in the name run in
-	# their shell before sudo is ever reached. Quoted only when it has to be,
-	# which is accountWord in packages/contracts/src/host-account.ts, so a
-	# plain name reads here exactly as it does on the Hosts page. The
-	# characters are listed rather than given as a range, because ranges in a
-	# case pattern collate by locale. The trailing dot survives command
-	# substitution stripping a newline off the end, and is taken off again.
+	# The account goes into a command a person pastes, and is quoted only when
+	# it has to be, which is accountWord in
+	# packages/contracts/src/host-account.ts, so a plain name reads here
+	# exactly as it does on the Hosts page. The characters are listed rather
+	# than given as a range, because ranges in a case pattern collate by
+	# locale. The trailing dot survives command substitution stripping a
+	# newline off the end, and is taken off again.
 	ACCOUNT_WORD="$ACCOUNT"
 	case "$ACCOUNT" in
 		"" | [.-]* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*)

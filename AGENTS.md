@@ -481,7 +481,7 @@ Dependency direction is one-way: router → controller → repository.
   quotes and the rule's are the same character — so `assertLingerEnabled`
   (`provision.ts`) ends its message with the command after a colon and nothing
   after it.
-- **That command is built in four more places, and the rule governs only one of
+- **That command is built in three more places, and the rule governs only one of
   them.** A shell script that *runs* it puts the account in a quoted variable
   expansion, which the shell never re-splits and never re-scans, so
   `scripts/install.sh` (`sudo loginctl enable-linger "$ACCOUNT"`) and the setup

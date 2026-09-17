@@ -90,6 +90,12 @@ describe("what the card offers", () => {
 		expect(screen.getByText("sudo loginctl enable-linger mcc")).toBeDefined()
 	})
 
+	it("quotes an account name the shell would otherwise split, so the operator can copy it", () => {
+		mount({ linger: false, username: "bot runner" })
+
+		expect(screen.getByText("sudo loginctl enable-linger 'bot runner'")).toBeDefined()
+	})
+
 	it("shows no command when lingering is already on", () => {
 		mount()
 

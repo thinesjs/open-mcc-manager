@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { setTimeout as delay } from "node:timers/promises"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
+import { lingerCommand } from "../../packages/contracts/src/host-account"
 import { hostSetupScript } from "../../packages/contracts/src/host-setup"
 import {
-	lingerCommand,
 	networkHelperCommand,
 	PODMAN_INSTALL_COMMAND,
 	ROOT_REFUSAL,

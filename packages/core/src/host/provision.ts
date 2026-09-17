@@ -1,5 +1,6 @@
 import {
 	LINGER_STEP_LABEL,
+	lingerCommand,
 	type NetworkStack,
 	PROVISION_STEP_LABELS,
 	type ProvisionStepLabel,
@@ -187,7 +188,7 @@ const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
 		.then((r) => r.stdout.trim())
 		.catch(() => "<user>")
 	throw new Error(
-		`Instances would stop when this session ends because lingering is off for ${user}. Run 'sudo loginctl enable-linger ${user}' on the host, then provision again.`,
+		`Instances would stop when this session ends because lingering is off for ${user}. Run this on the host, then provision again: ${lingerCommand(user)}`,
 	)
 }
 

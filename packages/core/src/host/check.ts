@@ -1,8 +1,10 @@
 import {
+	accountWord,
 	type CheckHostInput,
 	HOST_CHECK_NAMES,
 	type HostCheckReport,
 	type HostCheckResult,
+	lingerCommand,
 	type NetworkStack,
 	reportFrom,
 } from "@open-mcc/contracts"
@@ -47,14 +49,6 @@ const PACKAGE_FOR_STACK: Record<NetworkStack, string> = {
 
 export const networkHelperCommand = (stack: NetworkStack): string =>
 	`${APT_INSTALL} ${PACKAGE_FOR_STACK[stack]}`
-
-const SHELL_WORD = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/
-
-const accountWord = (account: string): string =>
-	SHELL_WORD.test(account) ? account : `'${account.replace(/'/g, "'\\''")}'`
-
-export const lingerCommand = (account: string): string =>
-	`sudo loginctl enable-linger ${accountWord(account)}`
 
 export const subordinateIdsCommand = (
 	range: ReturnType<typeof nextSubordinateRange>,

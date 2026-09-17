@@ -6,7 +6,7 @@ import {
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -61,6 +61,7 @@ const server = {
 	instance: BOT,
 	config: { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 },
 	readsFail: false,
+	role: "owner",
 }
 
 const params = { instanceId: "bot-1" }
@@ -103,11 +104,24 @@ const live = (reading: object): object => {
 
 const asked: string[] = []
 
+const refusal: { code: string | undefined } = { code: undefined }
+
+class Refused extends Error {
+	readonly data: { errorCode: string; httpStatus: number }
+
+	constructor(errorCode: string) {
+		super(errorCode)
+		this.data = { errorCode, httpStatus: 409 }
+	}
+}
+
 const answer = async (procedure: string): Promise<object | null> => {
 	asked.push(procedure)
 	switch (procedure) {
 		case "get":
 			return server.instance
+		case "me":
+			return { role: server.role }
 		case "getConfig":
 			return server.config
 		case "list":
@@ -131,6 +145,12 @@ const outcome = async (procedure: string, input: object): Promise<object | null>
 				heldSave.release = resolve
 			})
 		}
+		case "start":
+		case "stop":
+		case "restart":
+		case "remove":
+			if (refusal.code !== undefined) throw new Refused(refusal.code)
+			return null
 		case "authenticate":
 			return {
 				userCode: SIGN_IN_CODE,
@@ -216,12 +236,14 @@ beforeEach(() => {
 	server.instance = BOT
 	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
+	server.role = "owner"
 	issued.length = 0
 	asked.length = 0
 	saves.length = 0
 	params.instanceId = "bot-1"
 	heldSave.release = undefined
 	heldSave.hold = false
+	refusal.code = undefined
 })
 
 afterEach(() => {
@@ -808,5 +830,40 @@ describe("coming back to a tab that was left open", () => {
 		await comeBack()
 
 		expect([...asked].sort()).toEqual(["get", "getSleepWindow", "listScheduledCommands"])
+	})
+})
+
+describe("a lifecycle action refused while a sign-in still holds the bot", () => {
+	const refuseStart = async (errorCode: string) => {
+		server.instance = { ...BOT, status: "stopped" }
+		refusal.code = errorCode
+		await mount()
+		fireEvent.click(await screen.findByRole("button", { name: "Start" }))
+		return await screen.findByRole("alert")
+	}
+
+	it("★ says how long the hold lasts rather than that a sign-in is under way", async () => {
+		const alert = await refuseStart("INSTANCE_AUTH_IN_PROGRESS")
+
+		expect(alert.textContent).toContain("15 minutes")
+		expect(alert.textContent).not.toMatch(/being signed in|wait for that to finish|is running/i)
+	})
+
+	it("★ offers the way out from the refusal itself, not only under the Danger zone", async () => {
+		const alert = await refuseStart("INSTANCE_AUTH_IN_PROGRESS")
+
+		fireEvent.click(await within(alert).findByRole("button", { name: "Cancel sign-in" }))
+
+		await waitFor(() => expect(issued).toContain("cancelAuthentication"))
+		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+	})
+
+	it("★ sends an operator, who may start but may not cancel, to someone who can", async () => {
+		server.role = "operator"
+		const alert = await refuseStart("INSTANCE_AUTH_IN_PROGRESS")
+
+		await waitFor(() => expect(alert.textContent).toContain("Ask an owner to cancel the sign-in."))
+		expect(alert.textContent).toContain("15 minutes")
+		expect(within(alert).queryByRole("button", { name: "Cancel sign-in" })).toBeNull()
 	})
 })

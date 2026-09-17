@@ -1,9 +1,16 @@
-import { type ErrorCode, isErrorCode, NOT_AN_ADDRESS_MESSAGE } from "@open-mcc/contracts"
+import {
+	AUTH_LEASE_MINUTES,
+	type ErrorCode,
+	isErrorCode,
+	NOT_AN_ADDRESS_MESSAGE,
+} from "@open-mcc/contracts"
 
 export type TRPCErrorLike = {
 	message: string
 	data?: { errorCode?: string; httpStatus?: number } | null | undefined
 }
+
+export const SIGN_IN_HOLD_MESSAGE = `A sign-in is holding this bot. The hold can last ${AUTH_LEASE_MINUTES} minutes.`
 
 const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	UNAUTHORIZED: "Your session has expired. Please sign in again.",
@@ -84,8 +91,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"Use /login, not //login. Two slashes are for plugin commands whose own name starts with one.",
 	INSTANCE_ACCOUNT_NOT_INTERACTIVE:
 		"This instance signs in without a device code, so there is nothing to approve.",
-	INSTANCE_AUTH_IN_PROGRESS:
-		"This instance is being signed in to Microsoft. Wait for that to finish, then try again.",
+	INSTANCE_AUTH_IN_PROGRESS: SIGN_IN_HOLD_MESSAGE,
 	INSTANCE_SIGN_IN_RUNNING: "Sign-in is running. Try again when it's done.",
 	INSTANCE_CONCURRENTLY_MODIFIED:
 		"This instance was changed by someone else. Refresh and try again.",

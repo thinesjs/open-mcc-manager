@@ -8,6 +8,7 @@ import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
 import { DeviceCode } from "~/components/device-code"
 import { EmptyState } from "~/components/empty-state"
+import { InstanceActionError } from "~/components/instance-action-error"
 import { InstanceBotsTab, InstanceSettingsTab } from "~/components/instance-config-tabs"
 import { InstanceControls } from "~/components/instance-controls"
 import { InstanceDangerZone } from "~/components/instance-danger-zone"
@@ -46,7 +47,7 @@ function InstanceDetailPage() {
 	const navigate = useNavigate()
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
-	const [actionError, setActionError] = useState<string | undefined>(undefined)
+	const [actionError, setActionError] = useState<TRPCErrorLike | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 	const [signInWait, setSignInWait] = useState<SignInWait | undefined>(undefined)
 	const [checkingByHand, setCheckingByHand] = useState(false)
@@ -128,7 +129,7 @@ function InstanceDetailPage() {
 		await queryClient.invalidateQueries()
 	}
 
-	const onError = (error: TRPCErrorLike) => setActionError(getErrorMessage(error))
+	const onError = (error: TRPCErrorLike) => setActionError(error)
 	const onSuccess = async () => {
 		setActionError(undefined)
 		await invalidate()
@@ -166,16 +167,14 @@ function InstanceDetailPage() {
 		}),
 	)
 	const restartMutation = useMutation(trpc.instance.restart.mutationOptions({ onSuccess, onError }))
+	const afterCancel = async () => {
+		setSignInWait(undefined)
+		authenticateMutation.reset()
+		completeMutation.reset()
+		await onSuccess()
+	}
 	const cancelAuthMutation = useMutation(
-		trpc.instance.cancelAuthentication.mutationOptions({
-			onSuccess: async () => {
-				setSignInWait(undefined)
-				authenticateMutation.reset()
-				completeMutation.reset()
-				await onSuccess()
-			},
-			onError,
-		}),
+		trpc.instance.cancelAuthentication.mutationOptions({ onSuccess: afterCancel, onError }),
 	)
 	const removeMutation = useMutation(trpc.instance.remove.mutationOptions({ onError }))
 
@@ -278,9 +277,12 @@ function InstanceDetailPage() {
 			</div>
 
 			{actionError ? (
-				<Alert variant="error" icon={<CircleAlert />}>
-					{actionError}
-				</Alert>
+				<InstanceActionError
+					error={actionError}
+					instanceId={instanceId}
+					busy={busy}
+					onCancelled={afterCancel}
+				/>
 			) : null}
 
 			{signedIn?.authenticated === true ? (

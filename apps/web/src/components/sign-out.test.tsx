@@ -90,7 +90,7 @@ describe("signing out from the command palette", () => {
 		seed()
 		render(
 			<QueryClientProvider client={new QueryClient()}>
-				<CommandPalette open instant onClose={() => undefined} />
+				<CommandPalette open instant onClose={() => undefined} onActionError={() => undefined} />
 			</QueryClientProvider>,
 		)
 

@@ -1,3 +1,4 @@
+import { AUTH_LEASE_MS } from "@open-mcc/contracts"
 import type { Executor, InstanceConfigRow, InstanceInsert, InstanceRow } from "@open-mcc/db"
 import { sql } from "kysely"
 import { nanoid } from "nanoid"
@@ -28,7 +29,7 @@ export type InstanceUpdateValues = Partial<
 	Pick<InstanceRow, (typeof MUTABLE_INSTANCE_COLUMNS)[number]>
 >
 
-export const AUTH_LEASE_MS = 15 * 60 * 1000
+export { AUTH_LEASE_MS }
 
 export const CONFIG_CLAIM_LEASE_MS = 180_000
 

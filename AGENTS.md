@@ -235,7 +235,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Twenty-five rules stated further down this document are enforced too, and are
+Thirty-two rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -243,6 +243,8 @@ have:
 | --- | --- |
 | Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
+| The sign-in hold's refusal naming its own duration, and carrying the way out of it | `apps/web/src/lib/errors.test.ts` — the sentence is compared whole and its minute count against `AUTH_LEASE_MS`, and it is required not to say a sign-in is running, which only `INSTANCE_SIGN_IN_RUNNING` may say; `apps/web/src/components/instance-action-error.test.tsx` — walks **every** `ErrorCode` and requires the Cancel sign-in button, and the "Ask an owner" line, on `INSTANCE_AUTH_IN_PROGRESS` and on no other, so widening the condition to a second code fails rather than passing on the one code a sample happens to take; the same file walks every `Role` and requires the button for `owner` alone |
+| The refusal reaching an operator on every surface that can raise it | TypeScript — `onActionError` is a required prop of `CommandPaletteProps` and `InstanceContextMenuProps`, so a surface that fires start, stop or restart without wiring the refusal does not compile; `apps/web/src/routes/_authenticated.instances.index.test.tsx` and `apps/web/src/components/command-palette.test.tsx` drive a refused start through the context menu and through the palette and read the guidance text off the rendered alert |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
 | The host status union matching between `packages/db` and `packages/contracts` | TypeScript in one direction only — `host.controller.ts`'s `toHostPublic` rejects a database union wider than the contract's. A contract union wider than the database's compiles and passes every test, so that direction rests on review |
@@ -507,14 +509,34 @@ Dependency direction is one-way: router → controller → repository.
   must not run under one. **That refusal lasts the sign-in's own lease, 15
   minutes** (`AUTH_LEASE_MS`), and a sign-in whose SSH work ended uncertainly
   keeps its claim for all of it rather than release a stop that may still be
-  landing. An operator whose sign-in died is therefore told, on start,
-  restart, stop and remove alike, that the bot "is being signed in to
-  Microsoft" — a message that names no duration and outlives the sign-in it
-  describes — for up to fifteen minutes.
-  Cancel sign-in is the way out, but only when the host answers: it releases the
-  claim *after* its connect and its two execs, so on an unreachable host it
-  throws first and the operator waits the lease out. Saves are deliberately
-  still allowed through, on `claimForConfig`.
+  landing. **Nothing on the row says whether that sign-in is still running**:
+  `authClaimId` and `authClaimedAt` record who took the hold and when, never
+  whether the work behind it is alive, and `status` cannot stand in — a sign-in
+  mid-flight and a sign-in that died leave the identical row, `stopped` with the
+  claim held. The only truthful answer is on the host, an SSH connect and an
+  exec away, inside the transaction that raises the refusal and on a host that
+  may be the reason the sign-in failed. So the refusal does **not** guess: start,
+  restart, stop and remove are all refused with one sentence that holds in either
+  state and names the bound — "A sign-in is holding this bot. The hold can last
+  15 minutes." The minutes are `AUTH_LEASE_MS` itself, which is why that constant
+  lives in `packages/contracts` and `instance.repository.ts` re-exports it: the
+  copy and the rule cannot say different numbers.
+  Where the manager *has* asked the host, it says so with a different code —
+  `INSTANCE_SIGN_IN_RUNNING`, raised by `startedOrThrow` off the unit's real
+  state. That split is the rule: only a host read may claim a sign-in is running.
+  Cancel sign-in is the way out, and the refusal carries it — on the instance
+  page, on the instance list and under the command palette alike, one
+  `InstanceActionError` renders the same Cancel sign-in button the Danger zone
+  holds. **It is offered only to a role that may press it.** `start`, `stop`,
+  `restart` and `remove` need `instance.start`; `cancelAuthentication` needs
+  `instance.authenticate`, which is owner-only, so an **operator** can raise this
+  refusal and cannot end it. Offering them the button would answer `FORBIDDEN`
+  and replace the refusal with a permission error, leaving them worse off than
+  before; they are told "Ask an owner to cancel the sign-in." instead. A viewer
+  cannot reach the refusal at all. Cancel also works only when the host answers:
+  it releases the claim *after* its connect and its two execs, so on an
+  unreachable host it throws first and even an owner waits the lease out. Saves
+  are deliberately still allowed through, on `claimForConfig`.
   `claimForAuth` refuses a live config claim and
   clears a stale one it takes over, so the superseded flow's
   `finalizeConfigClaim` matches nothing rather than writing a status nothing
@@ -753,11 +775,11 @@ Dependency direction is one-way: router → controller → repository.
   `TransportInterruptedError`, which `mapKnownError` answers
   `HOST_NOT_ANSWERING` — which is true of the exec and says nothing of the claim
   it left behind; then start, restart, stop and remove were every one of them refused
-  `INSTANCE_AUTH_IN_PROGRESS` — "This instance is being signed in to Microsoft.
-  Wait for that to finish, then try again." — which **names no duration**, while
-  the unit had in fact failed within a second of the manager giving up and the
-  cleanup's `reset-failed` had already wiped that evidence. Cancel sign-in, in
-  the Danger zone, is still the way out.
+  `INSTANCE_AUTH_IN_PROGRESS`, whose copy then named no duration and asserted a
+  sign-in was under way, while the unit had in fact failed within a second of the
+  manager giving up and the cleanup's `reset-failed` had already wiped that
+  evidence. That copy is fixed under `CONFIG_CLAIM_LEASE_MS` above, and Cancel
+  sign-in now sits in the refusal rather than only in the Danger zone.
   Three ordered numbers fix it, and as on the bot unit the order is the point:
   **declared pair 50s < `JobTimeoutSec=55` < `AUTH_START_TIMEOUT_MS` 85s.**
   The sign-in unit's start phase is four execs, and `TimeoutStartSec` re-arms

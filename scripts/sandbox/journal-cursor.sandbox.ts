@@ -10,6 +10,7 @@ import {
 	type As,
 	buildImage,
 	exec,
+	journalOf,
 	journalShowing,
 	neverShowed,
 	ROOT,
@@ -58,6 +59,11 @@ const finishedRun = (run: string): RegExp => new RegExp(`Finished .*probe ${run}
 
 const logged = async (host: string, as: As, lines: number): Promise<string> => {
 	const run = randomUUID().slice(0, 8)
+	const last = probeLine(run, lines - 1)
+	expect(
+		await journalOf(host, as, UNIT),
+		`${last} is already in the journal, so waiting for it would wait for nothing`,
+	).not.toContain(last)
 	succeeded(
 		await shell(
 			host,
@@ -75,7 +81,6 @@ const logged = async (host: string, as: As, lines: number): Promise<string> => {
 		),
 		`running ${UNIT}`,
 	)
-	const last = probeLine(run, lines - 1)
 	expect(await journalShowing(host, as, UNIT, last), neverShowed(UNIT, last)).toContain(last)
 	const finished = finishedRun(run)
 	expect(await journalShowing(host, as, UNIT, finished), neverShowed(UNIT, finished)).toMatch(

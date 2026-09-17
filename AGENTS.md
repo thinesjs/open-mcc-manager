@@ -244,6 +244,8 @@ have:
 | Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | The sign-in hold's refusal naming its own duration, and carrying the way out of it | `apps/web/src/lib/errors.test.ts` — the sentence is compared whole and its minute count against `AUTH_LEASE_MS`, and it is required not to say a sign-in is running, which only `INSTANCE_SIGN_IN_RUNNING` may say; `apps/web/src/components/instance-action-error.test.tsx` — walks **every** `ErrorCode` and requires the Cancel sign-in button, and the "Ask an owner" line, on `INSTANCE_AUTH_IN_PROGRESS` and on no other, so widening the condition to a second code fails rather than passing on the one code a sample happens to take; the same file walks every `Role` and requires the button for `owner` alone |
+| Both ways a sign-in can fail carrying a sentence, and not the same one | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>`, so a new code without copy does not compile; `apps/server/src/errors.test.ts` walks every error class the domain packages export and requires a mapping, so a refusal thrown as a bare `Error` is a 500 and fails there; `apps/web/src/lib/errors.test.ts` compares both sentences whole and requires the one for a start that ran not to say "did not start" nor to promise a wait |
+| A host command the manager watched fail answered 400, not 409 | `apps/server/src/errors.test.ts` — requires `INSTANCE_SIGN_IN_DID_NOT_START`, `INSTANCE_SIGN_IN_NO_DEVICE_CODE` and `INSTANCE_REMOVAL_FAILED` to be `BAD_REQUEST` and a transport timeout and a live sign-in to stay `CONFLICT`, in one test, so moving either side of the line fails it. Nothing on the dashboard reads the difference — `wasRefused` takes the whole 4xx band — so no symptom holds it |
 | A sign-in that never started reported as one, rather than as a client that said nothing | `packages/core/src/instance/authenticate.test.ts` — runs `beginAuthentication` twice over the **same empty log**, the start exiting 0 in one and 1 in the other, and requires the two to fail differently, so an implementation that reads the log rather than the exit gives one answer twice and fails it; requires the refused run to issue **no** `cat` poll where the quiet run issues all of them, so moving the check past the loop keeps the class right and fails on the wait; and, with a device code left in an uncleared log, requires the refusal rather than the stale code. `apps/server/src/errors.test.ts` compares the mapped answer whole and requires it to carry no word the host wrote; `apps/web/src/lib/errors.test.ts` compares the operator's sentence whole and requires it to differ from the running and the holding ones |
 | The refusal reaching an operator on every surface that can raise it | TypeScript — `onActionError` is a required prop of `CommandPaletteProps` and `InstanceContextMenuProps`, so a surface that fires start, stop or restart without wiring the refusal does not compile; `apps/web/src/routes/_authenticated.instances.index.test.tsx` and `apps/web/src/components/command-palette.test.tsx` drive a refused start through the context menu and through the palette and read the guidance text off the rendered alert |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
@@ -896,15 +898,41 @@ Dependency direction is one-way: router → controller → repository.
   measured, the stop took **9ms** from `ActiveState=activating SubState=start-pre`
   to `inactive`, and it stayed there. Do not reorder the cleanup stop and the
   release.
-  The operator is told **"The sign-in did not start on the host. Try again in a
-  moment."** under `INSTANCE_SIGN_IN_DID_NOT_START`, a 409. Before this it was
-  **"Internal server error"**: the polling-window failure is a bare `Error`,
-  `mapKnownError` answers it `null`, and `trpc.ts`'s formatter replaces the
-  message with `GENERIC_INTERNAL_MESSAGE`. So the sentence the code has always
-  carried never reached a dashboard, and the one that now does is a mapped code
-  rather than prose off the wire. The device-code failure is still a bare
-  `Error` and still reads "Internal server error"; giving it a code of its own is
-  a separate change and is not made here.
+  **Both ends of the sign-in now have a sentence, and neither had one before.**
+  `mapKnownError` answers a bare `Error` `null`, `GENERIC_UNMAPPED` holds only
+  `UNAUTHORIZED` and `FORBIDDEN`, so `trpc.ts`'s formatter substituted
+  `GENERIC_INTERNAL_MESSAGE`: **every** failure of `beginAuthentication` past the
+  claim read **"Internal server error"** to an operator, including the
+  device-code sentence this file has carried since it was written, which never
+  reached a dashboard at all.
+
+  | what happened | code | the operator reads |
+  | --- | --- | --- |
+  | the host refused the start | `INSTANCE_SIGN_IN_DID_NOT_START` | "The sign-in did not start on the host. Try again in a moment." |
+  | the start worked, no code came | `INSTANCE_SIGN_IN_NO_DEVICE_CODE` | "The sign-in started but no device code appeared. Try again." |
+
+  The split is the exit code and nothing else, and the two sentences differ in
+  their advice on purpose: the likeliest refused start is the collector holding
+  `collect.lock`, bounded at 12s, so **in a moment** is a real instruction; an
+  empty polling window has no clock under it — an auth-service outage, a network
+  fault reaching Microsoft, a client that exited early — so it says **Try
+  again** and does not promise a wait that would help.
+- **A host command the manager watched fail is a `BAD_REQUEST`, not a
+  `CONFLICT`.** Both sign-in refusals are 400, and the precedent is the same
+  shape one line of code away: `instance.controller.ts`'s removal tests
+  `(await claimedExec(…)).exitCode !== 0` and raises `InstanceRemovalFailedError`
+  → `BAD_REQUEST`, as `HostProvisioningFailedError` is. Every host-side
+  `CONFLICT` in `mapKnownError` is one of two other things — a **state** conflict
+  (`INSTANCE_BUSY`, `INSTANCE_AUTH_IN_PROGRESS`, `INSTANCE_SIGN_IN_RUNNING`,
+  `INSTANCE_STILL_IN_USE`, `HOST_CONCURRENTLY_MODIFIED`) or an exec whose
+  **outcome the manager never learned** (`HOST_NOT_ANSWERING`,
+  `HOST_COMMAND_INTERRUPTED`, `HOST_CHANNEL_LIMIT`, `INSTANCE_LIVE_UNAVAILABLE`).
+  A start whose exec *resolved* non-zero is neither: the host answered, and the
+  answer was no. The distinction is not observable on the dashboard — `wasRefused`
+  reads the whole 4xx band alike and is the only reader of `httpStatus` — so it is
+  held by a test rather than by a symptom, and that test compares the three
+  watched-failure codes against a transport `CONFLICT` so widening either side
+  fails it.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

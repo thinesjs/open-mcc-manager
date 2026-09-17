@@ -139,6 +139,7 @@ export {
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
 	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	scheduledRunFailure,

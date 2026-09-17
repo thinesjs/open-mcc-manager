@@ -42,6 +42,22 @@ describe("getErrorMessage", () => {
 		expect(notStarted).not.toMatch(/device code|is running|holding this bot/i)
 	})
 
+	it("★ says a sign-in that ran and showed no code did run, where the one that never ran did not", () => {
+		const noCode = getErrorMessage({
+			message: "The sign-in started but no device code appeared",
+			data: { errorCode: "INSTANCE_SIGN_IN_NO_DEVICE_CODE" },
+		})
+		const notStarted = getErrorMessage({
+			message: "The sign-in did not start on the host",
+			data: { errorCode: "INSTANCE_SIGN_IN_DID_NOT_START" },
+		})
+
+		expect(noCode).toBe("The sign-in started but no device code appeared. Try again.")
+		expect(noCode).not.toBe(notStarted)
+		expect(noCode).not.toMatch(/did not start|in a moment/i)
+		expect(notStarted).toMatch(/did not start/i)
+	})
+
 	it("★ says how long a sign-in holds the bot, counted off the lease that holds it", () => {
 		const message = getErrorMessage({
 			message: "This instance is being signed in to Microsoft; wait for that to finish",

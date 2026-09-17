@@ -21,6 +21,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 } from "./instance.controller"
 import { isAuthClaimStale } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -219,7 +220,7 @@ export const beginAuthentication = async (
 			}
 		}
 
-		throw new Error(
+		throw new InstanceSignInNoDeviceCodeError(
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {

@@ -45,6 +45,7 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 } from "./instance.controller"
 import { AUTH_LEASE_MS, type InstanceRepository } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -840,6 +841,7 @@ describe("a sign-in the host never started", () => {
 		expect(failed).toBeInstanceOf(InstanceSignInDidNotStartError)
 		expect(failed.message).toMatch(/did not start/i)
 		expect(failed.message).not.toMatch(/device code|polling window/i)
+		expect(silent).toBeInstanceOf(InstanceSignInNoDeviceCodeError)
 		expect(silent).not.toBeInstanceOf(InstanceSignInDidNotStartError)
 		expect(silent.message).toMatch(/did not present a device code/i)
 	})
@@ -856,6 +858,18 @@ describe("a sign-in the host never started", () => {
 		).rejects.toThrow(/device code/i)
 
 		expect(polls(refused.sent)).toEqual([])
+		expect(polls(quiet.sent)).toHaveLength(FAST_POLL.attempts)
+	})
+
+	it("★ raises a typed refusal when the start worked and no code came, never a bare Error", async () => {
+		const quiet = startExiting(0, "", "")
+
+		const silent = await failureOf(
+			beginAuthentication(quiet.deps, owner, "abc123", () => undefined, FAST_POLL),
+		)
+
+		expect(silent.constructor).not.toBe(Error)
+		expect(silent).toBeInstanceOf(InstanceSignInNoDeviceCodeError)
 		expect(polls(quiet.sent)).toHaveLength(FAST_POLL.attempts)
 	})
 

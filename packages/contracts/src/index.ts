@@ -1,5 +1,6 @@
 export * from "./audit"
 export * from "./authz"
+export * from "./command-credentials"
 export * from "./errors"
 export * from "./express-install"
 export * from "./host"

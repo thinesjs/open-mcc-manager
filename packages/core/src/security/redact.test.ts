@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { redact } from "./redact"
+import { redact, redactCommand } from "./redact"
 
 describe("redact", () => {
 	it("masks a bearer token", () => {
@@ -103,5 +103,32 @@ describe("secrets a connector could leak into a log line", () => {
 
 	it("leaves an ordinary address alone", () => {
 		expect(redact("https://hooks.example.com/notify")).toBe("https://hooks.example.com/notify")
+	})
+})
+
+describe("a console command on its way into the audit log", () => {
+	it("keeps the verb and drops the password", () => {
+		expect(redactCommand("/login hunter2")).toBe("/login [redacted]")
+		expect(redactCommand("//login hunter2")).toBe("//login [redacted]")
+		expect(redactCommand("!login hunter2")).toBe("!login [redacted]")
+	})
+
+	it("masks a secret pasted into a command that is not a credential command", () => {
+		expect(redactCommand("/notify https://hooks.slack.com/services/T0/B0/XXXX")).toBe(
+			"/notify https://hooks.slack.com/services/[redacted]",
+		)
+		expect(redactCommand("/header Authorization: Bearer abc123def456")).not.toContain(
+			"abc123def456",
+		)
+	})
+
+	it("leaves a command the log redactor does not recognise alone", () => {
+		for (const command of ["/say hello everyone", "/gamemode creative", "/logout", "/list"]) {
+			expect(redactCommand(command)).toBe(command)
+		}
+	})
+
+	it("mangles the ordinary command that reads as a device code, which is the price of the composition", () => {
+		expect(redactCommand("/team join BLUE-TEAM")).toBe("/team join [redacted code]")
 	})
 })

@@ -64,6 +64,7 @@ import { systemctl, UNIT_DIR } from "../host/profile"
 import { checkHostRuntime, type HostNeed, hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
 import { assertExhaustive } from "../lib/exhaustive"
+import { redactCommand } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { HOST_METRICS_TIMEOUT_MS, type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
@@ -76,7 +77,7 @@ import {
 } from "./config"
 import { CONFIG_PATH_NAME } from "./config-drift"
 import { CONSOLE_READ_DEADLINE_MS, readConsole } from "./console"
-import { sendCommand } from "./control"
+import { refuseDoubleSlashCredential, sendCommand } from "./control"
 import {
 	createInstanceRepository,
 	type InstanceRepository,
@@ -1135,7 +1136,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					action: "instance.command",
 					subjectType: "instance",
 					subjectId: instanceId,
-					detail: { command },
+					detail: { command: redactCommand(command) },
 				})
 			})
 		},
@@ -1425,6 +1426,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		): Promise<ScheduledCommandPublic> => {
 			requireCapabilityFor(ctx.role, "console.write")
 			await requireInstance(ctx, input.instanceId)
+			refuseDoubleSlashCredential(input.command)
 
 			const row = await deps.withTransaction(async (repos) => {
 				const stored = await repos.commands.upsert(scopeOf(ctx), {
@@ -1442,7 +1444,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					action: "instance.schedule",
 					subjectType: "instance",
 					subjectId: input.instanceId,
-					detail: { schedule: input.name, command: input.command },
+					detail: { schedule: input.name, command: redactCommand(input.command) },
 				})
 				return stored
 			})
@@ -1464,7 +1466,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: {
 						removed: "true",
 						schedule: removed.name,
-						command: removed.command,
+						command: redactCommand(removed.command),
 						scheduleId: removed.id,
 					},
 				})
@@ -1497,7 +1499,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					action: "instance.command",
 					subjectType: "instance",
 					subjectId: row.instanceId,
-					detail: { command: row.command, schedule: row.name },
+					detail: { command: redactCommand(row.command), schedule: row.name },
 				})
 			})
 		},

@@ -71,6 +71,7 @@ import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
+import { DoubleSlashCredentialError } from "./control"
 import {
 	type ActorContext,
 	createInstanceController,
@@ -738,6 +739,46 @@ describe("instance controller authorization", () => {
 		expect(transport.stdins).toContain("//say hi\n")
 	})
 
+	it("audits a password command without the password, while the bot still receives it", async () => {
+		const { deps, transport, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.sendCommand(operator, "abc123", "/login hunter2")
+
+		expect(transport.stdins).toContain("//login hunter2\n")
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ detail: { command: "/login [redacted]" } }),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("refuses a password behind two slashes rather than silently sending nothing", async () => {
+		const { deps, transport, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await expect(controller.sendCommand(operator, "abc123", "//login hunter2")).rejects.toThrow(
+			DoubleSlashCredentialError,
+		)
+		expect(transport.stdins).toEqual([])
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("audits an ordinary command as it was typed", async () => {
+		const { deps, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.sendCommand(operator, "abc123", "/say hello everyone")
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({ detail: { command: "/say hello everyone" } }),
+		)
+	})
+
 	it("refuses a command to an instance that is not running, whose fifo has no reader", async () => {
 		const { deps, transport } = makeDeps()
 		const controller = createInstanceController(deps)
@@ -1199,6 +1240,113 @@ describe("scheduled commands", () => {
 			{ organizationId: "org-1" },
 			expect.objectContaining({ actorId: null, actorLabel: "scheduler" }),
 		)
+	})
+
+	it("audits a scheduled password command without the password, while the bot still receives it", async () => {
+		const { deps, transport, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.runScheduledCommand(commandRow({ command: "/login hunter2" }))
+
+		expect(transport.stdins).toContain("//login hunter2\n")
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { command: "/login [redacted]", schedule: "morning wave" },
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("audits a password a schedule stored behind the internal prefix, which only fails later", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "!login hunter2",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { schedule: "morning wave", command: "!login [redacted]" },
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("refuses to store a password behind two slashes, which would never log the bot in", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setScheduledCommand(owner, {
+				instanceId: "abc123",
+				name: "morning wave",
+				command: "//login hunter2",
+				daysOfWeek: ["Mon"],
+				runAt: { hour: 9, minute: 0 },
+				timezone: "UTC",
+				enabled: true,
+			}),
+		).rejects.toThrow(DoubleSlashCredentialError)
+		expect(deps.commands.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("audits an ordinary scheduled command as it was stored", async () => {
+		const { deps, instances, audit } = makeDeps()
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "running" }))
+		const controller = createInstanceController(deps)
+
+		await controller.runScheduledCommand(commandRow())
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { command: "/say good morning", schedule: "morning wave" },
+			}),
+		)
+	})
+
+	it("audits the creation and the deletion of a password schedule without the password", async () => {
+		const { deps, audit } = makeDeps()
+		vi.mocked(deps.commands.deleteReturning).mockResolvedValue(
+			commandRow({ command: "/login hunter2" }),
+		)
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "/login hunter2",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+		await controller.deleteScheduledCommand(owner, "cmd-1")
+
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { schedule: "morning wave", command: "/login [redacted]" },
+			}),
+		)
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: expect.objectContaining({ removed: "true", command: "/login [redacted]" }),
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
 	})
 
 	it("refuses to write to a stopped instance's fifo, which nothing is reading", async () => {

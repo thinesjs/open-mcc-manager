@@ -1,3 +1,5 @@
+import { maskCommandCredentials } from "@open-mcc/contracts"
+
 const PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[redacted]"],
 	[
@@ -27,6 +29,8 @@ export const REDACTED_CREDENTIAL = "[redacted credential]"
 
 export const redactValue = (value: string, secret: string): string =>
 	redact(secret.length === 0 ? value : value.split(secret).join(REDACTED_CREDENTIAL))
+
+export const redactCommand = (command: string): string => maskCommandCredentials(redact(command))
 
 export const redactError = (error: Error | string): string =>
 	redact(typeof error === "string" ? error : (error.stack ?? `${error.name}: ${error.message}`))

@@ -191,6 +191,7 @@ have:
 | No repository call on the pool while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — `withTransaction` hands in separate repositories, and every `deps.instances.*` call plus `deps.hosts.findById` and `deps.sshKeys.findById` records whether one is open, so moving a config read, `loadHost`, or a removal's own claim onto the pool repository inside the claim transaction fails it |
 | No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
 | Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
+| The start step's wait covering what a start can legitimately take | `packages/core/src/instance/instance.controller.test.ts` — reads `JobTimeoutSec` off the rendered instance unit and requires the wait a start and a restart give `startUnitCommand` to exceed it, so returning the start to the ordinary step wait fails it; `packages/core/src/host/unit-template.test.ts` requires that `JobTimeoutSec` in turn cover the `flock -w` the unit declares plus `CLIENT_PROBE_TIMEOUT_MS`. Neither proves a host obeys the bound: `runtime.sandbox.ts` reads `JobTimeoutUSec` back off a real unit and starts a bot whose `collect.lock` is held past the ordinary step wait |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
 Everything else in this document — the layering direction, the rest of the
@@ -481,6 +482,33 @@ Dependency direction is one-way: router → controller → repository.
   the claim; one that could still be running on the host keeps it until the
   lease expires, because releasing it would let a second writer race a command
   that has not finished.
+- Each step's wait is sized from what that step's own remote work can take, not
+  only against the lease above it. The stop has always been: `UNIT_STOP_TIMEOUT_MS`
+  is 45s against the unit's `TimeoutStopSec=20`, twice over because systemd arms
+  that timer once for `ExecStop` and again for the kill that follows. **The start
+  was not**, and a start merely waiting out the collector's `collect.lock` tripped
+  the ordinary 15s step wait while the unit went on to reach `active` — the
+  channel was destroyed, `claimedExec` set `inFlight`, the claim was correctly
+  kept for the rest of the lease, and the row was left `stopped` over a running
+  bot. Reproduced on a sandbox host, not reasoned: a lock held five seconds past
+  the step wait, the start refused, `INSTANCE_BUSY` on the retry, and
+  `Started open-mcc@…` in the unit's own journal.
+  Nothing in systemd bounded the start to derive a wait from. `TimeoutStartSec`
+  is re-armed for **each** exec in the start phase, verified on a real user
+  manager: under `TimeoutStartSec=5` two `ExecStartPre=/bin/sleep 4` ran for
+  eight seconds and succeeded. `JobTimeoutSec` and `JobRunningTimeoutSec` both
+  default to `infinity` on a service unit, so the ceiling was four times the 90s
+  default, not 90s. The instance unit therefore carries `JobTimeoutSec=60`, which
+  bounds the whole start job with one number: the `flock -w 30` its own
+  `ExecStartPre` declares, plus the 30s `CLIENT_PROBE_TIMEOUT_MS` already gives a
+  `podman run` of the same image on the same host. `UNIT_START_TIMEOUT_MS`
+  (`unit.ts`) is 70s, ten seconds above it for the SSH round trip and the two
+  `systemctl show` reads `startUnitCommand` chains after the start. A start now
+  spends 110s of the lease and a restart 155s. The lock wait is *inside*
+  `JobTimeoutSec`, never added to it — systemd kills the flock exec at the start
+  timeout with the lock still unclaimed — so lowering `JobTimeoutSec` below the
+  `-w` the unit declares makes the collector's lock unwaitable, and raising it
+  without raising `UNIT_START_TIMEOUT_MS` with it puts the defect back.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

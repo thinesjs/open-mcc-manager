@@ -14,8 +14,15 @@ import { podmanImageId, runtimeImageFor } from "../../packages/core/src/host/run
 import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../../packages/core/src/host/unit-template"
 import { sessionCacheProbeCommand } from "../../packages/core/src/instance/authenticate"
 import { controlLine } from "../../packages/core/src/instance/control"
-import { InstanceSignInRunningError } from "../../packages/core/src/instance/instance.controller"
-import { CONFIG_FILE_PATH, configWriteCommand } from "../../packages/core/src/instance/unit"
+import {
+	INSTANCE_STEP_TIMEOUT_MS,
+	InstanceSignInRunningError,
+} from "../../packages/core/src/instance/instance.controller"
+import {
+	CONFIG_FILE_PATH,
+	configWriteCommand,
+	UNIT_START_TIMEOUT_MS,
+} from "../../packages/core/src/instance/unit"
 import type { InstanceCommandRow } from "../../packages/db/src/index"
 import { HOST_ID, installStandInClient, memoryManager, ORGANIZATION, owner } from "./memory-manager"
 import {
@@ -52,11 +59,18 @@ const SIGN_IN_STAND_IN = [
 	"",
 ].join("\n")
 
+const INSTANCE_UNIT =
+	renderUnitTemplates({ networkStack: "pasta", imageId: "0".repeat(64) })[INSTANCE_UNIT_NAME] ?? ""
+
 const PREFLIGHT_REFUSAL =
-	/echo "(open-mcc: [^"]+)" >&2/.exec(
-		renderUnitTemplates({ networkStack: "pasta", imageId: "0".repeat(64) })[INSTANCE_UNIT_NAME] ??
-			"",
-	)?.[1] ?? "the rendered unit has no settings preflight"
+	/echo "(open-mcc: [^"]+)" >&2/.exec(INSTANCE_UNIT)?.[1] ??
+	"the rendered unit has no settings preflight"
+
+const JOB_TIMEOUT_SECONDS = Number(/^JobTimeoutSec=(\d+)$/m.exec(INSTANCE_UNIT)?.[1])
+
+const unitSeconds = (reported: string): number =>
+	Number(/(\d+)min/.exec(reported)?.[1] ?? "0") * 60 +
+	Number(/(?:^|\s)(\d+)s/.exec(reported)?.[1] ?? "0")
 
 const RESTART_REFUSED = [
 	"for attempt in $(seq 150); do",
@@ -65,6 +79,8 @@ const RESTART_REFUSED = [
 	"done",
 	"exit 1",
 ].join("\n")
+
+const LOCK_HOLD_MARGIN_SECONDS = 5
 
 const botDir = (id: string): string => `${FILES}/instances/${id}`
 
@@ -243,12 +259,13 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		).toBe("active")
 	})
 
-	it("gives the unit the 90 second start timeout the restart's lease margin assumes", async () => {
-		const reported = await property(unitOf(botId), "TimeoutStartUSec")
-		const minutes = /(\d+)min/.exec(reported)?.[1] ?? "0"
-		const seconds = /(?:^|\s)(\d+)s/.exec(reported)?.[1] ?? "0"
+	it("bounds its whole start job where the manager's start wait was sized from", async () => {
+		const job = await property(unitOf(botId), "JobTimeoutUSec")
+		const perExec = await property(unitOf(botId), "TimeoutStartUSec")
 
-		expect(Number(minutes) * 60 + Number(seconds), `TimeoutStartUSec is ${reported}`).toBe(90)
+		expect(unitSeconds(job), `JobTimeoutUSec is ${job}`).toBe(JOB_TIMEOUT_SECONDS)
+		expect(UNIT_START_TIMEOUT_MS).toBeGreaterThan(unitSeconds(job) * 1000)
+		expect(unitSeconds(perExec), `TimeoutStartUSec is ${perExec}`).toBeGreaterThan(unitSeconds(job))
 	})
 
 	it("stops the bot for its sleep window and starts it again when the window ends", async () => {
@@ -473,4 +490,61 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		expect(await read(host, settings)).toBe(document)
 		expect(await temporaries()).toBe("")
 	})
+
+	it("starts a bot whose collect.lock is held past the ordinary step wait, and leaves the row running", async () => {
+		await ready().manager.controller.stop(owner, botId)
+		const lock = `${botDir(botId)}/collect.lock`
+		const holdSeconds = INSTANCE_STEP_TIMEOUT_MS / 1000 + LOCK_HOLD_MARGIN_SECONDS
+		const holding = shell(
+			host,
+			{ ...as, timeoutMs: 120_000 },
+			'/usr/bin/flock -w 30 "$1" sleep "$2"',
+			lock,
+			String(holdSeconds),
+		)
+		succeeded(
+			await shell(
+				host,
+				as,
+				'for attempt in $(seq 50); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1',
+				lock,
+			),
+			"waiting for the held lock",
+		)
+		const since = await hostClock()
+		const began = Date.now()
+
+		const refusal = await ready()
+			.manager.controller.start(owner, botId)
+			.then(
+				() => undefined,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
+			)
+
+		const elapsed = Date.now() - began
+		succeeded(await holding, "holding the bot's collect.lock")
+		const retry = await ready()
+			.manager.controller.start(owner, botId)
+			.then(
+				() => undefined,
+				(error) => (error instanceof Error ? error : new Error(String(error))),
+			)
+
+		expect(
+			{
+				refusal: refusal?.message,
+				waitedPastTheStepWait: elapsed > INSTANCE_STEP_TIMEOUT_MS,
+				unit: await property(unitOf(botId), "ActiveState"),
+				row: ready().manager.rows.get(botId)?.status,
+				retry: retry === undefined ? undefined : mapKnownError(retry)?.errorCode,
+			},
+			await journalSince(unitOf(botId), since),
+		).toEqual({
+			refusal: undefined,
+			waitedPastTheStepWait: true,
+			unit: "active",
+			row: "running",
+			retry: undefined,
+		})
+	}, 300_000)
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { CLIENT_PROBE_TIMEOUT_MS } from "./provision"
 import {
 	AUTH_UNIT_NAME,
 	INSTANCE_UNIT_NAME,
@@ -23,6 +24,7 @@ const instanceUnit = (network: string): string =>
 		"Description=open-mcc-manager instance %i",
 		"StartLimitIntervalSec=600",
 		"StartLimitBurst=5",
+		"JobTimeoutSec=60",
 		"After=network-online.target",
 		"Wants=network-online.target",
 		"",
@@ -155,6 +157,15 @@ describe("the unit that runs a bot in its container", () => {
 	it("holds the control channel open for the client's input", () => {
 		expect(lineOf(instance, "ExecStart=")).toContain(`exec 3<>"${DIR}/control"; `)
 		expect(lineOf(instance, "ExecStart=")).toMatch(/ <&3'$/)
+	})
+
+	it("bounds its whole start job, with room for the lock it waits on and the container it starts", () => {
+		const unitSection = instance.slice(0, instance.indexOf("[Service]"))
+		const jobSeconds = Number(/^JobTimeoutSec=(\d+)$/m.exec(unitSection)?.[1])
+		const lockSeconds = Number(/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(instance)?.[1])
+
+		expect(lockSeconds).toBeGreaterThan(0)
+		expect(jobSeconds).toBeGreaterThanOrEqual(lockSeconds + CLIENT_PROBE_TIMEOUT_MS / 1000)
 	})
 
 	it("keeps the start rate limit where systemd reads it, and the watchdog policy", () => {

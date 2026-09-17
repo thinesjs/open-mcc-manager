@@ -52,6 +52,7 @@ const instanceUnit = (network: string, imageId: string): string => `[Unit]
 Description=open-mcc-manager instance %i
 StartLimitIntervalSec=600
 StartLimitBurst=5
+JobTimeoutSec=60
 After=network-online.target
 Wants=network-online.target
 

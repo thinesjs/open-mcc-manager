@@ -139,6 +139,7 @@ import {
 	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
 	startUnitCommand,
+	UNIT_START_TIMEOUT_MS,
 	unitName,
 } from "./unit"
 
@@ -879,7 +880,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					flight,
 					transport,
 					startUnitCommand(claimed.id),
-					INSTANCE_STEP_TIMEOUT_MS,
+					UNIT_START_TIMEOUT_MS,
 				)
 				if (started.exitCode !== 0) {
 					throw new Error(`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`)

@@ -3408,7 +3408,7 @@ describe("saving settings under a claim", () => {
 		},
 		{
 			named: "a start",
-			budget: 55_000,
+			budget: 110_000,
 			run: async (controller: ReturnType<typeof createInstanceController>) => {
 				await controller.start(owner, "abc123")
 			},
@@ -3422,7 +3422,7 @@ describe("saving settings under a claim", () => {
 		},
 		{
 			named: "a restart",
-			budget: 100_000,
+			budget: 155_000,
 			run: async (controller: ReturnType<typeof createInstanceController>) => {
 				await controller.restart(owner, "abc123")
 			},
@@ -3459,6 +3459,26 @@ describe("saving settings under a claim", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(Math.max(...waits)).toBeGreaterThan(2 * stopSeconds * 1000)
 	})
+
+	it.each(["start" as const, "restart" as const])(
+		"waits longer for a %s than the unit's own start job may take",
+		async (verb) => {
+			const jobSeconds = Number(
+				/^JobTimeoutSec=(\d+)$/m.exec(
+					renderUnitTemplates(UNIT_RUNTIME)[INSTANCE_UNIT_NAME] ?? "",
+				)?.[1],
+			)
+			const made = savedDeps()
+
+			await createInstanceController(made.deps)[verb](owner, "abc123")
+
+			const started = made.transport.commands.indexOf(startUnitCommand("abc123"))
+
+			expect(jobSeconds).toBeGreaterThan(0)
+			expect(started).toBeGreaterThanOrEqual(0)
+			expect(made.transport.timeouts[started]).toBeGreaterThan(jobSeconds * 1000)
+		},
+	)
 
 	const failingWrite = (
 		made: ReturnType<typeof savedDeps>,

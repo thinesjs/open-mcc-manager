@@ -8,7 +8,7 @@ import { COMMAND_HISTORY_PREFIX, writeCommandHistory } from "~/lib/command-histo
 import { CommandPalette } from "./command-palette"
 import { SignedInNotice } from "./invitation-notice"
 
-const signOut = vi.fn(() => Promise.resolve())
+const signOut = vi.fn(() => new Promise<void>(() => undefined))
 
 vi.mock("~/lib/auth-client", () => ({ authClient: { signOut: () => signOut() } }))
 
@@ -86,7 +86,7 @@ describe("every way an operator can sign out", () => {
 })
 
 describe("signing out from the command palette", () => {
-	it("leaves no bot's console history behind, and keeps the settings that are not one", async () => {
+	it("clears before it asks the server, so an unreachable control plane still empties it", async () => {
 		seed()
 		render(
 			<QueryClientProvider client={new QueryClient()}>
@@ -103,7 +103,7 @@ describe("signing out from the command palette", () => {
 })
 
 describe("signing out to accept an invitation on the same machine", () => {
-	it("leaves no bot's console history behind, and keeps the settings that are not one", async () => {
+	it("clears before it asks the server, so an unreachable control plane still empties it", async () => {
 		seed()
 		render(<SignedInNotice email="ada@example.com" />)
 

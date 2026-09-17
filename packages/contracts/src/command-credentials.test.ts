@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
 	maskCommandCredentials,
@@ -158,10 +161,17 @@ describe("a secret pasted into a command", () => {
 		expect(Object.keys(UNAMBIGUOUS_SECRET_PATTERNS)).toHaveLength(13)
 	})
 
-	it("is written in the syntax every browser this dashboard loads in can parse", () => {
-		for (const [pattern] of Object.values(UNAMBIGUOUS_SECRET_PATTERNS)) {
-			expect(pattern.source).not.toContain("(?<=")
-			expect(pattern.source).not.toContain("(?<!")
+	it("is written, with every other pattern in the module, in syntax every browser parses", () => {
+		const module = readFileSync(
+			join(dirname(fileURLToPath(import.meta.url)), "command-credentials.ts"),
+			"utf8",
+		)
+
+		for (const lookbehind of ["(?<=", "(?<!"]) {
+			expect(module).not.toContain(lookbehind)
+			for (const [pattern] of Object.values(UNAMBIGUOUS_SECRET_PATTERNS)) {
+				expect(pattern.source).not.toContain(lookbehind)
+			}
 		}
 	})
 })

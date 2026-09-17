@@ -259,6 +259,8 @@ export const NOISY_EVENT_TYPES = [
 	"title",
 	"inventory_open",
 	"inventory_close",
+	"weather_rain",
+	"weather_thunder",
 ] as const
 
 const noisy: ReadonlySet<string> = new Set(NOISY_EVENT_TYPES)

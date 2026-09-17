@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { createHostInput, hostPublic } from "./host"
+import {
+	createHostInput,
+	HOST_KEY_FINGERPRINT_HELP,
+	HOST_KEY_FINGERPRINT_PATTERN,
+	hostPublic,
+} from "./host"
 import { HOST_CHECK_NAMES, hostCheckResult } from "./host-check"
 
 const HOST = {
@@ -128,6 +133,18 @@ describe("what a host check reports", () => {
 			hostCheckResult.safeParse({ ...RESULT, name: "confinement", command: null, hint: null })
 				.success,
 		).toBe(false)
+	})
+})
+
+describe("what an operator is told about a fingerprint that will not do", () => {
+	it("names the part to copy and the ssh-keygen line the rest of it comes out of", () => {
+		expect(HOST_KEY_FINGERPRINT_HELP).toContain("SHA256:")
+		expect(HOST_KEY_FINGERPRINT_HELP).toContain("256 SHA256:… root@host (ED25519)")
+	})
+
+	it("puts no pattern in front of a person", () => {
+		expect(HOST_KEY_FINGERPRINT_HELP).not.toContain(HOST_KEY_FINGERPRINT_PATTERN.source)
+		expect(HOST_KEY_FINGERPRINT_HELP).not.toMatch(/[[\]{}^$\\]/)
 	})
 })
 

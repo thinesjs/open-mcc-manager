@@ -6,15 +6,15 @@ import {
 	EXPRESS_WARNING,
 	EXPRESS_WARNING_TITLE,
 	fingerprintCommand,
+	HOST_KEY_FINGERPRINT_HELP,
 	HOST_KEY_FINGERPRINT_PATTERN,
 	hostSetupScript,
 	type InstallMode,
 	setupSummary,
 } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
-import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react"
-import { useState } from "react"
+import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react"
+import { type FormEvent, useState } from "react"
 import { CommandBlock } from "~/components/command-block"
 import { CopyButton } from "~/components/copy-button"
 import { ExpressInstallPanel } from "~/components/express-install-panel"
@@ -44,6 +44,18 @@ export const DEFAULT_ACCOUNT = "mcc"
 
 export const STALE_COMMAND_NOTICE =
 	"The setup command you copied is out of date. Copy it again and run it on the server."
+
+export const NEEDS_KEY = "Select a key to continue."
+
+export const NEEDS_NAME = "Name this server to continue."
+
+export const NEEDS_ADDRESS = "Enter a hostname or IP to continue."
+
+export const NEEDS_PORT = "Enter a port from 1 to 65535 to continue."
+
+export const NEEDS_CHECK = "Check the host to enroll."
+
+export const NEEDS_FINGERPRINT = "Paste the fingerprint above to run this."
 
 const ACCOUNT_OPTIONS = [
 	{
@@ -101,6 +113,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const enrollMutation = useMutation(trpc.host.enroll.mutationOptions())
 	const checkMutation = useMutation(trpc.host.check.mutationOptions())
 	const probeMutation = useMutation(trpc.host.probeAddress.mutationOptions())
+	const createKeyMutation = useMutation(trpc.sshKey.create.mutationOptions())
 
 	const [step, setStep] = useState(0)
 	const [direction, setDirection] = useState<1 | -1>(1)
@@ -113,6 +126,8 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 	const [expectedFingerprint, setExpectedFingerprint] = useState("")
 	const [copiedCommand, setCopiedCommand] = useState("")
 	const [installMode, setInstallMode] = useState<InstallMode>("manual")
+	const [newKeyName, setNewKeyName] = useState("")
+	const [fingerprintTouched, setFingerprintTouched] = useState(false)
 
 	const keys = sshKeysQuery.data ?? []
 	const selectedKey = keys.find((key) => key.id === sshKeyId)
@@ -170,7 +185,41 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 		checked.expectedFingerprint === expectedFingerprint
 
 	const canAdvance =
-		step === 0 ? sshKeyId.length > 0 : step === 1 ? addressReady : step === 2 ? accountReady : true
+		step === 0
+			? selectedKey !== undefined
+			: step === 1
+				? addressReady
+				: step === 2
+					? accountReady
+					: true
+
+	const fingerprintMalformed =
+		fingerprintTouched && expectedFingerprint.length > 0 && !fingerprintReady
+
+	const guidance = ((): string | null => {
+		if (step === 0) return keys.length > 0 && selectedKey === undefined ? NEEDS_KEY : null
+		if (step === 1) {
+			if (name.length === 0) return NEEDS_NAME
+			if (hostname.length === 0) return NEEDS_ADDRESS
+			return portNumber === null ? NEEDS_PORT : null
+		}
+		if (step === 4) return fingerprintReady && !checkedReady ? NEEDS_CHECK : null
+		return null
+	})()
+
+	const generateKey = (event: FormEvent) => {
+		event.preventDefault()
+		createKeyMutation.mutate(
+			{ name: newKeyName },
+			{
+				onSuccess: (created) => {
+					setNewKeyName("")
+					queryClient.invalidateQueries({ queryKey: trpc.sshKey.list.queryKey() })
+					checkedInput(sshKeyId, setSshKeyId)(created.id)
+				},
+			},
+		)
+	}
 
 	const staleNotice = commandStale ? (
 		<Alert variant="warning" icon={<TriangleAlert />}>
@@ -220,23 +269,51 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 							</Alert>
 						) : null}
 
-						<div>
-							<h3 className="text-sm font-medium text-foreground">
-								Choose the key to connect with
-							</h3>
-							<p className="mt-1 text-sm text-muted-foreground">
-								Choose the key OpenMCC will use to reach this server.
-							</p>
-						</div>
+						<p className="text-sm text-muted-foreground">
+							The key below is how OpenMCC reaches this server after setup.
+						</p>
+
+						{sshKeysQuery.isError ? (
+							<Alert variant="error" icon={<CircleAlert />}>
+								{getErrorMessage(sshKeysQuery.error)}
+							</Alert>
+						) : null}
 
 						{sshKeysQuery.data && keys.length === 0 ? (
-							<Alert variant="info" icon={<Info />}>
-								No SSH keys yet.{" "}
-								<Link to="/ssh-keys" className="underline underline-offset-4">
-									Create one first
-								</Link>
-								.
-							</Alert>
+							<form
+								onSubmit={generateKey}
+								className="space-y-3 rounded-[var(--radius)] border border-border p-3"
+							>
+								<p className="text-sm font-medium text-foreground">No keys yet</p>
+								<div className="space-y-1.5">
+									<Label htmlFor="enroll-new-key">Key name</Label>
+									<div className="flex gap-2">
+										<Input
+											id="enroll-new-key"
+											required
+											maxLength={64}
+											placeholder="fleet-production"
+											value={newKeyName}
+											onChange={(event) => setNewKeyName(event.target.value)}
+										/>
+										<Button type="submit" size="sm" disabled={createKeyMutation.isPending}>
+											{createKeyMutation.isPending ? (
+												<Spinner label="Generating" />
+											) : (
+												"Generate key"
+											)}
+										</Button>
+									</div>
+									<p className="text-xs text-muted-foreground">
+										The pair is made on the server and the private half never leaves it.
+									</p>
+								</div>
+								{createKeyMutation.isError ? (
+									<Alert variant="error" icon={<CircleAlert />}>
+										{getErrorMessage(createKeyMutation.error)}
+									</Alert>
+								) : null}
+							</form>
 						) : null}
 
 						<div className="space-y-1.5">
@@ -442,10 +519,18 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								id="enroll-fingerprint"
 								value={expectedFingerprint}
 								placeholder="SHA256:…"
+								aria-invalid={fingerprintMalformed}
+								onBlur={() => setFingerprintTouched(true)}
 								onChange={(event) =>
-									checkedInput(expectedFingerprint, setExpectedFingerprint)(event.target.value)
+									checkedInput(
+										expectedFingerprint,
+										setExpectedFingerprint,
+									)(event.target.value.trim())
 								}
 							/>
+							{fingerprintMalformed ? (
+								<p className="text-xs text-muted-foreground">{HOST_KEY_FINGERPRINT_HELP}</p>
+							) : null}
 						</div>
 
 						<CommandBlock
@@ -459,7 +544,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 								<div>
 									<p className="text-sm font-medium text-foreground">Host check</p>
 									<p className="mt-0.5 text-xs text-muted-foreground">
-										Enroll once this server is ready for bots.
+										{canCheck ? "Confirms this server can run bots." : NEEDS_FINGERPRINT}
 									</p>
 								</div>
 								<Button
@@ -504,7 +589,7 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				</Alert>
 			) : null}
 
-			<div className="flex justify-between gap-2">
+			<div className="flex items-center justify-between gap-3">
 				<Button
 					size="sm"
 					variant="secondary"
@@ -513,19 +598,22 @@ export const EnrollHostSteps = ({ onEnrolled }: EnrollHostStepsProps) => {
 				>
 					Back
 				</Button>
-				{isLastStep(step, ENROLL_STEPS.length) ? (
-					<Button
-						size="sm"
-						disabled={enrollMutation.isPending || !fingerprintReady || !checkedReady}
-						onClick={submit}
-					>
-						{enrollMutation.isPending ? <Spinner label="Enrolling" /> : "Enroll host"}
-					</Button>
-				) : (
-					<Button size="sm" disabled={!canAdvance} onClick={() => goTo(step + 1)}>
-						Continue
-					</Button>
-				)}
+				<div className="flex items-center justify-end gap-3">
+					{guidance === null ? null : <p className="text-xs text-muted-foreground">{guidance}</p>}
+					{isLastStep(step, ENROLL_STEPS.length) ? (
+						<Button
+							size="sm"
+							disabled={enrollMutation.isPending || !fingerprintReady || !checkedReady}
+							onClick={submit}
+						>
+							{enrollMutation.isPending ? <Spinner label="Enrolling" /> : "Enroll host"}
+						</Button>
+					) : (
+						<Button size="sm" disabled={!canAdvance} onClick={() => goTo(step + 1)}>
+							Continue
+						</Button>
+					)}
+				</div>
 			</div>
 		</div>
 	)

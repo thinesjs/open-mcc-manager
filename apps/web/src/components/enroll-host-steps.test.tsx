@@ -3,14 +3,23 @@ import {
 	ADDRESS_PROBE_OUTCOMES,
 	EXPRESS_WARNING,
 	EXPRESS_WARNING_TITLE,
+	HOST_KEY_FINGERPRINT_HELP,
 	type HostCheckReport,
 	hostSetupScript,
 } from "@open-mcc/contracts"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import type { ReactNode } from "react"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { EnrollHostSteps, STALE_COMMAND_NOTICE } from "./enroll-host-steps"
+import {
+	EnrollHostSteps,
+	NEEDS_ADDRESS,
+	NEEDS_CHECK,
+	NEEDS_FINGERPRINT,
+	NEEDS_KEY,
+	NEEDS_NAME,
+	NEEDS_PORT,
+	STALE_COMMAND_NOTICE,
+} from "./enroll-host-steps"
 
 class UnmeasuredResizeObserver {
 	observe = () => undefined
@@ -34,20 +43,32 @@ const enroll = vi.fn()
 const probe = vi.fn()
 const readHostKey = vi.fn()
 const expressInstall = vi.fn()
+const createKey = vi.fn()
 
-const KEYS = [
+type StoredKey = { id: string; name: string; publicKey: string }
+
+const KEYS: StoredKey[] = [
 	{ id: "key-1", name: "deploy", publicKey: "ssh-ed25519 AAAAdeploy deploy" },
 	{ id: "key-2", name: "spare", publicKey: "ssh-ed25519 AAAAspare spare" },
 ]
 
-vi.mock("@tanstack/react-router", () => ({
-	Link: ({ children }: { children: ReactNode }) => <a href="/ssh-keys">{children}</a>,
-}))
+let stored: StoredKey[] = KEYS
+
+let listFailure: Error | null = null
+
+const listKeys = async (): Promise<StoredKey[]> => {
+	if (listFailure !== null) throw listFailure
+	return stored
+}
 
 vi.mock("~/lib/trpc", () => ({
 	useTRPC: () => ({
 		sshKey: {
-			list: { queryOptions: () => ({ queryKey: ["sshKey", "list"], queryFn: async () => KEYS }) },
+			list: {
+				queryOptions: () => ({ queryKey: ["sshKey", "list"], queryFn: listKeys }),
+				queryKey: () => ["sshKey", "list"],
+			},
+			create: { mutationOptions: () => ({ mutationFn: createKey }) },
 		},
 		host: {
 			check: { mutationOptions: () => ({ mutationFn: check }) },
@@ -67,7 +88,10 @@ afterEach(() => {
 	probe.mockReset()
 	readHostKey.mockReset()
 	expressInstall.mockReset()
+	createKey.mockReset()
 	writeText.mockClear()
+	stored = KEYS
+	listFailure = null
 })
 
 const FINGERPRINT = `SHA256:${"A".repeat(43)}`
@@ -113,10 +137,14 @@ const KEY_REFUSED: HostCheckReport = {
 	],
 }
 
-const mount = () => {
-	const client = new QueryClient({
+const newClient = () =>
+	new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	})
+
+const KEY_PURPOSE = "The key below is how OpenMCC reaches this server after setup."
+
+const mount = (client: QueryClient = newClient()) => {
 	render(
 		<QueryClientProvider client={client}>
 			<EnrollHostSteps onEnrolled={() => undefined} />
@@ -194,6 +222,33 @@ const runProbe = async (outcome: (typeof ADDRESS_PROBE_OUTCOMES)[number]) => {
 	fireEvent.click(button("Test connection"))
 	await screen.findByText(ADDRESS_PROBE_MESSAGES[outcome])
 }
+
+const mountWithoutKeys = async () => {
+	stored = []
+	mount()
+	await screen.findByLabelText("Key name")
+}
+
+const generateKey = async (name: string) => {
+	createKey.mockImplementationOnce(async (input: { name: string }) => {
+		const created = { id: "key-new", name: input.name, publicKey: "ssh-ed25519 AAAAnew new" }
+		stored = [created]
+		return created
+	})
+	type("Key name", name)
+	fireEvent.click(button("Generate key"))
+	await waitFor(() => expect(createKey).toHaveBeenCalledTimes(1))
+	await act(async () => undefined)
+}
+
+const opening = (sentence: string): string => sentence.split(" ").slice(0, 3).join(" ")
+
+const leaveFingerprint = () => fireEvent.blur(screen.getByLabelText("Server fingerprint"))
+
+const returnToFingerprint = () => screen.getByLabelText("Server fingerprint").focus()
+
+const fingerprintInvalidity = (): string | null =>
+	screen.getByLabelText("Server fingerprint").getAttribute("aria-invalid")
 
 const chooseAccountMode = (value: string) => {
 	const option = screen.getAllByRole("radio").find((radio) => radio.getAttribute("value") === value)
@@ -709,5 +764,313 @@ describe("choosing between running the setup yourself and having it run for you"
 		const field = await screen.findByLabelText("Server fingerprint")
 		if (!(field instanceof HTMLInputElement)) throw new Error("expected an input")
 		expect(field.value).toBe(FINGERPRINT)
+	})
+})
+
+describe("pasting a fingerprint copied out of a terminal", () => {
+	const reachBlankVerify = async () => {
+		await reachPrepare()
+		next()
+	}
+
+	it("takes one carrying the whitespace a copy brings with it", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", `  ${FINGERPRINT}\n`)
+
+		expect(isDisabled("Check host")).toBe(false)
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+	})
+
+	it("checks the trimmed value rather than the one the clipboard brought", async () => {
+		await reachBlankVerify()
+		type("Server fingerprint", `${FINGERPRINT} `)
+
+		await runCheck(READY)
+
+		expect(check.mock.calls[0]?.[0]?.expectedFingerprint).toBe(FINGERPRINT)
+	})
+
+	it("says what is wrong with a whole ssh-keygen line, rather than only going dead", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
+		expect(fingerprintInvalidity()).toBe("true")
+		expect(isDisabled("Check host")).toBe(true)
+	})
+
+	it("joins nothing up, so a fingerprint broken across a line stays refused", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", `SHA256:${"A".repeat(20)} ${"A".repeat(23)}`)
+		leaveFingerprint()
+
+		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
+		expect(isDisabled("Check host")).toBe(true)
+	})
+
+	it("waits until the operator leaves the field before saying any of it", async () => {
+		await reachBlankVerify()
+
+		type("Server fingerprint", "S")
+
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(fingerprintInvalidity()).not.toBe("true")
+	})
+
+	it("keeps saying it while the value is corrected, with no second trip out of the field", async () => {
+		await reachBlankVerify()
+		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		returnToFingerprint()
+		type("Server fingerprint", "SHA256:still-not-one")
+
+		expect(screen.getByText(HOST_KEY_FINGERPRINT_HELP)).toBeDefined()
+		expect(fingerprintInvalidity()).toBe("true")
+	})
+
+	it("stops saying it the moment the value becomes a fingerprint", async () => {
+		await reachBlankVerify()
+		type("Server fingerprint", `256 ${FINGERPRINT} root@host (ED25519)`)
+		leaveFingerprint()
+
+		type("Server fingerprint", FINGERPRINT)
+
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(isDisabled("Check host")).toBe(false)
+	})
+
+	it("says nothing about the value while the field is still empty", async () => {
+		await reachBlankVerify()
+
+		leaveFingerprint()
+
+		expect(screen.queryByText(HOST_KEY_FINGERPRINT_HELP)).toBeNull()
+		expect(fingerprintInvalidity()).not.toBe("true")
+	})
+})
+
+describe("enrolling the first host of an installation that has no keys", () => {
+	it("says what the key is for before asking anyone to make one", async () => {
+		await mountWithoutKeys()
+
+		expect(screen.getByText(KEY_PURPOSE)).toBeDefined()
+	})
+
+	it("says it to an operator who already has keys too", async () => {
+		mount()
+
+		await chooseKey("deploy")
+
+		expect(screen.getByText(KEY_PURPOSE)).toBeDefined()
+	})
+
+	it("does not open the way Express's own sentence does, so two sign-ins cannot read as one", () => {
+		mount()
+
+		const express = screen.getByText(/runs the setup over SSH/)
+
+		expect(opening(express.textContent ?? "")).not.toBe(opening(KEY_PURPOSE))
+	})
+
+	it("says the list could not be read even when it already had keys in it", async () => {
+		const client = newClient()
+		mount(client)
+		await chooseKey("deploy")
+		cleanup()
+		listFailure = new Error("The key list could not be read")
+
+		mount(client)
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		await chooseKey("deploy")
+		expect(screen.getByRole("combobox").textContent).toContain("deploy")
+	})
+
+	it("makes a key inside the wizard rather than sending the operator away for one", async () => {
+		await mountWithoutKeys()
+
+		expect(screen.queryByRole("link")).toBeNull()
+
+		await generateKey("fleet")
+
+		expect(createKey.mock.calls[0]?.[0]).toEqual({ name: "fleet" })
+	})
+
+	it("selects the key it just made, so the step can be left", async () => {
+		await mountWithoutKeys()
+		expect(isDisabled("Continue")).toBe(true)
+
+		await generateKey("fleet")
+
+		expect(await screen.findByText("ssh-ed25519 AAAAnew new")).toBeDefined()
+		await waitFor(() => expect(isDisabled("Continue")).toBe(false))
+	})
+
+	it("keeps the step shut when the key it made never arrives in the list", async () => {
+		await mountWithoutKeys()
+		createKey.mockImplementationOnce(async (input: { name: string }) => {
+			listFailure = new Error("The key list could not be read")
+			return { id: "key-new", name: input.name, publicKey: "ssh-ed25519 AAAAnew new" }
+		})
+		type("Key name", "fleet")
+
+		fireEvent.click(button("Generate key"))
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		expect(isDisabled("Continue")).toBe(true)
+	})
+
+	it("takes one press only while the key is being made", async () => {
+		await mountWithoutKeys()
+		let finish: (key: StoredKey) => void = () => undefined
+		createKey.mockImplementationOnce(
+			() =>
+				new Promise<StoredKey>((resolve) => {
+					finish = resolve
+				}),
+		)
+		type("Key name", "fleet")
+
+		fireEvent.click(button("Generate key"))
+
+		await waitFor(() => expect(isDisabled("Generating")).toBe(true))
+		await act(async () => finish({ id: "key-new", name: "fleet", publicKey: "ssh-ed25519 new" }))
+	})
+
+	it("says the list could not be read, rather than showing an empty step", async () => {
+		listFailure = new Error("The key list could not be read")
+		mount()
+
+		expect(await screen.findByText("The key list could not be read")).toBeDefined()
+		expect(isDisabled("Continue")).toBe(true)
+	})
+
+	it("keeps what the operator had already chosen across the generation", async () => {
+		await mountWithoutKeys()
+		chooseExpress()
+
+		await generateKey("fleet")
+
+		expect(screen.getByText(EXPRESS_WARNING)).toBeDefined()
+	})
+
+	it("says why a key could not be made", async () => {
+		await mountWithoutKeys()
+		createKey.mockRejectedValueOnce(new Error("A key of that name already exists"))
+		type("Key name", "fleet")
+
+		fireEvent.click(button("Generate key"))
+
+		expect(await screen.findByText("A key of that name already exists")).toBeDefined()
+	})
+})
+
+describe("a step the wizard will not let the operator leave", () => {
+	it("says a key is what the first step is waiting on", async () => {
+		mount()
+
+		await screen.findByText(NEEDS_KEY)
+
+		expect(isDisabled("Continue")).toBe(true)
+	})
+
+	it("stops saying it once a key is chosen", async () => {
+		mount()
+
+		await chooseKey("deploy")
+
+		expect(screen.queryByText(NEEDS_KEY)).toBeNull()
+	})
+
+	it("asks for a key to be made, not chosen, when the installation has none", async () => {
+		await mountWithoutKeys()
+
+		expect(isDisabled("Continue")).toBe(true)
+		expect(screen.queryByText(NEEDS_KEY)).toBeNull()
+		expect(screen.getByText("No keys yet")).toBeDefined()
+	})
+
+	it.each([
+		{ field: "Name", value: "", need: NEEDS_NAME },
+		{ field: "Hostname or IP", value: "", need: NEEDS_ADDRESS },
+		{ field: "Port", value: "70000", need: NEEDS_PORT },
+	])(
+		"says what the address step still needs when $field is wrong",
+		async ({ field, value, need }) => {
+			await reachAddress()
+			fillAddress()
+
+			type(field, value)
+
+			expect(isDisabled("Continue")).toBe(true)
+			expect(screen.getByText(need)).toBeDefined()
+		},
+	)
+
+	it("says nothing once the address step has everything", async () => {
+		await reachAddress()
+
+		fillAddress()
+
+		expect(screen.queryByText(NEEDS_NAME)).toBeNull()
+		expect(screen.queryByText(NEEDS_ADDRESS)).toBeNull()
+		expect(screen.queryByText(NEEDS_PORT)).toBeNull()
+	})
+
+	it("leaves the account step's own requirement to say it, rather than saying it twice", async () => {
+		await reachAccount()
+
+		type("Account name", "My Account")
+
+		expect(isDisabled("Continue")).toBe(true)
+		expect(
+			screen.getAllByText("Use lowercase letters, digits, - and _, starting with a letter or _."),
+		).toHaveLength(1)
+	})
+
+	it("says the host check is what Enroll is waiting on", async () => {
+		await reachVerify()
+
+		expect(isDisabled("Enroll host")).toBe(true)
+		expect(screen.getByText(NEEDS_CHECK)).toBeDefined()
+	})
+
+	it("stops saying it once the check comes back ready", async () => {
+		await reachVerify()
+
+		await runCheck(READY)
+
+		expect(screen.queryByText(NEEDS_CHECK)).toBeNull()
+	})
+
+	it("does not send the operator to a check that cannot run yet", async () => {
+		await reachPrepare()
+
+		next()
+
+		expect(isDisabled("Enroll host")).toBe(true)
+		expect(isDisabled("Check host")).toBe(true)
+		expect(screen.queryByText(NEEDS_CHECK)).toBeNull()
+	})
+
+	it("says the fingerprint is what the host check itself is waiting on", async () => {
+		await reachPrepare()
+
+		next()
+
+		expect(isDisabled("Check host")).toBe(true)
+		expect(screen.getByText(NEEDS_FINGERPRINT)).toBeDefined()
+	})
+
+	it("says what the check is for once a fingerprint is in", async () => {
+		await reachVerify()
+
+		expect(screen.queryByText(NEEDS_FINGERPRINT)).toBeNull()
+		expect(screen.getByText("Confirms this server can run bots.")).toBeDefined()
 	})
 })

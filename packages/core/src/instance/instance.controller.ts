@@ -226,6 +226,8 @@ export const scheduledRunFailure = (error: Error | string): string => {
 
 export class InstanceAuthInProgressError extends Error {}
 export class InstanceSignInRunningError extends Error {}
+export class InstanceSignInDidNotStartError extends Error {}
+export class InstanceSignInNoDeviceCodeError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
 export class InstanceBusyError extends Error {}

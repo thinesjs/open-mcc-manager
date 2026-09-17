@@ -14,6 +14,8 @@ import {
 	HostNotFoundError,
 	HostProvisioningInProgressError,
 	InstanceRemovalFailedError,
+	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
@@ -57,6 +59,63 @@ describe("mapKnownError", () => {
 		expect(
 			mapKnownError(new InstanceSignInRunningError("Sign-in is running for instance abc123")),
 		).toMatchObject({ code: "CONFLICT", errorCode: "INSTANCE_SIGN_IN_RUNNING" })
+	})
+
+	it("★ answers a sign-in that never started under its own code, in words the host did not write", () => {
+		const mapped = mapKnownError(
+			new InstanceSignInDidNotStartError(
+				[
+					"The sign-in unit for instance abc123 did not start: Job for open-mcc-auth@abc123.service failed because a timeout was exceeded.",
+					'See "journalctl --user -xeu open-mcc-auth@abc123.service" for details.',
+				].join("\n"),
+			),
+		)
+
+		expect(mapped).toEqual({
+			code: "BAD_REQUEST",
+			errorCode: "INSTANCE_SIGN_IN_DID_NOT_START",
+			httpStatus: 400,
+			message: "The sign-in did not start on the host",
+		})
+		expect(mapped?.message).not.toMatch(/journalctl|systemctl|open-mcc-auth|abc123/)
+	})
+
+	it("★ answers a sign-in that started and produced no code as its own failure, never as a 500", () => {
+		const mapped = mapKnownError(
+			new InstanceSignInNoDeviceCodeError(
+				"The client did not present a device code for instance abc123 within the polling window",
+			),
+		)
+
+		expect(mapped).toEqual({
+			code: "BAD_REQUEST",
+			errorCode: "INSTANCE_SIGN_IN_NO_DEVICE_CODE",
+			httpStatus: 400,
+			message: "The sign-in started but no device code appeared",
+		})
+	})
+
+	it("★ answers a host that refused the start apart from a host that ran it and said nothing", () => {
+		const refused = mapKnownError(new InstanceSignInDidNotStartError("did not start"))
+		const quiet = mapKnownError(new InstanceSignInNoDeviceCodeError("no code"))
+
+		expect(refused?.errorCode).not.toBe(quiet?.errorCode)
+		expect(refused?.message).not.toBe(quiet?.message)
+	})
+
+	it("★ calls an ssh exec that resolved non-zero a bad request, as a removal step is", () => {
+		const watched = [
+			mapKnownError(new InstanceSignInDidNotStartError("the start exec resolved non-zero")),
+			mapKnownError(new InstanceSignInNoDeviceCodeError("every poll resolved empty")),
+			mapKnownError(new InstanceRemovalFailedError("a removal step resolved non-zero")),
+		]
+
+		for (const mapped of watched) {
+			expect(mapped?.code).toBe("BAD_REQUEST")
+			expect(mapped?.httpStatus).toBe(400)
+		}
+		expect(mapKnownError(new transport.CommandTimedOutError("no answer"))?.code).toBe("CONFLICT")
+		expect(mapKnownError(new InstanceSignInRunningError("held"))?.code).toBe("CONFLICT")
 	})
 
 	it("maps HostNotFoundError to NOT_FOUND", () => {

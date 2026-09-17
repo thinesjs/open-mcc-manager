@@ -244,6 +244,9 @@ have:
 | Organization scope on every repository method but the exceptions named under Tenancy | TypeScript — the scope is a required parameter, so a call without one does not compile |
 | Operator-facing copy for every wire error code | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>` over `packages/contracts/src/errors.ts` |
 | The sign-in hold's refusal naming its own duration, and carrying the way out of it | `apps/web/src/lib/errors.test.ts` — the sentence is compared whole and its minute count against `AUTH_LEASE_MS`, and it is required not to say a sign-in is running, which only `INSTANCE_SIGN_IN_RUNNING` may say; `apps/web/src/components/instance-action-error.test.tsx` — walks **every** `ErrorCode` and requires the Cancel sign-in button, and the "Ask an owner" line, on `INSTANCE_AUTH_IN_PROGRESS` and on no other, so widening the condition to a second code fails rather than passing on the one code a sample happens to take; the same file walks every `Role` and requires the button for `owner` alone |
+| Both ways a sign-in can fail carrying a sentence, and not the same one | TypeScript — `apps/web/src/lib/errors.ts` types its table `Record<ErrorCode, string>`, so a new code without copy does not compile; `apps/server/src/errors.test.ts` walks every error class the domain packages **export** and requires a mapping, which catches a new exported class and **not** a bare `Error` thrown inline — that is held instead by `authenticate.test.ts`'s `expect(silent.constructor).not.toBe(Error)`, which a subclass passes and a bare one does not; `apps/web/src/lib/errors.test.ts` compares both sentences whole and requires the one for a start that ran not to say "did not start" nor to promise a wait |
+| An SSH exec that resolved non-zero answered 400, not 409 | `apps/server/src/errors.test.ts` — requires `INSTANCE_SIGN_IN_DID_NOT_START`, `INSTANCE_SIGN_IN_NO_DEVICE_CODE` and `INSTANCE_REMOVAL_FAILED` to be `BAD_REQUEST` and a transport timeout and a live sign-in to stay `CONFLICT`, in one test, so moving either side of the line fails it. It pins those five and claims nothing about the rest of `mapKnownError`. No symptom holds it: the only reader of `httpStatus` outside tests in `apps/web` is `wasRefused`, which takes the whole 4xx band |
+| A sign-in that never started reported as one, rather than as a client that said nothing | `packages/core/src/instance/authenticate.test.ts` — runs `beginAuthentication` twice over the **same empty log**, the start exiting 0 in one and 1 in the other, and requires the two to fail differently, so an implementation that reads the log rather than the exit gives one answer twice and fails it; requires the refused run to issue **no** `cat` poll where the quiet run issues all of them, so moving the check past the loop keeps the class right and fails on the wait; and, with a device code left in an uncleared log, requires the refusal rather than the stale code. `apps/server/src/errors.test.ts` compares the mapped answer whole and requires it to carry no word the host wrote; `apps/web/src/lib/errors.test.ts` compares the operator's sentence whole and requires it to differ from the running and the holding ones |
 | The refusal reaching an operator on every surface that can raise it | TypeScript — `onActionError` is a required prop of `CommandPaletteProps` and `InstanceContextMenuProps`, so a surface that fires start, stop or restart without wiring the refusal does not compile; `apps/web/src/routes/_authenticated.instances.index.test.tsx` and `apps/web/src/components/command-palette.test.tsx` drive a refused start through the context menu and through the palette and read the guidance text off the rendered alert |
 | Design tokens pinned against drift | `apps/web/src/index.css.test.ts` — every declaration compared by scope, name and value |
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
@@ -894,6 +897,110 @@ Dependency direction is one-way: router → controller → repository.
   not impossible; if it is hit the sign-in fails honestly and is retried. Do not
   raise the bot unit's `TimeoutStartSec` without asking whether this 20s still
   clears it.
+- **A sign-in's start is checked, because a start that never ran cannot be told
+  from a client that said nothing once the exec is thrown away.**
+  `startAuthCommand` is `rm -f …/auth.log && systemctl --user start …`, and its
+  result was discarded, so a refused start fell into the device-code poll and
+  reported "did not present a device code" ten polls and twenty seconds later —
+  a sentence about a start that succeeded and stayed quiet. Worse, the `rm -f`
+  is the *first* half of that chain: when it fails the start never runs and the
+  **previous** attempt's `auth.log` is still there, so the poll would find the
+  old code and `beginAuthentication` would **return** it — a false success, the
+  row moved to `needs_auth` and the operator typing a code minted for a session
+  that no longer exists. Checking `exitCode` closes both.
+  **What the exec can see is the whole of `ExecResult`: `exitCode`, `stdout`,
+  `stderr` — never `Result`, `ActiveState` or `SubState`.** Measured on a real
+  systemd 252 user manager, Debian 12, against units shaped like this one:
+
+  | what happened | exit | what the unit says (invisible to the exec) |
+  | --- | --- | --- |
+  | the settings preflight exits 1 | 1 | `Result=exit-code ActiveState=failed` |
+  | the start phase timed out | 1 | `Result=timeout ActiveState=failed` |
+  | `JobTimeoutSec` fired first | 1 | `Result=success ActiveState=activating SubState=start-pre` |
+  | the unit is not on the host | 5 | — |
+  | the `rm -f` failed, so `systemctl` never ran | 1 | untouched |
+  | `ExecCondition` skipped the start | **0** | `Result=success ActiveState=inactive` |
+
+  So the exit code answers exactly one question — *did the start succeed* — and
+  the manager says only that. It does **not** say which of the five non-zero
+  rows above it was:
+  systemd's stderr distinguishes them in prose ("failed because a timeout was
+  exceeded" against "failed because the control process exited with error
+  code"), and nothing here pins that wording or treats it as a contract, so it
+  is put in the thrown `Error` for the server log and never parsed. **The last row is the
+  residue**: a start systemd skipped because the bot unit is running exits 0 and
+  is indistinguishable from one that ran, so it still reaches the poll and still
+  reports no device code. That is not closed here, and the message stays correct
+  for it — the client genuinely presented nothing.
+  **The claim is released, and the keep/release rule is untouched.** The exec
+  *resolved*, so `claimedExec` leaves `inFlight` false and the existing catch
+  releases; no code decides this, which is the point. It is also correct rather
+  than merely convenient: a failed start resolves the exec at the moment the
+  unit reaches `failed` — measured at 5211ms against a `TimeoutStartSec=5` — and
+  this unit declares no `Restart=`, so nothing brings it back. The one case
+  where the exit is non-zero over a unit still *starting* is the `JobTimeoutSec`
+  row above, and the catch path's `stopAuthCommand` ends it before the release:
+  measured, the stop took **9ms** from `ActiveState=activating SubState=start-pre`
+  to `inactive`, and it stayed there. Do not reorder the cleanup stop and the
+  release.
+  **Both ends of the sign-in now have a sentence, and neither had one before.**
+  `mapKnownError` answers a bare `Error` `null`, `GENERIC_UNMAPPED` holds only
+  `UNAUTHORIZED` and `FORBIDDEN`, so `trpc.ts`'s formatter substituted
+  `GENERIC_INTERNAL_MESSAGE`. Most of `beginAuthentication`'s failures were never
+  affected — `InstanceHostNotFoundError`, `HostUnreachableError`, a channel limit
+  and a transport timeout all had mappings already. What read **"Internal server
+  error"** was the one failure it raised as a bare `Error`: the device-code
+  sentence this file has carried since it was written, which therefore never
+  reached a dashboard at all. The start's refusal was not raised at all.
+
+  | what happened | code | the operator reads |
+  | --- | --- | --- |
+  | the host refused the start | `INSTANCE_SIGN_IN_DID_NOT_START` | "The sign-in did not start on the host. Try again in a moment." |
+  | the start worked, no code came | `INSTANCE_SIGN_IN_NO_DEVICE_CODE` | "The sign-in started but no device code appeared. Try again." |
+
+  The split is the exit code and nothing else, and the two sentences differ in
+  their advice on purpose: the likeliest refused start is the collector holding
+  `collect.lock`, bounded at 12s, so **in a moment** is a real instruction; an
+  empty polling window has no clock under it — an auth-service outage, a network
+  fault reaching Microsoft, a client that exited early — so it says **Try
+  again** and does not promise a wait that would help.
+- **An SSH exec that resolved non-zero is a `BAD_REQUEST`; one that did not
+  resolve at all is a `CONFLICT`.** This is a rule about **exec-level** failures
+  only — the `claimedExec` calls this manager issues over SSH and reads an exit
+  code from — and it is **not** a rule about `mapKnownError` as a whole. Within
+  that scope it holds both ways:
+  - resolved non-zero → `BAD_REQUEST`: `instance.controller.ts`'s removal tests
+    `(await claimedExec(…)).exitCode !== 0` and raises
+    `InstanceRemovalFailedError`; `HostProvisioningFailedError` is the same
+    shape; both sign-in refusals now join them.
+  - never resolved → `CONFLICT`: `HOST_NOT_ANSWERING`,
+    `HOST_COMMAND_INTERRUPTED`, `HOST_CHANNEL_LIMIT` — the manager does not know
+    what the host did, which is the same uncertainty that makes `claimedExec`
+    set `inFlight` and keep the claim.
+
+  **Do not widen this into "the host answered no means 400".** Two mappings in
+  the same file are exactly that and are `CONFLICT`: `action_failed` →
+  `INSTANCE_LIVE_ACTION_FAILED`, *"The client tried, but the game did not let
+  it."*, three lines from `invalid_args` → `BAD_REQUEST`; and
+  `McpProtocolError`/`LiveResponseTooLargeError` →
+  `INSTANCE_LIVE_CONTROL_UNREADABLE`, where the manager *did* get an answer and
+  only failed to parse it. Those are live-control refusals the client itself
+  raised, not exec exit codes, and they are outside the rule rather than
+  exceptions to it. Anyone restating this as a whole-file convention should
+  first enumerate **all** of `mapKnownError`, including the two tables it
+  returns from rather than inlines — `REFUSALS`, reached at the first line of
+  the function, and `CONSTRAINT_VIOLATIONS`, reached at the last. A reading that
+  matches only `if (cause instanceof …) return mapped(…)` misses both, which is
+  how the over-broad first draft of this bullet was written.
+
+  The 400/409 split is **not observable on the dashboard**: the only reader of
+  `httpStatus` outside tests in `apps/web` is `wasRefused`, which takes the whole
+  400–499 band alike. So no symptom holds it, and the test is the only thing that
+  does — it requires the three exec-level failures it names to be `BAD_REQUEST`
+  and a transport timeout and a live sign-in to stay `CONFLICT`, in one
+  assertion, so moving either side of the line fails it. It does not cover
+  `HOST_PROVISIONING_FAILED`, which is named above as the same shape but is
+  pinned only by its own existing test.
 - `provision` verifies what it needs under the advisory lock and *before* the
   claim, so a rejected attempt leaves no claim behind and the operator's host
   is exactly as they left it. The ssh key lookup is the deliberate exception:

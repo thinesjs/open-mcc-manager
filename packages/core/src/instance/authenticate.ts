@@ -20,6 +20,8 @@ import {
 	type InstanceControllerDeps,
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
+	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 } from "./instance.controller"
 import { isAuthClaimStale } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -179,7 +181,17 @@ export const beginAuthentication = async (
 
 		await claimedExec(flight, transport, stopAuthCommand(instance.id), AUTH_SESSION_TIMEOUT_MS)
 
-		await claimedExec(flight, transport, startAuthCommand(instance.id), AUTH_START_TIMEOUT_MS)
+		const started = await claimedExec(
+			flight,
+			transport,
+			startAuthCommand(instance.id),
+			AUTH_START_TIMEOUT_MS,
+		)
+		if (started.exitCode !== 0) {
+			throw new InstanceSignInDidNotStartError(
+				`The sign-in unit for instance ${instanceId} did not start: ${started.stderr.trim()}`,
+			)
+		}
 
 		for (let attempt = 0; attempt < polling.attempts; attempt += 1) {
 			const read = await claimedExec(
@@ -208,7 +220,7 @@ export const beginAuthentication = async (
 			}
 		}
 
-		throw new Error(
+		throw new InstanceSignInNoDeviceCodeError(
 			`The client did not present a device code for instance ${instanceId} within the polling window`,
 		)
 	} catch (error) {

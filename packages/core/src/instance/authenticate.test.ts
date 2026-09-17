@@ -1,3 +1,4 @@
+import type { DeviceCodeChallenge } from "@open-mcc/contracts"
 import type {
 	AuditEventRow,
 	HostRow,
@@ -43,6 +44,8 @@ import {
 	type InstanceControllerDeps,
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
+	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 } from "./instance.controller"
 import { AUTH_LEASE_MS, type InstanceRepository } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -786,6 +789,127 @@ describe("stopping the instance before a sign-in", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+})
+
+describe("a sign-in the host never started", () => {
+	const START_TIMED_OUT = [
+		"Job for open-mcc-auth@abc123.service failed because a timeout was exceeded.",
+		'See "systemctl --user status open-mcc-auth@abc123.service" and "journalctl --user -xeu open-mcc-auth@abc123.service" for details.',
+	].join("\n")
+
+	const LOG_NOT_CLEARED =
+		"rm: cannot remove '/home/mcc/.local/share/open-mcc/instances/abc123/auth.log': Permission denied"
+
+	const startExiting = (exitCode: number, stderr: string, journal: string) => {
+		const made = makeDeps(journal)
+		const sent: string[] = []
+		const inner = made.transport.exec
+		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
+			sent.push(command)
+			return command === startAuthCommand("abc123")
+				? { stdout: "", stderr, exitCode }
+				: await inner(command, timeoutMs, stdin)
+		}
+		return { ...made, sent }
+	}
+
+	const polls = (sent: readonly string[]): readonly string[] =>
+		sent.filter((each) => each.startsWith("cat "))
+
+	const failureOf = async (run: Promise<DeviceCodeChallenge>): Promise<Error> => {
+		try {
+			await run
+		} catch (error) {
+			if (error instanceof Error) return error
+			throw error
+		}
+		throw new Error("the sign-in was expected to fail and did not")
+	}
+
+	it("★ tells a start the host refused from a client that stayed quiet, by the exit alone", async () => {
+		const refused = startExiting(1, START_TIMED_OUT, "")
+		const quiet = startExiting(0, "", "")
+
+		const failed = await failureOf(
+			beginAuthentication(refused.deps, owner, "abc123", () => undefined, FAST_POLL),
+		)
+		const silent = await failureOf(
+			beginAuthentication(quiet.deps, owner, "abc123", () => undefined, FAST_POLL),
+		)
+
+		expect(failed).toBeInstanceOf(InstanceSignInDidNotStartError)
+		expect(failed.message).toMatch(/did not start/i)
+		expect(failed.message).not.toMatch(/device code|polling window/i)
+		expect(silent).toBeInstanceOf(InstanceSignInNoDeviceCodeError)
+		expect(silent).not.toBeInstanceOf(InstanceSignInDidNotStartError)
+		expect(silent.message).toMatch(/did not present a device code/i)
+	})
+
+	it("★ spends none of the polling window on a code a start that never ran cannot produce", async () => {
+		const refused = startExiting(1, START_TIMED_OUT, "")
+		const quiet = startExiting(0, "", "")
+
+		await expect(
+			beginAuthentication(refused.deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(InstanceSignInDidNotStartError)
+		await expect(
+			beginAuthentication(quiet.deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toThrow(/device code/i)
+
+		expect(polls(refused.sent)).toEqual([])
+		expect(polls(quiet.sent)).toHaveLength(FAST_POLL.attempts)
+	})
+
+	it("★ raises a typed refusal when the start worked and no code came, never a bare Error", async () => {
+		const quiet = startExiting(0, "", "")
+
+		const silent = await failureOf(
+			beginAuthentication(quiet.deps, owner, "abc123", () => undefined, FAST_POLL),
+		)
+
+		expect(silent.constructor).not.toBe(Error)
+		expect(silent).toBeInstanceOf(InstanceSignInNoDeviceCodeError)
+		expect(polls(quiet.sent)).toHaveLength(FAST_POLL.attempts)
+	})
+
+	it("★ never hands back a code an earlier attempt left behind when the log was not cleared", async () => {
+		const { deps, instances } = startExiting(1, LOG_NOT_CLEARED, DEVICE_CODE_OUTPUT)
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(InstanceSignInDidNotStartError)
+
+		expect(instances.update).not.toHaveBeenCalled()
+	})
+
+	it("★ gives the claim back, having stopped the unit a job timeout may have left starting", async () => {
+		const { deps, sent, instances } = startExiting(1, START_TIMED_OUT, "")
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		).rejects.toBeInstanceOf(InstanceSignInDidNotStartError)
+
+		const claimedWith = vi.mocked(instances.claimForAuth).mock.calls.at(0)?.at(2)
+		expect(claimedWith).toBeDefined()
+		expect(instances.releaseAuthClaim).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			claimedWith,
+		)
+		expect(sent.lastIndexOf(stopAuthCommand("abc123"))).toBeGreaterThan(
+			sent.indexOf(startAuthCommand("abc123")),
+		)
+	})
+
+	it("carries the host's own words on to the server log, for a reader who has to act", async () => {
+		const { deps } = startExiting(1, START_TIMED_OUT, "")
+
+		const failed = await failureOf(
+			beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL),
+		)
+
+		expect(failed.message).toContain("failed because a timeout was exceeded")
 	})
 })
 

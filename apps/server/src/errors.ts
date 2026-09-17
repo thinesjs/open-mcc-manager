@@ -38,6 +38,8 @@ import {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	LastOwnerError,
@@ -353,6 +355,20 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_AUTH_IN_PROGRESS",
 			"This instance is being signed in to Microsoft; wait for that to finish",
+		)
+	}
+	if (cause instanceof InstanceSignInDidNotStartError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_SIGN_IN_DID_NOT_START",
+			"The sign-in did not start on the host",
+		)
+	}
+	if (cause instanceof InstanceSignInNoDeviceCodeError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_SIGN_IN_NO_DEVICE_CODE",
+			"The sign-in started but no device code appeared",
 		)
 	}
 	if (cause instanceof InstanceSignInRunningError) {

@@ -138,6 +138,8 @@ export {
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
 	InstanceRemovalFailedError,
+	InstanceSignInDidNotStartError,
+	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
 	InstanceStillInUseError,
 	scheduledRunFailure,

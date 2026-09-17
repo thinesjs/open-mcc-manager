@@ -1,6 +1,6 @@
 import { ERROR_CODES } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
-import { getErrorMessage } from "./errors"
+import { getErrorMessage, wasRefused } from "./errors"
 
 describe("getErrorMessage", () => {
 	it("maps a known machine-readable error code to operator-facing copy", () => {
@@ -127,5 +127,31 @@ describe("getErrorMessage", () => {
 			expect(message, errorCode).not.toBe(serverText)
 			expect(message, errorCode).not.toBe("Something went wrong. Please try again.")
 		}
+	})
+})
+
+describe("which answers a retry could still change", () => {
+	const answered = (httpStatus: number) => ({ message: "no", data: { httpStatus } })
+
+	it.each([400, 401, 403, 404, 409, 429])(
+		"★ reads %i as the server's decision about this request, which it will make again",
+		(httpStatus) => {
+			expect(wasRefused(answered(httpStatus))).toBe(true)
+		},
+	)
+
+	it.each([500, 502, 503])("★ reads %i as a fault that may not happen twice", (httpStatus) => {
+		expect(wasRefused(answered(httpStatus))).toBe(false)
+	})
+
+	it("★ reads a status that refuses nothing as no refusal, so the lower bound cannot be dropped", () => {
+		expect(wasRefused(answered(200))).toBe(false)
+		expect(wasRefused(answered(304))).toBe(false)
+	})
+
+	it("★ reads a request that never reached the server as no refusal", () => {
+		expect(wasRefused({ message: "Failed to fetch" })).toBe(false)
+		expect(wasRefused({ message: "Failed to fetch", data: null })).toBe(false)
+		expect(wasRefused({ message: "no code", data: { errorCode: "FORBIDDEN" } })).toBe(false)
 	})
 })

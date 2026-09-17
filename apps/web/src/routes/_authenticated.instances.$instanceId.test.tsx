@@ -61,6 +61,7 @@ const server = {
 	instance: BOT,
 	config: { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 },
 	readsFail: false,
+	role: "owner",
 }
 
 const params = { instanceId: "bot-1" }
@@ -119,6 +120,8 @@ const answer = async (procedure: string): Promise<object | null> => {
 	switch (procedure) {
 		case "get":
 			return server.instance
+		case "me":
+			return { role: server.role }
 		case "getConfig":
 			return server.config
 		case "list":
@@ -233,6 +236,7 @@ beforeEach(() => {
 	server.instance = BOT
 	server.config = { config: { liveControlEnabled: true, entityDataEnabled: true }, version: 1 }
 	server.readsFail = false
+	server.role = "owner"
 	issued.length = 0
 	asked.length = 0
 	saves.length = 0
@@ -848,16 +852,18 @@ describe("a lifecycle action refused while a sign-in still holds the bot", () =>
 	it("★ offers the way out from the refusal itself, not only under the Danger zone", async () => {
 		const alert = await refuseStart("INSTANCE_AUTH_IN_PROGRESS")
 
-		fireEvent.click(within(alert).getByRole("button", { name: "Cancel sign-in" }))
+		fireEvent.click(await within(alert).findByRole("button", { name: "Cancel sign-in" }))
 
 		await waitFor(() => expect(issued).toContain("cancelAuthentication"))
 		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
 	})
 
-	it("★ offers no sign-in to cancel on a refusal no sign-in is holding", async () => {
-		const alert = await refuseStart("INSTANCE_BUSY")
+	it("★ sends an operator, who may start but may not cancel, to someone who can", async () => {
+		server.role = "operator"
+		const alert = await refuseStart("INSTANCE_AUTH_IN_PROGRESS")
 
-		expect(alert.textContent).toContain("busy with another change")
+		await waitFor(() => expect(alert.textContent).toContain("Ask an owner to cancel the sign-in."))
+		expect(alert.textContent).toContain("15 minutes")
 		expect(within(alert).queryByRole("button", { name: "Cancel sign-in" })).toBeNull()
 	})
 })

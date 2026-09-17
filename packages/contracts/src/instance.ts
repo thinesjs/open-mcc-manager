@@ -39,6 +39,10 @@ export const isOfflineAccount = (accountType: AccountType): boolean => accountTy
 export const needsInteractiveSignIn = (accountType: AccountType): boolean =>
 	accountType === "microsoft"
 
+export const AUTH_LEASE_MS = 15 * 60 * 1000
+
+export const AUTH_LEASE_MINUTES = AUTH_LEASE_MS / 60_000
+
 export const accountIdentifier = (accountType: AccountType) =>
 	isOfflineAccount(accountType)
 		? z

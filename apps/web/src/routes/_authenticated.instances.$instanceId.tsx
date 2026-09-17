@@ -8,6 +8,7 @@ import { ConsoleComposer } from "~/components/console-composer"
 import { ConsoleOutput } from "~/components/console-output"
 import { DeviceCode } from "~/components/device-code"
 import { EmptyState } from "~/components/empty-state"
+import { InstanceActionError } from "~/components/instance-action-error"
 import { InstanceBotsTab, InstanceSettingsTab } from "~/components/instance-config-tabs"
 import { InstanceControls } from "~/components/instance-controls"
 import { InstanceDangerZone } from "~/components/instance-danger-zone"
@@ -46,7 +47,7 @@ function InstanceDetailPage() {
 	const navigate = useNavigate()
 	const trpc = useTRPC()
 	const queryClient = useQueryClient()
-	const [actionError, setActionError] = useState<string | undefined>(undefined)
+	const [actionError, setActionError] = useState<TRPCErrorLike | undefined>(undefined)
 	const [confirmingRemove, setConfirmingRemove] = useState(false)
 	const [signInWait, setSignInWait] = useState<SignInWait | undefined>(undefined)
 	const [checkingByHand, setCheckingByHand] = useState(false)
@@ -128,7 +129,7 @@ function InstanceDetailPage() {
 		await queryClient.invalidateQueries()
 	}
 
-	const onError = (error: TRPCErrorLike) => setActionError(getErrorMessage(error))
+	const onError = (error: TRPCErrorLike) => setActionError(error)
 	const onSuccess = async () => {
 		setActionError(undefined)
 		await invalidate()
@@ -278,9 +279,12 @@ function InstanceDetailPage() {
 			</div>
 
 			{actionError ? (
-				<Alert variant="error" icon={<CircleAlert />}>
-					{actionError}
-				</Alert>
+				<InstanceActionError
+					error={actionError}
+					busy={busy}
+					cancelAuthPending={cancelAuthMutation.isPending}
+					onCancelAuth={() => cancelAuthMutation.mutate({ instanceId })}
+				/>
 			) : null}
 
 			{signedIn?.authenticated === true ? (

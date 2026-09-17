@@ -2,7 +2,7 @@ import { type ErrorCode, isErrorCode } from "@open-mcc/contracts"
 
 export type TRPCErrorLike = {
 	message: string
-	data?: { errorCode?: string } | null | undefined
+	data?: { errorCode?: string; httpStatus?: number } | null | undefined
 }
 
 const ERROR_MESSAGES: Record<ErrorCode, string> = {
@@ -107,6 +107,16 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 export const errorCodeOf = (error: TRPCErrorLike): ErrorCode | undefined => {
 	const errorCode = error.data?.errorCode
 	return isErrorCode(errorCode) ? errorCode : undefined
+}
+
+const FIRST_REFUSED_STATUS = 400
+
+const FIRST_SERVER_FAULT_STATUS = 500
+
+export const wasRefused = (error: TRPCErrorLike): boolean => {
+	const status = error.data?.httpStatus
+	if (status === undefined) return false
+	return status >= FIRST_REFUSED_STATUS && status < FIRST_SERVER_FAULT_STATUS
 }
 
 const FALLBACK_MESSAGE = "Something went wrong. Please try again."

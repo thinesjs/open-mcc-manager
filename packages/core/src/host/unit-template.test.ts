@@ -78,6 +78,16 @@ const instance = onSlirp[INSTANCE_UNIT_NAME] ?? ""
 
 const signIn = onSlirp[AUTH_UNIT_NAME] ?? ""
 
+const signInUnitSection = signIn.slice(0, signIn.indexOf("[Service]"))
+
+const signInServiceSection = signIn.slice(signIn.indexOf("[Service]"))
+
+const signInStartSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(signInServiceSection)?.[1])
+
+const signInLockSeconds = Number(
+	/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(signInServiceSection)?.[1],
+)
+
 const lineOf = (unit: string, prefix: string): string =>
 	unit.split("\n").find((line) => line.startsWith(prefix)) ?? ""
 
@@ -202,20 +212,17 @@ describe("the unit that signs a bot in", () => {
 	})
 
 	it("bounds its own start phase, and leaves the job timeout above it as a backstop", () => {
-		const unitSection = signIn.slice(0, signIn.indexOf("[Service]"))
-		const jobSeconds = Number(/^JobTimeoutSec=(\d+)$/m.exec(unitSection)?.[1])
-		const startSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(signIn)?.[1])
-		const lockSeconds = Number(/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(signIn)?.[1])
+		const jobSeconds = Number(/^JobTimeoutSec=(\d+)$/m.exec(signInUnitSection)?.[1])
 
-		expect(lockSeconds).toBeGreaterThan(0)
-		expect(startSeconds).toBeGreaterThan(0)
-		expect(lockSeconds + startSeconds).toBeLessThan(jobSeconds)
+		expect(signInLockSeconds).toBeGreaterThan(0)
+		expect(signInStartSeconds).toBeGreaterThan(0)
+		expect(signInLockSeconds + signInStartSeconds).toBeLessThan(jobSeconds)
 	})
 
 	it("gives one start-phase exec longer than the collector may hold the lock it waits for", () => {
-		const startSeconds = Number(/^TimeoutStartSec=(\d+)$/m.exec(signIn)?.[1])
-
-		expect(startSeconds).toBeGreaterThan(TRUNCATE_DEADLINE_SECONDS + TRUNCATE_KILL_AFTER_SECONDS)
+		expect(Math.min(signInLockSeconds, signInStartSeconds)).toBeGreaterThan(
+			TRUNCATE_DEADLINE_SECONDS + TRUNCATE_KILL_AFTER_SECONDS,
+		)
 	})
 
 	it("stops within ten seconds, never restarts, and is started only on demand", () => {

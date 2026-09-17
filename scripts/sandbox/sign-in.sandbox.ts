@@ -109,16 +109,18 @@ const UNTIL_ENDED = [
 const SIGN_IN_TEMPLATE =
 	renderUnitTemplates({ networkStack: "pasta", imageId: "0".repeat(64) })[AUTH_UNIT_NAME] ?? ""
 
+const SIGN_IN_SERVICE = SIGN_IN_TEMPLATE.slice(SIGN_IN_TEMPLATE.indexOf("[Service]"))
+
 const JOB_TIMEOUT_SECONDS = Number(
 	/^JobTimeoutSec=(\d+)$/m.exec(
 		SIGN_IN_TEMPLATE.slice(0, SIGN_IN_TEMPLATE.indexOf("[Service]")),
 	)?.[1],
 )
 
-const START_TIMEOUT_SECONDS = Number(/^TimeoutStartSec=(\d+)$/m.exec(SIGN_IN_TEMPLATE)?.[1])
+const START_TIMEOUT_SECONDS = Number(/^TimeoutStartSec=(\d+)$/m.exec(SIGN_IN_SERVICE)?.[1])
 
 const LOCK_WAIT_SECONDS = Number(
-	/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(SIGN_IN_TEMPLATE)?.[1],
+	/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(SIGN_IN_SERVICE)?.[1],
 )
 
 const COLLECTOR_HOLD_CEILING_SECONDS = TRUNCATE_DEADLINE_SECONDS + TRUNCATE_KILL_AFTER_SECONDS

@@ -1,7 +1,15 @@
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
+import { mapKnownError } from "../../apps/server/src/errors"
+import { hostReadKey } from "../../packages/core/src/host/host-reader"
 import { type ProvisionResult, provisionHost } from "../../packages/core/src/host/provision"
 import { podmanImageId, runtimeImageFor } from "../../packages/core/src/host/runtime-image"
+import { AUTH_UNIT_NAME, renderUnitTemplates } from "../../packages/core/src/host/unit-template"
 import {
+	TRUNCATE_DEADLINE_SECONDS,
+	TRUNCATE_KILL_AFTER_SECONDS,
+} from "../../packages/core/src/instance/artifact"
+import {
+	AUTH_START_TIMEOUT_MS,
 	DEVICE_CODE_PATTERN,
 	startAuthCommand,
 } from "../../packages/core/src/instance/authenticate"
@@ -17,6 +25,7 @@ import {
 	stopAuthCommand,
 	unitName,
 } from "../../packages/core/src/instance/unit"
+import { HOST_ID, memoryManager, ORGANIZATION, owner } from "./memory-manager"
 import {
 	HOME,
 	PODMAN_TARGETS,
@@ -24,7 +33,7 @@ import {
 	startPodmanHost,
 	withUserManager,
 } from "./podman-account"
-import { type As, docker, journalOf, ROOT, remove, shell, succeeded } from "./sandbox"
+import { type As, docker, journalOf, type Ran, ROOT, remove, shell, succeeded } from "./sandbox"
 
 const BOT = "sandbox-sign-in"
 
@@ -97,11 +106,67 @@ const UNTIL_ENDED = [
 	"exit 1",
 ].join("\n")
 
+const SIGN_IN_TEMPLATE =
+	renderUnitTemplates({ networkStack: "pasta", imageId: "0".repeat(64) })[AUTH_UNIT_NAME] ?? ""
+
+const SIGN_IN_SERVICE = SIGN_IN_TEMPLATE.slice(SIGN_IN_TEMPLATE.indexOf("[Service]"))
+
+const JOB_TIMEOUT_SECONDS = Number(
+	/^JobTimeoutSec=(\d+)$/m.exec(
+		SIGN_IN_TEMPLATE.slice(0, SIGN_IN_TEMPLATE.indexOf("[Service]")),
+	)?.[1],
+)
+
+const START_TIMEOUT_SECONDS = Number(/^TimeoutStartSec=(\d+)$/m.exec(SIGN_IN_SERVICE)?.[1])
+
+const LOCK_WAIT_SECONDS = Number(
+	/^ExecStartPre=\/usr\/bin\/flock -w (\d+) /m.exec(SIGN_IN_SERVICE)?.[1],
+)
+
+const COLLECTOR_HOLD_CEILING_SECONDS = TRUNCATE_DEADLINE_SECONDS + TRUNCATE_KILL_AFTER_SECONDS
+
+const LOCK_HOLD_MARGIN_SECONDS = 5
+
+const unitSeconds = (reported: string): number =>
+	Number(/(\d+)min/.exec(reported)?.[1] ?? "0") * 60 +
+	Number(/(?:^|\s)(\d+)s/.exec(reported)?.[1] ?? "0")
+
+const TAKEN = 'for attempt in $(seq 50); do flock -n "$1" true || exit 0; sleep 0.1; done; exit 1'
+
+type Manager = Awaited<ReturnType<typeof memoryManager>>
+
 describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $name", (target) => {
 	let host = ""
 	let as: As = ROOT
 	let provisioned: ProvisionResult | undefined
+	let manager: Manager | undefined
 	let offline = false
+
+	const ready = (): Manager => {
+		if (manager === undefined) throw new Error("the sandbox host was never provisioned")
+		return manager
+	}
+
+	const holding = (lock: string, seconds: number): Promise<Ran> =>
+		shell(
+			host,
+			{ ...as, timeoutMs: 240_000 },
+			'/usr/bin/flock -w 180 "$1" sleep "$2"',
+			lock,
+			String(seconds),
+		)
+
+	const waitForTheLock = async (lock: string): Promise<void> => {
+		succeeded(await shell(host, as, TAKEN, lock), "waiting for the held lock")
+	}
+
+	const refusalOf = async <T>(run: Promise<T>): Promise<string | undefined> =>
+		await run.then(
+			() => undefined,
+			(error) =>
+				mapKnownError(error instanceof Error ? error : new Error(String(error)))?.errorCode ??
+				"UNMAPPED",
+		)
 
 	const property = async (unit: string, name: string): Promise<string> =>
 		succeeded(
@@ -225,9 +290,11 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 				step.failure,
 			)
 		}
+		manager = await memoryManager(provisioned, () => shellTransport(host, as))
 	}, 900_000)
 
 	afterAll(async () => {
+		manager?.readConnections.evict(hostReadKey(ORGANIZATION, HOST_ID))
 		await remove(host)
 	}, 300_000)
 
@@ -348,4 +415,112 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 			)
 		}
 	})
+
+	it("orders its start phase inside its job timeout inside the manager's wait", async () => {
+		const job = await property(SIGN_IN, "JobTimeoutUSec")
+		const running = await property(SIGN_IN, "JobRunningTimeoutUSec")
+		const perExec = await property(SIGN_IN, "TimeoutStartUSec")
+
+		expect(unitSeconds(job), `JobTimeoutUSec is ${job}`).toBe(JOB_TIMEOUT_SECONDS)
+		expect(unitSeconds(running), `JobRunningTimeoutUSec is ${running}`).toBe(JOB_TIMEOUT_SECONDS)
+		expect(unitSeconds(perExec), `TimeoutStartUSec is ${perExec}`).toBe(START_TIMEOUT_SECONDS)
+		expect(LOCK_WAIT_SECONDS + unitSeconds(perExec)).toBeLessThan(unitSeconds(job))
+		expect(AUTH_START_TIMEOUT_MS).toBeGreaterThan(unitSeconds(job) * 1000)
+	})
+
+	it("starts a sign-in whose collect.lock is held past the longest the collector may hold it", async () => {
+		await goOffline()
+		await installWaitingClient()
+		const held = holding(
+			`${BOT_DIR}/collect.lock`,
+			COLLECTOR_HOLD_CEILING_SECONDS + LOCK_HOLD_MARGIN_SECONDS,
+		)
+		await waitForTheLock(`${BOT_DIR}/collect.lock`)
+		const since = await journalMark()
+
+		const started = await shell(
+			host,
+			{ ...as, timeoutMs: AUTH_START_TIMEOUT_MS },
+			startAuthCommand(BOT),
+		)
+
+		const survived = {
+			start: started.status,
+			state: await property(SIGN_IN, "ActiveState"),
+			running: await running(),
+		}
+		succeeded(await held, "holding the bot's collect.lock")
+		succeeded(await shell(host, as, stopAuthCommand(BOT)), "ending sign-in")
+
+		expect(survived, `${started.stderr}\n${await journalSince(SIGN_IN, since)}`).toEqual({
+			start: 0,
+			state: "active",
+			running: `open-mcc-auth-${BOT}`,
+		})
+	}, 300_000)
+
+	it("fails the sign-in unit, rather than letting it start behind the manager, when the lock outlasts its start phase", async () => {
+		await goOffline()
+		await installWaitingClient()
+		const enforced = unitSeconds(await property(SIGN_IN, "TimeoutStartUSec"))
+		const held = holding(`${BOT_DIR}/collect.lock`, enforced + LOCK_HOLD_MARGIN_SECONDS)
+		await waitForTheLock(`${BOT_DIR}/collect.lock`)
+		const since = await journalMark()
+		const began = Date.now()
+
+		const started = await shell(
+			host,
+			{ ...as, timeoutMs: AUTH_START_TIMEOUT_MS },
+			startAuthCommand(BOT),
+		)
+
+		const bounded = {
+			refused: started.status !== 0,
+			endedBeforeTheManagerGaveUp: Date.now() - began < AUTH_START_TIMEOUT_MS,
+			result: await property(SIGN_IN, "Result"),
+			running: await running(),
+		}
+		succeeded(await held, "holding the bot's collect.lock")
+		succeeded(await shell(host, as, stopAuthCommand(BOT)), "clearing the failed sign-in")
+
+		expect(bounded, `${started.stderr}\n${await journalSince(SIGN_IN, since)}`).toEqual({
+			refused: true,
+			endedBeforeTheManagerGaveUp: true,
+			result: "timeout",
+			running: "",
+		})
+	}, 300_000)
+
+	it("gives the sign-in claim back when the lock outlasts the start phase, instead of holding it for the lease", async () => {
+		await goOffline()
+		await installWaitingClient()
+		const created = await ready().controller.create(owner, {
+			hostId: HOST_ID,
+			name: "sandbox-sign-in-claim",
+			accountType: "microsoft",
+			minecraftAccount: "sandbox@example.invalid",
+			serverAddress: "127.0.0.1",
+		})
+		await ready().controller.stop(owner, created.id)
+		const lock = `${FILES}/instances/${created.id}/collect.lock`
+		const enforced = unitSeconds(await property(authUnitName(created.id), "TimeoutStartUSec"))
+		const held = holding(lock, enforced + LOCK_HOLD_MARGIN_SECONDS)
+		await waitForTheLock(lock)
+		const since = await journalMark()
+
+		const refusal = await refusalOf(ready().controller.authenticate(owner, created.id))
+
+		const letGo = {
+			refused: refusal !== undefined,
+			claim: ready().rows.get(created.id)?.authClaimId === null ? "released" : "held",
+			recovered: await refusalOf(ready().controller.stop(owner, created.id)),
+		}
+		succeeded(await held, "holding the bot's collect.lock")
+
+		expect(letGo, await journalSince(authUnitName(created.id), since)).toEqual({
+			refused: true,
+			claim: "released",
+			recovered: undefined,
+		})
+	}, 300_000)
 })

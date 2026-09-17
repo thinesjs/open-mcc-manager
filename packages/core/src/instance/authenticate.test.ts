@@ -14,18 +14,23 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import type { AuditEntry, AuditRepository } from "../audit/audit.repository"
 import type { HostRepository, OrgScope } from "../host/host.repository"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
+import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host/unit-template"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
+	AUTH_SESSION_TIMEOUT_MS,
+	AUTH_START_TIMEOUT_MS,
 	beginAuthentication,
 	cancelAuthentication,
 	completeAuthentication,
 	DEVICE_CODE_PATTERN,
+	DEVICE_CODE_POLL_ATTEMPTS,
+	DEVICE_CODE_POLL_INTERVAL_MS,
 	SESSION_CACHE_ABSENT_EXIT,
 	SESSION_CACHE_FILES,
 	SESSION_CACHE_NO_STATE_DIR_EXIT,
 	SESSION_CACHE_UNREADABLE_EXIT,
 	sessionCacheProbeCommand,
+	startAuthCommand,
 	VERIFICATION_URI_PATTERN,
 } from "./authenticate"
 import type { CommandRepository } from "./command.repository"
@@ -39,7 +44,8 @@ import {
 	InstanceHostNotFoundError,
 	InstanceNotFoundError,
 } from "./instance.controller"
-import type { InstanceRepository } from "./instance.repository"
+import { AUTH_LEASE_MS, type InstanceRepository } from "./instance.repository"
+import { UNIT_STOP_TIMEOUT_MS } from "./removal"
 import type { ScheduleRepository } from "./schedule.repository"
 import { stopAuthCommand } from "./unit"
 
@@ -780,6 +786,74 @@ describe("stopping the instance before a sign-in", () => {
 		expect(stopSeconds).toBeGreaterThan(0)
 		expect(stopAt).toBeGreaterThanOrEqual(0)
 		expect(transport.timeouts[stopAt]).toBeGreaterThan(2 * stopSeconds * 1000)
+	})
+})
+
+describe("what each step of a sign-in is given, against what that step can take", () => {
+	const UNIT_RUNTIME = {
+		networkStack: "slirp4netns",
+		imageId: "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9",
+	} as const
+
+	const signInUnit = (): string => renderUnitTemplates(UNIT_RUNTIME)[AUTH_UNIT_NAME] ?? ""
+
+	const jobSeconds = (): number =>
+		Number(
+			/^JobTimeoutSec=(\d+)$/m.exec(signInUnit().slice(0, signInUnit().indexOf("[Service]")))?.[1],
+		)
+
+	const waitsUnderTheClaim = async (): Promise<number[]> => {
+		const waits: number[] = [AUTH_SESSION_TIMEOUT_MS]
+		const { deps, transport } = makeDeps("no code here at all")
+		const inner = transport.exec
+		transport.exec = async (command, timeoutMs, stdin) => {
+			waits.push(timeoutMs)
+			return await inner(command, timeoutMs, stdin)
+		}
+
+		await expect(
+			beginAuthentication(deps, owner, "abc123", () => undefined, {
+				attempts: DEVICE_CODE_POLL_ATTEMPTS,
+				intervalMs: 0,
+			}),
+		).rejects.toThrow(/device code/i)
+
+		return waits
+	}
+
+	it("waits longer for the sign-in unit's start than that unit's own start job may take", async () => {
+		const { deps, transport } = makeDeps(DEVICE_CODE_OUTPUT)
+
+		await beginAuthentication(deps, owner, "abc123", () => undefined, FAST_POLL)
+
+		const startedAt = transport.commands.indexOf(startAuthCommand("abc123"))
+
+		expect(jobSeconds()).toBeGreaterThan(0)
+		expect(startedAt).toBeGreaterThanOrEqual(0)
+		expect(transport.timeouts[startedAt]).toBeGreaterThanOrEqual(
+			jobSeconds() * 1000 + AUTH_SESSION_TIMEOUT_MS,
+		)
+	})
+
+	it("buys the start its own wait instead of lengthening the one four other steps share", async () => {
+		const waits = await waitsUnderTheClaim()
+		const startedAt = waits.findIndex((wait) => wait > UNIT_STOP_TIMEOUT_MS)
+
+		expect(waits.filter((wait) => wait === AUTH_SESSION_TIMEOUT_MS).length).toBe(
+			DEVICE_CODE_POLL_ATTEMPTS + 3,
+		)
+		expect(waits.filter((wait) => wait > UNIT_STOP_TIMEOUT_MS)).toEqual([AUTH_START_TIMEOUT_MS])
+		expect(startedAt).toBeGreaterThan(0)
+	})
+
+	it("spends less of the sign-in lease than the lease has, counting every wait it can issue", async () => {
+		const waits = await waitsUnderTheClaim()
+		const sleeps = (DEVICE_CODE_POLL_ATTEMPTS - 1) * DEVICE_CODE_POLL_INTERVAL_MS
+
+		const spent = waits.reduce((total, wait) => total + wait, 0) + sleeps
+
+		expect(spent).toBe(538_000)
+		expect(spent).toBeLessThan(AUTH_LEASE_MS)
 	})
 })
 

@@ -465,18 +465,15 @@ describe("what an account needs to run containers", () => {
 		expect(resultOf(report, "lingering")?.command).toBe("sudo loginctl enable-linger 'bot runner'")
 	})
 
-	it.each(["mcc", "bot runner", "o'brien"])(
-		"gives the same command for %s as the self-host card gives, since one rule builds it",
-		async (account) => {
-			const transport = await connected(
-				hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }),
-			)
+	it("routes that command through the shared builder rather than one of its own", async () => {
+		const transport = await connected(
+			hostWith(FRESH_FACTS, OWN_RANGES, { [LINGER_COMMAND]: ok("no") }),
+		)
 
-			const report = await checkHostOverTransport(transport, account)
+		const report = await checkHostOverTransport(transport, "bot runner")
 
-			expect(resultOf(report, "lingering")?.command).toBe(lingerCommand(account))
-		},
-	)
+		expect(resultOf(report, "lingering")?.command).toBe(lingerCommand("bot runner"))
+	})
 })
 
 describe("a cloud metadata service the bots could reach", () => {

@@ -1,4 +1,5 @@
 import {
+	type CheckHostInput,
 	HOST_CHECK_NAMES,
 	type HostCheckReport,
 	type HostCheckResult,
@@ -89,6 +90,27 @@ export const unreachableReport = (reason: string): HostCheckReport =>
 			name === "reachable" ? fail(name, reason) : skipped(name, NOT_CHECKED),
 		),
 	)
+
+const reachedHost = (report: HostCheckReport): boolean =>
+	report.checks.some((check) => check.name === "reachable" && check.outcome === "pass")
+
+const auditOutcomeFor = (report: HostCheckReport | null): string => {
+	if (report === null) return "interrupted"
+	if (!reachedHost(report)) return "unreachable"
+	return report.ready ? "ready" : "blocked"
+}
+
+export const checkAuditDetail = (
+	input: CheckHostInput,
+	report: HostCheckReport | null,
+): Record<string, string> => ({
+	hostname: input.hostname,
+	port: String(input.port),
+	account: input.username,
+	sshKeyId: input.sshKeyId,
+	fingerprint: input.expectedFingerprint,
+	outcome: auditOutcomeFor(report),
+})
 
 type PodmanInfo = ReturnType<typeof parsePodmanInfo>
 

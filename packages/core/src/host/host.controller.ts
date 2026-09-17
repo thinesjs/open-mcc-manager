@@ -29,7 +29,7 @@ import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import { ADDRESS_PROBE_TIMEOUT_MS, addressProbeOutcomeFor } from "./address-probe"
-import { checkHostOverTransport, unreachableReport } from "./check"
+import { checkAuditDetail, checkHostOverTransport, unreachableReport } from "./check"
 import {
 	connectFailureOutcome,
 	EXPRESS_CONNECT_TIMEOUT_MS,
@@ -136,6 +136,10 @@ const toHostPublic = (row: HostRow): HostPublic => ({
 })
 
 const finishedProvisioning = (host: HostRow): boolean => host.osRelease !== null
+
+type HostCheckAttempt =
+	| { kind: "reported"; report: HostCheckReport }
+	| { kind: "interrupted"; error: Error }
 
 export const createHostController = (deps: HostControllerDeps) => {
 	const teardownPayloadFor = (host: HostRow): Record<string, string> | undefined => {
@@ -246,28 +250,57 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const key = await deps.sshKeys.findById(scope, input.sshKeyId)
 			if (!key) throw new SshKeyNotFoundError(`SSH key not found: ${input.sshKeyId}`)
 
-			const transport = deps.createTransport()
-			try {
-				await transport.connect({
-					hostname: input.hostname,
-					port: input.port,
-					username: input.username,
-					privateKey: deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId),
-					expectedFingerprint: input.expectedFingerprint,
-					timeoutMs: CONNECT_TIMEOUT_MS,
-				})
-			} catch (error) {
-				await transport.close().catch(() => undefined)
-				return unreachableReport(
-					error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
-				)
-			}
+			const privateKey = deps.secrets.open(key.privateKeyEncrypted, key.privateKeyKeyId)
 
-			try {
-				return await checkHostOverTransport(transport, input.username)
-			} finally {
-				await transport.close().catch(() => undefined)
-			}
+			const attempt = await (async (): Promise<HostCheckAttempt> => {
+				const transport = deps.createTransport()
+				try {
+					await transport.connect({
+						hostname: input.hostname,
+						port: input.port,
+						username: input.username,
+						privateKey,
+						expectedFingerprint: input.expectedFingerprint,
+						timeoutMs: CONNECT_TIMEOUT_MS,
+					})
+				} catch (error) {
+					await transport.close().catch(() => undefined)
+					return {
+						kind: "reported",
+						report: unreachableReport(
+							error instanceof Error ? connectFailureReason(error) : COULD_NOT_CONNECT,
+						),
+					}
+				}
+
+				try {
+					return {
+						kind: "reported",
+						report: await checkHostOverTransport(transport, input.username),
+					}
+				} catch (error) {
+					return {
+						kind: "interrupted",
+						error: error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+					}
+				} finally {
+					await transport.close().catch(() => undefined)
+				}
+			})()
+
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scope, {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "host.check",
+					subjectType: "host",
+					subjectId: input.hostname,
+					detail: checkAuditDetail(input, attempt.kind === "reported" ? attempt.report : null),
+				})
+			})
+
+			if (attempt.kind === "interrupted") throw attempt.error
+			return attempt.report
 		},
 
 		enroll: async (ctx: ActorContext, input: CreateHostInput) => {

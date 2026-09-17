@@ -43,7 +43,7 @@ vi.mock("~/components/control-plane-status", () => ({
 }))
 
 const THEME_KEY = "open-mcc-theme"
-const VIEW_KEY = "hosts"
+const VIEW_KEY = "open-mcc.view.hosts"
 
 vi.stubGlobal("matchMedia", () => ({
 	matches: false,
@@ -96,5 +96,19 @@ describe("signing out on a shared machine", () => {
 		await mountShell()
 
 		expect(stored("abc123")).toBe("/list\n/say hi")
+	})
+
+	it("clears before it asks the server, so an unreachable control plane still empties it", async () => {
+		signOut.mockImplementationOnce(() => new Promise<void>(() => undefined))
+		writeCommandHistory("abc123", ["/list", "/say hi"])
+		await mountShell()
+
+		await act(async () => {
+			screen.getByText("Sign out").click()
+		})
+
+		expect(signOut).toHaveBeenCalledTimes(1)
+		expect(navigate).not.toHaveBeenCalled()
+		expect(stored("abc123")).toBeNull()
 	})
 })

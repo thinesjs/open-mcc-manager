@@ -192,7 +192,7 @@ have:
 | No connect, exec or port probe while a transaction is open, for either save, a removal, a start, a restart, a stop and a creation | `packages/core/src/instance/instance.controller.test.ts` — the transport is wrapped and every sighting records whether a transaction is open, so running the config write inside the finalize, or a removal's connect inside its claim transaction, fails it |
 | Every claimed window fitting inside the config lease | `packages/core/src/instance/instance.controller.test.ts` — sums the connect wait and every exec wait issued while the claim is held — up to the finalize for a save, a start, a restart, a stop and a creation, up to `deleteUnderClaim` for a removal — and compares the total against `CONFIG_CLAIM_LEASE_MS`, so splitting a step into two execs, connecting before the claim, or giving a restart's stop the ordinary step wait, fails it |
 | Every pattern the browser masks being applied by the log redactor too | `packages/core/src/security/redact.test.ts` — `REDACTION_PATTERNS` is compared against `UNAMBIGUOUS_SECRET_PATTERNS` by identity and by length, so a pattern registered in `contracts` and left out of `redact`'s list fails it. It proves the server applies every shared pattern, NOT that a pattern belongs on the shared side: that judgement is review's |
-| The console history keys swept on load and cleared on sign-out | `apps/web/src/lib/command-history.test.tsx` and `apps/web/src/routes/_authenticated.sign-out.test.tsx` — both drive the real `localStorage` jsdom provides rather than a stubbed map, seed more than one bot's key, and each also requires the theme and the view-mode key to survive, so widening either to "remove everything" fails. The sign-out one mounts the shell and clicks the button, so unwiring `clearCommandHistories` from `handleSignOut` fails it |
+| The console history keys swept on load and cleared by every sign-out | `apps/web/src/lib/command-history.test.tsx`, `apps/web/src/routes/_authenticated.sign-out.test.tsx` and `apps/web/src/components/sign-out.test.tsx` — all three drive the real `localStorage` jsdom provides rather than a stubbed map, seed more than one bot's key, and each also requires the theme and the real view-mode key to survive, so widening any of them to "remove everything" fails. The last two mount the shell, the palette and the invitation notice and click their real buttons, so unwiring `clearCommandHistories` from any of the three fails; a fourth `authClient.signOut` call site fails the exact-list assertion. That the clear runs *before* the sign-out is held by a sign-out mock that never settles. It proves each named path clears, NOT that a file with two sign-outs clears on both — the exact-list assertion only forces review |
 | No lookbehind in a pattern the browser parses | `packages/contracts/src/command-credentials.test.ts` — every `UNAMBIGUOUS_SECRET_PATTERNS` source is checked for `(?<=` and `(?<!`, which esbuild lowers to a `new RegExp` call that throws on Safari before 16.4. It checks the source text, NOT that the bundle loads in any browser |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 
@@ -1386,8 +1386,17 @@ per service.
   neither the sweep nor the clear touches them. Every read and write stays inside
   a `try`/`catch` — `localStorage` throws in a private window and with site data
   blocked — and a new key holding what an operator typed belongs in both the
-  sweep and the clear. The shell clears every one of them on sign-out, before it
-  calls `authClient.signOut`.
+  sweep and the clear.
+- **Every path that signs out clears those keys, and there are three of them**:
+  the shell's sidebar button, the command palette's "Sign out" action, and the
+  `SignedInNotice` an invited person meets when the machine is already signed in
+  as somebody else. That last one is the sharpest case — it exists precisely to
+  hand the machine to a different person. Each calls `clearCommandHistories()`
+  **before** it calls `authClient.signOut`, never after, so a refused or
+  unreachable sign-out still empties the history. A fourth call site must do the
+  same; `apps/web/src/components/sign-out.test.tsx` compares the set of files
+  naming `authClient.signOut` against an exact list, so adding one fails until
+  it is reviewed.
 
 ## Tests
 

@@ -4,6 +4,7 @@ import { AffiliationNotice } from "~/components/affiliation-notice"
 import { Button } from "~/components/ui/button"
 import { Spinner } from "~/components/ui/spinner"
 import { authClient } from "~/lib/auth-client"
+import { clearCommandHistories } from "~/lib/command-history"
 
 export const InvitationNotice = ({ children }: { children: ReactNode }) => (
 	<div className="flex min-h-dvh items-center justify-center bg-background p-6">
@@ -20,6 +21,7 @@ export const SignedInNotice = ({ email }: { email: string }) => {
 
 	const handleSignOut = async () => {
 		setIsSigningOut(true)
+		clearCommandHistories()
 		try {
 			await authClient.signOut()
 			await router.invalidate()

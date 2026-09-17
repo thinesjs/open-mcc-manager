@@ -17,6 +17,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { authClient } from "~/lib/auth-client"
+import { clearCommandHistories } from "~/lib/command-history"
 import { groupPaletteItems, type PaletteItem, rankPaletteItems } from "~/lib/command-palette"
 import { applyTheme, resolveTheme, storePreference, type ThemePreference } from "~/lib/theme"
 import { useTRPC } from "~/lib/trpc"
@@ -150,6 +151,7 @@ export const CommandPalette = ({ open, instant, onClose }: CommandPaletteProps) 
 				keywords: "logout leave session",
 				icon: LogOut,
 				run: go(() => {
+					clearCommandHistories()
 					void authClient.signOut().then(() => navigate({ to: "/sign-in" }))
 				}),
 			},

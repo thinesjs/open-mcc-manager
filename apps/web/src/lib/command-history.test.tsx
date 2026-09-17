@@ -10,7 +10,7 @@ import {
 } from "./command-history"
 
 const THEME_KEY = "open-mcc-theme"
-const VIEW_KEY = "hosts"
+const VIEW_KEY = "open-mcc.view.hosts"
 
 const keyFor = (instanceId: string): string => `${COMMAND_HISTORY_PREFIX}${instanceId}`
 

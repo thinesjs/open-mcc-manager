@@ -497,7 +497,11 @@ Dependency direction is one-way: router → controller → repository.
   **start phase 55s < `JobTimeoutSec=60` < `UNIT_START_TIMEOUT_MS` 75s.**
   The unit's `[Service]` carries `TimeoutStartSec=25`, so its start phase is
   bounded by the `flock -w 30` its own `ExecStartPre` declares plus 25s for the
-  container — 55s. `JobTimeoutSec=60` sits above that as a backstop, covering
+  container — 55s. That sum is deliberately loose: `TimeoutStartSec` also caps
+  the flock exec, so the real bound is 50s, but summing the two *declared*
+  numbers stays an upper bound if `TimeoutStartSec` is ever raised above the
+  `-w`, and the tests compare against the declared pair.
+  `JobTimeoutSec=60` sits above that as a backstop, covering
   what `TimeoutStartSec` does not: time the job spends *queued*, behind
   `network-online.target`. `UNIT_START_TIMEOUT_MS` (`unit.ts`) is
   `JobTimeoutSec` plus `INSTANCE_STEP_TIMEOUT_MS` — the ordinary wait this

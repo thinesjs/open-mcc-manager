@@ -5,7 +5,7 @@ import {
 	type UpdateInstanceConfigInput,
 	updateInstanceConfigInput,
 } from "@open-mcc/contracts"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { type ReactNode, Suspense } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -226,6 +226,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers()
+	focusManager.setFocused(undefined)
 	cleanup()
 })
 
@@ -234,7 +235,10 @@ const mount = async () => {
 	if (Page === undefined) throw new Error("the instance route renders no page")
 	await Page.preload?.()
 	const client = new QueryClient({
-		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		defaultOptions: {
+			queries: { retry: false, refetchOnWindowFocus: false },
+			mutations: { retry: false },
+		},
 	})
 	render(
 		<QueryClientProvider client={client}>
@@ -762,5 +766,47 @@ describe("waiting for a sign-in to land after Microsoft says it is done", () => 
 
 		expect(screen.getByText("Signed in.")).toBeDefined()
 		expect(screen.queryByText("Signed in. Start the bot when you're ready.")).toBeNull()
+	})
+})
+
+describe("coming back to a tab that was left open", () => {
+	const SUSPENSE_STALE_MS = 1_000
+
+	const comeBack = async () => {
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(SUSPENSE_STALE_MS + 1)
+		})
+		asked.length = 0
+		focusManager.setFocused(false)
+		await act(async () => {
+			focusManager.setFocused(true)
+		})
+	}
+
+	it("★ reads the bot's own status again, and nothing that costs an SSH login", async () => {
+		server.config = { config: EVERY_LIVE_SETTING, version: 1 }
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		await mount()
+		await waitFor(() => {
+			for (const read of LIVE_READS) expect(asked, read).toContain(read)
+		})
+
+		await comeBack()
+
+		expect(asked).toEqual(["get"])
+	})
+
+	it("★ reads the whole schedule again, which another operator may have changed", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		await mount()
+		await openTab("Schedule")
+		await waitFor(() => {
+			expect(asked).toContain("listScheduledCommands")
+			expect(asked).toContain("getSleepWindow")
+		})
+
+		await comeBack()
+
+		expect([...asked].sort()).toEqual(["get", "getSleepWindow", "listScheduledCommands"])
 	})
 })

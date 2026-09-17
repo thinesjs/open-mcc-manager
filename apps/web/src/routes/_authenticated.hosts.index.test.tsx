@@ -32,14 +32,33 @@ const HOSTS = [
 	},
 ]
 
-const answer = async (procedure: string): Promise<object | null> =>
-	procedure === "list" ? HOSTS : null
+let role = "owner"
+
+let enrolled: object[] = HOSTS
+
+const OFFER = {
+	name: "kitchen-pi",
+	hostname: "host.docker.internal",
+	port: 22,
+	username: "mcc",
+	reach: "proven",
+	systemd: true,
+	linger: true,
+}
+
+const answer = async (procedure: string): Promise<object | null> => {
+	if (procedure === "list") return enrolled
+	if (procedure === "me") return { role }
+	if (procedure === "offer") return OFFER
+	return null
+}
 
 const procedure = (router: string, name: string) => ({
 	queryOptions: (input?: object) => ({
 		queryKey: [router, name, input ?? {}],
 		queryFn: () => answer(name),
 	}),
+	queryKey: (input?: object) => [router, name, input ?? {}],
 	mutationOptions: (options: object) => ({ ...options, mutationFn: () => answer(name) }),
 })
 
@@ -62,9 +81,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	useNavigate: () => () => undefined,
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+	cleanup()
+	role = "owner"
+	enrolled = HOSTS
+})
 
-const mount = async () => {
+const mount = async (settled = "Stale") => {
 	const Page = Route.options.component
 	if (Page === undefined) throw new Error("the hosts route renders no page")
 	await Page.preload?.()
@@ -76,7 +99,7 @@ const mount = async () => {
 			</Suspense>
 		</QueryClientProvider>,
 	)
-	await screen.findByText("Stale", {}, { timeout: 10_000 })
+	await screen.findByText(settled, {}, { timeout: 10_000 })
 }
 
 const hostCard = (name: string) => {
@@ -110,4 +133,26 @@ describe.each([
 		expect(hostCard("Fresh").getByText("Provisioning")).toBeDefined()
 		expect(hostCard("Fresh").queryByText("Not yet reached")).toBeNull()
 	})
+})
+
+describe("who is offered a way to add a host", () => {
+	it("offers an owner both ways in", async () => {
+		await mount()
+
+		expect(await screen.findByRole("button", { name: "Enroll host" })).toBeDefined()
+		expect(await screen.findByRole("button", { name: "Add this machine" })).toBeDefined()
+	})
+
+	it.each(["operator", "viewer"] as const)(
+		"★ offers the %s role none of them, rather than a wizard the server refuses to finish",
+		async (refused) => {
+			role = refused
+			enrolled = []
+			await mount("No hosts enrolled")
+			await screen.findByText("Ask an owner to add a server.")
+
+			expect(screen.queryAllByRole("button", { name: "Enroll host" })).toHaveLength(0)
+			expect(screen.queryByRole("button", { name: "Add this machine" })).toBeNull()
+		},
+	)
 })

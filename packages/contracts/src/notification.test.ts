@@ -8,6 +8,9 @@ import {
 	deliveryFailureViewSchema,
 	destinationViewSchema,
 	editDestinationInput,
+	gotifyConfigInput,
+	incomingWebhookConfigInput,
+	NOT_AN_ADDRESS_MESSAGE,
 	NOTIFICATION_KINDS,
 	ntfyConfigInput,
 	SUBSCRIPTION_KINDS,
@@ -15,6 +18,7 @@ import {
 	TEST_NOTIFICATION_KIND,
 	telegramConfigInput,
 	usableSigningSecrets,
+	webhookConfigInput,
 } from "./notification"
 import { SUBSCRIPTION_LABELS } from "./notification-copy"
 import {
@@ -97,6 +101,21 @@ describe("provider settings are checked before they are stored", () => {
 				.success,
 		).toBe(false)
 		expect(telegramConfigInput.safeParse({ botToken: "t", chatId: "-100" }).success).toBe(true)
+	})
+
+	it("★ says a wrong address is not a web address, in words the operator can act on", () => {
+		const wrong = "hooks.example.com/x"
+		const fields = [
+			webhookConfigInput.safeParse({ url: wrong }),
+			incomingWebhookConfigInput.safeParse({ url: wrong }),
+			gotifyConfigInput.safeParse({ serverUrl: wrong, appToken: "tok" }),
+			ntfyConfigInput.safeParse({ serverUrl: wrong, topic: "open-mcc" }),
+		]
+
+		for (const field of fields) {
+			expect(field.success).toBe(false)
+			expect(field.error?.issues.map((issue) => issue.message)).toContain(NOT_AN_ADDRESS_MESSAGE)
+		}
 	})
 
 	it("holds an ntfy topic to the characters ntfy accepts", () => {

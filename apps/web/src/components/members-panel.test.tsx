@@ -1,5 +1,5 @@
 import type { Role } from "@open-mcc/contracts"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MembersPanel } from "./members-panel"
@@ -30,6 +30,7 @@ vi.mock("~/lib/trpc", () => ({
 
 afterEach(() => {
 	cleanup()
+	focusManager.setFocused(undefined)
 	for (const mock of [listMembers, listInvitations, remove, cancel, invite]) mock.mockReset()
 })
 
@@ -42,7 +43,10 @@ const DAY_MS = 86_400_000
 
 const mount = (role: Role) => {
 	const client = new QueryClient({
-		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+		defaultOptions: {
+			queries: { retry: false, refetchOnWindowFocus: false },
+			mutations: { retry: false },
+		},
 	})
 	render(
 		<QueryClientProvider client={client}>
@@ -137,5 +141,24 @@ describe("invitations still waiting", () => {
 
 		await waitFor(() => expect(screen.getByText("late@example.com")).toBeDefined())
 		expect(screen.getByText("Expired")).toBeDefined()
+	})
+})
+
+describe("coming back to the members page after a while away", () => {
+	it("★ reads the people and the invitations again, which another owner may have changed", async () => {
+		listMembers.mockResolvedValue(MEMBERS)
+		listInvitations.mockResolvedValue([])
+		mount("owner")
+		await waitFor(() => expect(screen.getByText("bo@example.com")).toBeDefined())
+		const members = listMembers.mock.calls.length
+		const invitations = listInvitations.mock.calls.length
+
+		focusManager.setFocused(false)
+		await act(async () => {
+			focusManager.setFocused(true)
+		})
+
+		expect(listMembers.mock.calls.length).toBe(members + 1)
+		expect(listInvitations.mock.calls.length).toBe(invitations + 1)
 	})
 })

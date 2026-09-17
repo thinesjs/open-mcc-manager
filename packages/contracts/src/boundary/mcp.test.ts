@@ -410,6 +410,28 @@ describe("mcp wire format", () => {
 		expect(recentEventsFrom(response).events.map((event) => event.type)).toEqual(["death"])
 	})
 
+	it("★ drops a weather ramp, which would push what a person cares about out of the panel", () => {
+		const body =
+			'{"success":true,"data":{"afterId":0,"latestId":9,"count":5,"events":[' +
+			'{"id":1,"timestampUtc":"t","type":"weather_rain","data":{"level":0.14000066}},' +
+			'{"id":2,"timestampUtc":"t","type":"weather_rain","data":{"level":0.28000132}},' +
+			'{"id":3,"timestampUtc":"t","type":"weather_thunder","data":{"level":0.0}},' +
+			'{"id":4,"timestampUtc":"t","type":"player_join","data":{"name":"LiveBot"}},' +
+			'{"id":5,"timestampUtc":"t","type":"disconnect"}]}}'
+		const response = responseFrom(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: body }] },
+			}),
+		)
+
+		expect(recentEventsFrom(response).events.map((event) => event.type)).toEqual([
+			"player_join",
+			"disconnect",
+		])
+	})
+
 	it("keeps an event type it has never seen, so nothing new is lost", () => {
 		expect(isNotableEvent("some_future_event")).toBe(true)
 	})

@@ -1,8 +1,8 @@
-import { type ErrorCode, isErrorCode } from "@open-mcc/contracts"
+import { type ErrorCode, isErrorCode, NOT_AN_ADDRESS_MESSAGE } from "@open-mcc/contracts"
 
 export type TRPCErrorLike = {
 	message: string
-	data?: { errorCode?: string } | null | undefined
+	data?: { errorCode?: string; httpStatus?: number } | null | undefined
 }
 
 const ERROR_MESSAGES: Record<ErrorCode, string> = {
@@ -27,7 +27,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"That address is on a private network. An administrator has to allow it before alerts can be sent there.",
 	DESTINATION_NOT_USABLE:
 		"That address is reserved and cannot receive anything. Check it and try again.",
-	DESTINATION_NOT_AN_ADDRESS: "That does not look like a web address. Check it and try again.",
+	DESTINATION_NOT_AN_ADDRESS: NOT_AN_ADDRESS_MESSAGE,
 	DESTINATION_NOT_HTTPS:
 		"The address has to start with https. Plain http is only allowed to an address an administrator has named.",
 	DESTINATION_HAS_CREDENTIALS:
@@ -107,6 +107,16 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 export const errorCodeOf = (error: TRPCErrorLike): ErrorCode | undefined => {
 	const errorCode = error.data?.errorCode
 	return isErrorCode(errorCode) ? errorCode : undefined
+}
+
+const FIRST_REFUSED_STATUS = 400
+
+const FIRST_SERVER_FAULT_STATUS = 500
+
+export const wasRefused = (error: TRPCErrorLike): boolean => {
+	const status = error.data?.httpStatus
+	if (status === undefined) return false
+	return status >= FIRST_REFUSED_STATUS && status < FIRST_SERVER_FAULT_STATUS
 }
 
 const FALLBACK_MESSAGE = "Something went wrong. Please try again."

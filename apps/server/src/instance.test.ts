@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
-import { instancePublic } from "@open-mcc/contracts"
+import { INVISIBLE_CHARACTER_IN_COMMAND, instancePublic } from "@open-mcc/contracts"
 import type {
 	McpLoadedBot,
 	McpPlayerStats,
@@ -27,7 +27,12 @@ import {
 	startUnitCommand,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
-import { createFakeRootSession, createFakeTransport, type FakeScript } from "@open-mcc/transport"
+import {
+	createFakeRootSession,
+	createFakeTransport,
+	type ExecResult,
+	type FakeScript,
+} from "@open-mcc/transport"
 import { Hono } from "hono"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -1077,5 +1082,236 @@ describe("a save that lost the race", () => {
 		expect(await errorCodeOf(res)).toBe("INSTANCE_BUSY")
 		expect(await latestVersion(instanceId)).toBe(2)
 		expect(issuedCommands()).toEqual([])
+	})
+})
+
+describe("what an operator reads when the host will not do what they asked", () => {
+	const HOST_SAID =
+		"Job for open-mcc@unit.service failed. See systemctl --user status and journalctl -xeu under /home/mcc/instances"
+
+	const refused: ExecResult = { stdout: "", stderr: HOST_SAID, exitCode: 1 }
+
+	const START_FAILED = {
+		status: 400,
+		errorCode: "INSTANCE_START_FAILED",
+		message: "The host could not start this instance",
+	}
+	const STOP_FAILED = {
+		status: 400,
+		errorCode: "INSTANCE_STOP_FAILED",
+		message: "The host could not stop this instance",
+	}
+	const NOT_RUNNING = {
+		status: 409,
+		errorCode: "INSTANCE_NOT_RUNNING",
+		message: "This instance is not running",
+	}
+	const COMMAND_NOT_SENT = {
+		status: 400,
+		errorCode: "INSTANCE_COMMAND_NOT_SENT",
+		message: "The command did not reach this instance",
+	}
+	const CONSOLE_UNREADABLE = {
+		status: 400,
+		errorCode: "INSTANCE_CONSOLE_UNREADABLE",
+		message: "The host could not read this instance's output",
+	}
+
+	const wireErrorSchema = z.object({
+		error: z.object({
+			message: z.string(),
+			data: z.object({ errorCode: z.string().optional() }),
+		}),
+	})
+
+	const answerOf = async (res: Response) => {
+		const text = await res.text()
+		expect(text).not.toMatch(/open-mcc@|systemctl|journalctl|\/home\/|Internal server error/)
+		const { error } = wireErrorSchema.parse(JSON.parse(text))
+		return { status: res.status, errorCode: error.data.errorCode, message: error.message }
+	}
+
+	const issued = (): string[] => hostTransports.flatMap((each) => each.commands)
+
+	const issuedContaining = (fragment: string): string => {
+		const found = issued().find((command) => command.includes(fragment))
+		expect(found, `no command containing ${fragment} reached the host`).toBeDefined()
+		return found ?? ""
+	}
+
+	const readConsole = async (cookie: string, instanceId: string): Promise<Response> =>
+		await app.request(
+			`/trpc/instance.readConsole?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+
+	const markRunning = async (instanceId: string): Promise<void> => {
+		await db
+			.updateTable("instance")
+			.set({ status: "running" })
+			.where("id", "=", instanceId)
+			.execute()
+	}
+
+	const readyEnvironment = (instanceId: string): string =>
+		envWriteUnlessRunningCommand(
+			instanceId,
+			renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
+			48919,
+		)
+
+	it("★ a start the host refused reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(instanceId)] = refused
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+	})
+
+	it("★ a start whose bot went down reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(instanceId)] = {
+			stdout: "ActiveState=failed\nResult=exit-code\nSignIn=inactive\n",
+			stderr: "",
+			exitCode: 0,
+		}
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+	})
+
+	it("★ a start whose answer the manager could not read reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(instanceId)] = { stdout: HOST_SAID, stderr: "", exitCode: 0 }
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+	})
+
+	it("★ a start refused before the bot was asked to run reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[readyEnvironment(instanceId)] = refused
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+		expect(issued()).not.toContain(startUnitCommand(instanceId))
+	})
+
+	it("★ a start whose first step answered unreadably reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[readyEnvironment(instanceId)] = { stdout: HOST_SAID, stderr: "", exitCode: 0 }
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+	})
+
+	it("★ a start held by a running sign-in still says so, rather than that the start failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(instanceId)] = {
+			stdout: "ActiveState=failed\nResult=exit-code\nSignIn=active\n",
+			stderr: "",
+			exitCode: 0,
+		}
+
+		const res = await call("instance.start", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual({
+			status: 409,
+			errorCode: "INSTANCE_SIGN_IN_RUNNING",
+			message: "Sign-in is running for this instance; try again when it is done",
+		})
+	})
+
+	it("★ a stop the host refused reads as a stop that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		expect((await call("instance.stop", cookie, { instanceId })).status).toBe(200)
+		hostScript[issuedContaining(" stop ")] = refused
+
+		const res = await call("instance.stop", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(STOP_FAILED)
+	})
+
+	it("★ a restart whose stop the host refused reads as a stop that failed, not a start", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		expect((await call("instance.stop", cookie, { instanceId })).status).toBe(200)
+		hostScript[issuedContaining(" stop ")] = refused
+
+		const res = await call("instance.restart", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(STOP_FAILED)
+		expect(issued()).not.toContain(startUnitCommand(instanceId))
+	})
+
+	it("★ a restart whose start the host refused reads as a start that failed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(instanceId)] = refused
+
+		const res = await call("instance.restart", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(START_FAILED)
+	})
+
+	it("★ a console command the host refused reads as a command that did not arrive", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		await markRunning(instanceId)
+		const sent = await call("instance.sendCommand", cookie, { instanceId, command: "hello" })
+		expect(sent.status).toBe(200)
+		hostScript[issuedContaining("/control")] = refused
+
+		const res = await call("instance.sendCommand", cookie, { instanceId, command: "hello" })
+
+		expect(await answerOf(res)).toEqual(COMMAND_NOT_SENT)
+	})
+
+	it("★ a console command to a bot that is not running says so", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.sendCommand", cookie, { instanceId, command: "hello" })
+
+		expect(await answerOf(res)).toEqual(NOT_RUNNING)
+		expect(issued()).toEqual([])
+	})
+
+	it("★ a console command carrying a tab is refused in words, before the host is asked", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		await markRunning(instanceId)
+
+		const res = await call("instance.sendCommand", cookie, { instanceId, command: "say\thello" })
+
+		expect(await answerOf(res)).toEqual({
+			status: 400,
+			errorCode: undefined,
+			message: INVISIBLE_CHARACTER_IN_COMMAND,
+		})
+		expect(issued()).toEqual([])
+	})
+
+	it("★ a console the host would not read reads as output that could not be read", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		expect((await readConsole(cookie, instanceId)).status).toBe(200)
+		hostScript[issuedContaining("journalctl")] = refused
+
+		const res = await readConsole(cookie, instanceId)
+
+		expect(await answerOf(res)).toEqual(CONSOLE_UNREADABLE)
 	})
 })

@@ -165,9 +165,22 @@ export const updateBotConfigInput = instanceBotsInput.extend({
 })
 export type UpdateBotConfigInput = z.infer<typeof updateBotConfigInput>
 
+export const INVISIBLE_CHARACTER_IN_COMMAND =
+	"Remove tabs and other invisible characters from the command."
+
+const withoutInvisibleCharacters = (value: string): boolean =>
+	[...value].every((character) => {
+		const code = character.codePointAt(0) ?? 0
+		return code >= 0x20 && code !== 0x7f
+	})
+
 export const sendInstanceCommandInput = z.object({
 	instanceId: z.string().min(1),
-	command: z.string().min(1).max(256),
+	command: z
+		.string()
+		.min(1)
+		.max(256)
+		.refine(withoutInvisibleCharacters, INVISIBLE_CHARACTER_IN_COMMAND),
 })
 export type SendInstanceCommandInput = z.infer<typeof sendInstanceCommandInput>
 

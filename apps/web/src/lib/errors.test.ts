@@ -1,4 +1,4 @@
-import { AUTH_LEASE_MS, ERROR_CODES } from "@open-mcc/contracts"
+import { AUTH_LEASE_MS, ERROR_CODES, INVISIBLE_CHARACTER_IN_COMMAND } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { getErrorMessage, wasRefused } from "./errors"
 
@@ -179,6 +179,41 @@ describe("getErrorMessage", () => {
 		})
 		expect(message).toContain("conflicts with data already stored")
 		expect(message).not.toContain("Something went wrong")
+	})
+
+	it("★ tells an operator which of start, stop, send and read the host would not do, in words of its own", () => {
+		const read = (message: string, errorCode: string) =>
+			getErrorMessage({ message, data: { errorCode, httpStatus: 400 } })
+
+		const answers = {
+			start: read("The host could not start this instance", "INSTANCE_START_FAILED"),
+			stop: read("The host could not stop this instance", "INSTANCE_STOP_FAILED"),
+			notRunning: read("This instance is not running", "INSTANCE_NOT_RUNNING"),
+			notSent: read("The command did not reach this instance", "INSTANCE_COMMAND_NOT_SENT"),
+			unreadable: read(
+				"The host could not read this instance's output",
+				"INSTANCE_CONSOLE_UNREADABLE",
+			),
+		}
+
+		expect(answers).toEqual({
+			start: "The host could not start this bot. Its console may say why.",
+			stop: "The host could not stop this bot, so it may still be running.",
+			notRunning: "This bot is not running. Start it first.",
+			notSent: "The command did not reach this bot.",
+			unreadable: "The host could not read this bot's output.",
+		})
+		expect(new Set(Object.values(answers)).size).toBe(Object.keys(answers).length)
+		for (const answer of Object.values(answers)) {
+			expect(answer).not.toMatch(/in a moment|internal|server error|went wrong|unit|exit|systemd/i)
+		}
+		expect(answers.unreadable).not.toMatch(/console/i)
+	})
+
+	it("★ shows the refusal of a command carrying a tab as the sentence the contract wrote", () => {
+		expect(
+			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),
+		).toBe("Remove tabs and other invisible characters from the command.")
 	})
 
 	it("renders static copy, never the server's own text, for every code the server can send", () => {

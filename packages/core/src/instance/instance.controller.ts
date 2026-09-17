@@ -233,6 +233,22 @@ export class InstanceConcurrentlyModifiedError extends Error {}
 export class InstanceBusyError extends Error {}
 export class InstanceStillInUseError extends Error {}
 export class InstanceRemovalFailedError extends Error {}
+export class InstanceStartFailedError extends Error {}
+export class InstanceStopFailedError extends Error {}
+export class InstanceCommandNotSentError extends Error {}
+export class InstanceConsoleUnreadableError extends Error {}
+
+const failingAs = async <T>(
+	Failure: new (message: string) => Error,
+	work: () => Promise<T>,
+): Promise<T> => {
+	try {
+		return await work()
+	} catch (error) {
+		if (error instanceof Error && error.constructor !== Error) throw error
+		throw new Failure(error instanceof Error ? error.message : String(error))
+	}
+}
 
 const requireCapabilityFor = (role: Role, capability: Parameters<typeof can>[1]): void => {
 	if (!can(role, capability)) throw new ForbiddenError(`Role ${role} lacks ${capability}`)
@@ -835,62 +851,68 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				return { claimed: row, document: documentFrom(row, saved) }
 			})
 
-			const transport = await connectLoaded(loaded)
-			try {
-				if (verb === "restart") await stopUnitUnderClaim(flight, transport, claimed.id)
-
-				const wrote = await claimedExec(
-					flight,
-					transport,
-					envWriteUnlessRunningCommand(claimed.id, environment, claimed.liveControlPort),
-					INSTANCE_STEP_TIMEOUT_MS,
-					environment,
-				)
-				if (wrote.exitCode !== 0) {
-					throw new Error(`Failed to write the instance environment: ${wrote.stderr.trim()}`)
-				}
-				const answer = parseEnvWriteAnswer(wrote.stdout)
-				if (answer === undefined) {
-					throw new Error(`Could not read whether instance ${claimed.id} is running`)
-				}
-				if (answer === ENV_WRITTEN) {
-					const stored = await deps.instances.writeTokenUnderClaim(
-						scope,
-						instanceId,
-						claimId,
-						sealed,
-					)
-					if (!stored) {
-						throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+			await failingAs(InstanceStartFailedError, async () => {
+				const transport = await connectLoaded(loaded)
+				try {
+					if (verb === "restart") {
+						await failingAs(InstanceStopFailedError, () =>
+							stopUnitUnderClaim(flight, transport, claimed.id),
+						)
 					}
-				}
 
-				if (document !== undefined) {
-					const written = await claimedExec(
+					const wrote = await claimedExec(
 						flight,
 						transport,
-						configWriteCommand(claimed.id, document),
+						envWriteUnlessRunningCommand(claimed.id, environment, claimed.liveControlPort),
 						INSTANCE_STEP_TIMEOUT_MS,
-						document,
+						environment,
 					)
-					if (written.exitCode !== 0) {
-						throw new Error(`Failed to write instance config: ${written.stderr.trim()}`)
+					if (wrote.exitCode !== 0) {
+						throw new Error(`Failed to write the instance environment: ${wrote.stderr.trim()}`)
 					}
-				}
+					const answer = parseEnvWriteAnswer(wrote.stdout)
+					if (answer === undefined) {
+						throw new Error(`Could not read whether instance ${claimed.id} is running`)
+					}
+					if (answer === ENV_WRITTEN) {
+						const stored = await deps.instances.writeTokenUnderClaim(
+							scope,
+							instanceId,
+							claimId,
+							sealed,
+						)
+						if (!stored) {
+							throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
+						}
+					}
 
-				const started = await claimedExec(
-					flight,
-					transport,
-					startUnitCommand(claimed.id),
-					UNIT_START_TIMEOUT_MS,
-				)
-				if (started.exitCode !== 0) {
-					throw new Error(`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`)
+					if (document !== undefined) {
+						const written = await claimedExec(
+							flight,
+							transport,
+							configWriteCommand(claimed.id, document),
+							INSTANCE_STEP_TIMEOUT_MS,
+							document,
+						)
+						if (written.exitCode !== 0) {
+							throw new Error(`Failed to write instance config: ${written.stderr.trim()}`)
+						}
+					}
+
+					const started = await claimedExec(
+						flight,
+						transport,
+						startUnitCommand(claimed.id),
+						UNIT_START_TIMEOUT_MS,
+					)
+					if (started.exitCode !== 0) {
+						throw new Error(`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`)
+					}
+					startedOrThrow(claimed.id, started.stdout)
+				} finally {
+					await transport.close().catch(() => undefined)
 				}
-				startedOrThrow(claimed.id, started.stdout)
-			} finally {
-				await transport.close().catch(() => undefined)
-			}
+			})
 
 			const action = verb === "start" ? "instance.start" : "instance.restart"
 			return toInstancePublic(await finalizeLifecycle(ctx, instanceId, claimId, "running", action))
@@ -1103,12 +1125,14 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					async (repos) => await takeLifecycleClaim(repos, scope, instanceId, claimId),
 				)
 
-				const transport = await connectLoaded(loaded)
-				try {
-					await stopUnitUnderClaim(flight, transport, claimed.id)
-				} finally {
-					await transport.close().catch(() => undefined)
-				}
+				await failingAs(InstanceStopFailedError, async () => {
+					const transport = await connectLoaded(loaded)
+					try {
+						await stopUnitUnderClaim(flight, transport, claimed.id)
+					} finally {
+						await transport.close().catch(() => undefined)
+					}
+				})
 
 				return toInstancePublic(
 					await finalizeLifecycle(ctx, instanceId, claimId, "stopped", "instance.stop"),
@@ -1125,12 +1149,14 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 				)
 			}
 
-			const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
-			try {
-				await sendCommand(transport, instance.id, command)
-			} finally {
-				await transport.close().catch(() => undefined)
-			}
+			await failingAs(InstanceCommandNotSentError, async () => {
+				const transport = await connectToHost(scopeOf(ctx), instance.hostId, "runtime")
+				try {
+					await sendCommand(transport, instance.id, command)
+				} finally {
+					await transport.close().catch(() => undefined)
+				}
+			})
 
 			await deps.withTransaction(async (repos) => {
 				await repos.audit.record(scopeOf(ctx), {
@@ -1148,17 +1174,19 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.read")
 			const instance = await requireInstance(ctx, instanceId)
 
-			const reader = await leaseHost(
-				scopeOf(ctx),
-				instance.hostId,
-				CONSOLE_READ_DEADLINE_MS,
-				"runtime",
-			)
-			try {
-				return await readConsole(reader, instance.id, lines)
-			} finally {
-				reader.release()
-			}
+			return await failingAs(InstanceConsoleUnreadableError, async () => {
+				const reader = await leaseHost(
+					scopeOf(ctx),
+					instance.hostId,
+					CONSOLE_READ_DEADLINE_MS,
+					"runtime",
+				)
+				try {
+					return await readConsole(reader, instance.id, lines)
+				} finally {
+					reader.release()
+				}
+			})
 		},
 
 		readLiveStatus: async (

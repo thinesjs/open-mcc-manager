@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -68,9 +69,75 @@ describe("reading the number the sentence spells", () => {
 		expect(findProblems(document("38", rows(38)))).toHaveLength(1)
 	})
 
+	it("refuses a count spelled over several words rather than reading it as no sentence", () => {
+		const [problem] = findProblems(document("One hundred", rows(100)))
+		expect(problem).toContain("One hundred")
+		expect(problem).toContain("zero to ninety-nine")
+	})
+
 	it("says so when the sentence is gone, rather than finding nothing to compare", () => {
 		const [problem] = findProblems("## What enforces what\n\nNo table here.\n")
 		expect(problem).toContain("no longer says how many rules")
+	})
+
+	it("refuses a document that states the count twice, where only the first would be checked", () => {
+		const twice = `${document("Two", rows(2))}\n${document("Ninety-nine", rows(3))}`
+		const [problem] = findProblems(twice)
+		expect(problem).toContain("a second sentence states the count as well")
+	})
+})
+
+describe("the guards that keep a renamed or emptied table from going green", () => {
+	it("refuses a count with no table under it, rather than finding nothing to count", () => {
+		const orphaned = [
+			"Thirty-eight rules stated further down this document are enforced too, and are",
+			"listed here for the same reason:",
+			"",
+			"| Different | Heading |",
+			"| --- | --- |",
+			"| A rule | a tool |",
+			"",
+			"Everything else in this document rests on review.",
+			"",
+		].join("\n")
+		const [problem] = findProblems(orphaned)
+		expect(problem).toContain('no "| Rule | Enforced by |" table follows it')
+	})
+
+	it("refuses a table whose separator is gone, rather than counting it as a row", () => {
+		const unseparated = [
+			"Two rules stated further down this document are enforced too, and are",
+			"listed here for the same reason:",
+			"",
+			"| Rule | Enforced by |",
+			"| A rule | a tool |",
+			"| Another rule | a tool |",
+			"",
+			"Everything else in this document rests on review.",
+			"",
+		].join("\n")
+		const [problem] = findProblems(unseparated)
+		expect(problem).toContain('lacks its "| --- | --- |" line')
+	})
+
+	it("refuses a table the closing paragraph never ends, rather than counting to the file's end", () => {
+		const unclosed = [
+			"One rules stated further down this document are enforced too, and are",
+			"listed here for the same reason:",
+			"",
+			"| Rule | Enforced by |",
+			"| --- | --- |",
+			"| A rule | a tool |",
+			"",
+		].join("\n")
+		const [problem] = findProblems(unclosed)
+		expect(problem).toContain("never reaches the paragraph beginning")
+	})
+
+	it("reports an emptied table as zero rows, rather than passing on having found none", () => {
+		const [problem] = findProblems(document("Thirty-eight", []))
+		expect(problem).toContain("says Thirty-eight (38)")
+		expect(problem).toContain("has 0")
 	})
 })
 
@@ -134,5 +201,16 @@ describe("the command pnpm lint runs", () => {
 		const { status, output } = run(HISTORICAL)
 		expect(status).toBe(1)
 		expect(output).toContain("says Thirty-three (33) rules are enforced; the table below it has 36")
+	})
+
+	it("still runs from a path holding a space, rather than passing without checking", () => {
+		const directory = mkdtempSync(join(tmpdir(), "a gate-"))
+		const copied = join(directory, "check-enforcement-count.mjs")
+		copyFileSync(CHECKER, copied)
+		const result = spawnSync("node", [copied, HISTORICAL], { encoding: "utf8" })
+		rmSync(directory, { recursive: true, force: true })
+
+		expect(result.status).toBe(1)
+		expect(`${result.stdout}${result.stderr}`).toContain("has 36")
 	})
 })

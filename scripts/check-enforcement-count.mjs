@@ -46,7 +46,7 @@ export const SUPPORTED_RANGE = "zero to ninety-nine"
 
 export const numberFromWord = (word) => NUMBER_WORDS.get(word.toLowerCase())
 
-const SENTENCE = /^(\S+) rules stated further down this document are enforced too\b/
+const SENTENCE = /^(.+?) rules stated further down this document are enforced too\b/
 
 const HEADER = "| Rule | Enforced by |"
 
@@ -54,21 +54,29 @@ const SEPARATOR = "| --- | --- |"
 
 const TABLE_END = "Everything else in this document"
 
-export const findSentence = (lines) => {
+export const findSentences = (lines) => {
+	const found = []
 	for (const [index, line] of lines.entries()) {
 		const match = SENTENCE.exec(line)
-		if (match !== null) return { index, word: match[1] ?? "" }
+		if (match !== null) found.push({ index, word: match[1] ?? "" })
 	}
-	return undefined
+	return found
 }
 
 export const findProblems = (document, label = DEFAULT_LABEL) => {
 	const lines = document.split("\n")
 
-	const sentence = findSentence(lines)
+	const sentences = findSentences(lines)
+	const sentence = sentences[0]
+	const second = sentences[1]
 	if (sentence === undefined) {
 		return [
 			`${label} no longer says how many rules the enforced-rules table holds, so nothing ties a count to that table`,
+		]
+	}
+	if (second !== undefined) {
+		return [
+			`${label}:${second.index + 1} a second sentence states the count as well; only the first would be checked, so the document must state it once`,
 		]
 	}
 
@@ -127,9 +135,11 @@ export const findProblems = (document, label = DEFAULT_LABEL) => {
 	return []
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const main = () => {
 	const given = process.argv[2]
 	const found = findProblems(readFileSync(given ?? DOCUMENT, "utf8"), given ?? DEFAULT_LABEL)
 	for (const problem of found) console.error(problem)
 	process.exit(found.length === 0 ? 0 : 1)
 }
+
+if (process.argv[1]?.endsWith("check-enforcement-count.mjs")) main()

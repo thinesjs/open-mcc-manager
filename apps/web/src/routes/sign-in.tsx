@@ -13,7 +13,7 @@ import { signInFailureMessage } from "~/lib/errors"
 import { decideFromSession, SIGNED_IN_LANDING } from "~/lib/session-guard"
 import { trpcClient } from "~/lib/trpc"
 
-const signInSearchSchema = z.object({ error: z.string().optional() })
+const signInSearchSchema = z.object({ error: z.coerce.string().optional() })
 
 export const Route = createFileRoute("/sign-in")({
 	validateSearch: signInSearchSchema,

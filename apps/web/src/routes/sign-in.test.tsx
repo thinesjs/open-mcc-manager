@@ -185,6 +185,32 @@ describe("signing in through a provider the operator configured", () => {
 			expect(screen.queryByText(/object|Objects are not valid/)).toBeNull()
 		},
 	)
+
+	it.each(["42", "0", "1.5", "true", "null", "a&error=b"])(
+		"still renders the form when the link carries %s, which the router hands over as no string at all",
+		async (forged) => {
+			getSession.mockResolvedValue({ data: null })
+			signInOptions.mockResolvedValue({ singleSignOn: { name: "Acme ID" } })
+			await open(`/sign-in?error=${forged}`)
+
+			expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined()
+			expect(
+				screen.getByText(
+					"That sign-in did not finish. Try again, or sign in with your email and password.",
+				),
+			).toBeDefined()
+			expect(screen.queryByText(/Something went wrong/)).toBeNull()
+		},
+	)
+
+	it("says nothing at all when the visitor simply opened the page", async () => {
+		getSession.mockResolvedValue({ data: null })
+		signInOptions.mockResolvedValue({ singleSignOn: { name: "Acme ID" } })
+		await open("/sign-in")
+
+		expect(await screen.findByRole("button", { name: "Continue with Acme ID" })).toBeDefined()
+		expect(screen.queryByRole("alert")).toBeNull()
+	})
 })
 
 describe("a deployment that configured no provider", () => {
@@ -196,6 +222,10 @@ describe("a deployment that configured no provider", () => {
 		"toString",
 		"constructor",
 		"__proto__",
+		"42",
+		"true",
+		"null",
+		"a&error=b",
 	])("says nothing at all about a provider when the link carries %s", async (forged) => {
 		getSession.mockResolvedValue({ data: null })
 		await open(`/sign-in?error=${forged}`)
@@ -203,6 +233,7 @@ describe("a deployment that configured no provider", () => {
 		expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined()
 		expect(screen.queryByRole("alert")).toBeNull()
 		expect(screen.queryByText(/provider|Registration is closed|sign-in did not finish/)).toBeNull()
+		expect(screen.queryByText(/Something went wrong/)).toBeNull()
 	})
 
 	it("leaves a query string it does not own exactly where the visitor found it", async () => {

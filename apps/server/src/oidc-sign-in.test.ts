@@ -12,11 +12,9 @@ import { Client } from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
-import { mountDashboardAuth } from "./auth-routes"
 import { type ServerHandle, startServer } from "./bootstrap"
 import { bootstrapOwner } from "./bootstrap-owner"
 import type { Env } from "./env"
-import { oidcProviderFrom } from "./oidc-env"
 import { anyUserExists } from "./security/registration-gate"
 
 vi.mock("@open-mcc/core", async (importOriginal) => {
@@ -407,9 +405,9 @@ const onConnection = async (connectionString: string, statement: string): Promis
 }
 
 describe("signing in against a deployment nobody has bootstrapped yet", () => {
+	let untouched: ServerHandle
 	let untouchedDb: Db
 	let untouchedUrl: string
-	let untouchedApp: Hono
 
 	beforeAll(async () => {
 		await onConnection(adminUrl, `create database "${untouchedName}"`)
@@ -419,17 +417,20 @@ describe("signing in against a deployment nobody has bootstrapped yet", () => {
 		untouchedDb = createDb(untouchedUrl)
 		const migrated = await migrateToLatest(untouchedDb)
 		if (migrated.error) throw migrated.error
-		const mounted = createAuth(untouchedDb, SECRET, BASE_URL, {
-			userCreation: "closed",
-			disableRateLimit: true,
-			trustedOrigins: [ORIGIN],
-			oidc: oidcProviderFrom(await env()),
-		})
-		untouchedApp = new Hono()
-		mountDashboardAuth(untouchedApp, mounted, { oidc: true })
+		untouched = await startServer(
+			{ ...(await env()), DATABASE_URL: untouchedUrl },
+			vi.fn(),
+			createLogger({ write: () => undefined }),
+		)
 	}, STARTUP_TIMEOUT_MS)
 
 	afterAll(async () => {
+		untouched.scheduler.stop()
+		untouched.healthPoller.stop()
+		untouched.heartbeat.stop()
+		await untouched.boss.stop({ graceful: false })
+		await untouched.lock.release()
+		await untouched.db.destroy()
 		await untouchedDb.destroy()
 		await onConnection(adminUrl, `drop database "${untouchedName}" with (force)`)
 	})
@@ -437,7 +438,7 @@ describe("signing in against a deployment nobody has bootstrapped yet", () => {
 	it("refuses the first stranger to arrive, leaving the owner's bootstrap still able to run", async () => {
 		expect(await anyUserExists(untouchedDb)).toBe(false)
 
-		const res = await signInThrough(untouchedApp, {
+		const res = await signInThrough(untouched.app, {
 			subject: `subject-${randomUUID()}`,
 			email: `${randomUUID()}@example.com`,
 			emailConfirmed: true,

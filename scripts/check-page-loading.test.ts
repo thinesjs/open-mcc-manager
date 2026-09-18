@@ -1,7 +1,42 @@
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it } from "vitest"
 import { EXEMPT_ROUTES, findViolations } from "./check-page-loading.mjs"
 
 const label = "apps/web/src/routes/_authenticated.hosts.index.tsx"
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+const CHECKER = join(ROOT, "scripts", "check-page-loading.mjs")
+
+const SPAWN_TIMEOUT_MS = 60_000
+
+const made: string[] = []
+
+afterAll(() => {
+	for (const directory of made) rmSync(directory, { recursive: true, force: true })
+})
+
+const seeded = (files: Record<string, string>): string => {
+	const root = mkdtempSync(join(tmpdir(), "a page-loading-"))
+	made.push(root)
+	mkdirSync(join(root, "scripts"), { recursive: true })
+	copyFileSync(CHECKER, join(root, "scripts", "check-page-loading.mjs"))
+	for (const [path, source] of Object.entries(files)) {
+		const full = join(root, "apps", "web", "src", "routes", path)
+		mkdirSync(dirname(full), { recursive: true })
+		writeFileSync(full, source)
+	}
+	return root
+}
+
+const run = (script: string): { status: number | null; output: string } => {
+	const result = spawnSync("node", [script], { encoding: "utf8" })
+	return { status: result.status, output: `${result.stdout}${result.stderr}` }
+}
 
 describe("loading UI a route renders for itself", () => {
 	it("flags a route that imports the shared loading block", () => {
@@ -83,4 +118,36 @@ describe("loading UI a route renders for itself", () => {
 		expect([...EXEMPT_ROUTES.keys()]).toEqual(["_authenticated.tsx", "_authenticated.audit.tsx"])
 		for (const reason of EXEMPT_ROUTES.values()) expect(reason.length).toBeGreaterThan(20)
 	})
+})
+
+describe("the command pnpm lint runs", () => {
+	it(
+		"exits 0 on the tree as it stands",
+		() => {
+			const { status, output } = run(CHECKER)
+
+			expect(output).toBe("")
+			expect(status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
+
+	it(
+		"★ exits 1 naming the route and line that renders its own wait, so a gutted body is caught",
+		() => {
+			const root = seeded({
+				"_authenticated.hosts.index.tsx":
+					'import { Spinner } from "~/components/ui/spinner"\n\nexport const Route = { component: Spinner }\n',
+			})
+
+			const { status, output } = run(join(root, "scripts", "check-page-loading.mjs"))
+
+			expect(status).toBe(1)
+			expect(output).toContain(
+				`${join("apps", "web", "src", "routes", "_authenticated.hosts.index.tsx")}:1 a route imports Spinner`,
+			)
+			expect(output).toContain("useSuspenseQuery")
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

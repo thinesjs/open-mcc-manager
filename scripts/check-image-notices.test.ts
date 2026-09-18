@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it } from "vitest"
 import {
 	carriesNotices,
 	generatesNotices,
@@ -24,6 +29,34 @@ COPY --from=build /out /app
 COPY --from=build /notices/THIRD-PARTY-NOTICES.txt /licenses/THIRD-PARTY-NOTICES.txt
 CMD ["server.mjs"]
 `
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+const CHECKER = join(ROOT, "scripts", "check-image-notices.mjs")
+
+const SPAWN_TIMEOUT_MS = 60_000
+
+const made: string[] = []
+
+afterAll(() => {
+	for (const directory of made) rmSync(directory, { recursive: true, force: true })
+})
+
+const seeded = (files: Record<string, string>): string => {
+	const root = mkdtempSync(join(tmpdir(), "a image-notices-"))
+	made.push(root)
+	for (const [path, source] of Object.entries(files)) {
+		const full = join(root, path)
+		mkdirSync(dirname(full), { recursive: true })
+		writeFileSync(full, source)
+	}
+	return root
+}
+
+const run = (cwd: string): { status: number | null; output: string } => {
+	const result = spawnSync("node", [CHECKER], { cwd, encoding: "utf8" })
+	return { status: result.status, output: `${result.stdout}${result.stderr}` }
+}
 
 describe("reading what the release workflow publishes", () => {
 	it("pairs every published image with its dockerfile and target", () => {
@@ -122,4 +155,37 @@ describe("catching an image that would publish without its notices", () => {
 			".github/workflows/release.yml publishes open-mcc-web without naming a dockerfile and a target",
 		])
 	})
+})
+
+describe("the command pnpm lint runs", () => {
+	it(
+		"exits 0 on the tree as it stands",
+		() => {
+			const { status, output } = run(ROOT)
+
+			expect(output).toBe("")
+			expect(status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
+
+	it(
+		"★ exits 1 naming the stage that would ship without the notices, so a gutted body is caught",
+		() => {
+			const root = seeded({
+				".github/workflows/release.yml": WORKFLOW,
+				"docker/server/Dockerfile": DOCKERFILE.split("\n")
+					.filter((line) => !line.includes("/licenses/"))
+					.join("\n"),
+			})
+
+			const { status, output } = run(root)
+
+			expect(status).toBe(1)
+			expect(output).toContain(
+				"docker/server/Dockerfile stage runtime does not copy /licenses/THIRD-PARTY-NOTICES.txt into the image",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

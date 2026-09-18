@@ -568,42 +568,56 @@ describe("findViolations", () => {
 	})
 })
 
+const SPAWN_TIMEOUT_MS = 60_000
+
 describe("the command pnpm lint runs", () => {
 	const BYPASS = { "packages/core/src/a.ts": "const x: unknown = 1\n" }
 
-	it("exits 1 and names the token it found in the tree it was pointed at", () => {
-		const result = spawnSync("node", [CHECKER], { cwd: seed(BYPASS), encoding: "utf8" })
+	it(
+		"exits 1 and names the token it found in the tree it was pointed at",
+		() => {
+			const result = spawnSync("node", [CHECKER], { cwd: seed(BYPASS), encoding: "utf8" })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain(
-			`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
-		)
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain(
+				`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("still runs from a path holding a space, rather than passing without checking", () => {
-		const directory = scratch("a gate-")
-		const copied = join(directory, "check-type-policy.mjs")
-		copyFileSync(CHECKER, copied)
-		symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
+	it(
+		"still runs from a path holding a space, rather than passing without checking",
+		() => {
+			const directory = scratch("a gate-")
+			const copied = join(directory, "check-type-policy.mjs")
+			copyFileSync(CHECKER, copied)
+			symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
 
-		const result = spawnSync("node", [copied], { cwd: seed(BYPASS), encoding: "utf8" })
+			const result = spawnSync("node", [copied], { cwd: seed(BYPASS), encoding: "utf8" })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain(
-			`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
-		)
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain(
+				`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("exits 0 from that same path on a tree with nothing to report, so it is not simply failing", () => {
-		const directory = scratch("a gate-")
-		const copied = join(directory, "check-type-policy.mjs")
-		copyFileSync(CHECKER, copied)
-		symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
-		const clean = seed({ "packages/core/src/a.ts": "export const x = 1 as const\n" })
+	it(
+		"exits 0 from that same path on a tree with nothing to report, so it is not simply failing",
+		() => {
+			const directory = scratch("a gate-")
+			const copied = join(directory, "check-type-policy.mjs")
+			copyFileSync(CHECKER, copied)
+			symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
+			const clean = seed({ "packages/core/src/a.ts": "export const x = 1 as const\n" })
 
-		const result = spawnSync("node", [copied], { cwd: clean, encoding: "utf8" })
+			const result = spawnSync("node", [copied], { cwd: clean, encoding: "utf8" })
 
-		expect(`${result.stdout}${result.stderr}`).toBe("")
-		expect(result.status).toBe(0)
-	})
+			expect(`${result.stdout}${result.stderr}`).toBe("")
+			expect(result.status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

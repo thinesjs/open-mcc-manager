@@ -29,6 +29,7 @@ import {
 	HostNotFoundError,
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
+	HostRemovalNotStartedError,
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
 	InstanceAuthInProgressError,
@@ -215,6 +216,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"HOST_PROVISIONING_IN_PROGRESS",
 			"Host provisioning is already in progress",
+		)
+	}
+	if (cause instanceof HostRemovalNotStartedError) {
+		return mapped(
+			"CONFLICT",
+			"HOST_REMOVAL_NOT_STARTED",
+			"This manager could not start removing this host, so nothing on it was changed",
 		)
 	}
 	if (cause instanceof DestinationRejectedError) {

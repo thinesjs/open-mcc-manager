@@ -235,7 +235,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Forty rules stated further down this document are enforced too, and are
+Forty-one rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -280,6 +280,7 @@ have:
 | A start refused rather than run over a cache the host could not empty | `packages/core/src/host/unit-template.test.ts` — takes the cache step's own shell out of the rendered unit and runs it under `/bin/sh` against a scratch home: with a leaked cache, with none, against an `rm` shim that deletes one entry and fails, and against one that deletes the whole cache and fails. The third requires a non-zero status **and** the entries still there, so `rm -rf … \|\| true` with a `mkdir -p` passes the first two and fails it; the fourth requires a non-zero status **and** no remade directory, so a `;` in place of the `&&` — whose refusal would come from `mkdir` meeting a surviving directory rather than from the delete — fails there. The same block requires the delete to name **exactly one** path and that path to be the cache, so an extra operand, a dropped `--` or a repoint at `replays` fails; the shim reads the path from the test's own environment and refuses anything outside the scratch home, so no edit to the unit can point it at the machine running the suite. It proves the step refuses and leaves the evidence, NOT how long a delete takes: that is measured, not tested |
 | A running bot keeping the token it started on | `packages/core/src/instance/unit.test.ts` — runs the env command under `/bin/sh` against a `systemctl` shim, once per state in `RUNNING_UNIT_STATES`, and requires `kept` on stdout with `env` and `unit.env` byte-identical, so narrowing the case list to `active` fails it; `instance.controller.test.ts` requires no `writeTokenUnderClaim` on a `kept` answer |
 | One rule turning an account name into a shell word | `packages/contracts/src/host-account.test.ts` — runs the rendered command under `/bin/sh` against a `sudo` shell function and requires `loginctl`, `enable-linger` and the account to arrive as exactly three words, for an account carrying a space, a quote, a substitution, a second command, a glob, a trailing backslash, a leading `.` or `-`, and a newline leading, trailing or embedded. The shim delimits with `\0`, not `\n`, because a newline-delimited one cannot tell a newline in an account from a word break, and a newline account is representable — `selfHostOffer.username` has no character class. Broken escaping fails it rather than being pinned as a string. A second test requires a plain account to render **unquoted**, so quoting every account — which leaves every one of those cases green and changes the command every operator sees — fails there. The same file lifts the `case` block out of `scripts/self-host.sh` and runs it under `/bin/sh` over that same table, requiring byte-equality with `accountWord`, so the one replication the rule cannot reach is held to it; it reads the fragment by anchor, so moving or renaming it fails loudly rather than silently covering nothing. `packages/core/src/host/check.test.ts` asserts the `lingering` command is what the shared builder returns — an identity, which guards **routing** only: `check.ts` growing its own builder fails it, content is held next door by the literal pins at `:138` and `:465`. `packages/core/src/host/provision.test.ts` splits the message at its colon and requires the tail to equal the builder's output exactly, so a sentence that wraps the command in quotes of its own fails; that message is a **log line**, not operator copy — see the Layering bullet. `apps/web/src/components/self-host-card.test.tsx` reads the quoted command off the rendered card. Nothing stops a new surface interpolating the account itself, and nothing ties `provision-failure.ts`'s operator-facing sentence to any of this — both are review's |
+| A host marked `removing` only alongside the teardown job that will carry it out | `packages/core/src/host/host.teardown-queue.test.ts` — drives `remove` against a real Postgres and a **real pg-boss**, and reproduces the deployment fault rather than modelling it: it warms `boss`'s queue cache with a real send, deletes the `host.teardown` row from `pgboss.queue` behind it, and lets `send` answer `null`. It asserts on the host row and on `pgboss.job`, never on a thrown class — the host must still read `ready` with a null `teardownRequestedAt`, no `host.teardown` job may carry its id, no `host.teardown.requested` audit row may exist, and `evictHost` must not have run. A second case does the same with the cache cold, where pg-boss throws `Queue … does not exist` instead. A third requires the queue that **did** take the job to leave the host `removing` with exactly one job and its audit row, so replacing the guard with an unconditional throw fails there. `apps/server/src/error-serialization.test.ts` answers the same three shapes over real HTTP through the real router and error formatter, comparing each whole wire answer against one sentence, and adds the two that hold the discriminator: a queue throwing a `TypeError` and a queue rejecting with a value that is not an `Error` must each stay a **500** carrying neither the code nor the sentence, so replacing either guard with an unconditional convert fails. `apps/web/src/lib/errors.test.ts` compares the operator's sentence whole, requires it to promise no wait, to name no queue, job, database, table, row or teardown, and requires no other `ErrorCode` to carry it. What it does NOT hold: that the host row and the job commit together **under a real transaction** at the wire — the server file's `withTransaction` is a pass-through double, so only the core file's real Postgres holds the rollback. Nor a pg `DatabaseError` from the job insert, which the discriminator passes through to the constraint mapping but no test drives. Nor that a **new** caller of `enqueue` gets an honest sentence: `JobNotQueuedError` names a mechanism, and `host.controller.ts` is the only place that turns it into a subject the operator asked for — a second caller would reach the operator as a 500 until it does the same, and nothing enumerates them. Nor the one remaining discarded `sendJob` result, `apps/worker`'s boot-time update check, left alone for the reason the Layering bullet gives |
 | The count this table's own sentence states matching the number of rows below it | `check-enforcement-count.mjs` — reads the number word out of the sentence above this table, counts the rows from the header down to the paragraph beginning "Everything else in this document", and fails when the two disagree. A count it cannot read as an English word from zero to ninety-nine fails it rather than passing, and so does a row wrapped onto a second line, because then a line count is not a row count. It holds that arithmetic and nothing else: no part of it checks that a row's claim of enforcement is true. `check-enforcement-count.test.ts` drives the merge that shipped thirty-six rows under a count of thirty-three, and requires a table that agrees at a count other than today's to pass, so a checker comparing against a fixed number fails it |
 
 Everything else in this document — the layering direction, the rest of the
@@ -586,14 +587,38 @@ Dependency direction is one-way: router → controller → repository.
   `announce.ts` run only under the health poller, and giving them an operator
   sentence would claim a surface that does not exist.
 - **A queue insert whose result is discarded is a data-integrity bug, not a copy
-  gap.** `createJobQueue.enqueue` (`job.queue.ts`) awaits `send` and throws away
-  its answer, and `host.delete` enqueues the teardown through it **inside** the
-  transaction that sets `status='removing'` and writes the
-  `host.teardown.requested` audit entry. With the `host.teardown` row gone from
-  the pgboss schema and the cache warm, `send` returns `null`, `enqueue` ignores
-  it, the transaction **commits**, and the operator is told removal was
-  accepted while the host sits in "removing" for good. Giving `enqueue` a return
-  value to check is the fix; a sentence is not.
+  gap.** `createJobQueue.enqueue` (`job.queue.ts`) checks what `send` answered
+  and throws `JobNotQueuedError` on a `null`, so the job cannot be lost by a
+  caller that ignores a return value — which is how `host.delete` lost it. The
+  reachable `null` is one path and it is the alert class's: `plans.insertJobs`
+  carries `JOIN <schema>.queue q ON q.name = …`, so a queue row deleted while
+  `boss`'s cache is still warm joins to nothing and inserts nothing, while a
+  cold cache throws `Queue … does not exist` instead. `enqueue` converts that
+  plain `Error` too, under the same discriminator `acceptAlert` uses — a plain
+  `Error` converts, every subclass and every non-`Error` rethrows — so a
+  `TypeError` raised inside the queue stays a 500 and a pg `DatabaseError` still
+  reaches the constraint mapping. `JobNotQueuedError` is deliberately **not**
+  exported from `@open-mcc/core`: it names a mechanism, not a subject, and the
+  operator's sentence has to name the thing they asked for. `host.controller.ts`
+  converts it to `HostRemovalNotStartedError`, which is exported and therefore
+  mapped. **Refusing the whole delete is the answer here, not committing and
+  reconciling later**, and that was read off what `removing` means rather than
+  assumed: nothing sweeps a stranded `removing` host — the only write that
+  leaves the status is `deleteAfterTeardown`, called only by the teardown job
+  itself, and there is no stale-claim reclaim for it as there is for
+  `provisioning`; `host-controls.tsx` disables **Remove** and **Set up** while a
+  host is `removing`, so the operator has no lever left; the health poller skips
+  it and `host-reader.ts` refuses it, so nothing else would notice. Rolling back
+  costs nothing because the teardown's SSH work is entirely the worker's — the
+  transaction has touched no host — which is also why "Nothing on it was
+  changed." is true. The enqueue stays **inside** the transaction that writes
+  `status='removing'` and the `host.teardown.requested` audit entry, for the
+  reason the bullet above gives: the rollback is what makes the sentence true.
+  Do not move it out, and do not widen it to cover SSH. One further site shares
+  the discarded-result shape and is left alone on purpose: `apps/worker`'s
+  boot-time `sendJob(SYSTEM_UPDATE_CHECK_QUEUE, …)` commits no state implying a
+  check will run, the cron still fires four times a day, and it sits a few
+  statements after the `reconcileQueues` that just verified that queue exists.
 - The `shellQuote` helpers private to the command builders quote
   unconditionally and are a different rule; do not fold them into this one.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an

@@ -62,6 +62,7 @@ export {
 	HostNotFoundError,
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
+	HostRemovalNotStartedError,
 	SshKeyNotFoundError,
 } from "./host/host.controller"
 export type {

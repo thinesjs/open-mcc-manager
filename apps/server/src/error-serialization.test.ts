@@ -5,6 +5,7 @@ import {
 	createAuditController,
 	createAuditControllerTransaction,
 	createHostController,
+	createJobQueue,
 	createSshKeyController,
 	type HostControllerDeps,
 	type HostRepository,
@@ -13,10 +14,10 @@ import {
 	type WithSshKeyTransaction,
 	type WithTransaction,
 } from "@open-mcc/core"
-import { createDb } from "@open-mcc/db"
+import { createDb, type HostRow } from "@open-mcc/db"
 import { createFakeRootSession, createFakeTransport } from "@open-mcc/transport"
 import { Hono } from "hono"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
 import type { RequestContext } from "./context"
@@ -509,5 +510,163 @@ describe("what an operator reads when the manager could not accept an alert", ()
 		expect(text).not.toContain(NOT_QUEUED.errorCode)
 		expect(text).not.toContain(NOT_QUEUED.message)
 		expect(text).not.toContain(THROWN_WITHOUT_AN_ERROR)
+	})
+})
+
+const REMOVAL_NOT_STARTED = {
+	status: 409,
+	errorCode: "HOST_REMOVAL_NOT_STARTED",
+	message: "This manager could not start removing this host, so nothing on it was changed",
+}
+
+const REMOVABLE_HOST: HostRow = {
+	id: "host-teardown-1",
+	organizationId,
+	name: "vps-teardown",
+	hostname: "10.0.0.7",
+	port: 22,
+	username: "mcc",
+	networkStack: null,
+	architecture: null,
+	osId: "debian",
+	osName: "Debian GNU/Linux 12 (bookworm)",
+	failedUnits: null,
+	teardownError: null,
+	teardownRequestedAt: null,
+	sshKeyId: "key-1",
+	hostKeyAlgorithm: "ssh-ed25519",
+	hostKeyFingerprint: PRESENTED_FINGERPRINT,
+	hostKeyTrustedBy: memberId,
+	hostKeyTrustedByLabel: "actor@example.com",
+	hostKeyTrustedAt: new Date(),
+	status: "ready",
+	provisioningAttemptId: null,
+	provisioningClaimedAt: null,
+	provisioningStep: null,
+	provisioningStepIndex: null,
+	provisioningStepTotal: null,
+	provisioningError: null,
+	osRelease: "systemd 252",
+	cpuCount: null,
+	memoryMb: null,
+	lastSeenAt: null,
+	createdAt: new Date(),
+}
+
+const teardownQueue = { answer: async (): Promise<string | null> => "job" }
+
+const teardownAudited: string[] = []
+
+const teardownHosts: HostRepository = {
+	...hosts,
+	findById: vi.fn(async () => REMOVABLE_HOST),
+	lockHost: vi.fn(async () => undefined),
+	instanceCount: vi.fn(async () => 0),
+	beginTeardown: vi.fn(async () => true),
+}
+
+const teardownController = createHostController({
+	...hostControllerDeps,
+	hosts: teardownHosts,
+	withTransaction: (fn) =>
+		fn({
+			hosts: teardownHosts,
+			audit: {
+				record: async (scope, entry) => {
+					teardownAudited.push(entry.action)
+					return {
+						id: `audit-${teardownAudited.length}`,
+						organizationId: scope.organizationId,
+						actorId: entry.actorId,
+						actorLabel: entry.actorLabel,
+						action: entry.action,
+						subjectType: entry.subjectType,
+						subjectId: entry.subjectId,
+						detail: entry.detail,
+						createdAt: new Date(),
+					}
+				},
+			},
+			jobs: createJobQueue(async () => await teardownQueue.answer(), db),
+		}),
+})
+
+const teardownApp = new Hono()
+teardownApp.use(
+	"/trpc/*",
+	trpcServer({
+		router: appRouter,
+		createContext: () => ({ ...ctx, hostController: teardownController }),
+	}),
+)
+
+const postRemove = () =>
+	teardownApp.request("/trpc/host.remove", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ hostId: REMOVABLE_HOST.id }),
+	})
+
+describe("what an operator reads when the manager could not start removing a host", () => {
+	beforeEach(() => {
+		teardownAudited.length = 0
+		teardownQueue.answer = async () => "job"
+	})
+
+	it("★ a removal the queue silently refused says so, rather than reading as a manager fault", async () => {
+		teardownQueue.answer = async () => null
+
+		const res = await postRemove()
+
+		expect(await answerOf(res)).toEqual(REMOVAL_NOT_STARTED)
+		expect(teardownAudited).toEqual([])
+	})
+
+	it("★ says the same when the manager has nowhere to put the teardown at all", async () => {
+		teardownQueue.answer = async () => {
+			throw new Error("Queue host.teardown does not exist")
+		}
+
+		const res = await postRemove()
+
+		expect(await answerOf(res)).toEqual(REMOVAL_NOT_STARTED)
+		expect(teardownAudited).toEqual([])
+	})
+
+	it("★ still requests a teardown the manager could queue, so the refusal is not blanket", async () => {
+		const res = await postRemove()
+
+		expect(res.status).toBe(200)
+		expect(teardownAudited).toEqual(["host.teardown.requested"])
+	})
+
+	it("★ leaves a defect raised while queueing a teardown a server fault, never the operator's to act on", async () => {
+		teardownQueue.answer = async () => {
+			throw new TypeError("payload.forEach is not a function")
+		}
+
+		const res = await postRemove()
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain(REMOVAL_NOT_STARTED.errorCode)
+		expect(text).not.toContain(REMOVAL_NOT_STARTED.message)
+		expect(text).not.toContain("forEach")
+		expect(teardownAudited).toEqual([])
+	})
+
+	it("★ leaves a teardown queue that threw something other than an error a server fault as well", async () => {
+		teardownQueue.answer = () => Promise.reject(THROWN_WITHOUT_AN_ERROR)
+
+		const res = await postRemove()
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain(REMOVAL_NOT_STARTED.errorCode)
+		expect(text).not.toContain(REMOVAL_NOT_STARTED.message)
+		expect(text).not.toContain(THROWN_WITHOUT_AN_ERROR)
+		expect(teardownAudited).toEqual([])
 	})
 })

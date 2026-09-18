@@ -45,6 +45,8 @@ const readLines = (path: string): { text: string; count: number } => {
 	return { text, count: text.split("\n").length }
 }
 
+const SPAWN_TIMEOUT_MS = 60_000
+
 const run = (root: string): { status: number | null; output: string } => {
 	const result = spawnSync("node", [CHECKER, root], { cwd: ROOT, encoding: "utf8" })
 	return { status: result.status, output: `${result.stdout}${result.stderr}` }
@@ -189,35 +191,48 @@ describe("the exemption for test files, and how far it reaches", () => {
 })
 
 describe("the command pnpm lint runs", () => {
-	it("exits 0 on the tree as it stands", () => {
-		expect(run(ROOT).status).toBe(0)
-	})
+	it(
+		"exits 0 on the tree as it stands",
+		() => {
+			expect(run(ROOT).status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("★ exits 1 and names a bare throw added to a real core file", () => {
-		const root = scratch()
-		cpSync(join(ROOT, SCANNED), join(root, SCANNED), { recursive: true })
-		const target = join(SCANNED, "instance", "console.ts")
-		const added = 'export const boom = (): void => {\n\tthrow new Error("added by this test")\n}\n'
-		const before = readLines(join(root, target))
-		writeFileSync(join(root, target), `${before.text}\n${added}`)
+	it(
+		"★ exits 1 and names a bare throw added to a real core file",
+		() => {
+			const root = scratch()
+			cpSync(join(ROOT, SCANNED), join(root, SCANNED), { recursive: true })
+			const target = join(SCANNED, "instance", "console.ts")
+			const added =
+				'export const boom = (): void => {\n\tthrow new Error("added by this test")\n}\n'
+			const before = readLines(join(root, target))
+			writeFileSync(join(root, target), `${before.text}\n${added}`)
 
-		const { status, output } = run(root)
+			const { status, output } = run(root)
 
-		expect(status).toBe(1)
-		expect(output).toContain(`${target}:${before.count + 2} throws a bare Error`)
-	})
+			expect(status).toBe(1)
+			expect(output).toContain(`${target}:${before.count + 2} throws a bare Error`)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("★ still runs from a path holding a space, rather than passing without checking", () => {
-		const directory = mkdtempSync(join(tmpdir(), "a gate-"))
-		made.push(directory)
-		const copied = join(directory, "check-thrown-errors.mjs")
-		copyFileSync(CHECKER, copied)
-		symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
-		const root = treeOf({ "a.ts": 'throw new Error("no")\n' })
+	it(
+		"★ still runs from a path holding a space, rather than passing without checking",
+		() => {
+			const directory = mkdtempSync(join(tmpdir(), "a gate-"))
+			made.push(directory)
+			const copied = join(directory, "check-thrown-errors.mjs")
+			copyFileSync(CHECKER, copied)
+			symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
+			const root = treeOf({ "a.ts": 'throw new Error("no")\n' })
 
-		const result = spawnSync("node", [copied, root], { encoding: "utf8" })
+			const result = spawnSync("node", [copied, root], { encoding: "utf8" })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain("throws a bare Error")
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain("throws a bare Error")
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

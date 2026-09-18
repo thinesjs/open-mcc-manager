@@ -21,6 +21,12 @@ import { createHostRepository } from "./host.repository"
 
 const url = process.env.TEST_DATABASE_URL ?? ""
 
+const SCHEMA = "pgboss_host_teardown_test"
+
+const jobTable = sql.table(`${SCHEMA}.job`)
+
+const queueTable = sql.table(`${SCHEMA}.queue`)
+
 const FINGERPRINT = "SHA256:teardown-queue-fixture"
 
 const CACHE_WARMER = "cache-warmer"
@@ -32,7 +38,7 @@ const sendJobOn =
 
 const teardownJobsFor = async (hostId: string): Promise<{ id: string }[]> => {
 	const result = await sql<{ id: string }>`
-		select id from pgboss.job
+		select id from ${jobTable}
 		where name = ${HOST_TEARDOWN_QUEUE} and data->>'hostId' = ${hostId}
 	`.execute(testDb())
 	return [...result.rows]
@@ -47,7 +53,7 @@ const teardownAuditFor = async (hostId: string): Promise<{ action: string }[]> =
 }
 
 const dropTeardownJobs = async (): Promise<void> => {
-	await sql`delete from pgboss.job where name = ${HOST_TEARDOWN_QUEUE}`.execute(testDb())
+	await sql`delete from ${jobTable} where name = ${HOST_TEARDOWN_QUEUE}`.execute(testDb())
 }
 
 const restoreQueueRow = async (boss: PgBoss): Promise<void> => {
@@ -63,13 +69,13 @@ const restoreQueueRow = async (boss: PgBoss): Promise<void> => {
 const warmQueueCache = async (boss: PgBoss): Promise<void> => {
 	await boss.send(HOST_TEARDOWN_QUEUE, { hostId: CACHE_WARMER })
 	await sql`
-		delete from pgboss.job
+		delete from ${jobTable}
 		where name = ${HOST_TEARDOWN_QUEUE} and data->>'hostId' = ${CACHE_WARMER}
 	`.execute(testDb())
 }
 
 const forgetQueueRow = async (): Promise<void> => {
-	await sql`delete from pgboss.queue where name = ${HOST_TEARDOWN_QUEUE}`.execute(testDb())
+	await sql`delete from ${queueTable} where name = ${HOST_TEARDOWN_QUEUE}`.execute(testDb())
 }
 
 const seedReadyHost = async (slugPrefix: string) => {
@@ -155,7 +161,7 @@ let boss: PgBoss
 
 beforeEach(async () => {
 	if (boss === undefined) {
-		boss = new PgBoss(url)
+		boss = new PgBoss({ connectionString: url, schema: SCHEMA })
 		await boss.start()
 	}
 	await dropTeardownJobs()

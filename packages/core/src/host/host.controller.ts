@@ -23,7 +23,7 @@ import {
 } from "@open-mcc/transport"
 import { type AuditRepository, createAuditRepository } from "../audit/audit.repository"
 import type { SecretStore } from "../crypto/sealed-box"
-import { createJobQueue, type JobQueue, type SendJob } from "../job/job.queue"
+import { createJobQueue, JobNotQueuedError, type JobQueue, type SendJob } from "../job/job.queue"
 import { HOST_TEARDOWN_QUEUE } from "../job/queue-setup"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
@@ -108,6 +108,7 @@ export class HostHasInstancesError extends Error {}
 export class SshKeyNotFoundError extends Error {}
 export class HostMisconfiguredError extends Error {}
 export class HostConcurrentlyModifiedError extends Error {}
+export class HostRemovalNotStartedError extends Error {}
 export class HostProvisioningInProgressError extends Error {}
 export class HostKeyUnreadableError extends Error {}
 
@@ -631,10 +632,15 @@ export const createHostController = (deps: HostControllerDeps) => {
 				}
 
 				await repos.hosts.beginTeardown(scope, hostId, deps.now())
-				await repos.jobs.enqueue(HOST_TEARDOWN_QUEUE, {
-					...teardownPayload,
-					organizationId: ctx.organizationId,
-				})
+				try {
+					await repos.jobs.enqueue(HOST_TEARDOWN_QUEUE, {
+						...teardownPayload,
+						organizationId: ctx.organizationId,
+					})
+				} catch (error) {
+					if (!(error instanceof JobNotQueuedError)) throw error
+					throw new HostRemovalNotStartedError(`Host ${hostId} was not removed: ${error.message}`)
+				}
 				await repos.audit.record(scope, {
 					actorId: ctx.memberId,
 					actorLabel: ctx.actorLabel,

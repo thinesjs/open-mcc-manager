@@ -31,12 +31,21 @@ export type SendJob = (
 	options?: SendJobOptions,
 ) => Promise<string | null>
 
+export class JobNotQueuedError extends Error {}
+
 export type JobQueue = {
 	enqueue: (queue: QueueName, payload: Record<string, string>) => Promise<void>
 }
 
 export const createJobQueue = (send: SendJob, executor: Executor): JobQueue => ({
 	enqueue: async (queue, payload) => {
-		await send(queue, payload, asSqlRunner(executor))
+		let jobId: string | null
+		try {
+			jobId = await send(queue, payload, asSqlRunner(executor))
+		} catch (error) {
+			if (!(error instanceof Error) || error.constructor !== Error) throw error
+			throw new JobNotQueuedError(error.message)
+		}
+		if (jobId === null) throw new JobNotQueuedError(`${queue} did not take the job`)
 	},
 })

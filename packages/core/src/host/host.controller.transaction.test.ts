@@ -61,7 +61,7 @@ import { runtimeImageFor } from "./runtime-image"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })
 
-const sendJobDouble = async () => null
+const sendJobDouble = async () => "job"
 
 const answer = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
 

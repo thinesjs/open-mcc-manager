@@ -59,6 +59,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	HOST_CONCURRENTLY_MODIFIED: "This host was changed by someone else. Refresh and try again.",
 	HOST_PROVISIONING_IN_PROGRESS:
 		"A provisioning attempt for this host is already in progress. Retry shortly.",
+	HOST_REMOVAL_NOT_STARTED:
+		"OpenMCC could not start removing this host. Nothing on it was changed.",
 	INVITATION_NOT_FOUND: "This invitation is invalid, expired, or has already been used.",
 	SSH_KEY_IN_USE:
 		"This SSH key is still in use by an enrolled host. Remove the hosts using it, then delete the key.",

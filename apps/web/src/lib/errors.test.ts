@@ -245,6 +245,23 @@ describe("getErrorMessage", () => {
 		expect(others).not.toContain(notQueued)
 	})
 
+	it("★ tells an operator a host removal never started, and that the host is untouched", () => {
+		const notStarted = getErrorMessage({
+			message: "This manager could not start removing this host, so nothing on it was changed",
+			data: { errorCode: "HOST_REMOVAL_NOT_STARTED", httpStatus: 409 },
+		})
+
+		expect(notStarted).toBe(
+			"OpenMCC could not start removing this host. Nothing on it was changed.",
+		)
+		expect(notStarted).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(notStarted).not.toMatch(/queue|job|database|table|row|pg-boss|teardown/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_REMOVAL_NOT_STARTED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(notStarted)
+	})
+
 	it("★ shows the refusal of a command carrying a tab as the sentence the contract wrote", () => {
 		expect(
 			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),

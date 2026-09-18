@@ -81,11 +81,13 @@ describe("the one fact this gate decides", () => {
 	})
 
 	it("★ reports an Error built and not thrown, which is how reject(new Error(…)) hides", () => {
-		const [problem] = findInSource(
+		const problems = findInSource(
 			"a.ts",
 			'const wait = new Promise((_, reject) => {\n\treject(new Error("no"))\n})\n',
 		)
 
+		expect(problems).toHaveLength(1)
+		const [problem] = problems
 		expect(problem).toContain("a.ts:2")
 		expect(problem).toContain("builds a bare Error")
 	})
@@ -131,21 +133,27 @@ describe("the tree it covers, which is why a new file is covered the day it is m
 	})
 
 	it("★ says so when the tree it names is gone, rather than passing on having found none", () => {
-		const [problem] = findProblems(scratch())
+		const problems = findProblems(scratch())
 
+		expect(problems).toHaveLength(1)
+		const [problem] = problems
 		expect(problem).toContain(SCANNED)
 		expect(problem).toContain("is not a directory")
 	})
 
 	it("★ says so when the tree holds no source file, rather than passing without reading one", () => {
-		const [problem] = findProblems(treeOf({}))
+		const problems = findProblems(treeOf({}))
 
+		expect(problems).toHaveLength(1)
+		const [problem] = problems
 		expect(problem).toContain("holds no source file")
 	})
 
 	it("★ reports a file it cannot parse, because a file it cannot read could hide anything", () => {
-		const [problem] = findInSource("a.ts", "const broken = (\n")
+		const problems = findInSource("a.ts", "const broken = (\n")
 
+		expect(problems).toHaveLength(1)
+		const [problem] = problems
 		expect(problem).toContain("does not parse")
 	})
 })

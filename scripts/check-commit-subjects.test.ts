@@ -180,37 +180,51 @@ describe("readCommits", () => {
 	})
 })
 
+const SPAWN_TIMEOUT_MS = 60_000
+
 describe("the command CI runs", () => {
-	it("exits 1 and names the commit that carries a description", () => {
-		const result = spawnSync("node", [CHECKER, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
+	it(
+		"exits 1 and names the commit that carries a description",
+		() => {
+			const result = spawnSync("node", [CHECKER, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain(
-			"commit has a description; subject lines only",
-		)
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain(
+				"commit has a description; subject lines only",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("still runs from a path holding a space, rather than passing without checking", () => {
-		const directory = scratch("a gate-")
-		const copied = join(directory, "check-commit-subjects.mjs")
-		copyFileSync(CHECKER, copied)
+	it(
+		"still runs from a path holding a space, rather than passing without checking",
+		() => {
+			const directory = scratch("a gate-")
+			const copied = join(directory, "check-commit-subjects.mjs")
+			copyFileSync(CHECKER, copied)
 
-		const result = spawnSync("node", [copied, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
+			const result = spawnSync("node", [copied, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain(
-			"commit has a description; subject lines only",
-		)
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain(
+				"commit has a description; subject lines only",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("exits 0 from that same path over a conforming range, so it is not simply failing", () => {
-		const directory = scratch("a gate-")
-		const copied = join(directory, "check-commit-subjects.mjs")
-		copyFileSync(CHECKER, copied)
+	it(
+		"exits 0 from that same path over a conforming range, so it is not simply failing",
+		() => {
+			const directory = scratch("a gate-")
+			const copied = join(directory, "check-commit-subjects.mjs")
+			copyFileSync(CHECKER, copied)
 
-		const result = spawnSync("node", [copied, "HEAD~1"], { cwd: gitRepo(), encoding: "utf8" })
+			const result = spawnSync("node", [copied, "HEAD~1"], { cwd: gitRepo(), encoding: "utf8" })
 
-		expect(`${result.stdout}${result.stderr}`).toBe("")
-		expect(result.status).toBe(0)
-	})
+			expect(`${result.stdout}${result.stderr}`).toBe("")
+			expect(result.status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

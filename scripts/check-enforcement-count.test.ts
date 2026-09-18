@@ -192,25 +192,41 @@ describe("the document the gate guards", () => {
 	})
 })
 
+const SPAWN_TIMEOUT_MS = 60_000
+
 describe("the command pnpm lint runs", () => {
-	it("exits 0 on the document as it stands", () => {
-		expect(run(join(ROOT, "AGENTS.md")).status).toBe(0)
-	})
+	it(
+		"exits 0 on the document as it stands",
+		() => {
+			expect(run(join(ROOT, "AGENTS.md")).status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("exits 1 and names the disagreement on the historical document", () => {
-		const { status, output } = run(HISTORICAL)
-		expect(status).toBe(1)
-		expect(output).toContain("says Thirty-three (33) rules are enforced; the table below it has 36")
-	})
+	it(
+		"exits 1 and names the disagreement on the historical document",
+		() => {
+			const { status, output } = run(HISTORICAL)
+			expect(status).toBe(1)
+			expect(output).toContain(
+				"says Thirty-three (33) rules are enforced; the table below it has 36",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 
-	it("still runs from a path holding a space, rather than passing without checking", () => {
-		const directory = mkdtempSync(join(tmpdir(), "a gate-"))
-		const copied = join(directory, "check-enforcement-count.mjs")
-		copyFileSync(CHECKER, copied)
-		const result = spawnSync("node", [copied, HISTORICAL], { encoding: "utf8" })
-		rmSync(directory, { recursive: true, force: true })
+	it(
+		"still runs from a path holding a space, rather than passing without checking",
+		() => {
+			const directory = mkdtempSync(join(tmpdir(), "a gate-"))
+			const copied = join(directory, "check-enforcement-count.mjs")
+			copyFileSync(CHECKER, copied)
+			const result = spawnSync("node", [copied, HISTORICAL], { encoding: "utf8" })
+			rmSync(directory, { recursive: true, force: true })
 
-		expect(result.status).toBe(1)
-		expect(`${result.stdout}${result.stderr}`).toContain("has 36")
-	})
+			expect(result.status).toBe(1)
+			expect(`${result.stdout}${result.stderr}`).toContain("has 36")
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

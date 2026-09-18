@@ -1,5 +1,38 @@
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it } from "vitest"
 import { externalsIn, missing, shippedIn } from "./check-runtime-deps.mjs"
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+const CHECKER = join(ROOT, "scripts", "check-runtime-deps.mjs")
+
+const SPAWN_TIMEOUT_MS = 60_000
+
+const made: string[] = []
+
+afterAll(() => {
+	for (const directory of made) rmSync(directory, { recursive: true, force: true })
+})
+
+const seeded = (files: Record<string, string>): string => {
+	const root = mkdtempSync(join(tmpdir(), "a runtime-deps-"))
+	made.push(root)
+	for (const [path, source] of Object.entries(files)) {
+		const full = join(root, path)
+		mkdirSync(dirname(full), { recursive: true })
+		writeFileSync(full, source)
+	}
+	return root
+}
+
+const run = (cwd: string): { status: number | null; output: string } => {
+	const result = spawnSync("node", [CHECKER], { cwd, encoding: "utf8" })
+	return { status: result.status, output: `${result.stdout}${result.stderr}` }
+}
 
 describe("reading what a Dockerfile keeps out of the bundle", () => {
 	it("finds every external", () => {
@@ -31,4 +64,37 @@ describe("catching the mismatch that shipped a broken image", () => {
 	it("says nothing when every external is kept", () => {
 		expect(missing(new Set(["pg"]), new Set(["pg", "zod"]))).toEqual([])
 	})
+})
+
+describe("the command pnpm lint runs", () => {
+	it(
+		"exits 0 on the tree as it stands",
+		() => {
+			const { status, output } = run(ROOT)
+
+			expect(output).toBe("")
+			expect(status).toBe(0)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
+
+	it(
+		"★ exits 1 naming the external the prune step would delete, so a gutted body is caught",
+		() => {
+			const root = seeded({
+				"docker/server/Dockerfile":
+					"RUN esbuild --external:pg --external:undici --outfile=server.mjs\n",
+				"docker/worker/Dockerfile": "RUN esbuild --external:pg --outfile=worker.mjs\n",
+				"docker/server/prune-deploy.mjs": 'const runtimeRoots = [\n\t"pg",\n]\n',
+			})
+
+			const { status, output } = run(root)
+
+			expect(status).toBe(1)
+			expect(output).toContain(
+				"docker/server/Dockerfile marks undici external, but docker/server/prune-deploy.mjs would delete it",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
 })

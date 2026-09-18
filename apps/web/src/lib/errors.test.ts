@@ -210,6 +210,21 @@ describe("getErrorMessage", () => {
 		expect(answers.unreadable).not.toMatch(/console/i)
 	})
 
+	it("★ tells an operator the host answered unreadably, in words no refusal of its own uses", () => {
+		const unreadable = getErrorMessage({
+			message: "The host answered in a way this manager could not read",
+			data: { errorCode: "HOST_ANSWER_UNREADABLE", httpStatus: 409 },
+		})
+
+		expect(unreadable).toBe("The host answered with something OpenMCC could not read.")
+		expect(unreadable).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(unreadable).not.toMatch(/unit|exit|systemd|journal|\/home/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_ANSWER_UNREADABLE").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(unreadable)
+	})
+
 	it("★ shows the refusal of a command carrying a tab as the sentence the contract wrote", () => {
 		expect(
 			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),

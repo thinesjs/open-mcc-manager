@@ -173,6 +173,8 @@ export const envWriteUnlessRunningCommand = (
 	return `case "$(${state})" in ${RUNNING_UNIT_STATES.join("|")}) ${kept};; *) ${write};; esac`
 }
 
+export class HostAnswerUnreadableError extends Error {}
+
 export const parseEnvWriteAnswer = (
 	output: string,
 ): typeof ENV_WRITTEN | typeof ENV_KEPT | undefined => {

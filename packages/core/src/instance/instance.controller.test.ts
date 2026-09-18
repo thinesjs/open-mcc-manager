@@ -1180,6 +1180,23 @@ describe("reconciliation", () => {
 		expect(result.reason).toBe("interrupted")
 	})
 
+	it("★ says a host answered unreadably in its own words, not that it stopped answering", async () => {
+		const { deps, transport } = makeDeps()
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
+			command.includes("ls -1")
+				? { stdout: "open-mcc/units\nopen-mcc/end\n", stderr: "", exitCode: 0 }
+				: await original(command, signal)
+		const controller = createInstanceController(deps)
+
+		const result = await controller.reconcileHost(owner, "host-1")
+
+		expect(result.reachable).toBe(false)
+		if (result.reachable) throw new Error("unreachable expected")
+		expect(result.reason).toBe("unreadable")
+		expect(result.reason).not.toBe("interrupted")
+	})
+
 	it("★ never carries the host's own words about why, which name its address", async () => {
 		const { deps, readTransports } = makeDeps()
 		readTransports.next = () => {

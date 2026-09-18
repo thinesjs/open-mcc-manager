@@ -23,7 +23,9 @@ import {
 	generateKeyPair,
 	generateSshKeyPair,
 	renderEnvironmentFile,
+	SESSION_CACHE_UNREADABLE_EXIT,
 	type SecretStore,
+	sessionCacheProbeCommand,
 	startUnitCommand,
 } from "@open-mcc/core"
 import { createDb, type Db, type JsonObject } from "@open-mcc/db"
@@ -1116,6 +1118,11 @@ describe("what an operator reads when the host will not do what they asked", () 
 		errorCode: "INSTANCE_CONSOLE_UNREADABLE",
 		message: "The host could not read this instance's output",
 	}
+	const ANSWER_UNREADABLE = {
+		status: 409,
+		errorCode: "HOST_ANSWER_UNREADABLE",
+		message: "The host answered in a way this manager could not read",
+	}
 
 	const wireErrorSchema = z.object({
 		error: z.object({
@@ -1195,14 +1202,14 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(await answerOf(res)).toEqual(START_FAILED)
 	})
 
-	it("★ a start whose answer the manager could not read reads as a start that failed", async () => {
+	it("★ a start whose answer the manager could not read says so, not that the host refused it", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()
 		const { instanceId } = await seedReadyInstance(orgId, memberId)
 		hostScript[startUnitCommand(instanceId)] = { stdout: HOST_SAID, stderr: "", exitCode: 0 }
 
 		const res = await call("instance.start", cookie, { instanceId })
 
-		expect(await answerOf(res)).toEqual(START_FAILED)
+		expect(await answerOf(res)).toEqual(ANSWER_UNREADABLE)
 	})
 
 	it("★ a start refused before the bot was asked to run reads as a start that failed", async () => {
@@ -1216,14 +1223,50 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(issued()).not.toContain(startUnitCommand(instanceId))
 	})
 
-	it("★ a start whose first step answered unreadably reads as a start that failed", async () => {
+	it("★ a start whose first step answered unreadably says so, not that the host refused it", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()
 		const { instanceId } = await seedReadyInstance(orgId, memberId)
 		hostScript[readyEnvironment(instanceId)] = { stdout: HOST_SAID, stderr: "", exitCode: 0 }
 
 		const res = await call("instance.start", cookie, { instanceId })
 
-		expect(await answerOf(res)).toEqual(START_FAILED)
+		expect(await answerOf(res)).toEqual(ANSWER_UNREADABLE)
+		expect(issued()).not.toContain(startUnitCommand(instanceId))
+	})
+
+	it("★ a sign-in check the host answered unreadably says so, rather than reading as a manager fault", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		hostScript[sessionCacheProbeCommand(instanceId)] = {
+			stdout: "",
+			stderr: HOST_SAID,
+			exitCode: SESSION_CACHE_UNREADABLE_EXIT,
+		}
+
+		const res = await call("instance.completeAuthentication", cookie, { instanceId })
+
+		expect(await answerOf(res)).toEqual(ANSWER_UNREADABLE)
+	})
+
+	it("★ answers the same refused start and unreadable start differently, over the same verb", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const refusedStart = await seedReadyInstance(orgId, memberId)
+		const unreadableStart = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(refusedStart.instanceId)] = refused
+		hostScript[startUnitCommand(unreadableStart.instanceId)] = {
+			stdout: HOST_SAID,
+			stderr: "",
+			exitCode: 0,
+		}
+
+		const [wasRefused, wasUnreadable] = [
+			await answerOf(await call("instance.start", cookie, refusedStart)),
+			await answerOf(await call("instance.start", cookie, unreadableStart)),
+		]
+
+		expect(wasRefused.message).not.toBe(wasUnreadable.message)
+		expect(wasRefused.errorCode).not.toBe(wasUnreadable.errorCode)
+		expect(wasRefused.status).not.toBe(wasUnreadable.status)
 	})
 
 	it("★ a start held by a running sign-in still says so, rather than that the start failed", async () => {

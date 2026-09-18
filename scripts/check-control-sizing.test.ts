@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { findViolations } from "./check-control-sizing.mjs"
 
@@ -32,6 +32,9 @@ const seeded = (files: Record<string, string>): string => {
 	}
 	return root
 }
+
+const SIZED =
+	'export const Remove = () => (\n\t<button className="flex h-9 items-center">Remove</button>\n)\n'
 
 const run = (script: string): { status: number | null; output: string } => {
 	const result = spawnSync("node", [script], { encoding: "utf8" })
@@ -90,10 +93,7 @@ describe("the command pnpm lint runs", () => {
 	it(
 		"★ exits 1 naming the file and line of a control that sizes itself, so a gutted body is caught",
 		() => {
-			const root = seeded({
-				"components/remove-button.tsx":
-					'export const Remove = () => (\n\t<button className="flex h-9 items-center">Remove</button>\n)\n',
-			})
+			const root = seeded({ "components/remove-button.tsx": SIZED })
 
 			const { status, output } = run(join(root, "scripts", "check-control-sizing.mjs"))
 
@@ -101,6 +101,26 @@ describe("the command pnpm lint runs", () => {
 			expect(output).toContain(
 				`${join("apps", "web", "src", "components", "remove-button.tsx")}:2 an interactive <button> sets its own size`,
 			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
+
+	it(
+		"★ checks nothing when it is imported rather than run, so a violation cannot end the test worker",
+		() => {
+			const root = seeded({ "components/remove-button.tsx": SIZED })
+			const copy = pathToFileURL(join(root, "scripts", "check-control-sizing.mjs")).href
+
+			const result = spawnSync(
+				"node",
+				["--input-type=module", "--eval", `await import("${copy}")`],
+				{
+					encoding: "utf8",
+				},
+			)
+
+			expect(`${result.stdout}${result.stderr}`).toBe("")
+			expect(result.status).toBe(0)
 		},
 		SPAWN_TIMEOUT_MS,
 	)

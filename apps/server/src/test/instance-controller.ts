@@ -39,7 +39,11 @@ export const createTestInstanceController = async (
 			return transport
 		},
 		readConnections: createReadConnections({
-			createTransport: () => createFakeTransport(),
+			createTransport: () => {
+				const transport = createFakeTransport(script)
+				collect(transport)
+				return transport
+			},
 			idleMs: READ_CONNECTION_IDLE_MS,
 			hardAgeMs: READ_CONNECTION_HARD_AGE_MS,
 			channelLimit: READ_CONNECTION_CHANNEL_LIMIT,

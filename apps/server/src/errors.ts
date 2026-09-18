@@ -32,16 +32,21 @@ import {
 	InstanceAuthInProgressError,
 	InstanceBotConfigUnusableError,
 	InstanceBusyError,
+	InstanceCommandNotSentError,
 	InstanceConcurrentlyModifiedError,
 	InstanceConfigUnusableError,
+	InstanceConsoleUnreadableError,
 	InstanceHostNotFoundError,
 	InstanceHostNotProvisionedError,
 	InstanceNotFoundError,
+	InstanceNotRunningError,
 	InstanceRemovalFailedError,
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
+	InstanceStartFailedError,
 	InstanceStillInUseError,
+	InstanceStopFailedError,
 	LastOwnerError,
 	LiveControlUnauthorizedError,
 	LiveResponseTooLargeError,
@@ -404,6 +409,29 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_REMOVAL_FAILED",
 			"The host could not finish removing this instance, so it was not removed",
+		)
+	}
+	if (cause instanceof InstanceStartFailedError) {
+		return mapped("BAD_REQUEST", "INSTANCE_START_FAILED", "The host could not start this instance")
+	}
+	if (cause instanceof InstanceStopFailedError) {
+		return mapped("BAD_REQUEST", "INSTANCE_STOP_FAILED", "The host could not stop this instance")
+	}
+	if (cause instanceof InstanceNotRunningError) {
+		return mapped("CONFLICT", "INSTANCE_NOT_RUNNING", "This instance is not running")
+	}
+	if (cause instanceof InstanceCommandNotSentError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_COMMAND_NOT_SENT",
+			"The command did not reach this instance",
+		)
+	}
+	if (cause instanceof InstanceConsoleUnreadableError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_CONSOLE_UNREADABLE",
+			"The host could not read this instance's output",
 		)
 	}
 	if (cause instanceof LastOwnerError) {

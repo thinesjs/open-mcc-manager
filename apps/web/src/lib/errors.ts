@@ -102,6 +102,11 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"Something on the host is still using this instance, so it was not removed. Try again in a moment.",
 	INSTANCE_REMOVAL_FAILED:
 		"The host could not finish removing this instance, so it was not removed. Try again.",
+	INSTANCE_START_FAILED: "The host could not start this bot. Its console may say why.",
+	INSTANCE_STOP_FAILED: "The host could not stop this bot, so it may still be running.",
+	INSTANCE_NOT_RUNNING: "This bot is not running. Start it first.",
+	INSTANCE_COMMAND_NOT_SENT: "The command did not reach this bot.",
+	INSTANCE_CONSOLE_UNREADABLE: "The host could not read this bot's output.",
 	INSTANCE_NAME_TAKEN: "An instance with that name already exists in this organization.",
 	HOST_HAS_INSTANCES: "That host still has instances on it. Remove them before deleting the host.",
 	SELF_HOST_UNAVAILABLE:

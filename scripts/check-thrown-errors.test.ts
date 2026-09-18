@@ -132,6 +132,17 @@ describe("the tree it covers, which is why a new file is covered the day it is m
 		expect(findProblems(root)).toEqual([])
 	})
 
+	it("★ reads a directory named for a build output, because nothing builds inside this tree", () => {
+		const root = treeOf({
+			"host/fine.ts": FINE,
+			"build/raise.ts": 'throw new Error("no")\n',
+			"instance/dist/raise.ts": 'throw new Error("no")\n',
+			"coverage/raise.ts": 'throw new Error("no")\n',
+		})
+
+		expect(findProblems(root)).toHaveLength(3)
+	})
+
 	it("★ says so when the tree it names is gone, rather than passing on having found none", () => {
 		const problems = findProblems(scratch())
 

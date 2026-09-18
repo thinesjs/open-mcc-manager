@@ -6,15 +6,7 @@ const DEFAULT_ROOT = join(import.meta.dirname, "..")
 
 export const SCANNED = join("packages", "core", "src")
 
-const SKIP = new Set([
-	"node_modules",
-	"dist",
-	"build",
-	"coverage",
-	".git",
-	".turbo",
-	".superpowers",
-])
+const SKIP = new Set(["node_modules"])
 
 const SOURCE_FILE = /\.(?:[cm]?ts|tsx)$/
 const TEST_FILE = /\.test\.(?:[cm]?ts|tsx)$/

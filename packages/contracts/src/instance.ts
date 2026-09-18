@@ -168,19 +168,35 @@ export type UpdateBotConfigInput = z.infer<typeof updateBotConfigInput>
 export const INVISIBLE_CHARACTER_IN_COMMAND =
 	"Remove tabs and other invisible characters from the command."
 
+export const COMMAND_SPANS_LINES = "A command is one line. Remove the line breaks."
+
+const LINE_BREAK = /[\n\r]/
+
 const withoutInvisibleCharacters = (value: string): boolean =>
 	[...value].every((character) => {
 		const code = character.codePointAt(0) ?? 0
 		return code >= 0x20 && code !== 0x7f
 	})
 
+export const INSTANCE_COMMAND_MAX_BYTES = 256
+
+export const instanceCommandText = z
+	.string()
+	.min(1)
+	.max(INSTANCE_COMMAND_MAX_BYTES)
+	.superRefine((value, ctx) => {
+		if (LINE_BREAK.test(value)) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, message: COMMAND_SPANS_LINES })
+			return
+		}
+		if (!withoutInvisibleCharacters(value)) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, message: INVISIBLE_CHARACTER_IN_COMMAND })
+		}
+	})
+
 export const sendInstanceCommandInput = z.object({
 	instanceId: z.string().min(1),
-	command: z
-		.string()
-		.min(1)
-		.max(256)
-		.refine(withoutInvisibleCharacters, INVISIBLE_CHARACTER_IN_COMMAND),
+	command: instanceCommandText,
 })
 export type SendInstanceCommandInput = z.infer<typeof sendInstanceCommandInput>
 

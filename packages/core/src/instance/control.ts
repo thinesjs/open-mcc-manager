@@ -60,7 +60,7 @@ export class DisallowedInternalCommandError extends Error {}
 
 export class DoubleSlashCredentialError extends Error {}
 
-export const refuseDoubleSlashCredential = (command: string): void => {
+const refuseDoubleSlashCredential = (command: string): void => {
 	if (!command.startsWith("//") || maskCommandCredentials(command) === command) return
 	throw new DoubleSlashCredentialError(
 		"A credential command written with two slashes never reaches the server",
@@ -87,17 +87,21 @@ export const controlLine = (input: string): string => {
 	return `/${[name, ...args].join(" ")}`
 }
 
+export const sendableLine = (command: string): string => {
+	if (hasControlCharacter(command)) {
+		throw new Error("Instance commands must not contain a control character")
+	}
+	refuseDoubleSlashCredential(command)
+	return controlLine(command)
+}
+
 export const sendCommand = async (
 	transport: HostTransport,
 	instanceId: string,
 	command: string,
 ): Promise<void> => {
 	const id = validateInstanceId(instanceId)
-	if (hasControlCharacter(command)) {
-		throw new Error("Instance commands must not contain a control character")
-	}
-	refuseDoubleSlashCredential(command)
-	const line = controlLine(command)
+	const line = sendableLine(command)
 	const result = await transport.exec(`cat > ${controlPath(id)}`, CONTROL_TIMEOUT_MS, `${line}\n`)
 	if (result.exitCode !== 0) {
 		throw new Error(`Failed to send command to instance ${id}: ${result.stderr.trim()}`)

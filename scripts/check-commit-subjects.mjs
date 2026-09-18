@@ -63,7 +63,7 @@ const describe = (reason) => {
 	return "commit has a description; subject lines only"
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const main = () => {
 	const range = process.argv[2] ?? "HEAD"
 	const found = checkCommits(readCommits(range, process.cwd()))
 	for (const violation of found) {
@@ -71,3 +71,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	}
 	process.exit(found.length === 0 ? 0 : 1)
 }
+
+if (process.argv[1]?.endsWith("check-commit-subjects.mjs")) main()

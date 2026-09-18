@@ -83,3 +83,12 @@ id = "generic-api-key"
   regexes = [
     '''^0123456789abcdef0123456789abcdef$''',
   ]
+
+  [[rules.allowlists]]
+  condition = "AND"
+  paths = [
+    '''^scripts/sandbox/reconcile\.sandbox\.ts$''',
+  ]
+  regexes = [
+    '''^31337a0b1c2d3e4f5a6b7c8d9e0f3133$''',
+  ]

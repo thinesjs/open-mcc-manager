@@ -47,7 +47,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 	DESTINATION_REQUIRES_SIGN_IN:
 		"That workflow asks callers to sign in. Set its trigger access to Anyone, then paste the new address.",
 	DESTINATION_HAS_PARAMETERS: "Give the server address only. Remove the ? and anything after it.",
-	ALERT_NOT_QUEUED: "OpenMCC could not take this alert on. Nothing was sent.",
+	ALERT_NOT_QUEUED: "OpenMCC could not accept this alert. Nothing was sent.",
 	SSH_KEY_NOT_FOUND: "That SSH key no longer exists.",
 	FINGERPRINT_MISMATCH:
 		"The key the host presented did not match the fingerprint you provided. Refusing to trust an unverified host.",

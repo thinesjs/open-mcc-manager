@@ -249,7 +249,7 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 		return mapped(
 			"CONFLICT",
 			"ALERT_NOT_QUEUED",
-			"This manager could not take this alert on, so nothing was sent",
+			"This manager could not accept this alert, so nothing was sent",
 		)
 	}
 

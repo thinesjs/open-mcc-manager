@@ -332,7 +332,7 @@ describe("what a rejected input tells the dashboard", () => {
 const NOT_QUEUED = {
 	status: 409,
 	errorCode: "ALERT_NOT_QUEUED",
-	message: "This manager could not take this alert on, so nothing was sent",
+	message: "This manager could not accept this alert, so nothing was sent",
 }
 
 const wireErrorSchema = z.object({
@@ -423,8 +423,10 @@ const post = (procedure: string, input: Record<string, string>) =>
 		body: JSON.stringify(input),
 	})
 
-describe("what an operator reads when the manager could not take an alert on", () => {
-	it("★ a test alert that was never taken on says so, rather than reading as a manager fault", async () => {
+const THROWN_WITHOUT_AN_ERROR = "a manager defect that threw something other than an error"
+
+describe("what an operator reads when the manager could not accept an alert", () => {
+	it("★ a test alert the manager never accepted says so, rather than reading as a manager fault", async () => {
 		const destinationId = await seedDestination()
 		queue.answer = async () => null
 
@@ -433,7 +435,7 @@ describe("what an operator reads when the manager could not take an alert on", (
 		expect(await answerOf(res)).toEqual(NOT_QUEUED)
 	})
 
-	it("★ leaves a test alert it could not take on entirely unsent, not half sent", async () => {
+	it("★ leaves a test alert it could not accept entirely unsent, not half sent", async () => {
 		const destinationId = await seedDestination()
 		queue.answer = async () => null
 
@@ -443,7 +445,7 @@ describe("what an operator reads when the manager could not take an alert on", (
 		expect(await auditedActions(destinationId)).toEqual([])
 	})
 
-	it("★ leaves an alert it could not take on again exactly as the operator found it", async () => {
+	it("★ leaves an alert it could not accept again under the same id, still failed and unaudited", async () => {
 		const destinationId = await seedDestination()
 		const deliveryId = await seedFailedDelivery(destinationId)
 		queue.answer = async () => null
@@ -466,7 +468,7 @@ describe("what an operator reads when the manager could not take an alert on", (
 		expect(await answerOf(res)).toEqual(NOT_QUEUED)
 	})
 
-	it("★ still records a test alert the manager could take on, so the refusal is not blanket", async () => {
+	it("★ still records a test alert the manager could accept, so the refusal is not blanket", async () => {
 		const destinationId = await seedDestination()
 		queue.answer = async () => "job"
 
@@ -477,5 +479,35 @@ describe("what an operator reads when the manager could not take an alert on", (
 			{ id: expect.any(String), state: "queued" },
 		])
 		expect(await auditedActions(destinationId)).toEqual(["notification.destination.test"])
+	})
+
+	it("★ leaves a defect raised while queueing a server fault, never the operator's to act on", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = async () => {
+			throw new TypeError("payload.forEach is not a function")
+		}
+
+		const res = await post("notification.test", { destinationId })
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain(NOT_QUEUED.errorCode)
+		expect(text).not.toContain(NOT_QUEUED.message)
+		expect(text).not.toContain("forEach")
+	})
+
+	it("★ leaves a queue that threw something other than an error a server fault as well", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = () => Promise.reject(THROWN_WITHOUT_AN_ERROR)
+
+		const res = await post("notification.test", { destinationId })
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain(NOT_QUEUED.errorCode)
+		expect(text).not.toContain(NOT_QUEUED.message)
+		expect(text).not.toContain(THROWN_WITHOUT_AN_ERROR)
 	})
 })

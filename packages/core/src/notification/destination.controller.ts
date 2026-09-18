@@ -146,7 +146,7 @@ const checkUrl = (
 	if (!verdict.allowed) throw new DestinationRejectedError(verdict.reason, verdict.category)
 }
 
-const takeOnAlert = async (
+const acceptAlert = async (
 	sendJob: SendJob,
 	queue: QueueName,
 	payload: Record<string, string>,
@@ -159,7 +159,7 @@ const takeOnAlert = async (
 		if (!(error instanceof Error) || error.constructor !== Error) throw error
 		throw new AlertNotQueuedError(error.message)
 	}
-	if (jobId === null) throw new AlertNotQueuedError("the alert was not taken on")
+	if (jobId === null) throw new AlertNotQueuedError("the alert was not accepted")
 }
 
 const requireManage = (actor: ActorContext): void => {
@@ -493,7 +493,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 				const requeued = await notifications.requeueDelivery(scope, deliveryId)
 				if (!requeued) throw new DestinationNotFoundError("that alert is no longer waiting")
 
-				await takeOnAlert(
+				await acceptAlert(
 					deps.sendJob,
 					queueFor(destination),
 					{
@@ -556,7 +556,7 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 				})
 				if (!delivery) throw new AlertNotQueuedError("the test alert was not recorded")
 
-				await takeOnAlert(
+				await acceptAlert(
 					deps.sendJob,
 					queueFor(row),
 					{

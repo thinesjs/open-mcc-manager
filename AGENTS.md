@@ -252,7 +252,7 @@ have:
 | The documented `.env` setup path | `scripts/load-env.test.ts` |
 | The host status union matching between `packages/db` and `packages/contracts` | TypeScript in one direction only — `host.controller.ts`'s `toHostPublic` rejects a database union wider than the contract's. A contract union wider than the database's compiles and passes every test, so that direction rests on review |
 | Every domain error class carrying a wire error code | `apps/server/src/errors.test.ts` — the classes are read off what `@open-mcc/core` and `apps/server/src/errors.ts` export, so a new one with no case in `mapKnownError` fails. A class that is declared and never exported is not seen: `InstanceNotRunningError` was one, unmapped on the console-command path, until it was exported |
-| A start, restart, stop, console command or console read the host refuses answering in that verb's words, never as an internal error | `apps/server/src/instance.test.ts` — drives all five over HTTP against a scripted host and compares the whole wire answer. Start is refused four ways — at its unit, by a unit that went down, by an answer the manager cannot read, and at the environment write before the unit is asked — each a different bare `throw new Error` the fix did not touch, so they pass because `failingAs` wraps the verb's host work rather than because a site was typed. A restart whose stop is refused must read as a stop and issue no start. A start the host answers with a running sign-in must still read as the sign-in, so a boundary that also converts typed errors fails there while every start, restart and stop that succeeds stays green. `apps/web/src/lib/errors.test.ts` compares the five sentences whole and requires them distinct. It proves a boundary around what those five do on the host today, NOT that a sixth verb has one, NOT that a bare throw added before a verb connects is covered, and NOT that an `Error` subclass with no mapping is — `failingAs` passes every subclass through, so one still reads as an internal error unless the row above sees it. A plain `Error` raised by the SSH transport itself, and the settings write inside a start, are inside the boundary by construction and are not driven |
+| A start, restart, stop, console command or console read the host refuses answering in that verb's words, never as an internal error | `apps/server/src/instance.test.ts` — drives all five over HTTP against a scripted host and compares the whole wire answer. Start is refused five ways — at its unit, by a unit that went down, by a start answer the manager cannot read, at the environment write before the unit is asked, and by an environment answer it cannot read — each a different bare `throw new Error` the fix did not touch, so they pass because `failingAs` wraps the verb's host work rather than because a site was typed. A restart whose stop is refused must read as a stop and issue no start. A stop whose transport throws something that is not an `Error` must stay a 500, so a discriminator that converts a non-`Error` fails it. `apps/web/src/lib/errors.test.ts` compares the five sentences whole and requires them distinct. What it does NOT hold: that a sixth verb has a boundary; that a bare throw added before a verb connects is covered; that an `Error` subclass with no mapping is covered — `failingAs` passes every subclass through, so one still reads as an internal error unless the row above sees it. **Nor does it hold the pass-through of typed errors in general.** Only `InstanceSignInRunningError` is pinned, by the start case that must still read as a running sign-in; a discriminator rethrowing just that class, `InstanceStopFailedError`, `ChannelLimitReachedError`, `HostUnreachableError`, `InstanceBusyError`, `DoubleSlashCredentialError` and `InstanceHostNotProvisionedError` and converting everything else passes the whole suite while turning a `TypeError`, `CommandTimedOutError`, `CommandAbortedError`, `StreamOverflowError`, `ReadDeadlineExceededError` and `DisallowedInternalCommandError` into a verb failure — measured, not argued. A plain `Error` raised by the SSH transport itself, and the settings write inside a start, are inside the boundary by construction and are not driven. A **manager-side** plain `Error` inside a boundary is blamed on the host and nothing catches it: send wraps `loadHost`'s database reads and `secrets.open`, a console read wraps `leaseHostReader`'s database reads, a start wraps `writeTokenUnderClaim`, and pg's "Connection terminated unexpectedly" is a plain `Error` — so a database blip during a console poll reads as the host not sharing the bot's output |
 | The provisioning claim conditioned on the status read before the lock | `packages/core/src/host/host.controller.transaction.test.ts` — substituting the row read under the lock makes the claim always succeed, and fails the test named for it |
 | Every `var()` resolving to a declared or Tailwind-provided property | `apps/web/src/index.css.test.ts` — `TAILWIND_PROVIDED` is an explicit list of the names Tailwind supplies, never a `--color-*` prefix |
 | The opaque fallback on the glass surfaces staying `!important` and negatively guarded | `apps/web/src/index.css.glass.test.ts` — the inverted form moves the blur inside a positive `@supports` and drops the `@supports not` block, so rewriting it that way fails |
@@ -515,14 +515,21 @@ Dependency direction is one-way: router → controller → repository.
   Each wraps what it does on the connection it opens, from connect to close,
   and a plain `Error` thrown anywhere inside leaves as that verb's own failure
   class, which `mapKnownError` answers in fixed words. Restart's stop is wrapped
-  a second time, so a refused stop reads as a stop and not as a start. Every
-  `Error` subclass passes through untouched: a transport timeout keeps its own
-  sentence, a running sign-in keeps its own, and a manager defect such as a
-  `TypeError` stays an internal error rather than being blamed on the host. So
-  do not widen it to subclasses, and put a new verb's host work inside one.
-  Unlike provisioning, the instance controller has no `onError` reporter, so
-  the host's own words for these failures are recorded nowhere, as they were
-  not before.
+  a second time, so a refused stop reads as a stop and not as a start. The
+  discriminator converts **only** a plain `Error`: it rethrows every subclass,
+  so a transport timeout keeps its own sentence and a manager defect such as a
+  `TypeError` stays an internal error, and it rethrows anything that is not an
+  `Error` at all, which `trpc.ts` then answers as a 500 because it tests
+  `cause instanceof Error` before mapping. Only the non-`Error` half and the
+  running sign-in are held by a test — the rest of that pass-through rests on
+  review, and the row in the enforcement table says what a wrong discriminator
+  still passes. So do not widen it to subclasses, and put a new verb's host work
+  inside one. Two things it does not do. Unlike provisioning, the instance
+  controller has no `onError` reporter, so the host's own words for these
+  failures are recorded nowhere, as they were not before. And a boundary spans
+  more than the host: a plain `Error` from a database read or from
+  `secrets.open` inside one is blamed on the host, which is a known gap rather
+  than a decision.
 - The `shellQuote` helpers private to the command builders quote
   unconditionally and are a different rule; do not fold them into this one.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an

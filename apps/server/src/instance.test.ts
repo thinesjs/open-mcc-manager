@@ -1139,6 +1139,17 @@ describe("what an operator reads when the host will not do what they asked", () 
 		return found ?? ""
 	}
 
+	const NOT_AN_ERROR = "a manager defect that threw something other than an error"
+
+	const rejectingWithoutAnError = (command: string): void => {
+		Object.defineProperty(hostScript, command, {
+			configurable: true,
+			get: () => {
+				throw NOT_AN_ERROR
+			},
+		})
+	}
+
 	const readConsole = async (cookie: string, instanceId: string): Promise<Response> =>
 		await app.request(
 			`/trpc/instance.readConsole?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
@@ -1302,6 +1313,21 @@ describe("what an operator reads when the host will not do what they asked", () 
 			message: INVISIBLE_CHARACTER_IN_COMMAND,
 		})
 		expect(issued()).toEqual([])
+	})
+
+	it("★ a stop that threw something other than an error stays a server fault, not the host's", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		expect((await call("instance.stop", cookie, { instanceId })).status).toBe(200)
+		rejectingWithoutAnError(issuedContaining(" stop "))
+
+		const res = await call("instance.stop", cookie, { instanceId })
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain(STOP_FAILED.message)
+		expect(text).not.toContain(NOT_AN_ERROR)
 	})
 
 	it("★ a console the host would not read reads as output that could not be read", async () => {

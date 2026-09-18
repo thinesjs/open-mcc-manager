@@ -245,8 +245,8 @@ const failingAs = async <T>(
 	try {
 		return await work()
 	} catch (error) {
-		if (error instanceof Error && error.constructor !== Error) throw error
-		throw new Failure(error instanceof Error ? error.message : String(error))
+		if (!(error instanceof Error) || error.constructor !== Error) throw error
+		throw new Failure(error.message)
 	}
 }
 

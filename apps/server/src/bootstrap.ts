@@ -69,6 +69,7 @@ import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { defaultIconFetch, itemIconHandler } from "./item-icon"
 import { memberControllerFor } from "./members"
+import { oidcProviderFrom, oidcWarningFor } from "./oidc-env"
 import { applyRequestLimits } from "./request-limits"
 import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
@@ -134,8 +135,13 @@ export const startServer = async (
 	const allowed = env.ALLOWED_ORIGINS.split(",")
 		.map((origin) => origin.trim())
 		.filter((origin) => origin.length > 0)
+	const oidc = oidcProviderFrom(env)
+	const oidcWarning = oidcWarningFor(env)
+	if (oidcWarning !== undefined) logger.warn(oidcWarning)
 	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
+		userCreation: "closed",
 		trustedOrigins: allowed,
+		oidc,
 	})
 	const signupAuth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
 		disableSignUp: false,
@@ -249,7 +255,7 @@ export const startServer = async (
 	app.get("/healthz", (c) => c.json({ ok: true, version: build.version, commit: build.commit }))
 	app.get("/api/avatars/:username", requireSession(auth), avatarHandler(defaultAvatarFetch))
 	app.get("/api/item-icons/:slug", requireSession(auth), itemIconHandler(defaultIconFetch))
-	mountDashboardAuth(app, auth)
+	mountDashboardAuth(app, auth, { oidc: oidc !== undefined })
 	app.use(
 		"/trpc/*",
 		trpcServer({
@@ -257,6 +263,7 @@ export const startServer = async (
 			createContext: createRequestContext({
 				auth,
 				signupAuth,
+				signInOptions: { singleSignOn: oidc ? { name: oidc.name } : null },
 				db,
 				hostController,
 				processIdentities: identities,

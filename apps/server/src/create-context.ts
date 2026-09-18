@@ -1,4 +1,4 @@
-import { isRole } from "@open-mcc/contracts"
+import { isRole, type SignInOptions } from "@open-mcc/contracts"
 import type {
 	AuditController,
 	BuildInfo,
@@ -19,6 +19,7 @@ import type { Actor, RequestContext } from "./context"
 export type AppDeps = {
 	auth: Auth
 	signupAuth: Auth
+	signInOptions: SignInOptions
 	db: Db
 	hostController: HostController
 	processIdentities: ProcessIdentityRepository
@@ -68,6 +69,7 @@ export const createRequestContext = (deps: AppDeps) => {
 			actor,
 			auth: deps.auth,
 			signupAuth: deps.signupAuth,
+			signInOptions: deps.signInOptions,
 			headers: opts.req.headers,
 			hostController: deps.hostController,
 			processIdentities: deps.processIdentities,

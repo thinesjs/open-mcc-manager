@@ -69,4 +69,15 @@ describe(".env.example", () => {
 	it("binds a locally run server on the same port the dev proxy expects", () => {
 		expect(require_("PORT")).toBe(require_("SERVER_PORT"))
 	})
+
+	it("hands the server every variable that configures signing in through a provider", () => {
+		const server = compose.split("\n  worker:")[0] ?? ""
+		const names = ["OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_NAME"]
+
+		const dropped = names.filter(
+			(name) => !new RegExp(`^ +${name}: \\$\\{${name}:-\\}$`, "m").test(server),
+		)
+
+		expect(dropped).toEqual([])
+	})
 })

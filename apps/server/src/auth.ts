@@ -1,9 +1,13 @@
+import { OIDC_PROVIDER_ID } from "@open-mcc/contracts"
 import type { Db } from "@open-mcc/db"
 import { betterAuth } from "better-auth"
 import { organization } from "better-auth/plugins"
+import { genericOAuth } from "better-auth/plugins/generic-oauth"
 import { defaultAc, ownerAc } from "better-auth/plugins/organization/access"
+import type { OidcProvider } from "./oidc-env"
 import { hashPassword, verifyPassword } from "./security/password"
 import {
+	alwaysRefuses,
 	anyUserExists,
 	createRegistrationGate,
 	type UserCreationMode,
@@ -12,12 +16,43 @@ import {
 const operatorRole = defaultAc.newRole({})
 const viewerRole = defaultAc.newRole({})
 
-const GATES_USER_CREATION: Record<UserCreationMode, boolean> = { gated: true, trusted: false }
+const REFUSES_USER_CREATION: Record<UserCreationMode, ((db: Db) => Promise<boolean>) | undefined> =
+	{
+		closed: alwaysRefuses,
+		gated: anyUserExists,
+		trusted: undefined,
+	}
 
-const registrationGateFor = (mode: UserCreationMode, db: Db) =>
-	GATES_USER_CREATION[mode]
-		? { validateUserInfo: createRegistrationGate(() => anyUserExists(db)) }
-		: undefined
+const registrationGateFor = (mode: UserCreationMode, db: Db) => {
+	const refuses = REFUSES_USER_CREATION[mode]
+	return refuses === undefined
+		? undefined
+		: { validateUserInfo: createRegistrationGate(() => refuses(db)) }
+}
+
+const OIDC_SCOPES = ["openid", "email", "profile"]
+
+const oidcPluginsFor = (oidc: OidcProvider | undefined) =>
+	oidc === undefined
+		? []
+		: [
+				genericOAuth({
+					config: [
+						{
+							providerId: OIDC_PROVIDER_ID,
+							name: oidc.name,
+							clientId: oidc.clientId,
+							clientSecret: oidc.clientSecret,
+							discoveryUrl: oidc.discoveryUrl,
+							accountIssuer: oidc.issuerUrl,
+							scopes: OIDC_SCOPES,
+						},
+					],
+				}),
+			]
+
+const accountFor = (oidc: OidcProvider | undefined) =>
+	oidc === undefined ? undefined : { accountLinking: { requireLocalEmailVerified: false } }
 
 export type CreateAuthOptions = {
 	disableSignUp?: boolean
@@ -25,6 +60,7 @@ export type CreateAuthOptions = {
 	allowOrganizationCreation?: boolean
 	trustedOrigins?: readonly string[]
 	userCreation?: UserCreationMode
+	oidc?: OidcProvider | undefined
 }
 
 export const createAuth = (
@@ -46,6 +82,7 @@ export const createAuth = (
 			},
 		},
 		user: registrationGateFor(options.userCreation ?? "gated", db),
+		account: accountFor(options.oidc),
 		trustedOrigins: [...(options.trustedOrigins ?? [])],
 		advanced: {
 			ipAddress: {
@@ -95,6 +132,7 @@ export const createAuth = (
 					viewer: viewerRole,
 				},
 			}),
+			...oidcPluginsFor(options.oidc),
 		],
 	})
 

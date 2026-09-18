@@ -13,7 +13,7 @@ const UNREACHABLE_REASONS: Record<HostUnreachableReason, string> = {
 	unreachable: "It did not answer.",
 	interrupted: "It stopped answering part-way.",
 	unreadable: "It answered with something OpenMCC could not read.",
-	failed: "OpenMCC could not read it.",
+	failed: "The check could not be started.",
 }
 
 export const describeUnreachable = (reason: HostUnreachableReason): string =>

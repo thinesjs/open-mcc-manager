@@ -1248,10 +1248,25 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(await answerOf(res)).toEqual(ANSWER_UNREADABLE)
 	})
 
-	it("★ keeps an answer it could not read apart from a verb the host refused", async () => {
-		expect(ANSWER_UNREADABLE.message).not.toBe(START_FAILED.message)
-		expect(ANSWER_UNREADABLE.errorCode).not.toBe(START_FAILED.errorCode)
-		expect(ANSWER_UNREADABLE.status).not.toBe(START_FAILED.status)
+	it("★ answers the same refused start and unreadable start differently, over the same verb", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const refusedStart = await seedReadyInstance(orgId, memberId)
+		const unreadableStart = await seedReadyInstance(orgId, memberId)
+		hostScript[startUnitCommand(refusedStart.instanceId)] = refused
+		hostScript[startUnitCommand(unreadableStart.instanceId)] = {
+			stdout: HOST_SAID,
+			stderr: "",
+			exitCode: 0,
+		}
+
+		const [wasRefused, wasUnreadable] = [
+			await answerOf(await call("instance.start", cookie, refusedStart)),
+			await answerOf(await call("instance.start", cookie, unreadableStart)),
+		]
+
+		expect(wasRefused.message).not.toBe(wasUnreadable.message)
+		expect(wasRefused.errorCode).not.toBe(wasUnreadable.errorCode)
+		expect(wasRefused.status).not.toBe(wasUnreadable.status)
 	})
 
 	it("★ a start held by a running sign-in still says so, rather than that the start failed", async () => {

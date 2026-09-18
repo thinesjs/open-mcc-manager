@@ -37,6 +37,26 @@ describe("drift summary", () => {
 		expect(said.every((sentence) => sentence.trim().length > 0)).toBe(true)
 	})
 
+	it("★ never lets one reason say only what another already says, in fewer words", () => {
+		const wordsOf = (sentence: string) =>
+			new Set(sentence.toLowerCase().replace(/[.,]/g, "").split(/\s+/).filter(Boolean))
+		const said = hostUnreachableReasonSchema.options.map((reason) => ({
+			reason,
+			words: wordsOf(describeUnreachable(reason)),
+		}))
+
+		const swallowed = said.flatMap(({ reason, words }) =>
+			said
+				.filter((other) => other.reason !== reason)
+				.filter(({ words: wider }) => [...words].every((word) => wider.has(word)))
+				.map(({ reason: wider }) => `${reason} adds nothing to ${wider}`),
+		)
+
+		expect(swallowed).toEqual([])
+		expect(wordsOf(describeUnreachable("unreadable"))).toContain("answered")
+		expect(wordsOf(describeUnreachable("failed"))).not.toContain("answered")
+	})
+
 	it("only reports converged for a host it actually inspected", () => {
 		expect(
 			summariseDrift({

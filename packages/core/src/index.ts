@@ -263,6 +263,7 @@ export type {
 	WithDestinationTransaction,
 } from "./notification/destination.controller"
 export {
+	AlertNotQueuedError,
 	createDestinationController,
 	createDestinationControllerTransaction,
 	DestinationDisabledError,

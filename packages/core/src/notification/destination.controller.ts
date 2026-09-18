@@ -19,7 +19,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { type ActorContext, ForbiddenError } from "../host/host.controller"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
-import type { SendJob } from "../job/job.queue"
+import type { QueueName, SendJob } from "../job/job.queue"
 import { assertExhaustive } from "../lib/exhaustive"
 import { carrierForActiveContext } from "../log/tracing"
 import { queueFor } from "./announce"
@@ -63,6 +63,8 @@ export class DestinationNotFoundError extends Error {}
 export class DestinationTestThrottledError extends Error {}
 
 export class OrganizationTestThrottledError extends Error {}
+
+export class AlertNotQueuedError extends Error {}
 
 export type DestinationTransactionRepos = {
 	notifications: NotificationRepository
@@ -142,6 +144,22 @@ const checkUrl = (
 	if (!shape.allowed) throw new DestinationRejectedError(shape.reason, shape.category)
 	const verdict = verifyDestinationUrl(url, policy)
 	if (!verdict.allowed) throw new DestinationRejectedError(verdict.reason, verdict.category)
+}
+
+const acceptAlert = async (
+	sendJob: SendJob,
+	queue: QueueName,
+	payload: Record<string, string>,
+	runner: SqlRunner,
+): Promise<void> => {
+	let jobId: string | null
+	try {
+		jobId = await sendJob(queue, payload, runner)
+	} catch (error) {
+		if (!(error instanceof Error) || error.constructor !== Error) throw error
+		throw new AlertNotQueuedError(error.message)
+	}
+	if (jobId === null) throw new AlertNotQueuedError("the alert was not accepted")
 }
 
 const requireManage = (actor: ActorContext): void => {
@@ -475,7 +493,8 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 				const requeued = await notifications.requeueDelivery(scope, deliveryId)
 				if (!requeued) throw new DestinationNotFoundError("that alert is no longer waiting")
 
-				const jobId = await deps.sendJob(
+				await acceptAlert(
+					deps.sendJob,
 					queueFor(destination),
 					{
 						organizationId: scope.organizationId,
@@ -485,7 +504,6 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 					},
 					runner,
 				)
-				if (jobId === null) throw new Error("that alert could not be queued again")
 
 				await audit.record(scope, {
 					actorId: actor.memberId,
@@ -530,15 +548,16 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 					dedupeKey: `test:${destinationId}:${nanoid()}`,
 					sourceStatusEventId: null,
 				})
-				if (!notification) throw new Error("that test could not be started")
+				if (!notification) throw new AlertNotQueuedError("the test alert was not recorded")
 
 				const delivery = await notifications.createDelivery(scope, {
 					notificationId: notification.id,
 					destinationId,
 				})
-				if (!delivery) throw new Error("that test could not be started")
+				if (!delivery) throw new AlertNotQueuedError("the test alert was not recorded")
 
-				const jobId = await deps.sendJob(
+				await acceptAlert(
+					deps.sendJob,
 					queueFor(row),
 					{
 						organizationId: scope.organizationId,
@@ -548,7 +567,6 @@ export const createDestinationController = (deps: DestinationControllerDeps) => 
 					},
 					runner,
 				)
-				if (jobId === null) throw new Error("that test could not be queued")
 
 				await audit.record(scope, {
 					actorId: actor.memberId,

@@ -101,6 +101,10 @@ const TWO_LINES = "say hello\nsay again"
 
 const CARRIAGE_RETURN = "say hello\rsay again"
 
+const DELETE_CHARACTER = "say \u007Fhello"
+
+const TAB_AND_LINE_BREAK = "say\thello\nsay again"
+
 const COMMANDS = [
 	"/say good morning",
 	"!reco",
@@ -108,7 +112,8 @@ const COMMANDS = [
 	TAB,
 	TWO_LINES,
 	CARRIAGE_RETURN,
-	"say hello",
+	DELETE_CHARACTER,
+	TAB_AND_LINE_BREAK,
 	"say hello",
 	"",
 	"x".repeat(INSTANCE_COMMAND_MAX_BYTES + 1),
@@ -143,6 +148,14 @@ describe("what this manager takes as a command, at the console and on a schedule
 		expect(onSchedule(TAB)).toEqual({ success: false, messages: [INVISIBLE_CHARACTER_IN_COMMAND] })
 		expect(onSchedule(TWO_LINES)).toEqual({ success: false, messages: [COMMAND_SPANS_LINES] })
 		expect(onSchedule(CARRIAGE_RETURN)).toEqual({ success: false, messages: [COMMAND_SPANS_LINES] })
+		expect(onSchedule(DELETE_CHARACTER)).toEqual({
+			success: false,
+			messages: [INVISIBLE_CHARACTER_IN_COMMAND],
+		})
+		expect(onSchedule(TAB_AND_LINE_BREAK)).toEqual({
+			success: false,
+			messages: [COMMAND_SPANS_LINES],
+		})
 		expect(onSchedule("/say good morning")).toEqual({ success: true, messages: [] })
 	})
 })

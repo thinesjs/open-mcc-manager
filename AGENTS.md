@@ -639,8 +639,11 @@ Dependency direction is one-way: router → controller → repository.
   Do not move it out, and do not widen it to cover SSH. One further site shares
   the discarded-result shape and is left alone on purpose: `apps/worker`'s
   boot-time `sendJob(SYSTEM_UPDATE_CHECK_QUEUE, …)` commits no state implying a
-  check will run, the cron still fires four times a day, and it sits a few
-  statements after the `reconcileQueues` that just verified that queue exists.
+  check will run, the cron still fires four times a day, and a boot that skipped
+  the check heals itself, because `shouldCheckAtBoot` reads `lastCheckedAt`,
+  which only the job writes. `reconcileQueues` does verify that queue earlier in
+  the same boot, but far earlier — not close enough for proximity to be the
+  argument, and it is not the argument.
 - The `shellQuote` helpers private to the command builders quote
   unconditionally and are a different rule; do not fold them into this one.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an

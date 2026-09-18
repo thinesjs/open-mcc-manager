@@ -1,4 +1,9 @@
-import { AUTH_LEASE_MS, ERROR_CODES, INVISIBLE_CHARACTER_IN_COMMAND } from "@open-mcc/contracts"
+import {
+	AUTH_LEASE_MS,
+	COMMAND_SPANS_LINES,
+	ERROR_CODES,
+	INVISIBLE_CHARACTER_IN_COMMAND,
+} from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { getErrorMessage, wasRefused } from "./errors"
 
@@ -244,6 +249,12 @@ describe("getErrorMessage", () => {
 		expect(
 			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),
 		).toBe("Remove tabs and other invisible characters from the command.")
+	})
+
+	it("★ shows the refusal of a command written over two lines as the sentence the contract wrote", () => {
+		expect(getErrorMessage({ message: COMMAND_SPANS_LINES, data: { httpStatus: 400 } })).toBe(
+			"A command is one line. Remove the line breaks.",
+		)
 	})
 
 	it("renders static copy, never the server's own text, for every code the server can send", () => {

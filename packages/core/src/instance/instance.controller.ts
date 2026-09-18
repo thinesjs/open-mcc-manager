@@ -77,7 +77,7 @@ import {
 } from "./config"
 import { CONFIG_PATH_NAME } from "./config-drift"
 import { CONSOLE_READ_DEADLINE_MS, readConsole } from "./console"
-import { refuseDoubleSlashCredential, sendCommand } from "./control"
+import { sendableLine, sendCommand } from "./control"
 import {
 	createInstanceRepository,
 	type InstanceRepository,
@@ -1461,7 +1461,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		): Promise<ScheduledCommandPublic> => {
 			requireCapabilityFor(ctx.role, "console.write")
 			await requireInstance(ctx, input.instanceId)
-			refuseDoubleSlashCredential(input.command)
+			sendableLine(input.command)
 
 			const row = await deps.withTransaction(async (repos) => {
 				const stored = await repos.commands.upsert(scopeOf(ctx), {

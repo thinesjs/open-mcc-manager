@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
-import { INVISIBLE_CHARACTER_IN_COMMAND, instancePublic } from "@open-mcc/contracts"
+import {
+	COMMAND_SPANS_LINES,
+	INVISIBLE_CHARACTER_IN_COMMAND,
+	instancePublic,
+	type ScheduledCommandPublic,
+	scheduledCommandPublic,
+} from "@open-mcc/contracts"
 import type {
 	McpLoadedBot,
 	McpPlayerStats,
@@ -1356,6 +1362,101 @@ describe("what an operator reads when the host will not do what they asked", () 
 			message: INVISIBLE_CHARACTER_IN_COMMAND,
 		})
 		expect(issued()).toEqual([])
+	})
+
+	const WHEN = {
+		name: "morning",
+		daysOfWeek: ["Mon"],
+		runAt: { hour: 9, minute: 0 },
+		timezone: "Europe/London",
+		enabled: true,
+	}
+
+	const schedule = async (cookie: string, instanceId: string, command: string): Promise<Response> =>
+		await call("instance.setScheduledCommand", cookie, { instanceId, command, ...WHEN })
+
+	const scheduledCommands = async (
+		cookie: string,
+		instanceId: string,
+	): Promise<ScheduledCommandPublic[]> => {
+		const res = await app.request(
+			`/trpc/instance.listScheduledCommands?input=${encodeURIComponent(
+				JSON.stringify({ instanceId }),
+			)}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+		expect(res.status).toBe(200)
+		const body = z
+			.object({ result: z.object({ data: z.array(scheduledCommandPublic) }) })
+			.parse(await res.json())
+		return body.result.data
+	}
+
+	it("★ a scheduled command carrying a tab is refused in words, and nothing is scheduled", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const res = await schedule(cookie, instanceId, "say\thello")
+
+		expect(await answerOf(res)).toEqual({
+			status: 400,
+			errorCode: undefined,
+			message: INVISIBLE_CHARACTER_IN_COMMAND,
+		})
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ a scheduled command written over two lines is refused in words of its own", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const overTwoLines = await schedule(cookie, instanceId, "say hello\nsay again")
+		const withATab = await schedule(cookie, instanceId, "say\thello")
+
+		const answer = await answerOf(overTwoLines)
+		expect(answer).toEqual({
+			status: 400,
+			errorCode: undefined,
+			message: COMMAND_SPANS_LINES,
+		})
+		expect(answer.message).not.toBe((await answerOf(withATab)).message)
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ answers the console and the schedule alike on the command it refuses and the one it takes", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		await markRunning(instanceId)
+
+		const atConsole = await call("instance.sendCommand", cookie, {
+			instanceId,
+			command: "say\thello",
+		})
+		const onSchedule = await schedule(cookie, instanceId, "say\thello")
+
+		expect(await answerOf(onSchedule)).toEqual(await answerOf(atConsole))
+
+		const consoleTook = await call("instance.sendCommand", cookie, {
+			instanceId,
+			command: "say hello",
+		})
+		const scheduleTook = await schedule(cookie, instanceId, "say hello")
+
+		expect([consoleTook.status, scheduleTook.status]).toEqual([200, 200])
+	})
+
+	it("★ a client command this manager will not run is refused when it is scheduled, not on every run", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const res = await schedule(cookie, instanceId, "!nope")
+
+		expect(await answerOf(res)).toEqual({
+			status: 400,
+			errorCode: "INSTANCE_COMMAND_NOT_ALLOWED",
+			message: "That client command is not one this manager will run",
+		})
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
 	})
 
 	it("★ a stop that threw something other than an error stays a server fault, not the host's", async () => {

@@ -71,7 +71,7 @@ import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
-import { DoubleSlashCredentialError } from "./control"
+import { DisallowedInternalCommandError, DoubleSlashCredentialError } from "./control"
 import {
 	type ActorContext,
 	createInstanceController,
@@ -1277,14 +1277,14 @@ describe("scheduled commands", () => {
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
 	})
 
-	it("audits a password a schedule stored behind the internal prefix, which only fails later", async () => {
+	it("audits a password a schedule stored, without the password", async () => {
 		const { deps, audit } = makeDeps()
 		const controller = createInstanceController(deps)
 
 		await controller.setScheduledCommand(owner, {
 			instanceId: "abc123",
 			name: "morning wave",
-			command: "!login hunter2",
+			command: "/login hunter2",
 			daysOfWeek: ["Mon"],
 			runAt: { hour: 9, minute: 0 },
 			timezone: "UTC",
@@ -1294,10 +1294,47 @@ describe("scheduled commands", () => {
 		expect(audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
 			expect.objectContaining({
-				detail: { schedule: "morning wave", command: "!login [redacted]" },
+				detail: { schedule: "morning wave", command: "/login [redacted]" },
 			}),
 		)
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+	})
+
+	it("★ refuses to store a client command it would never run, rather than failing on every run", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await expect(
+			controller.setScheduledCommand(owner, {
+				instanceId: "abc123",
+				name: "morning wave",
+				command: "!login hunter2",
+				daysOfWeek: ["Mon"],
+				runAt: { hour: 9, minute: 0 },
+				timezone: "UTC",
+				enabled: true,
+			}),
+		).rejects.toThrow(DisallowedInternalCommandError)
+		expect(deps.commands.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
+	})
+
+	it("★ stores a client command it will run, so the refusal is not blanket", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "!reco",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+
+		expect(deps.commands.upsert).toHaveBeenCalled()
+		expect(audit.record).toHaveBeenCalled()
 	})
 
 	it("refuses to store a password behind two slashes, which would never log the bot in", async () => {

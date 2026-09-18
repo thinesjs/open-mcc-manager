@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { instanceCommandText } from "./instance"
 
 export const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
 
@@ -65,14 +66,6 @@ export const sleepWindowPublic = z.object({
 	enabled: z.boolean(),
 })
 export type SleepWindowPublic = z.infer<typeof sleepWindowPublic>
-
-export const INSTANCE_COMMAND_MAX_BYTES = 256
-
-export const instanceCommandText = z
-	.string()
-	.min(1)
-	.max(INSTANCE_COMMAND_MAX_BYTES)
-	.refine((value) => !/[\n\r]/.test(value), "A scheduled command must be a single line")
 
 export const scheduledCommandInput = z
 	.object({

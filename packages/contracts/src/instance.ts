@@ -267,6 +267,7 @@ export const hostUnreachableReasonSchema = z.enum([
 	"unprovisioned",
 	"unreachable",
 	"interrupted",
+	"unreadable",
 	"failed",
 ])
 export type HostUnreachableReason = z.infer<typeof hostUnreachableReasonSchema>

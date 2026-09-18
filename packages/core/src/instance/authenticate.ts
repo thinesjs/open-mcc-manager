@@ -27,6 +27,7 @@ import { isAuthClaimStale } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
 import {
 	authUnitName,
+	HostAnswerUnreadableError,
 	INSTANCE_LAYOUT,
 	instanceDir,
 	stopAuthCommand,
@@ -282,7 +283,9 @@ export const completeAuthentication = async (
 			return { authenticated: false, status: instance.status }
 		}
 		if (probe.exitCode !== 0) {
-			throw new Error(`Could not read whether instance ${instance.id} has signed in`)
+			throw new HostAnswerUnreadableError(
+				`Could not read whether instance ${instance.id} has signed in`,
+			)
 		}
 		if (instance.status !== "needs_auth") {
 			return { authenticated: true, status: instance.status }

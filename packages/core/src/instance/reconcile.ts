@@ -26,7 +26,14 @@ import {
 } from "./config-drift"
 import { probeListening } from "./live-control"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
-import { CONFIG_FILE_PATH, INSTANCE_LAYOUT, instanceDir, renderUnitEnv, unitName } from "./unit"
+import {
+	CONFIG_FILE_PATH,
+	HostAnswerUnreadableError,
+	INSTANCE_LAYOUT,
+	instanceDir,
+	renderUnitEnv,
+	unitName,
+} from "./unit"
 
 export type {
 	ConfigDriftPublic,
@@ -207,7 +214,7 @@ const readHostFacts = async (reader: SetupReader, imageId: string) => {
 	}
 	const facts = parseReconcileFacts(result.stdout)
 	if (facts === undefined) {
-		throw new Error("The host's units and containers could not be read in full")
+		throw new HostAnswerUnreadableError("The host's units and containers could not be read in full")
 	}
 	return facts
 }

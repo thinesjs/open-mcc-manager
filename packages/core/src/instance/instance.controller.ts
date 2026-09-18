@@ -133,6 +133,7 @@ import {
 	configWriteCommand,
 	ENV_WRITTEN,
 	envWriteUnlessRunningCommand,
+	HostAnswerUnreadableError,
 	instanceLayoutSteps,
 	parseEnvWriteAnswer,
 	parseUnitStartState,
@@ -266,7 +267,7 @@ const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'
 const startedOrThrow = (instanceId: string, output: string): void => {
 	const state = parseUnitStartState(output)
 	if (state === undefined) {
-		throw new Error(`Could not read whether instance ${instanceId} started`)
+		throw new HostAnswerUnreadableError(`Could not read whether instance ${instanceId} started`)
 	}
 	if (state.activeState === "active") return
 	if (
@@ -872,7 +873,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					}
 					const answer = parseEnvWriteAnswer(wrote.stdout)
 					if (answer === undefined) {
-						throw new Error(`Could not read whether instance ${claimed.id} is running`)
+						throw new HostAnswerUnreadableError(
+							`Could not read whether instance ${claimed.id} is running`,
+						)
 					}
 					if (answer === ENV_WRITTEN) {
 						const stored = await deps.instances.writeTokenUnderClaim(
@@ -1411,8 +1414,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					expected,
 					expectedConfigs,
 				)
-			} catch {
-				return { hostId, reachable: false, reason: "interrupted" }
+			} catch (error) {
+				const reason = error instanceof HostAnswerUnreadableError ? "unreadable" : "interrupted"
+				return { hostId, reachable: false, reason }
 			} finally {
 				reader.release()
 			}

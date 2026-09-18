@@ -106,6 +106,8 @@ export {
 	beginAuthentication,
 	DEVICE_CODE_PATTERN,
 	DEVICE_CODE_TTL_MS,
+	SESSION_CACHE_UNREADABLE_EXIT,
+	sessionCacheProbeCommand,
 	VERIFICATION_URI_PATTERN,
 } from "./instance/authenticate"
 export type { CommandRepository, ScheduledCommandValues } from "./instance/command.repository"
@@ -187,6 +189,7 @@ export {
 export {
 	ENV_WRITTEN,
 	envWriteUnlessRunningCommand,
+	HostAnswerUnreadableError,
 	renderEnvironmentFile,
 	startUnitCommand,
 	validateInstanceId,

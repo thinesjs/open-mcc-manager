@@ -20,6 +20,7 @@ import {
 	DoubleSlashCredentialError,
 	FingerprintMismatchError,
 	ForbiddenError,
+	HostAnswerUnreadableError,
 	HostConcurrentlyModifiedError,
 	HostHasInstancesError,
 	HostKeyUnreadableError,
@@ -308,6 +309,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"CONFLICT",
 			"INSTANCE_LIVE_UNAVAILABLE",
 			"The client's live channel is not available right now",
+		)
+	}
+	if (cause instanceof HostAnswerUnreadableError) {
+		return mapped(
+			"CONFLICT",
+			"HOST_ANSWER_UNREADABLE",
+			"The host answered in a way this manager could not read",
 		)
 	}
 	if (cause instanceof TransportInterruptedError) {

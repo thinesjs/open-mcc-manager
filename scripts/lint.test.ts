@@ -50,6 +50,16 @@ describe("lint runner", () => {
 		expect(ran).toContain("node scripts/check-page-loading.mjs")
 	})
 
+	it("runs the enforcement-count gate, or the stated count could drift from the table again", () => {
+		const ran: string[] = []
+		runAll(undefined, (command: string, args: readonly string[]) => {
+			ran.push([command, ...args].join(" "))
+			return spawned("", 0)
+		})
+
+		expect(ran).toContain("node scripts/check-enforcement-count.mjs")
+	})
+
 	it("surfaces a check that could not be spawned rather than counting it as a pass", () => {
 		const results = runAll([{ name: "missing", command: "nope", args: [] }], () => ({
 			...spawned("", 0),

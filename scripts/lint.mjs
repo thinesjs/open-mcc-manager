@@ -9,6 +9,7 @@ const CHECKS = [
 	{ name: "runtime-deps", command: "node", args: ["scripts/check-runtime-deps.mjs"] },
 	{ name: "image-notices", command: "node", args: ["scripts/check-image-notices.mjs"] },
 	{ name: "page-loading", command: "node", args: ["scripts/check-page-loading.mjs"] },
+	{ name: "enforcement-count", command: "node", args: ["scripts/check-enforcement-count.mjs"] },
 ]
 
 export const runCheck = (check, run = defaultRun) => {

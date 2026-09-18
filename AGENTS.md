@@ -352,6 +352,24 @@ suppression cannot be written anywhere in the tree. That is intentional: fix
 the finding, or add an exact-path exemption and say why in the commit
 subject.
 
+Its main block is guarded by `process.argv[1]?.endsWith("check-type-policy.mjs")`,
+the form every checker here uses. Do not "tighten" it into a comparison against
+`import.meta.url`. Node percent-encodes that URL and resolves it through
+symlinks, while leaving `process.argv[1]` exactly as it was typed:
+`` import.meta.url === `file://${process.argv[1]}` `` is therefore false from
+any path holding a space, which is how this checker and
+`check-commit-subjects.mjs` both exited 0 having scanned nothing, and even
+`pathToFileURL(process.argv[1]).href` is false under `os.tmpdir()` on macOS,
+where `/var` is a symlink to `/private/var`. Only realpathing both sides is
+exact, and it buys a throwing filesystem call on `process.argv[1]`, which is
+not always a path. The suffix comparison's own weakness runs the other way — a
+differently-named file ending in those same characters would fire the gate when
+it should not — and a gate that runs when it need not is noise, where the URL
+forms are a silent pass. `check-type-policy.test.ts` and
+`check-commit-subjects.test.ts` each copy the checker into a scratch directory
+whose name holds a space and require exit 1 on input it must reject; both
+`file://` and `pathToFileURL` fail that case, measured.
+
 ### `scripts/check-commit-subjects.mjs`
 
 Reads `git log` over a revision range and rejects any non-merge commit whose

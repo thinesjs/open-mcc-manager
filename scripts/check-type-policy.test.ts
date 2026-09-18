@@ -1,11 +1,25 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it } from "vitest"
 import { findViolations } from "./check-type-policy.mjs"
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+const CHECKER = join(ROOT, "scripts", "check-type-policy.mjs")
+
+const made: string[] = []
+
+const scratch = (prefix: string): string => {
+	const directory = mkdtempSync(join(tmpdir(), prefix))
+	made.push(directory)
+	return directory
+}
+
 const seed = (files: Record<string, string>): string => {
-	const root = mkdtempSync(join(tmpdir(), "policy-"))
+	const root = scratch("policy-")
 	for (const [rel, body] of Object.entries(files)) {
 		const full = join(root, rel)
 		mkdirSync(join(full, ".."), { recursive: true })
@@ -13,6 +27,10 @@ const seed = (files: Record<string, string>): string => {
 	}
 	return root
 }
+
+afterAll(() => {
+	for (const directory of made) rmSync(directory, { recursive: true, force: true })
+})
 
 describe("findViolations", () => {
 	it("rejects unknown outside the boundary directory", () => {
@@ -547,5 +565,45 @@ describe("findViolations", () => {
 			{ file: "apps/web/src/z15.ts", line: 1, token: "next" },
 			{ file: "apps/web/package.json", line: 3, token: "next" },
 		])
+	})
+})
+
+describe("the command pnpm lint runs", () => {
+	const BYPASS = { "packages/core/src/a.ts": "const x: unknown = 1\n" }
+
+	it("exits 1 and names the token it found in the tree it was pointed at", () => {
+		const result = spawnSync("node", [CHECKER], { cwd: seed(BYPASS), encoding: "utf8" })
+
+		expect(result.status).toBe(1)
+		expect(`${result.stdout}${result.stderr}`).toContain(
+			`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
+		)
+	})
+
+	it("still runs from a path holding a space, rather than passing without checking", () => {
+		const directory = scratch("a gate-")
+		const copied = join(directory, "check-type-policy.mjs")
+		copyFileSync(CHECKER, copied)
+		symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
+
+		const result = spawnSync("node", [copied], { cwd: seed(BYPASS), encoding: "utf8" })
+
+		expect(result.status).toBe(1)
+		expect(`${result.stdout}${result.stderr}`).toContain(
+			`${join("packages", "core", "src", "a.ts")}:1 forbidden token 'unknown'`,
+		)
+	})
+
+	it("exits 0 from that same path on a tree with nothing to report, so it is not simply failing", () => {
+		const directory = scratch("a gate-")
+		const copied = join(directory, "check-type-policy.mjs")
+		copyFileSync(CHECKER, copied)
+		symlinkSync(join(ROOT, "node_modules"), join(directory, "node_modules"), "dir")
+		const clean = seed({ "packages/core/src/a.ts": "export const x = 1 as const\n" })
+
+		const result = spawnSync("node", [copied], { cwd: clean, encoding: "utf8" })
+
+		expect(`${result.stdout}${result.stderr}`).toBe("")
+		expect(result.status).toBe(0)
 	})
 })

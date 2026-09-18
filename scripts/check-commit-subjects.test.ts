@@ -1,9 +1,26 @@
-import { execFileSync } from "node:child_process"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { execFileSync, spawnSync } from "node:child_process"
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it } from "vitest"
 import { checkCommits, parseLog, readCommits } from "./check-commit-subjects.mjs"
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+const CHECKER = join(ROOT, "scripts", "check-commit-subjects.mjs")
+
+const made: string[] = []
+
+const scratch = (prefix: string): string => {
+	const directory = mkdtempSync(join(tmpdir(), prefix))
+	made.push(directory)
+	return directory
+}
+
+afterAll(() => {
+	for (const directory of made) rmSync(directory, { recursive: true, force: true })
+})
 
 const FIELD = "\u001f"
 const RECORD = "\u001e"
@@ -19,7 +36,7 @@ const commit = (subject: string, body = "", parents = ["p1"]) => ({
 })
 
 const gitRepo = (): string => {
-	const root = mkdtempSync(join(tmpdir(), "commits-"))
+	const root = scratch("commits-")
 	const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }
 	const git = (...args: string[]): void => {
 		execFileSync("git", args, { cwd: root, env, stdio: "ignore" })
@@ -160,5 +177,40 @@ describe("readCommits", () => {
 			"format",
 			"body",
 		])
+	})
+})
+
+describe("the command CI runs", () => {
+	it("exits 1 and names the commit that carries a description", () => {
+		const result = spawnSync("node", [CHECKER, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
+
+		expect(result.status).toBe(1)
+		expect(`${result.stdout}${result.stderr}`).toContain(
+			"commit has a description; subject lines only",
+		)
+	})
+
+	it("still runs from a path holding a space, rather than passing without checking", () => {
+		const directory = scratch("a gate-")
+		const copied = join(directory, "check-commit-subjects.mjs")
+		copyFileSync(CHECKER, copied)
+
+		const result = spawnSync("node", [copied, "HEAD"], { cwd: gitRepo(), encoding: "utf8" })
+
+		expect(result.status).toBe(1)
+		expect(`${result.stdout}${result.stderr}`).toContain(
+			"commit has a description; subject lines only",
+		)
+	})
+
+	it("exits 0 from that same path over a conforming range, so it is not simply failing", () => {
+		const directory = scratch("a gate-")
+		const copied = join(directory, "check-commit-subjects.mjs")
+		copyFileSync(CHECKER, copied)
+
+		const result = spawnSync("node", [copied, "HEAD~1"], { cwd: gitRepo(), encoding: "utf8" })
+
+		expect(`${result.stdout}${result.stderr}`).toBe("")
+		expect(result.status).toBe(0)
 	})
 })

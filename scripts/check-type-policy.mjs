@@ -223,10 +223,12 @@ const describe = (violation) => {
 	return `forbidden token '${violation.token}'`
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const main = () => {
 	const found = findViolations(process.cwd())
 	for (const violation of found) {
 		console.error(`${violation.file}:${violation.line} ${describe(violation)}`)
 	}
 	process.exit(found.length === 0 ? 0 : 1)
 }
+
+if (process.argv[1]?.endsWith("check-type-policy.mjs")) main()

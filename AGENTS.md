@@ -235,7 +235,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Forty-five rules stated further down this document are enforced too, and are
+Forty-six rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -285,6 +285,7 @@ have:
 | The count this table's own sentence states matching the number of rows below it | `check-enforcement-count.mjs` — reads the number word out of the sentence above this table, counts the rows from the header down to the paragraph beginning "Everything else in this document", and fails when the two disagree. A count it cannot read as an English word from zero to ninety-nine fails it rather than passing, and so does a row wrapped onto a second line, because then a line count is not a row count. It holds that arithmetic and nothing else: no part of it checks that a row's claim of enforcement is true. `check-enforcement-count.test.ts` drives the merge that shipped thirty-six rows under a count of thirty-three, and requires a table that agrees at a count other than today's to pass, so a checker comparing against a fixed number fails it |
 | No bare `Error` raised anywhere under `packages/core/src` | `check-thrown-errors.mjs`, in `pnpm lint` — parses every `.ts` under that tree that is not a `*.test.ts` and reports every use of the `Error` constructor itself, with `new` or without, thrown or only built, so `reject(new Error(...))` and an `Error` built in one place and thrown in another are caught as well as `throw new Error(`; it exits 1 naming the file and the line. It reads the parse tree, so the constructor named inside a string is not a violation and a class whose name merely ends in `Error` is not one either. It reports a tree that is not there, a tree holding no source file, and a file it cannot parse, rather than passing on having read nothing. `check-thrown-errors.test.ts` gives every one of those guards a case that fails when the guard is removed — measured: the body replaced by an empty result fails 8 of the 17 **with the real tree still exiting 0**, a `walk` that stops recursing fails 7, reporting only throws fails the `reject(new Error(...))` case, widening the exemption from the `.test.ts` suffix to any path naming test fails the four-file case, dropping the empty-tree, missing-tree or parse-error guard fails one case each, and the `import.meta.url === \`file://${process.argv[1]}\`` main guard — the form that made the count gate exit 0 from any path holding a space — fails the path-with-a-space case. One case copies the real core tree into a scratch directory, appends one bare throw, and requires exit 1 naming that file and line, and another requires a directory named `build`, `dist` or `coverage` **inside** that tree to be read rather than skipped, because nothing builds inside `src` and a source directory may carry any of those names. Three cases in `apps/server/src/instance.test.ts` hold the answers these declarations produce, over HTTP against a scripted host: a refused **Save settings** and a refused **Create** each compare the whole wire answer against `HOST_REFUSED`, and a **sealing key the manager no longer holds** must stay a **500** on a console command, naming neither `INSTANCE_COMMAND_NOT_SENT` nor its sentence nor the missing key id — so the one site whose answer this change deliberately moved cannot drift back to a verb's words, nor be swallowed by a later boundary. Measured: with that site a plain `Error` again, the console command answers **400** "The command did not reach this instance". Because it is a whole-directory rule, a file created tomorrow is covered the day it is made, which is what instance-fixing did not give: a journald race fixed at four call sites came back in a file that had not existed when the fix was made. What it does NOT hold: **that the class chosen is the right one** — an `InternalError` picked lazily on a path an operator is waiting on passes it, and no checker can decide reachability honestly; **that any operator reads good copy**, which this proves nothing about; anything outside `packages/core/src`, so `apps/server/src`, `apps/worker/src`, `packages/transport/src` and `packages/contracts/src` may still raise a bare `Error` — the four `reject(new Error(...))` in `packages/transport/src/ssh/` still do, and `failingAs` is written to convert exactly those; a bare `Error` raised inside a dependency, which is how pg's "Connection terminated unexpectedly" and pg-boss's "Queue ... does not exist" arrive; and a `*.test.ts`, exempt because `failingAs` and `acceptAlert` discriminate on `error.constructor === Error` and a test that cannot raise a plain one cannot drive them |
 | Every `.mjs` main guard in the repository taking the `process.argv[1]?.endsWith("<filename>.mjs")` form | `main-guards.test.ts` — walks every `.mjs` in the tree rather than reading a list, so a script written next month is covered the day it is made, and fails naming the file and the line of any that compares `import.meta.url` or reads `process.argv[1]` without the suffix naming its own file. It holds the guard's *shape*, not that the main block does anything useful, and it cannot see a script that guards correctly and then checks nothing. Measured: the broken form put back in `check-page-loading.mjs`, `check-runtime-deps.mjs`, `check-image-notices.mjs` and `lint.mjs` leaves the rest of the suite 339/339 green and fails this one alone, naming all four — `lint.mjs` being the severe site, where a regressed guard makes `pnpm lint` exit 0 having spawned none of the eight checkers |
+| An invited operator reaching their own member row through the configured provider, and a stranger at that provider reaching nothing | `apps/server/src/oidc-sign-in.test.ts` — stands a real OIDC provider on a real port and drives the whole redirect through the running server: the authorize call, the state cookie, the callback, the token exchange and the userinfo read. It asserts on the **rows**, never on a thrown class. An invited operator lands back on the dashboard's signed-in page with exactly one `user` row for their address, the `member` row and role they were seeded with untouched, one `account` row carrying the provider's subject, and one `session` carrying their organization; a second sign-in adds no second user and no second account. A stranger the deployment never invited is redirected to the sign-in page carrying `registration_closed` and the gate's own sentence, with **no** user row added and **no** session opened. Measured: with `GATES_USER_CREATION.gated` flipped to `false` all three invited-operator cases stay green and the stranger walks in with a `session_token` cookie, so a weakened gate fails loudly rather than quietly; with `accountLinking.requireLocalEmailVerified` dropped the invited operator is refused `account_not_linked` instead, which is what pins the better-auth option this feature rests on across a version bump; with the provider added to `accountLinking.trustedProviders` the unconfirmed-address case stops refusing, which is what pins the takeover vector. `apps/server/src/auth-routes.wiring.test.ts` holds the other half — a deployment that configures no provider mounts exactly the five dashboard routes, so mounting the two unconditionally fails there. What it does NOT hold: that a **real** IdP behaves like the one it stands up — that provider returns no `id_token`, so the JWKS and nonce path better-auth takes when discovery advertises `jwks_uri` is never driven; nor that better-auth's own logger keeps the client secret, since only the logger this deployment passes in is read; nor anything about a deployment with no users at all, where the gate deliberately admits every method |
 | Every `check-*.mjs` gate refusing input it must reject, rather than reporting success having checked nothing | each checker's own `*.test.ts` — all eight spawn the checker as a subprocess against input carrying a violation and require exit 1 naming the offence, each beside a case requiring exit 0 on input it must accept, so a gate that simply always fails does not pass either. How each is pointed at a seeded tree is a fact about the checker rather than a choice: `check-runtime-deps`, `check-image-notices` and `check-type-policy` read `process.cwd()`, so spawning with `cwd:` is enough; `check-enforcement-count` and `check-thrown-errors` take the path as `process.argv[2]`; `check-commit-subjects` is run over a scratch git repository; `check-control-sizing` and `check-page-loading` derive their root from `import.meta.dirname` and take no argument, so a byte copy is spawned from a scratch `scripts/` beside the tree it will walk — which is why those two cases hold their main guard from a path holding a space as well, measured: the `import.meta.url` form put back in `check-control-sizing.mjs` fails the seeded case beside `main-guards.test.ts`. `check-control-sizing` carries a third case, requiring the module to check nothing when it is **imported** rather than run, because its own suite imports it: the module-scope walk it had before called `process.exit(1)` inside the vitest worker on any violation in `apps/web/src`, and all six of its cases then reported `Tests no tests` rather than failing. Every spawning case in these eight suites carries an explicit 60s timeout, because one of them passed locally at 0.24s and timed out on CI under vitest's 5s default. Measured: a `main()` gutted to `return` at its first line leaves 16 of the 17 script suites green — `main-guards.test.ts` included, since it reads the guard's shape and never spawns — and fails exactly the one case in the eighth, `expected +0 to be 1`. It holds that each gate fires on **one** shape of bad input, NOT that it finds every shape: the seeded violation is a line or two each, so a checker narrowed to exactly that line still passes, and nothing here reads a checker's rule for sense |
 
 Everything else in this document — the layering direction, the rest of the
@@ -1375,6 +1376,76 @@ request returns 500**, auth included. Migration 0026 drops the constraint. The
 failure is latent rather than immediate: it only appears once the image
 installs the pinned tree, so a cached Docker layer can hide it for a long time
 and a clean build will surface it without any code having changed.
+
+### Signing in through the operator's own provider
+
+One generic OIDC provider, configured from the environment and absent entirely
+when it is not. `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` set
+together configure it; `OIDC_NAME` is what the button says. `oidc-env.ts` reads
+them the way `self-host-env.ts` reads its own: a predicate for "the operator set
+something", a builder that returns `undefined` when what they set is unusable,
+and one warning sentence for the gap between the two. Unset, `createAuth` builds
+the same `betterAuth` options it always did, `mountDashboardAuth` mounts the same
+five routes, and `system.signInOptions` answers `null`, so the dashboard offers
+nothing. Configured, two routes join the five —
+`POST /api/auth/sign-in/social` and `GET /api/auth/callback/oidc` — because
+better-auth 1.7.2's `generic-oauth` plugin registers its providers as ordinary
+social providers and adds no endpoints of its own. It is a bundled subpath, so
+this costs no runtime dependency. The provider id is `OIDC_PROVIDER_ID` in
+`packages/contracts`, read by the server for the callback path and by the
+dashboard for the button, so the two cannot disagree about it.
+
+`accountIssuer` is set explicitly to the configured issuer, and that is not
+decoration. `genericOAuth`'s `init` fetches the discovery document, and
+`betterAuth()` builds its context promise eagerly, once: an `init` that throws
+makes every later `await` on that promise reject, so **password sign-in would
+die with it**. With `accountIssuer` set, a provider that is down or serving
+nothing at boot leaves the server up and only that button broken. Never remove
+it to save a line.
+
+The registration gate is what decides who arrives. An OIDC identity whose email
+matches no user reaches `internalAdapter.createUser`, which stamps
+`action: "create-user"` on the source, so the gate refuses it and the callback
+redirects to the dashboard's sign-in page carrying `registration_closed` and the
+gate's own sentence. No second control stands in front of that — deliberately.
+`disableSignUp` on the provider config would catch the same case one step
+earlier and would leave the gate's own test green while the gate was gone, which
+is the shape `emailAndPassword.disableSignUp` already teaches us not to trust.
+
+An OIDC identity whose email **does** match an existing user is linked to that
+user, and two conditions in better-auth's `handleOAuthUserInfo` govern it:
+
+- The provider must assert `email_verified`, because `accountLinking.trustedProviders`
+  is left empty and nothing may add this provider to it. Unconditional linking on
+  an email string is an account-takeover vector whenever the provider will hand
+  out an address its holder never proved; leaving the provider untrusted is the
+  defence better-auth offers and we keep it. A member whose provider vouches for
+  nothing is refused `account_not_linked` and reads a sentence saying so.
+- `accountLinking.requireLocalEmailVerified` defaults to `true`, and **every** user
+  here has `emailVerified: false`, because `signUpEmail` writes that and nothing
+  in this product ever sends a verification mail. Left at its default, no invited
+  operator could ever sign in this way. It is set to `false`, and only on an
+  instance that carries a provider. What that default guards against — an attacker
+  pre-registering an unverified account at a victim's address so the victim's
+  OIDC identity links into the attacker's row — cannot happen here: nobody can
+  register at all. The gate refuses every `create-user` once one user exists, and
+  the bootstrap advisory lock makes exactly one first owner, so the only people
+  who can cause a row at a given address to exist are the installer and a member
+  holding `member.manage`. better-auth deprecates the option and says the gate
+  will become unconditional; when that lands, `oidc-sign-in.test.ts`'s invited
+  operator goes red rather than the feature failing quietly in a deployment.
+
+Whoever the operator points this at becomes the authority on their members'
+email addresses. That is inherent to single sign-on and is said plainly in
+`.env.example` rather than hidden.
+
+The client secret is read from the environment into `createAuth` and goes to the
+token endpoint in a `client_secret_post` body. It never reaches an authorization
+URL, a cookie, a redirect, a response header or a log line, and no audit row is
+written for a sign-in at all. `redact.ts` needs no pattern for it: a pattern
+there masks a secret that has already reached a string somewhere, and this one is
+never put into one — `redactValue` would be the tool if a call site ever had to
+log something built from it.
 
 ### Removing a member
 

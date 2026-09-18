@@ -3,6 +3,8 @@ import {
 	type ErrorCode,
 	isErrorCode,
 	NOT_AN_ADDRESS_MESSAGE,
+	REGISTRATION_CLOSED_CODE,
+	REGISTRATION_CLOSED_MESSAGE,
 } from "@open-mcc/contracts"
 
 export type TRPCErrorLike = {
@@ -147,6 +149,19 @@ export const getErrorMessage = (error: TRPCErrorLike): string => {
 	if (mapped) return mapped
 	return isSentence(error.message) ? error.message : FALLBACK_MESSAGE
 }
+
+const SIGN_IN_FAILURES: Record<string, string> = {
+	[REGISTRATION_CLOSED_CODE]: REGISTRATION_CLOSED_MESSAGE,
+	account_not_linked:
+		"Your provider did not confirm this email address, so it was not matched to a member here.",
+	email_not_found: "Your provider did not send an email address, so there was nothing to match.",
+}
+
+const SIGN_IN_UNFINISHED_MESSAGE =
+	"That sign-in did not finish. Try again, or sign in with your email and password."
+
+export const signInFailureMessage = (code: string): string =>
+	SIGN_IN_FAILURES[code] ?? SIGN_IN_UNFINISHED_MESSAGE
 
 const LOST_SAVE_MESSAGE =
 	"Someone else saved first, so your changes were not saved. The form now shows theirs."

@@ -134,6 +134,7 @@ const ctx: RequestContext = {
 	},
 	auth,
 	signupAuth: auth,
+	signInOptions: { singleSignOn: null },
 	headers: new Headers(),
 	hostController,
 	processIdentities: {

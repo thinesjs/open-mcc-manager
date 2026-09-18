@@ -82,6 +82,7 @@ beforeAll(async () => {
 			createContext: createRequestContext({
 				auth,
 				signupAuth,
+				signInOptions: { singleSignOn: null },
 				db,
 				hostController,
 				processIdentities: {

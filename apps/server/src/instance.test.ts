@@ -124,6 +124,7 @@ beforeAll(async () => {
 			createContext: createRequestContext({
 				auth,
 				signupAuth: auth,
+				signInOptions: { singleSignOn: null },
 				db,
 				hostController: createHostController({
 					hosts,
@@ -588,6 +589,7 @@ describe("which controller method each readout route reaches", () => {
 				createContext: createRequestContext({
 					auth,
 					signupAuth: auth,
+					signInOptions: { singleSignOn: null },
 					db,
 					hostController: createHostController({
 						hosts,

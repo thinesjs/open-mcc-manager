@@ -75,6 +75,7 @@ const base: RequestContext = {
 	},
 	auth,
 	signupAuth: auth,
+	signInOptions: { singleSignOn: null },
 	headers: new Headers(),
 	hostController,
 	processIdentities: processIdentitiesReporting(undefined),

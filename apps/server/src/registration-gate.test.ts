@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { REGISTRATION_CLOSED_CODE, REGISTRATION_CLOSED_MESSAGE } from "@open-mcc/contracts"
 import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
 import type { ValidateUserInfoSource } from "better-auth"
 import { Hono } from "hono"
@@ -6,12 +7,7 @@ import { Client } from "pg"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { type Auth, createAuth } from "./auth"
 import { bootstrapOwner } from "./bootstrap-owner"
-import {
-	anyUserExists,
-	createRegistrationGate,
-	REGISTRATION_CLOSED_CODE,
-	REGISTRATION_CLOSED_MESSAGE,
-} from "./security/registration-gate"
+import { anyUserExists, createRegistrationGate } from "./security/registration-gate"
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? ""
 const databaseName = `registration_gate_test_${randomUUID().replaceAll("-", "")}`

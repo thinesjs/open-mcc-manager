@@ -15,6 +15,7 @@ import { journalctl, podman, systemctl, UNIT_DIR } from "../host/profile"
 import type { RuntimeHost } from "../host/runtime-guard"
 import { podmanImageId, RUNTIME_IMAGE_REPOSITORY, runtimeImageFor } from "../host/runtime-image"
 import { renderUnitTemplates, type UnitRuntime } from "../host/unit-template"
+import { HostRefusedError } from "../lib/errors"
 import { LIVE_CONTROL_ROUTE } from "./config"
 import type { ConfigDrift } from "./config-drift"
 import {
@@ -210,7 +211,9 @@ const parseReconcileFacts = (output: string) => {
 const readHostFacts = async (reader: SetupReader, imageId: string) => {
 	const result = await reader.exec(asReadCommand(reconcileFactsCommand(imageId)))
 	if (result.exitCode !== 0) {
-		throw new Error(`Could not read the host's units and containers: ${result.stderr.trim()}`)
+		throw new HostRefusedError(
+			`Could not read the host's units and containers: ${result.stderr.trim()}`,
+		)
 	}
 	const facts = parseReconcileFacts(result.stdout)
 	if (facts === undefined) {

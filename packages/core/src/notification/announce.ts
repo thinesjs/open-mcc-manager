@@ -3,6 +3,7 @@ import type { NotificationDestinationRow } from "@open-mcc/db"
 import type { SqlRunner } from "../job/executor-adapter"
 import type { QueueName, SendJob } from "../job/job.queue"
 import { NOTIFICATION_EMAIL_QUEUE, NOTIFICATION_HTTP_QUEUE } from "../job/queue-setup"
+import { InternalError } from "../lib/errors"
 import { carrierForActiveContext } from "../log/tracing"
 import type { NotificationRepository } from "./notification.repository"
 import type { EventFact, PlannedNotification } from "./producer"
@@ -76,7 +77,7 @@ export const announce = async (
 			deps.runner,
 		)
 		if (jobId === null) {
-			throw new Error(`the delivery to ${destination.name} could not be queued`)
+			throw new InternalError(`the delivery to ${destination.name} could not be queued`)
 		}
 	}
 

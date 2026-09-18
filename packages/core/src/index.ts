@@ -60,7 +60,6 @@ export {
 	HostKeyUnreadableError,
 	HostMisconfiguredError,
 	HostNotFoundError,
-	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostRemovalNotStartedError,
 	SshKeyNotFoundError,
@@ -81,6 +80,7 @@ export type { HostReaderDeps, HostReadLease } from "./host/host-reader"
 export { hostReadKey, leaseHostReader } from "./host/host-reader"
 export type { ProvisionOptions, ProvisionResult } from "./host/provision"
 export {
+	HostProvisioningFailedError,
 	PROVISION_STEP_TIMEOUT_MS,
 	PROVISION_STEPS,
 	provisionHost,
@@ -214,6 +214,7 @@ export {
 	STATUS_ESCALATE_QUEUE,
 	SYSTEM_UPDATE_CHECK_QUEUE,
 } from "./job/queue-setup"
+export { HostRefusedError, InternalError } from "./lib/errors"
 export { assertExhaustive } from "./lib/exhaustive"
 export type { Fields, Level, Logger, TraceIds } from "./log/logger"
 export { createLogger, createRootLogger, readLevel } from "./log/logger"

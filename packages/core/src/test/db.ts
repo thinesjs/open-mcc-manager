@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { createDb, type Db } from "@open-mcc/db"
+import { InternalError } from "../lib/errors"
 
 let db: Db | undefined
 
 export const testDb = (): Db => {
 	const url = process.env.TEST_DATABASE_URL
-	if (!url) throw new Error("TEST_DATABASE_URL is required to run repository tests")
+	if (!url) throw new InternalError("TEST_DATABASE_URL is required to run repository tests")
 	if (!db) db = createDb(url)
 	return db
 }

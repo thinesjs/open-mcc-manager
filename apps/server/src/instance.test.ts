@@ -28,6 +28,7 @@ import {
 	envWriteUnlessRunningCommand,
 	generateKeyPair,
 	generateSshKeyPair,
+	HOST_METRICS_COMMAND,
 	renderEnvironmentFile,
 	SESSION_CACHE_UNREADABLE_EXIT,
 	type SecretStore,
@@ -59,6 +60,40 @@ const ORIGIN = "http://localhost:5173"
 const hostScript: FakeScript = {}
 
 const hostTransports: ReturnType<typeof createFakeTransport>[] = []
+
+const HOST_COMPLAINT =
+	"Job for open-mcc@unit.service failed. See systemctl --user status and journalctl -xeu under /home/mcc/instances"
+
+let refuseCommandsNaming: string | undefined
+
+const collectTransport = (each: ReturnType<typeof createFakeTransport>): void => {
+	hostTransports.push(each)
+	const inner = each.exec
+	each.exec = async (command, timeoutMs, stdin) =>
+		refuseCommandsNaming !== undefined && command.includes(refuseCommandsNaming)
+			? { stdout: "", stderr: HOST_COMPLAINT, exitCode: 1 }
+			: await inner(command, timeoutMs, stdin)
+}
+
+const wireErrorSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		data: z.object({ errorCode: z.string().optional() }),
+	}),
+})
+
+const answerOf = async (res: Response) => {
+	const text = await res.text()
+	expect(text).not.toMatch(/open-mcc@|systemctl|journalctl|\/home\/|Internal server error/)
+	const { error } = wireErrorSchema.parse(JSON.parse(text))
+	return { status: res.status, errorCode: error.data.errorCode, message: error.message }
+}
+
+const HOST_REFUSED = {
+	status: 400,
+	errorCode: "HOST_REFUSED",
+	message: "The host would not do what this manager asked",
+}
 
 let db: Db
 let app: Hono
@@ -110,7 +145,7 @@ beforeAll(async () => {
 				build: { version: "0.0.0-test", commit: "testsha" },
 				schemaVersion: "test",
 				instanceController: await createTestInstanceController(db, secrets, hostScript, (each) =>
-					hostTransports.push(each),
+					collectTransport(each),
 				),
 				statusController: createTestStatusController(db),
 				destinationController: createTestDestinationController(db, secrets),
@@ -157,6 +192,7 @@ afterEach(async () => {
 	seededEmails = []
 	seededInstanceIds = []
 	hostTransports.length = 0
+	refuseCommandsNaming = undefined
 
 	if (instanceIds.length > 0) {
 		await db.deleteFrom("instanceConfig").where("instanceId", "in", instanceIds).execute()
@@ -1023,6 +1059,21 @@ describe("a save that lost the race", () => {
 		return row?.version
 	}
 
+	it("★ a settings save the host refused says the host refused it, not that the manager broke", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+		refuseCommandsNaming = "MinecraftClient.ini"
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: SETTINGS,
+			expectedVersion: 2,
+		})
+
+		expect(await answerOf(res)).toEqual(HOST_REFUSED)
+		expect(await latestVersion(instanceId)).toBe(2)
+	})
+
 	it("★ refuses a settings save made against a version someone else replaced", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()
 		const instanceId = await seedReadyInstance(orgId, memberId)
@@ -1094,8 +1145,7 @@ describe("a save that lost the race", () => {
 })
 
 describe("what an operator reads when the host will not do what they asked", () => {
-	const HOST_SAID =
-		"Job for open-mcc@unit.service failed. See systemctl --user status and journalctl -xeu under /home/mcc/instances"
+	const HOST_SAID = HOST_COMPLAINT
 
 	const refused: ExecResult = { stdout: "", stderr: HOST_SAID, exitCode: 1 }
 
@@ -1128,20 +1178,6 @@ describe("what an operator reads when the host will not do what they asked", () 
 		status: 409,
 		errorCode: "HOST_ANSWER_UNREADABLE",
 		message: "The host answered in a way this manager could not read",
-	}
-
-	const wireErrorSchema = z.object({
-		error: z.object({
-			message: z.string(),
-			data: z.object({ errorCode: z.string().optional() }),
-		}),
-	})
-
-	const answerOf = async (res: Response) => {
-		const text = await res.text()
-		expect(text).not.toMatch(/open-mcc@|systemctl|journalctl|\/home\/|Internal server error/)
-		const { error } = wireErrorSchema.parse(JSON.parse(text))
-		return { status: res.status, errorCode: error.data.errorCode, message: error.message }
 	}
 
 	const issued = (): string[] => hostTransports.flatMap((each) => each.commands)
@@ -1183,6 +1219,55 @@ describe("what an operator reads when the host will not do what they asked", () 
 			renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
 			48919,
 		)
+
+	it("★ a host readout the host refused says the host refused it, not that the manager broke", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { hostId } = await seedReadyInstance(orgId, memberId)
+		hostScript[HOST_METRICS_COMMAND] = refused
+
+		const res = await app.request(
+			`/trpc/instance.hostMetrics?input=${encodeURIComponent(JSON.stringify({ hostId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+
+		expect(await answerOf(res)).toEqual(HOST_REFUSED)
+	})
+
+	it("★ a bot the host would not lay out says the host refused it, not that the manager broke", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { hostId } = await seedReadyInstance(orgId, memberId)
+		refuseCommandsNaming = "install -d"
+
+		const res = await call("instance.create", cookie, {
+			hostId,
+			name: "refused-layout-bot",
+			accountType: "offline",
+			minecraftAccount: "RefusedLayoutBot",
+			serverAddress: "play.example.com",
+		})
+
+		expect(await answerOf(res)).toEqual(HOST_REFUSED)
+	})
+
+	it("★ a sealing key the manager no longer holds stays a server fault, not a command that missed", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { hostId, instanceId } = await seedReadyInstance(orgId, memberId)
+		await markRunning(instanceId)
+		await db
+			.updateTable("sshKey")
+			.set({ privateKeyKeyId: "retired-key" })
+			.where("id", "=", (qb) => qb.selectFrom("host").select("sshKeyId").where("id", "=", hostId))
+			.execute()
+
+		const res = await call("instance.sendCommand", cookie, { instanceId, command: "/say hi" })
+		const text = await res.text()
+
+		expect(res.status).toBe(500)
+		expect(text).toContain("Internal server error")
+		expect(text).not.toContain("INSTANCE_COMMAND_NOT_SENT")
+		expect(text).not.toContain("The command did not reach this instance")
+		expect(text).not.toContain("retired-key")
+	})
 
 	it("★ a start the host refused reads as a start that failed", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()

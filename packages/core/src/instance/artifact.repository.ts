@@ -1,6 +1,7 @@
 import type { Db, Executor, InstanceArtifactKind } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 import { type CursorAdvance, EMPTY_FINGERPRINT } from "./artifact"
 
 export type ArtifactValues = {
@@ -67,7 +68,8 @@ export const createArtifactRepository = (db: Db) => ({
 				.where("playerListCursorVersion", "=", String(advance.version))
 				.returning("id")
 				.executeTakeFirst()
-			if (moved === undefined) throw new Error("The player list cursor moved after it was read")
+			if (moved === undefined)
+				throw new InternalError("The player list cursor moved after it was read")
 		})
 	},
 

@@ -10,6 +10,7 @@ import {
 import { sql } from "kysely"
 import { afterAll, describe, expect, it } from "vitest"
 import { createHostRepository } from "../host/host.repository"
+import { HostRefusedError } from "../lib/errors"
 import { createSshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	seedMember,
@@ -255,9 +256,9 @@ describe("two operators saving the same bot", () => {
 				? { stdout: "", stderr: "refused", exitCode: 1 }
 				: await inner(command, timeoutMs, stdin)
 
-		await expect(controller.updateSettings(actor, instanceId, SETTINGS, 1)).rejects.toThrow(
-			"Failed to write instance config",
-		)
+		const refusal = controller.updateSettings(actor, instanceId, SETTINGS, 1)
+		await expect(refusal).rejects.toThrow(HostRefusedError)
+		await expect(refusal).rejects.toThrow("Failed to write instance config")
 
 		const claimed = await instances.claimForConfig(scope, instanceId, "next-claim")
 		expect(claimed?.configClaimId).toBe("next-claim")

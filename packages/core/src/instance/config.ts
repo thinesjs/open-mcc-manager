@@ -9,6 +9,7 @@ import {
 	LIST_CONFIG_NAMES,
 	QUOTED_CONFIG_NAMES,
 } from "@open-mcc/contracts/boundary/mcc-config-keys"
+import { InternalError } from "../lib/errors"
 
 export const OFFLINE_PASSWORD = "-"
 
@@ -112,7 +113,7 @@ const tomlString = (value: string): string => {
 }
 
 const tomlInt = (value: number): string => {
-	if (!Number.isInteger(value)) throw new Error("Config integers must be whole numbers")
+	if (!Number.isInteger(value)) throw new InternalError("Config integers must be whole numbers")
 	return String(value)
 }
 
@@ -127,7 +128,7 @@ const serverLines = (address: string): string[] => {
 
 const tomlSecondsRange = (range: DelaySecondsRange): string => {
 	if (!Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min < 0) {
-		throw new Error("Config delays must be a non-negative number of seconds")
+		throw new InternalError("Config delays must be a non-negative number of seconds")
 	}
 	return `{ min = ${range.min.toFixed(1)}, max = ${range.max.toFixed(1)} }`
 }

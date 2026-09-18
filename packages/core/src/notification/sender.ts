@@ -3,7 +3,7 @@ import { DELIVERY_TIMEOUT_MS, RESOLVING_EVENT_KINDS } from "@open-mcc/contracts"
 import { parseTelegramReply } from "@open-mcc/contracts/boundary/telegram"
 import { byteLength, truncateBytes, truncateChars } from "./bounds"
 import type { EgressPolicy } from "./egress"
-import { PUBLIC_ONLY, sanitisedTarget } from "./egress"
+import { PUBLIC_ONLY } from "./egress"
 import { networkReason } from "./failure"
 import {
 	classifyDiscordReply,

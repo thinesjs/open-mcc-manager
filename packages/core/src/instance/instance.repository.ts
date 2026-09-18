@@ -4,6 +4,7 @@ import { sql } from "kysely"
 import { nanoid } from "nanoid"
 import type { SealedValue } from "../crypto/sealed-box"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type InstanceCreateValues = Omit<
 	InstanceInsert,
@@ -71,7 +72,7 @@ export const createInstanceRepository = (db: Executor) => ({
 			})
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Instance insert returned no row")
+		if (!row) throw new InternalError("Instance insert returned no row")
 		return row
 	},
 
@@ -289,7 +290,7 @@ export const createInstanceRepository = (db: Executor) => ({
 			})
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Instance config insert returned no row")
+		if (!row) throw new InternalError("Instance config insert returned no row")
 		return row
 	},
 

@@ -1,6 +1,7 @@
 import type { Executor, InstanceCommandRow } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type ScheduledCommandValues = {
 	instanceId: string
@@ -30,7 +31,7 @@ export const createCommandRepository = (db: Executor) => ({
 			)
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Scheduled command upsert returned no row")
+		if (!row) throw new InternalError("Scheduled command upsert returned no row")
 		return row
 	},
 

@@ -2,6 +2,7 @@ import type { Json } from "@open-mcc/db"
 import type { HostTransport } from "@open-mcc/transport"
 import { tearDownHost } from "../host/teardown"
 import { connectFailureReason } from "../host/unreachable"
+import { InternalError } from "../lib/errors"
 import type { RuntimeErrorReporter } from "../log/reporters"
 
 const NOT_FULLY_CLEANED = "Some of what was installed is still on the host."
@@ -81,7 +82,7 @@ export const createHostTeardownHandler =
 				payload.organizationId,
 				`The SSH key for this host is gone, so it cannot be reached to clean it.`,
 			)
-			throw new Error(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
+			throw new InternalError(`Ssh key ${payload.sshKeyId} is gone; cannot clean the host`)
 		}
 
 		let transport: HostTransport | undefined
@@ -99,7 +100,7 @@ export const createHostTeardownHandler =
 				deps.onError?.(`Host ${payload.hostId} was not fully cleaned`, report.remaining.join("; "))
 				await deps.onFailed(payload.hostId, payload.organizationId, NOT_FULLY_CLEANED)
 				recorded = true
-				throw new Error(NOT_FULLY_CLEANED)
+				throw new InternalError(NOT_FULLY_CLEANED)
 			}
 			await deps.onCleaned(payload.hostId, payload.organizationId, {
 				unitsRemoved: String(report.unitsRemoved.length),

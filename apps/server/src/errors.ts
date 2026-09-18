@@ -29,6 +29,7 @@ import {
 	HostNotFoundError,
 	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
+	HostRefusedError,
 	HostRemovalNotStartedError,
 	HostUnreachableError,
 	InstanceAccountNotInteractiveError,
@@ -334,6 +335,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"HOST_ANSWER_UNREADABLE",
 			"The host answered in a way this manager could not read",
 		)
+	}
+	if (cause instanceof HostRefusedError) {
+		return mapped("BAD_REQUEST", "HOST_REFUSED", "The host would not do what this manager asked")
 	}
 	if (cause instanceof TransportInterruptedError) {
 		return mapped("CONFLICT", "HOST_NOT_ANSWERING", "The host did not answer in time")

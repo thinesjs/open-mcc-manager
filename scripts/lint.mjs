@@ -10,6 +10,7 @@ const CHECKS = [
 	{ name: "image-notices", command: "node", args: ["scripts/check-image-notices.mjs"] },
 	{ name: "page-loading", command: "node", args: ["scripts/check-page-loading.mjs"] },
 	{ name: "enforcement-count", command: "node", args: ["scripts/check-enforcement-count.mjs"] },
+	{ name: "thrown-errors", command: "node", args: ["scripts/check-thrown-errors.mjs"] },
 ]
 
 export const runCheck = (check, run = defaultRun) => {

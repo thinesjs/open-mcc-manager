@@ -1,5 +1,6 @@
 import type { NetworkStack } from "@open-mcc/contracts"
 import { INSTANCE_LAYOUT, RUNNING_UNIT_STATES } from "../instance/unit"
+import { InternalError } from "../lib/errors"
 import { INSTANCES_PATH } from "./profile"
 
 export const INSTANCE_UNIT_NAME = "open-mcc@.service"
@@ -101,7 +102,7 @@ export const renderUnitTemplates = ({
 	imageId,
 }: UnitRuntime): Record<string, string> => {
 	if (!PODMAN_IMAGE_ID.test(imageId)) {
-		throw new Error("The runtime image ID must be the 64 hex characters Podman prints")
+		throw new InternalError("The runtime image ID must be the 64 hex characters Podman prints")
 	}
 	const network = NETWORK[networkStack]
 	return {

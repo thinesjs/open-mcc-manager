@@ -3,6 +3,7 @@ import type { Json, NotificationDestinationRow } from "@open-mcc/db"
 import type { SqlRunner } from "../job/executor-adapter"
 import type { QueueName, SendJob } from "../job/job.queue"
 import { NOTIFICATION_DEADLETTER_QUEUE } from "../job/queue-setup"
+import { InternalError } from "../lib/errors"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redact } from "../security/redact"
 import type { EgressPolicy } from "./egress"
@@ -201,7 +202,7 @@ export const createDeliveryHandler =
 					},
 					runner,
 				)
-				if (dead === null) throw new Error("this delivery could not be set aside")
+				if (dead === null) throw new InternalError("this delivery could not be set aside")
 				return { settled: "failed" }
 			}
 
@@ -226,7 +227,7 @@ export const createDeliveryHandler =
 				runner,
 				{ startAfterSeconds: afterSeconds },
 			)
-			if (again === null) throw new Error("this delivery could not be queued again")
+			if (again === null) throw new InternalError("this delivery could not be queued again")
 			return { settled: "retrying", afterSeconds }
 		})
 	}

@@ -21,6 +21,7 @@ import type { OrgScope } from "../host/host.repository"
 import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { SendJob } from "../job/job.queue"
 import { STATUS_ESCALATE_QUEUE } from "../job/queue-setup"
+import { InternalError } from "../lib/errors"
 import { announce } from "../notification/announce"
 import {
 	createNotificationRepository,
@@ -320,7 +321,7 @@ export const createStatusController = (deps: StatusControllerDeps) => ({
 						{ startAfterSeconds: Math.ceil(INSTANCE_INTERRUPTED_TO_DOWN_MS / 1000) },
 					)
 					if (scheduled === null) {
-						throw new Error(`the check on ${instance.name} could not be scheduled`)
+						throw new InternalError(`the check on ${instance.name} could not be scheduled`)
 					}
 				}
 

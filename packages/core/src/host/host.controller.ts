@@ -25,6 +25,7 @@ import { type AuditRepository, createAuditRepository } from "../audit/audit.repo
 import type { SecretStore } from "../crypto/sealed-box"
 import { createJobQueue, JobNotQueuedError, type JobQueue, type SendJob } from "../job/job.queue"
 import { HOST_TEARDOWN_QUEUE } from "../job/queue-setup"
+import { InternalError } from "../lib/errors"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redactError } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -47,7 +48,12 @@ import {
 	type HostRepository,
 	isProvisioningClaimStale,
 } from "./host.repository"
-import { type ProvisionProgress, type ProvisionResult, provisionHost } from "./provision"
+import {
+	HostProvisioningFailedError,
+	type ProvisionProgress,
+	type ProvisionResult,
+	provisionHost,
+} from "./provision"
 import { provisioningFailureFor } from "./provision-failure"
 import { COULD_NOT_CONNECT, connectFailureReason } from "./unreachable"
 
@@ -101,7 +107,6 @@ export const CONNECT_TIMEOUT_MS = 10_000
 
 export class ForbiddenError extends Error {}
 export class HostUnreachableError extends Error {}
-export class HostProvisioningFailedError extends Error {}
 export class FingerprintMismatchError extends Error {}
 export class HostNotFoundError extends Error {}
 export class HostHasInstancesError extends Error {}
@@ -211,7 +216,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					})
 				} catch (error) {
 					return connectFailureOutcome(
-						error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+						error instanceof Error ? error : new InternalError(COULD_NOT_CONNECT),
 					)
 				}
 				try {
@@ -222,7 +227,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 					return scriptOutcome(result, input, secret)
 				} catch (error) {
 					return runFailureOutcome(
-						error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+						error instanceof Error ? error : new InternalError(COULD_NOT_CONNECT),
 						secret,
 					)
 				} finally {
@@ -282,7 +287,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 				} catch (error) {
 					return {
 						kind: "interrupted",
-						error: error instanceof Error ? error : new Error(COULD_NOT_CONNECT),
+						error: error instanceof Error ? error : new InternalError(COULD_NOT_CONNECT),
 					}
 				} finally {
 					await transport.close().catch(() => undefined)
@@ -414,7 +419,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 			const claimed = claim.row
 			const attemptId = claimed.provisioningAttemptId
 			if (attemptId === null) {
-				throw new Error(`Host ${hostId} was claimed for provisioning without an attempt id`)
+				throw new InternalError(`Host ${hostId} was claimed for provisioning without an attempt id`)
 			}
 			const expectedFingerprint = claim.expectedFingerprint
 

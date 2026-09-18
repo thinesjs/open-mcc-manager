@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { Executor, HostInsert, HostRow } from "@open-mcc/db"
 import { sql } from "kysely"
 import { nanoid } from "nanoid"
+import { InternalError } from "../lib/errors"
 
 export type OrgScope = { organizationId: string }
 
@@ -37,7 +38,7 @@ const UNKNOWN_TRUSTED_BY_LABEL = "unknown"
 
 const requireNonBlankLabel = (label: string): string => {
 	if (label.trim().length === 0) {
-		throw new Error("hostKeyTrustedByLabel is required when hostKeyTrustedBy is set")
+		throw new InternalError("hostKeyTrustedByLabel is required when hostKeyTrustedBy is set")
 	}
 	return label
 }
@@ -64,12 +65,12 @@ const requireConsistentTrustTuple = (values: HostCreateValues): void => {
 		isPresent(values[field]),
 	).length
 	if (presentEvidenceCount !== 0 && presentEvidenceCount !== TRUST_EVIDENCE_FIELDS.length) {
-		throw new Error(
+		throw new InternalError(
 			"Host key trust evidence (hostKeyFingerprint, hostKeyAlgorithm, hostKeyTrustedAt) must be set all at once or not at all",
 		)
 	}
 	if (isPresent(values.hostKeyTrustedBy) && presentEvidenceCount === 0) {
-		throw new Error(
+		throw new InternalError(
 			"hostKeyTrustedBy cannot be set without hostKeyFingerprint, hostKeyAlgorithm, and hostKeyTrustedAt",
 		)
 	}
@@ -171,7 +172,7 @@ export const createHostRepository = (db: Executor) => ({
 			})
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Host insert returned no row")
+		if (!row) throw new InternalError("Host insert returned no row")
 		return row
 	},
 

@@ -193,9 +193,6 @@ const save = async () => {
 
 const sentConfig = () => mutate.mock.calls[0]?.[0]?.config
 
-const advancedRowOf = (label: string) =>
-	screen.getAllByRole("combobox").find((trigger) => trigger.textContent === label)
-
 beforeEach(() => {
 	mutate.mockResolvedValue({ version: 2 })
 })

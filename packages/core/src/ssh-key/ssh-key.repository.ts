@@ -1,6 +1,7 @@
 import type { Executor, SshKeyInsert, SshKeyRow } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type SshKeyCreateValues = Omit<SshKeyInsert, "id" | "organizationId" | "createdAt">
 
@@ -11,7 +12,7 @@ export const createSshKeyRepository = (db: Executor) => ({
 			.values({ ...values, id: nanoid(), organizationId: scope.organizationId })
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("SSH key insert returned no row")
+		if (!row) throw new InternalError("SSH key insert returned no row")
 		return row
 	},
 

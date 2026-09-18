@@ -1,4 +1,5 @@
 import sodium from "libsodium-wrappers-sumo"
+import { InternalError } from "../lib/errors"
 
 type KeyEntry = {
 	keyId: string
@@ -31,7 +32,7 @@ const parseEntry = (raw: string): KeyEntry => {
 	const pub = parts[1]
 	const priv = parts[2]
 	if (parts.length !== 3 || !keyId || !pub || !priv) {
-		throw new Error("SEALBOX_KEYS entry must be keyId:publicKey:privateKey")
+		throw new InternalError("SEALBOX_KEYS entry must be keyId:publicKey:privateKey")
 	}
 	return {
 		keyId,
@@ -44,19 +45,19 @@ const SELF_TEST_PLAINTEXT = "open-mcc-manager sealed-box self-test"
 
 const verifyKeyPair = (entry: KeyEntry): void => {
 	if (entry.publicKey.length !== sodium.crypto_box_PUBLICKEYBYTES) {
-		throw new Error(`Key pair '${entry.keyId}' has an invalid public key length`)
+		throw new InternalError(`Key pair '${entry.keyId}' has an invalid public key length`)
 	}
 	if (entry.privateKey.length !== sodium.crypto_box_SECRETKEYBYTES) {
-		throw new Error(`Key pair '${entry.keyId}' has an invalid private key length`)
+		throw new InternalError(`Key pair '${entry.keyId}' has an invalid private key length`)
 	}
 	try {
 		const sealed = sodium.crypto_box_seal(sodium.from_string(SELF_TEST_PLAINTEXT), entry.publicKey)
 		const opened = sodium.to_string(
 			sodium.crypto_box_seal_open(sealed, entry.publicKey, entry.privateKey),
 		)
-		if (opened !== SELF_TEST_PLAINTEXT) throw new Error("self-test mismatch")
+		if (opened !== SELF_TEST_PLAINTEXT) throw new InternalError("self-test mismatch")
 	} catch {
-		throw new Error(`Key pair '${entry.keyId}' failed its seal/open self-test`)
+		throw new InternalError(`Key pair '${entry.keyId}' failed its seal/open self-test`)
 	}
 }
 
@@ -70,7 +71,7 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 	const seenKeyIds = new Set<string>()
 	for (const entry of entries) {
 		if (seenKeyIds.has(entry.keyId)) {
-			throw new Error(`Duplicate keyId '${entry.keyId}' in SEALBOX_KEYS`)
+			throw new InternalError(`Duplicate keyId '${entry.keyId}' in SEALBOX_KEYS`)
 		}
 		seenKeyIds.add(entry.keyId)
 	}
@@ -79,7 +80,7 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 	}
 
 	const active = entries[0]
-	if (!active) throw new Error("SEALBOX_KEYS must contain at least one key")
+	if (!active) throw new InternalError("SEALBOX_KEYS must contain at least one key")
 	const byId = new Map(entries.map((e) => [e.keyId, e]))
 
 	return {
@@ -93,7 +94,7 @@ export const createSecretStore = async (spec: string): Promise<SecretStore> => {
 		}),
 		open: (ciphertext, keyId) => {
 			const entry = byId.get(keyId)
-			if (!entry) throw new Error(`No key available for keyId '${keyId}'`)
+			if (!entry) throw new InternalError(`No key available for keyId '${keyId}'`)
 			return sodium.to_string(
 				sodium.crypto_box_seal_open(
 					sodium.from_base64(ciphertext, sodium.base64_variants.ORIGINAL),

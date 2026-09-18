@@ -10,6 +10,7 @@ import {
 	McpRefusalError,
 } from "@open-mcc/contracts/boundary/mcp"
 import {
+	AlertNotQueuedError,
 	DestinationDisabledError,
 	DestinationHasNoSigningKeyError,
 	DestinationKindImmutableError,
@@ -242,6 +243,14 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 
 	if (cause instanceof DestinationNotFoundError) {
 		return mapped("NOT_FOUND", "DESTINATION_NOT_FOUND", cause.message)
+	}
+
+	if (cause instanceof AlertNotQueuedError) {
+		return mapped(
+			"CONFLICT",
+			"ALERT_NOT_QUEUED",
+			"This manager could not take this alert on, so nothing was sent",
+		)
 	}
 
 	if (cause instanceof SelfHostUnavailableError) {

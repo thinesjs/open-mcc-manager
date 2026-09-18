@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { trpcServer } from "@hono/trpc-server"
 import { fingerprintFromKey } from "@open-mcc/contracts/boundary/ssh"
 import {
@@ -7,6 +8,7 @@ import {
 	createSshKeyController,
 	type HostControllerDeps,
 	type HostRepository,
+	type SendJob,
 	type SshKeyRepository,
 	type WithSshKeyTransaction,
 	type WithTransaction,
@@ -104,10 +106,28 @@ const sshKeyController = createSshKeyController({
 const db = createDb(process.env.TEST_DATABASE_URL ?? "")
 const auth = createAuth(db, "a-very-long-test-secret-value-000000", "http://localhost:3000")
 
+const organizationId = randomUUID()
+const userId = randomUUID()
+const memberId = randomUUID()
+
+await db
+	.insertInto("organization")
+	.values({ id: organizationId, name: "errors", slug: `errors-${organizationId.slice(0, 8)}` })
+	.execute()
+await db
+	.insertInto("user")
+	.values({ id: userId, name: "actor", email: `${userId}@example.com` })
+	.execute()
+await db.insertInto("member").values({ id: memberId, organizationId, userId }).execute()
+
+const queue = { answer: async (): Promise<string | null> => "job" }
+
+const sendJob: SendJob = async () => await queue.answer()
+
 const ctx: RequestContext = {
 	actor: {
-		organizationId: "org-1",
-		memberId: "mem-1",
+		organizationId,
+		memberId,
 		actorLabel: "actor@example.com",
 		role: "owner",
 	},
@@ -124,7 +144,7 @@ const ctx: RequestContext = {
 	schemaVersion: "test",
 	instanceController: await createTestInstanceController(db),
 	statusController: createTestStatusController(db),
-	destinationController: createTestDestinationController(db, hostControllerDeps.secrets),
+	destinationController: createTestDestinationController(db, hostControllerDeps.secrets, sendJob),
 	memberController: memberControllerFor(db, auth, () => undefined),
 	sshKeyController,
 	selfHostController: createTestSelfHostController(db, hostController.enroll),
@@ -149,6 +169,8 @@ app.use(
 
 afterAll(async () => {
 	vi.restoreAllMocks()
+	await db.deleteFrom("organization").where("id", "=", organizationId).execute()
+	await db.deleteFrom("user").where("id", "=", userId).execute()
 	await db.destroy()
 })
 
@@ -304,5 +326,156 @@ describe("what a rejected input tells the dashboard", () => {
 		expect(raw).toContain("Internal server error")
 		expect(raw).not.toContain("secretColumn")
 		expect(raw).not.toContain("invalid_type")
+	})
+})
+
+const NOT_QUEUED = {
+	status: 409,
+	errorCode: "ALERT_NOT_QUEUED",
+	message: "This manager could not take this alert on, so nothing was sent",
+}
+
+const wireErrorSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		data: z.object({ errorCode: z.string().optional() }),
+	}),
+})
+
+const answerOf = async (res: Response) => {
+	const text = await res.text()
+	expect(text).not.toMatch(/Internal server error|pg-boss|Queue |notification\.deliver/)
+	const { error } = wireErrorSchema.parse(JSON.parse(text))
+	return { status: res.status, errorCode: error.data.errorCode, message: error.message }
+}
+
+const seedDestination = async (): Promise<string> => {
+	const id = randomUUID()
+	await db
+		.insertInto("notificationDestination")
+		.values({
+			id,
+			organizationId,
+			name: `on-call-${id.slice(0, 8)}`,
+			kind: "webhook",
+			displayTarget: "https://hooks.example.invalid",
+			secretEncrypted: "sealed",
+			secretKeyId: "k1",
+		})
+		.execute()
+	return id
+}
+
+const seedFailedDelivery = async (destinationId: string): Promise<string> => {
+	const notificationId = randomUUID()
+	await db
+		.insertInto("notification")
+		.values({
+			id: notificationId,
+			organizationId,
+			kind: "host.unreachable",
+			title: "basement-box is unreachable",
+			body: "The last three checks did not answer.",
+			subjectType: "host",
+			subjectId: randomUUID(),
+			dedupeKey: `event:${notificationId}`,
+		})
+		.execute()
+	const deliveryId = randomUUID()
+	await db
+		.insertInto("notificationDelivery")
+		.values({
+			id: deliveryId,
+			organizationId,
+			notificationId,
+			destinationId,
+			state: "failed",
+			attempts: 8,
+			settledAt: new Date(),
+			lastError: "Server refused with 404",
+		})
+		.execute()
+	return deliveryId
+}
+
+const deliveriesFor = async (destinationId: string) =>
+	await db
+		.selectFrom("notificationDelivery")
+		.select(["id", "state"])
+		.where("organizationId", "=", organizationId)
+		.where("destinationId", "=", destinationId)
+		.execute()
+
+const auditedActions = async (subjectId: string): Promise<string[]> => {
+	const rows = await db
+		.selectFrom("auditEvent")
+		.select("action")
+		.where("organizationId", "=", organizationId)
+		.where("subjectId", "=", subjectId)
+		.execute()
+	return rows.map((row) => row.action)
+}
+
+const post = (procedure: string, input: Record<string, string>) =>
+	app.request(`/trpc/${procedure}`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	})
+
+describe("what an operator reads when the manager could not take an alert on", () => {
+	it("★ a test alert that was never taken on says so, rather than reading as a manager fault", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = async () => null
+
+		const res = await post("notification.test", { destinationId })
+
+		expect(await answerOf(res)).toEqual(NOT_QUEUED)
+	})
+
+	it("★ leaves a test alert it could not take on entirely unsent, not half sent", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = async () => null
+
+		await post("notification.test", { destinationId })
+
+		expect(await deliveriesFor(destinationId)).toEqual([])
+		expect(await auditedActions(destinationId)).toEqual([])
+	})
+
+	it("★ leaves an alert it could not take on again exactly as the operator found it", async () => {
+		const destinationId = await seedDestination()
+		const deliveryId = await seedFailedDelivery(destinationId)
+		queue.answer = async () => null
+
+		const res = await post("notification.retry", { deliveryId })
+
+		expect(await answerOf(res)).toEqual(NOT_QUEUED)
+		expect(await deliveriesFor(destinationId)).toEqual([{ id: deliveryId, state: "failed" }])
+		expect(await auditedActions(deliveryId)).toEqual([])
+	})
+
+	it("★ says the same when the manager has nowhere to put the work at all", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = async () => {
+			throw new Error("Queue notification.deliver.http does not exist")
+		}
+
+		const res = await post("notification.test", { destinationId })
+
+		expect(await answerOf(res)).toEqual(NOT_QUEUED)
+	})
+
+	it("★ still records a test alert the manager could take on, so the refusal is not blanket", async () => {
+		const destinationId = await seedDestination()
+		queue.answer = async () => "job"
+
+		const res = await post("notification.test", { destinationId })
+
+		expect(res.status).toBe(200)
+		expect(await deliveriesFor(destinationId)).toEqual([
+			{ id: expect.any(String), state: "queued" },
+		])
+		expect(await auditedActions(destinationId)).toEqual(["notification.destination.test"])
 	})
 })

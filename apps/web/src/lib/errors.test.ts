@@ -225,6 +225,21 @@ describe("getErrorMessage", () => {
 		expect(others).not.toContain(unreadable)
 	})
 
+	it("★ tells an operator an alert was not taken on and not sent, promising no wait", () => {
+		const notQueued = getErrorMessage({
+			message: "This manager could not take this alert on, so nothing was sent",
+			data: { errorCode: "ALERT_NOT_QUEUED", httpStatus: 409 },
+		})
+
+		expect(notQueued).toBe("OpenMCC could not take this alert on. Nothing was sent.")
+		expect(notQueued).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(notQueued).not.toMatch(/queue|job|database|table|row|pg-boss/i)
+		const others = ERROR_CODES.filter((code) => code !== "ALERT_NOT_QUEUED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(notQueued)
+	})
+
 	it("★ shows the refusal of a command carrying a tab as the sentence the contract wrote", () => {
 		expect(
 			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),

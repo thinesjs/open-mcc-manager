@@ -43,7 +43,6 @@ import {
 	type HostControllerDeps,
 	HostHasInstancesError,
 	HostMisconfiguredError,
-	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	type WithTransaction,
 } from "./host.controller"
@@ -55,7 +54,7 @@ import {
 } from "./host.repository"
 import { hostReadKey, leaseHostReader } from "./host-reader"
 import { HOST_FACTS_COMMAND } from "./podman-facts"
-import { imagePullCommand, SYSTEM_COMMAND } from "./provision"
+import { HostProvisioningFailedError, imagePullCommand, SYSTEM_COMMAND } from "./provision"
 import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
 import { runtimeImageFor } from "./runtime-image"
 

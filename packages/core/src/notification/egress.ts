@@ -1,5 +1,6 @@
 import { isIP } from "node:net"
 import type { RejectionCategory } from "@open-mcc/contracts"
+import { InternalError } from "../lib/errors"
 
 export type AddressAllowance = {
 	readonly bytes: readonly number[]
@@ -127,7 +128,7 @@ const categoryFor = (reason: string): RejectionCategory => CATEGORY_OF[reason] ?
 
 const range = (notation: string, reason: string): Range => {
 	const allowance = allowanceOf(notation)
-	if (!allowance) throw new Error(`unusable address range: ${notation}`)
+	if (!allowance) throw new InternalError(`unusable address range: ${notation}`)
 	return { ...allowance, reason, category: categoryFor(reason) }
 }
 
@@ -368,7 +369,7 @@ export const egressPolicy = (settings: EgressSettings): EgressPolicy => ({
 	allowedHosts: listed(settings.allowedHosts).map(bareHostname),
 	allowedAddresses: listed(settings.allowedAddresses).map((entry) => {
 		const allowance = allowanceOf(entry)
-		if (!allowance) throw new Error(`that address could not be read: ${entry}`)
+		if (!allowance) throw new InternalError(`that address could not be read: ${entry}`)
 		return allowance
 	}),
 })

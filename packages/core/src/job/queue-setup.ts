@@ -1,4 +1,5 @@
 import type { Queue, QueueResult, UpdateQueueOptions } from "pg-boss"
+import { InternalError } from "../lib/errors"
 
 export const NOTIFICATION_DEADLETTER_QUEUE = "notification.deadletter"
 
@@ -286,12 +287,12 @@ export const reconcileQueues = async (
 		await admin.updateQueue(policy.name, updateOptionsOf(policy))
 
 		const stored = await admin.getQueue(policy.name)
-		if (stored === null) throw new Error(`queue ${policy.name} was not created`)
+		if (stored === null) throw new InternalError(`queue ${policy.name} was not created`)
 
 		const configured = configuredAs(policy)
 		const field = fieldThatDisagrees(stored, configured)
 		if (field !== undefined)
-			throw new Error(
+			throw new InternalError(
 				`queue ${policy.name} reports ${field} as ${String(stored[field])}, not the configured ${String(configured[field])}`,
 			)
 	}

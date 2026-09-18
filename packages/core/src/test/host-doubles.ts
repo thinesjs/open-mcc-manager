@@ -1,11 +1,12 @@
 import type { AuditEventRow } from "@open-mcc/db"
 import type { AuditEntry } from "../audit/audit.repository"
 import type { HostRepository } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 const refuse =
 	<T>(name: string): (() => Promise<T>) =>
 	() =>
-		Promise.reject(new Error(`hosts.${name} was not expected here`))
+		Promise.reject(new InternalError(`hosts.${name} was not expected here`))
 
 export const unusedHostRepository = (): HostRepository => ({
 	beginTeardown: refuse("beginTeardown"),

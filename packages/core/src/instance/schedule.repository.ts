@@ -1,6 +1,7 @@
 import type { Executor, InstanceScheduleRow } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type SleepWindowValues = {
 	instanceId: string
@@ -27,7 +28,7 @@ export const createScheduleRepository = (db: Executor) => ({
 			)
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Instance schedule upsert returned no row")
+		if (!row) throw new InternalError("Instance schedule upsert returned no row")
 		return row
 	},
 

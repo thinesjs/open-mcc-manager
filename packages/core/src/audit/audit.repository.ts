@@ -2,6 +2,7 @@ import type { AuditAction } from "@open-mcc/contracts"
 import type { AuditEventRow, Executor } from "@open-mcc/db"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type AuditEntry = {
 	actorId: string | null
@@ -24,7 +25,7 @@ const resolveActorLabel = (entry: Pick<AuditEntry, "actorId" | "actorLabel">): s
 		return entry.actorLabel.trim().length > 0 ? entry.actorLabel : SYSTEM_ACTOR_LABEL
 	}
 	if (entry.actorLabel.trim().length === 0) {
-		throw new Error("actorLabel is required when actorId is set")
+		throw new InternalError("actorLabel is required when actorId is set")
 	}
 	return entry.actorLabel
 }
@@ -41,7 +42,7 @@ export const createAuditRepository = (db: Executor) => ({
 			})
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("Audit insert returned no row")
+		if (!row) throw new InternalError("Audit insert returned no row")
 		return row
 	},
 

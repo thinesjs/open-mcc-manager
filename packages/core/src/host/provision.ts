@@ -30,6 +30,8 @@ import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
+export class HostProvisioningFailedError extends Error {}
+
 export const PROVISION_STEPS = PROVISION_STEP_LABELS
 
 export type ProvisionStep = ProvisionStepLabel
@@ -156,21 +158,26 @@ const step = async (
 	stdin?: string,
 ): Promise<string> => {
 	const result = await transport.exec(command, timeoutMs, stdin)
-	if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
+	if (result.exitCode !== 0)
+		throw new HostProvisioningFailedError(`${failure}: ${result.stderr.trim()}`)
 	return result.stdout.trim()
 }
 
 const readSystem = async (transport: HostTransport) => {
 	const read = await transport.exec(SYSTEM_COMMAND, PROVISION_STEP_TIMEOUT_MS)
 	if (read.exitCode !== 0) {
-		throw new Error(`Failed to read systemd and the connecting account: ${read.stderr.trim()}`)
+		throw new HostProvisioningFailedError(
+			`Failed to read systemd and the connecting account: ${read.stderr.trim()}`,
+		)
 	}
 	const system = parseSystem(read.stdout)
-	if (system.uid === null) throw new Error("Couldn't read this account's user id.")
-	if (system.uid === 0) throw new Error(ROOT_REFUSAL)
-	if (system.systemd === null) throw new Error("systemd is not available on this host")
+	if (system.uid === null)
+		throw new HostProvisioningFailedError("Couldn't read this account's user id.")
+	if (system.uid === 0) throw new HostProvisioningFailedError(ROOT_REFUSAL)
+	if (system.systemd === null)
+		throw new HostProvisioningFailedError("systemd is not available on this host")
 	if (!isUsableHome(system.home, system.passwdHome)) {
-		throw new Error(
+		throw new HostProvisioningFailedError(
 			"The remote home directory must be an absolute path containing only letters, digits, '.', '_', '-', and '/', and must be the account's own home",
 		)
 	}
@@ -187,22 +194,26 @@ const assertLingerEnabled = async (transport: HostTransport): Promise<void> => {
 		.exec("id -un", PROVISION_STEP_TIMEOUT_MS)
 		.then((r) => r.stdout.trim())
 		.catch(() => "<user>")
-	throw new Error(
+	throw new HostProvisioningFailedError(
 		`Instances would stop when this session ends because lingering is off for ${user}. Run this on the host, then provision again: ${lingerCommand(user)}`,
 	)
 }
 
 const networkStackFor = (facts: HostPodmanFacts): NetworkStack => {
-	if (facts.uid === null || facts.uid === 0) throw new Error(ROOT_REFUSAL)
+	if (facts.uid === null || facts.uid === 0) throw new HostProvisioningFailedError(ROOT_REFUSAL)
 	if (facts.podman === null || !meetsPodmanFloor(facts.podman)) {
-		throw new Error(`Needs Podman ${formatPodmanVersion(PODMAN_FLOOR)} or newer.`)
+		throw new HostProvisioningFailedError(
+			`Needs Podman ${formatPodmanVersion(PODMAN_FLOOR)} or newer.`,
+		)
 	}
-	if (!facts.cgroupV2) throw new Error("This server's system is too old for Podman.")
+	if (!facts.cgroupV2)
+		throw new HostProvisioningFailedError("This server's system is too old for Podman.")
 	if (!facts.subuid.own || !facts.subgid.own) {
-		throw new Error("This account can't run containers yet.")
+		throw new HostProvisioningFailedError("This account can't run containers yet.")
 	}
 	const stack = requiredStackFor(facts.podman.major)
-	if (!facts.helpers.includes(stack)) throw new Error("A Podman network helper is missing.")
+	if (!facts.helpers.includes(stack))
+		throw new HostProvisioningFailedError("A Podman network helper is missing.")
 	return stack
 }
 
@@ -231,7 +242,7 @@ export const provisionHost = async (
 	advance()
 	const storage = await transport.exec(storageStepCommand(), PROVISION_STEP_TIMEOUT_MS)
 	if (storage.exitCode !== 0 || storage.stdout.trim() !== "ready") {
-		throw new Error(
+		throw new HostProvisioningFailedError(
 			`Failed to set up container storage: ${storage.stdout.trim()} ${storage.stderr.trim()}`,
 		)
 	}
@@ -287,7 +298,7 @@ export const provisionHost = async (
 	advance()
 	const pulled = await step(transport, imageIdCommand(image), "Failed to read the runtime image")
 	if (pulled !== podmanImageId(image)) {
-		throw new Error(
+		throw new HostProvisioningFailedError(
 			`The runtime image is ${hostFact(pulled) ?? UNKNOWN_HOST_FACT}, not ${podmanImageId(image)}`,
 		)
 	}
@@ -296,7 +307,7 @@ export const provisionHost = async (
 	const probe = await transport.exec(clientCheckCommand(image), CLIENT_PROBE_TIMEOUT_MS)
 	const probeOutput = `${probe.stdout}\n${probe.stderr}`
 	if (!probeOutput.includes(CLIENT_BANNER)) {
-		throw new Error(explainClientFailure(probeOutput))
+		throw new HostProvisioningFailedError(explainClientFailure(probeOutput))
 	}
 
 	const templates = renderUnitTemplates({ networkStack, imageId: podmanImageId(image) })

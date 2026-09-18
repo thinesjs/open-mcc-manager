@@ -17,6 +17,7 @@ import {
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
 	InstanceSignInRunningError,
+	InternalError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
 } from "@open-mcc/core"
@@ -36,6 +37,8 @@ const exportedErrorConstructors = <T extends object>(
 		(entry): entry is [string, ErrorConstructor] =>
 			typeof entry[1] === "function" && entry[1].prototype instanceof Error,
 	)
+
+const NEVER_REACHES_AN_OPERATOR: readonly ErrorConstructor[] = [InternalError]
 
 const databaseError = (code: string, constraint: string, detail: string): DatabaseError => {
 	const error = new DatabaseError(`database said: ${detail}`, detail.length, "error")
@@ -312,14 +315,27 @@ describe("mapKnownError on integrity constraint violations", () => {
 })
 
 describe("mapKnownError coverage of the error classes it is given", () => {
-	const wireErrorConstructors = [
+	const exportedConstructors = [
 		...exportedErrorConstructors(core),
 		...exportedErrorConstructors(serverErrors),
 		...exportedErrorConstructors(transport),
 	]
 
+	const wireErrorConstructors = exportedConstructors.filter(
+		([, ErrorClass]) => !NEVER_REACHES_AN_OPERATOR.includes(ErrorClass),
+	)
+
 	it("finds error classes to check, so the coverage assertion below cannot pass vacuously", () => {
 		expect(wireErrorConstructors.length).toBeGreaterThan(0)
+	})
+
+	it("\u2605 leaves the one class that means 500 unmapped, rather than giving it operator copy", () => {
+		expect(mapKnownError(new InternalError("a claim no operator is waiting on"))).toBeNull()
+	})
+
+	it("\u2605 excuses that one class from the walk and no other, so a second cannot hide behind it", () => {
+		expect(NEVER_REACHES_AN_OPERATOR).toEqual([InternalError])
+		expect(exportedConstructors.length - wireErrorConstructors.length).toBe(1)
 	})
 
 	it("answers a drop or hold with no live channel as a conflict the dashboard can explain", () => {

@@ -63,6 +63,7 @@ import { type HostReadLease, leaseHostReader } from "../host/host-reader"
 import { systemctl, UNIT_DIR } from "../host/profile"
 import { checkHostRuntime, type HostNeed, hostMeets } from "../host/runtime-guard"
 import { COULD_NOT_CONNECT, connectFailureReason } from "../host/unreachable"
+import { HostRefusedError, InternalError } from "../lib/errors"
 import { assertExhaustive } from "../lib/exhaustive"
 import { redactCommand } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
@@ -246,7 +247,8 @@ const failingAs = async <T>(
 	try {
 		return await work()
 	} catch (error) {
-		if (!(error instanceof Error) || error.constructor !== Error) throw error
+		if (!(error instanceof Error)) throw error
+		if (error.constructor !== Error && !(error instanceof HostRefusedError)) throw error
 		throw new Failure(error.message)
 	}
 }
@@ -276,7 +278,9 @@ const startedOrThrow = (instanceId: string, output: string): void => {
 	) {
 		throw new InstanceSignInRunningError(`Sign-in is running for instance ${instanceId}`)
 	}
-	throw new Error(`Failed to start instance ${instanceId}: ${state.activeState} ${state.result}`)
+	throw new HostRefusedError(
+		`Failed to start instance ${instanceId}: ${state.activeState} ${state.result}`,
+	)
 }
 
 type LoadedHost = {
@@ -324,7 +328,7 @@ export const takeConfigClaim = async (
 		throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
 	}
 	const config = await repos.instances.latestConfig(scope, instanceId)
-	if (!config) throw new Error(`No saved settings for instance ${instanceId}`)
+	if (!config) throw new InternalError(`No saved settings for instance ${instanceId}`)
 	if (config.version !== want.expectedVersion) {
 		throw new InstanceConcurrentlyModifiedError(
 			`Instance ${instanceId} is at version ${config.version}, not ${want.expectedVersion}`,
@@ -776,7 +780,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			UNIT_STOP_TIMEOUT_MS,
 		)
 		if (result.exitCode !== 0) {
-			throw new Error(`Failed to stop instance ${instanceId}: ${result.stderr.trim()}`)
+			throw new HostRefusedError(`Failed to stop instance ${instanceId}: ${result.stderr.trim()}`)
 		}
 		forgetActive(instanceId)
 	}
@@ -869,7 +873,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						environment,
 					)
 					if (wrote.exitCode !== 0) {
-						throw new Error(`Failed to write the instance environment: ${wrote.stderr.trim()}`)
+						throw new HostRefusedError(
+							`Failed to write the instance environment: ${wrote.stderr.trim()}`,
+						)
 					}
 					const answer = parseEnvWriteAnswer(wrote.stdout)
 					if (answer === undefined) {
@@ -898,7 +904,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 							document,
 						)
 						if (written.exitCode !== 0) {
-							throw new Error(`Failed to write instance config: ${written.stderr.trim()}`)
+							throw new HostRefusedError(
+								`Failed to write instance config: ${written.stderr.trim()}`,
+							)
 						}
 					}
 
@@ -909,7 +917,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						UNIT_START_TIMEOUT_MS,
 					)
 					if (started.exitCode !== 0) {
-						throw new Error(`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`)
+						throw new HostRefusedError(
+							`Failed to start instance ${claimed.id}: ${started.stderr.trim()}`,
+						)
 					}
 					startedOrThrow(claimed.id, started.stdout)
 				} finally {
@@ -957,7 +967,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					document,
 				)
 				if (result.exitCode !== 0) {
-					throw new Error(`Failed to write instance config: ${result.stderr.trim()}`)
+					throw new HostRefusedError(`Failed to write instance config: ${result.stderr.trim()}`)
 				}
 			} finally {
 				await transport.close().catch(() => undefined)
@@ -1087,7 +1097,8 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 							INSTANCE_STEP_TIMEOUT_MS,
 							stdin,
 						)
-						if (result.exitCode !== 0) throw new Error(`${failure}: ${result.stderr.trim()}`)
+						if (result.exitCode !== 0)
+							throw new HostRefusedError(`${failure}: ${result.stderr.trim()}`)
 					}
 					const finalized = await deps.instances.finalizeConfigClaim(
 						scopeOf(ctx),

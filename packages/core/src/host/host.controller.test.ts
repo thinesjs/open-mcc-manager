@@ -25,7 +25,6 @@ import {
 	type HostControllerDeps,
 	HostHasInstancesError,
 	HostNotFoundError,
-	HostProvisioningFailedError,
 	HostProvisioningInProgressError,
 	HostUnreachableError,
 	type WithTransaction,
@@ -39,7 +38,7 @@ import type {
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
 import { HOST_FACTS_COMMAND } from "./podman-facts"
-import { provisionHost, SYSTEM_COMMAND } from "./provision"
+import { HostProvisioningFailedError, provisionHost, SYSTEM_COMMAND } from "./provision"
 import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
 
 const jobsDouble = () => ({ enqueue: vi.fn(async () => undefined) })

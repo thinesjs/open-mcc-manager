@@ -5,6 +5,7 @@ import {
 	type SleepWindowPublic,
 	TIMEZONE_PATTERN,
 } from "@open-mcc/contracts"
+import { InternalError } from "../lib/errors"
 import { validateInstanceId } from "./unit"
 
 export const SLEEP_STOP_UNIT = "open-mcc-sleep-stop"
@@ -18,7 +19,7 @@ export const sleepStartTimer = (instanceId: string): string =>
 
 export const validateTimezone = (timezone: string): string => {
 	if (!TIMEZONE_PATTERN.test(timezone) || timezone.length > 64) {
-		throw new Error(`Refusing to render a timer for an unrecognised timezone: ${timezone}`)
+		throw new InternalError(`Refusing to render a timer for an unrecognised timezone: ${timezone}`)
 	}
 	return timezone
 }
@@ -28,13 +29,13 @@ const orderedDays = (days: readonly DayOfWeek[]): DayOfWeek[] =>
 
 export const renderDaysOfWeek = (days: readonly DayOfWeek[]): string => {
 	const ordered = orderedDays(days)
-	if (ordered.length === 0) throw new Error("A sleep window must name at least one day")
+	if (ordered.length === 0) throw new InternalError("A sleep window must name at least one day")
 	return ordered.length === DAYS_OF_WEEK.length ? "*" : ordered.join(",")
 }
 
 export const calendarWeekdayPrefix = (days: readonly DayOfWeek[]): string => {
 	const ordered = orderedDays(days)
-	if (ordered.length === 0) throw new Error("A sleep window must name at least one day")
+	if (ordered.length === 0) throw new InternalError("A sleep window must name at least one day")
 	return ordered.length === DAYS_OF_WEEK.length ? "" : `${ordered.join(",")} `
 }
 

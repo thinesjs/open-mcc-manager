@@ -1,5 +1,6 @@
 import type { Socket } from "node:net"
 import type { TLSSocket } from "node:tls"
+import { InternalError } from "../lib/errors"
 import { networkReason } from "./failure"
 import { classifyRefusal, classifySmtpReply, type DeliveryOutcome } from "./outcome"
 import { needsStartTls } from "./smtp.connect"
@@ -65,7 +66,7 @@ export const createReader = (socket: Socket): Reader => {
 		deliver()
 	}
 	const onError = (error: Error) => fail(error)
-	const onEnd = () => fail(new Error(CLOSED))
+	const onEnd = () => fail(new InternalError(CLOSED))
 
 	socket.on("data", onData)
 	socket.on("error", onError)
@@ -144,7 +145,7 @@ export const converse = async (
 	let reader = createReader(socket)
 
 	const watch = (target: Socket) => {
-		target.setTimeout(deps.timeoutMs, () => target.destroy(new Error(TOO_SLOW)))
+		target.setTimeout(deps.timeoutMs, () => target.destroy(new InternalError(TOO_SLOW)))
 	}
 	watch(socket)
 

@@ -892,7 +892,7 @@ describe("comparing a host's client config", () => {
 						stderr: "",
 						exitCode: 0,
 					},
-				[`XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true`]:
+				"XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u 'open-mcc@abc123.service' --lines 20 --no-pager --output cat 2>/dev/null || true":
 					{ stdout: "[MCC] Server was successfully joined.", stderr: "", exitCode: 0 },
 				'cat "$HOME"/.local/share/open-mcc/instances/abc123/config/MinecraftClient.ini 2>/dev/null || true':
 					{

@@ -1,5 +1,6 @@
 import { createConnection, isIP, type Socket } from "node:net"
 import { connect as startTls, type TLSSocket } from "node:tls"
+import { InternalError } from "../lib/errors"
 
 export const IMPLICIT_TLS_PORT = 465
 
@@ -36,7 +37,7 @@ const settled = <T extends Socket>(
 		const onTimeout = () =>
 			done(() => {
 				socket.destroy()
-				reject(new Error(failure))
+				reject(new InternalError(failure))
 			})
 		socket.setTimeout(timeoutMs)
 		socket.once(ready, onReady)

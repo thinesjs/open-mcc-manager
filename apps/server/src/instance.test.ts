@@ -28,6 +28,7 @@ import {
 	envWriteUnlessRunningCommand,
 	generateKeyPair,
 	generateSshKeyPair,
+	HOST_METRICS_COMMAND,
 	renderEnvironmentFile,
 	SESSION_CACHE_UNREADABLE_EXIT,
 	type SecretStore,
@@ -1099,6 +1100,11 @@ describe("what an operator reads when the host will not do what they asked", () 
 
 	const refused: ExecResult = { stdout: "", stderr: HOST_SAID, exitCode: 1 }
 
+	const HOST_REFUSED = {
+		status: 400,
+		errorCode: "HOST_REFUSED",
+		message: "The host would not do what this manager asked",
+	}
 	const START_FAILED = {
 		status: 400,
 		errorCode: "INSTANCE_START_FAILED",
@@ -1183,6 +1189,19 @@ describe("what an operator reads when the host will not do what they asked", () 
 			renderEnvironmentFile({ liveControlToken: "0".repeat(32) }),
 			48919,
 		)
+
+	it("★ a host readout the host refused says the host refused it, not that the manager broke", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { hostId } = await seedReadyInstance(orgId, memberId)
+		hostScript[HOST_METRICS_COMMAND] = refused
+
+		const res = await app.request(
+			`/trpc/instance.hostMetrics?input=${encodeURIComponent(JSON.stringify({ hostId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+
+		expect(await answerOf(res)).toEqual(HOST_REFUSED)
+	})
 
 	it("★ a start the host refused reads as a start that failed", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()

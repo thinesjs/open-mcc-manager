@@ -1,5 +1,6 @@
 import { maskCommandCredentials } from "@open-mcc/contracts"
 import type { HostTransport } from "@open-mcc/transport"
+import { HostRefusedError, InternalError } from "../lib/errors"
 import { instanceDir, validateInstanceId } from "./unit"
 
 export const CONTROL_TIMEOUT_MS = 15_000
@@ -89,7 +90,7 @@ export const controlLine = (input: string): string => {
 
 export const sendableLine = (command: string): string => {
 	if (hasControlCharacter(command)) {
-		throw new Error("Instance commands must not contain a control character")
+		throw new InternalError("Instance commands must not contain a control character")
 	}
 	refuseDoubleSlashCredential(command)
 	return controlLine(command)
@@ -104,6 +105,6 @@ export const sendCommand = async (
 	const line = sendableLine(command)
 	const result = await transport.exec(`cat > ${controlPath(id)}`, CONTROL_TIMEOUT_MS, `${line}\n`)
 	if (result.exitCode !== 0) {
-		throw new Error(`Failed to send command to instance ${id}: ${result.stderr.trim()}`)
+		throw new HostRefusedError(`Failed to send command to instance ${id}: ${result.stderr.trim()}`)
 	}
 }

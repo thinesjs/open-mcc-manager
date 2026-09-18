@@ -3,6 +3,7 @@ import type { IncomingHttpHeaders } from "node:http"
 import { isIP, type LookupFunction } from "node:net"
 import { DELIVERY_MAX_RESPONSE_BYTES, DELIVERY_TIMEOUT_MS } from "@open-mcc/contracts"
 import { Agent, request as undiciRequest } from "undici"
+import { InternalError } from "../lib/errors"
 import {
 	bareHostname,
 	type EgressPolicy,
@@ -31,11 +32,11 @@ const NO_ANSWER = "that address could not be looked up"
 const TOO_SLOW = "the delivery took too long"
 
 const beforeDeadline = async <T>(work: Promise<T>, deadline: AbortSignal): Promise<T> => {
-	if (deadline.aborted) throw new Error(TOO_SLOW)
+	if (deadline.aborted) throw new InternalError(TOO_SLOW)
 	return await Promise.race([
 		work,
 		new Promise<T>((_resolve, reject) => {
-			deadline.addEventListener("abort", () => reject(new Error(TOO_SLOW)), { once: true })
+			deadline.addEventListener("abort", () => reject(new InternalError(TOO_SLOW)), { once: true })
 		}),
 	])
 }
@@ -92,7 +93,7 @@ export const pinnedLookup =
 			wanted === undefined ? addresses : addresses.filter((entry) => entry.family === wanted)
 		const first = chosen[0]
 		if (first === undefined) {
-			callback(new Error(NO_ANSWER), [])
+			callback(new InternalError(NO_ANSWER), [])
 			return
 		}
 		if (options.all === true) {

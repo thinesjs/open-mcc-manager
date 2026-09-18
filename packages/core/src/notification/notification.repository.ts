@@ -14,6 +14,7 @@ import type {
 import { sql } from "kysely"
 import { nanoid } from "nanoid"
 import type { OrgScope } from "../host/host.repository"
+import { InternalError } from "../lib/errors"
 
 export type PlannedDelivery = { deliveryId: string; destinationId: string }
 
@@ -80,7 +81,7 @@ export const createNotificationRepository = (db: Executor) => ({
 			.values({ ...values, id: nanoid(), organizationId: scope.organizationId })
 			.returningAll()
 			.executeTakeFirst()
-		if (!row) throw new Error("the destination could not be saved")
+		if (!row) throw new InternalError("the destination could not be saved")
 		return row
 	},
 

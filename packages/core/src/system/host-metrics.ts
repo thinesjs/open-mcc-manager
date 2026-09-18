@@ -1,6 +1,7 @@
 import type { HostMetrics } from "@open-mcc/contracts"
 import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { INSTANCES_ROOT } from "../host/profile"
+import { HostRefusedError } from "../lib/errors"
 
 export const HOST_METRICS_TIMEOUT_MS = 15_000
 
@@ -37,7 +38,7 @@ export const parseHostMetrics = (stdout: string, diskStdout: string): HostMetric
 export const readHostMetrics = async (reader: Pick<HostReader, "exec">): Promise<HostMetrics> => {
 	const general = await reader.exec(asReadCommand(HOST_METRICS_COMMAND))
 	if (general.exitCode !== 0) {
-		throw new Error(`Could not read host metrics: ${general.stderr.trim()}`)
+		throw new HostRefusedError(`Could not read host metrics: ${general.stderr.trim()}`)
 	}
 	const disk = await reader.exec(asReadCommand(`df -Pk ${INSTANCES_ROOT} 2>/dev/null | tail -n 1`))
 	return parseHostMetrics(general.stdout, disk.stdout)

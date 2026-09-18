@@ -230,6 +230,21 @@ describe("getErrorMessage", () => {
 		expect(others).not.toContain(unreadable)
 	})
 
+	it("★ tells an operator the host would not do the work, in words that blame no part of OpenMCC", () => {
+		const refused = getErrorMessage({
+			message: "The host would not do what this manager asked",
+			data: { errorCode: "HOST_REFUSED", httpStatus: 400 },
+		})
+
+		expect(refused).toBe("The host would not do what OpenMCC asked.")
+		expect(refused).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(refused).not.toMatch(/unit|exit|systemd|journal|\/home/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_REFUSED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(refused)
+	})
+
 	it("★ tells an operator an alert was not accepted and not sent, promising no wait", () => {
 		const notQueued = getErrorMessage({
 			message: "This manager could not accept this alert, so nothing was sent",

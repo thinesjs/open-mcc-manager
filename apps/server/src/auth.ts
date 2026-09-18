@@ -7,6 +7,7 @@ import { defaultAc, ownerAc } from "better-auth/plugins/organization/access"
 import type { OidcProvider } from "./oidc-env"
 import { hashPassword, verifyPassword } from "./security/password"
 import {
+	alwaysRefuses,
 	anyUserExists,
 	createRegistrationGate,
 	type UserCreationMode,
@@ -15,12 +16,19 @@ import {
 const operatorRole = defaultAc.newRole({})
 const viewerRole = defaultAc.newRole({})
 
-const GATES_USER_CREATION: Record<UserCreationMode, boolean> = { gated: true, trusted: false }
+const REFUSES_USER_CREATION: Record<UserCreationMode, ((db: Db) => Promise<boolean>) | undefined> =
+	{
+		closed: alwaysRefuses,
+		gated: anyUserExists,
+		trusted: undefined,
+	}
 
-const registrationGateFor = (mode: UserCreationMode, db: Db) =>
-	GATES_USER_CREATION[mode]
-		? { validateUserInfo: createRegistrationGate(() => anyUserExists(db)) }
-		: undefined
+const registrationGateFor = (mode: UserCreationMode, db: Db) => {
+	const refuses = REFUSES_USER_CREATION[mode]
+	return refuses === undefined
+		? undefined
+		: { validateUserInfo: createRegistrationGate(() => refuses(db)) }
+}
 
 const OIDC_SCOPES = ["openid", "email", "profile"]
 

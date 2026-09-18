@@ -39,8 +39,8 @@ function SignInPage() {
 	const { singleSignOn } = Route.useLoaderData()
 	const [email, setEmail] = useState("")
 	const [password, setPassword] = useState("")
-	const [error, setError] = useState<string | null>(
-		failure === undefined ? null : signInFailureMessage(failure),
+	const [error, setError] = useState<string | null>(() =>
+		singleSignOn === null || failure === undefined ? null : signInFailureMessage(failure),
 	)
 	const [isSubmitting, setIsSubmitting] = useState(false)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Env } from "./env"
-import { OIDC_DEFAULT_NAME, oidcConfigured, oidcProviderFrom } from "./oidc-env"
+import { OIDC_DEFAULT_NAME, oidcProviderFrom, oidcWarningFor } from "./oidc-env"
 
 const BASE: Env = {
 	DATABASE_URL: "postgres://nobody:nobody@127.0.0.1:1/nope",
@@ -26,9 +26,9 @@ const CONFIGURED: Env = {
 }
 
 describe("reading the provider an operator configured", () => {
-	it("offers none at all when nothing is set", () => {
-		expect(oidcConfigured(BASE)).toBe(false)
+	it("offers none, and says nothing, when nothing is set", () => {
 		expect(oidcProviderFrom(BASE)).toBeUndefined()
+		expect(oidcWarningFor(BASE)).toBeUndefined()
 	})
 
 	it("treats the empty values a compose file always passes as nothing set", () => {
@@ -40,8 +40,8 @@ describe("reading the provider an operator configured", () => {
 			OIDC_NAME: "",
 		}
 
-		expect(oidcConfigured(blank)).toBe(false)
 		expect(oidcProviderFrom(blank)).toBeUndefined()
+		expect(oidcWarningFor(blank)).toBeUndefined()
 	})
 
 	it("derives the discovery document from the issuer the operator named", () => {
@@ -53,6 +53,7 @@ describe("reading the provider an operator configured", () => {
 			clientId: "open-mcc-manager",
 			clientSecret: "a-client-secret",
 		})
+		expect(oidcWarningFor(CONFIGURED)).toBeUndefined()
 	})
 
 	it("reads a trailing slash on the issuer as the same provider, not a second one", () => {
@@ -67,32 +68,54 @@ describe("reading the provider an operator configured", () => {
 		expect(oidcProviderFrom(unnamed)?.name).toBe(OIDC_DEFAULT_NAME)
 	})
 
-	it.each(["OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"] as const)(
-		"offers no provider, and still reads as configured, when %s alone is missing",
-		(missing) => {
-			const partial = { ...CONFIGURED, [missing]: undefined }
+	it.each([
+		{ missing: "OIDC_ISSUER_URL" },
+		{ missing: "OIDC_CLIENT_ID" },
+		{ missing: "OIDC_CLIENT_SECRET" },
+	] as const)("names $missing, and only it, when it alone is missing", ({ missing }) => {
+		const partial = { ...CONFIGURED, [missing]: undefined }
 
-			expect(oidcConfigured(partial)).toBe(true)
-			expect(oidcProviderFrom(partial)).toBeUndefined()
-		},
-	)
-
-	it("refuses an issuer that is not a URL, so no half-built discovery address is fetched", () => {
-		const typo = { ...CONFIGURED, OIDC_ISSUER_URL: "id.example.com" }
-
-		expect(oidcConfigured(typo)).toBe(true)
-		expect(oidcProviderFrom(typo)).toBeUndefined()
+		expect(oidcProviderFrom(partial)).toBeUndefined()
+		expect(oidcWarningFor(partial)).toBe(
+			`Signing in through a provider is not offered. Check ${missing}.`,
+		)
 	})
 
-	it("refuses a secret that is only whitespace rather than sending it to a token endpoint", () => {
+	it("names both when two are missing, rather than sending the operator back twice", () => {
+		const partial = { ...CONFIGURED, OIDC_CLIENT_ID: undefined, OIDC_CLIENT_SECRET: undefined }
+
+		expect(oidcWarningFor(partial)).toBe(
+			"Signing in through a provider is not offered. Check OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.",
+		)
+	})
+
+	it("names the issuer when it is set but is not a URL, not the fields that are fine", () => {
+		const typo = { ...CONFIGURED, OIDC_ISSUER_URL: "id.example.com" }
+
+		expect(oidcProviderFrom(typo)).toBeUndefined()
+		expect(oidcWarningFor(typo)).toBe(
+			"Signing in through a provider is not offered. Check OIDC_ISSUER_URL.",
+		)
+	})
+
+	it("names the secret when it is only whitespace rather than sending it to a token endpoint", () => {
 		const blank = { ...CONFIGURED, OIDC_CLIENT_SECRET: "   " }
 
 		expect(oidcProviderFrom(blank)).toBeUndefined()
+		expect(oidcWarningFor(blank)).toBe(
+			"Signing in through a provider is not offered. Check OIDC_CLIENT_SECRET.",
+		)
 	})
 
 	it("hands the secret on exactly as the operator set it", () => {
 		const padded = { ...CONFIGURED, OIDC_CLIENT_SECRET: " keeps its edges " }
 
 		expect(oidcProviderFrom(padded)?.clientSecret).toBe(" keeps its edges ")
+	})
+
+	it("names no secret in anything it asks an operator to read", () => {
+		const partial = { ...CONFIGURED, OIDC_ISSUER_URL: undefined }
+
+		expect(oidcWarningFor(partial)).not.toContain("a-client-secret")
 	})
 })

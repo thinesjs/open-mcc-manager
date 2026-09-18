@@ -7,7 +7,7 @@ import { Client } from "pg"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { type Auth, createAuth } from "./auth"
 import { bootstrapOwner } from "./bootstrap-owner"
-import { anyUserExists, createRegistrationGate } from "./security/registration-gate"
+import { alwaysRefuses, anyUserExists, createRegistrationGate } from "./security/registration-gate"
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? ""
 const databaseName = `registration_gate_test_${randomUUID().replaceAll("-", "")}`
@@ -19,7 +19,9 @@ let databaseUrl: string
 let db: Db
 let gatedAuth: Auth
 let trustedAuth: Auth
+let closedAuth: Auth
 let gatedApp: Hono
+let closedApp: Hono
 
 const onConnection = async (connectionString: string, statement: string): Promise<void> => {
 	const client = new Client({ connectionString })
@@ -106,8 +108,16 @@ beforeAll(async () => {
 		userCreation: "trusted",
 		trustedOrigins: [dashboardOrigin],
 	})
+	closedAuth = createAuth(db, secret, baseUrl, {
+		disableSignUp: false,
+		disableRateLimit: true,
+		userCreation: "closed",
+		trustedOrigins: [dashboardOrigin],
+	})
 	gatedApp = new Hono()
 	gatedApp.on(["GET", "POST"], "/api/auth/*", (c) => gatedAuth.handler(c.req.raw))
+	closedApp = new Hono()
+	closedApp.on(["GET", "POST"], "/api/auth/*", (c) => closedAuth.handler(c.req.raw))
 })
 
 afterEach(async () => {
@@ -234,7 +244,30 @@ describe("the registration gate", () => {
 
 		expect(typeof publicAuth.options.user?.validateUserInfo).toBe("function")
 		expect(typeof gatedAuth.options.user?.validateUserInfo).toBe("function")
+		expect(typeof closedAuth.options.user?.validateUserInfo).toBe("function")
 		expect(trustedAuth.options.user?.validateUserInfo).toBeUndefined()
+	})
+
+	it("refuses a create-user on a closed instance while the deployment still holds no user", async () => {
+		expect(await anyUserExists(db)).toBe(false)
+
+		const email = `${randomUUID()}@example.com`
+		const res = await closedApp.fetch(signUpRequest(email, "correct horse battery staple 6"))
+		const body = await res.text()
+
+		expect(res.status).toBe(403)
+		expect(body).toContain(REGISTRATION_CLOSED_MESSAGE)
+		expect(await db.selectFrom("user").select("id").execute()).toEqual([])
+	})
+
+	it("still admits link-account and sign-in on a closed instance, so a member keeps signing in", async () => {
+		const gate = createRegistrationGate(alwaysRefuses)
+
+		const linked = await gate({ source: { ...createUserSource("oauth"), action: "link-account" } })
+		const signedIn = await gate({ source: { ...createUserSource("oauth"), action: "sign-in" } })
+
+		expect(linked).toBeUndefined()
+		expect(signedIn).toBeUndefined()
 	})
 
 	it("still bootstraps the first owner through the gated cli path on an empty deployment", async () => {

@@ -145,6 +145,7 @@ describe("signing in through a provider the operator configured", () => {
 
 	it("says nothing broke when the round trip simply did not finish", async () => {
 		getSession.mockResolvedValue({ data: null })
+		signInOptions.mockResolvedValue({ singleSignOn: { name: "Acme ID" } })
 		await open("/sign-in?error=invalid_code")
 
 		expect(
@@ -157,6 +158,7 @@ describe("signing in through a provider the operator configured", () => {
 
 	it("reads no sentence a stranger put in the link back to the visitor", async () => {
 		getSession.mockResolvedValue({ data: null })
+		signInOptions.mockResolvedValue({ singleSignOn: { name: "Acme ID" } })
 		await open("/sign-in?error=Your+account+is+suspended.+Call+555-0100.")
 
 		expect(screen.queryByText(/555-0100/)).toBeNull()
@@ -165,5 +167,49 @@ describe("signing in through a provider the operator configured", () => {
 				"That sign-in did not finish. Try again, or sign in with your email and password.",
 			),
 		).toBeDefined()
+	})
+
+	it.each(["toString", "constructor", "__proto__", "valueOf", "hasOwnProperty"])(
+		"still renders the form when the link names %s, which is on every object but in no table",
+		async (forged) => {
+			getSession.mockResolvedValue({ data: null })
+			signInOptions.mockResolvedValue({ singleSignOn: { name: "Acme ID" } })
+			await open(`/sign-in?error=${forged}`)
+
+			expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined()
+			expect(
+				screen.getByText(
+					"That sign-in did not finish. Try again, or sign in with your email and password.",
+				),
+			).toBeDefined()
+			expect(screen.queryByText(/object|Objects are not valid/)).toBeNull()
+		},
+	)
+})
+
+describe("a deployment that configured no provider", () => {
+	it.each([
+		"registration_closed",
+		"account_not_linked",
+		"email_not_found",
+		"invalid_code",
+		"toString",
+		"constructor",
+		"__proto__",
+	])("says nothing at all about a provider when the link carries %s", async (forged) => {
+		getSession.mockResolvedValue({ data: null })
+		await open(`/sign-in?error=${forged}`)
+
+		expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined()
+		expect(screen.queryByRole("alert")).toBeNull()
+		expect(screen.queryByText(/provider|Registration is closed|sign-in did not finish/)).toBeNull()
+	})
+
+	it("leaves a query string it does not own exactly where the visitor found it", async () => {
+		getSession.mockResolvedValue({ data: null })
+		const router = routerFor("/sign-in?foo=bar")
+		await router.load()
+
+		expect(router.state.location.searchStr).toBe("?foo=bar")
 	})
 })

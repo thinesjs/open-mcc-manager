@@ -69,7 +69,7 @@ import { createRequestContext } from "./create-context"
 import type { Env } from "./env"
 import { defaultIconFetch, itemIconHandler } from "./item-icon"
 import { memberControllerFor } from "./members"
-import { OIDC_UNUSABLE_WARNING, oidcConfigured, oidcProviderFrom } from "./oidc-env"
+import { oidcProviderFrom, oidcWarningFor } from "./oidc-env"
 import { applyRequestLimits } from "./request-limits"
 import { requestSpan } from "./request-span"
 import { appRouter } from "./routers/index"
@@ -136,8 +136,10 @@ export const startServer = async (
 		.map((origin) => origin.trim())
 		.filter((origin) => origin.length > 0)
 	const oidc = oidcProviderFrom(env)
-	if (!oidc && oidcConfigured(env)) logger.warn(OIDC_UNUSABLE_WARNING)
+	const oidcWarning = oidcWarningFor(env)
+	if (oidcWarning !== undefined) logger.warn(oidcWarning)
 	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
+		userCreation: "closed",
 		trustedOrigins: allowed,
 		oidc,
 	})

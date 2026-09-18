@@ -6,13 +6,18 @@ import {
 	REGISTRATION_CLOSED_MESSAGE,
 } from "@open-mcc/contracts"
 import { createLogger, generateKeyPair } from "@open-mcc/core"
-import { createDb, type Db } from "@open-mcc/db"
+import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
 import { Hono } from "hono"
+import { Client } from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { createAuth } from "./auth"
+import { mountDashboardAuth } from "./auth-routes"
 import { type ServerHandle, startServer } from "./bootstrap"
+import { bootstrapOwner } from "./bootstrap-owner"
 import type { Env } from "./env"
+import { oidcProviderFrom } from "./oidc-env"
+import { anyUserExists } from "./security/registration-gate"
 
 vi.mock("@open-mcc/core", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@open-mcc/core")>()
@@ -133,8 +138,8 @@ const forwardedFor = (): string => {
 
 type Started = { state: string; cookie: string; authorizeUrl: URL }
 
-const startSingleSignOn = async (ip: string): Promise<Started> => {
-	const res = await handle.app.request("/api/auth/sign-in/social", {
+const startSingleSignOn = async (app: Hono, ip: string): Promise<Started> => {
+	const res = await app.request("/api/auth/sign-in/social", {
 		method: "POST",
 		headers: { "content-type": "application/json", Origin: ORIGIN, "x-forwarded-for": ip },
 		body: JSON.stringify({
@@ -155,16 +160,16 @@ const startSingleSignOn = async (ip: string): Promise<Started> => {
 	}
 }
 
-const completeSingleSignOn = async (started: Started, ip: string): Promise<Response> =>
-	await handle.app.request(
+const completeSingleSignOn = async (app: Hono, started: Started, ip: string): Promise<Response> =>
+	await app.request(
 		`/api/auth/callback/${OIDC_PROVIDER_ID}?code=authorization-code&state=${encodeURIComponent(started.state)}`,
 		{ method: "GET", headers: { Cookie: started.cookie, "x-forwarded-for": ip } },
 	)
 
-const signInThrough = async (who: Identity): Promise<Response> => {
+const signInThrough = async (app: Hono, who: Identity): Promise<Response> => {
 	identity = who
 	const ip = forwardedFor()
-	return await completeSingleSignOn(await startSingleSignOn(ip), ip)
+	return await completeSingleSignOn(app, await startSingleSignOn(app, ip), ip)
 }
 
 const seedMember = async (role: string) => {
@@ -199,7 +204,7 @@ describe("signing in through the configured provider", () => {
 	it("lands an invited operator on their own member row, keeping the role they were invited with", async () => {
 		const invited = await seedMember("operator")
 
-		const res = await signInThrough({
+		const res = await signInThrough(handle.app, {
 			subject: `subject-${randomUUID()}`,
 			email: invited.email,
 			emailConfirmed: true,
@@ -230,7 +235,7 @@ describe("signing in through the configured provider", () => {
 		const invited = await seedMember("viewer")
 		const subject = `subject-${randomUUID()}`
 
-		await signInThrough({ subject, email: invited.email, emailConfirmed: true })
+		await signInThrough(handle.app, { subject, email: invited.email, emailConfirmed: true })
 
 		const accounts = await db
 			.selectFrom("account")
@@ -251,9 +256,9 @@ describe("signing in through the configured provider", () => {
 			email: invited.email,
 			emailConfirmed: true,
 		}
-		await signInThrough(returning)
+		await signInThrough(handle.app, returning)
 
-		const again = await signInThrough(returning)
+		const again = await signInThrough(handle.app, returning)
 
 		expect(again.status, await again.clone().text()).toBe(302)
 		expect(locationOf(again).toString()).toBe(`${ORIGIN}/hosts`)
@@ -271,7 +276,7 @@ describe("signing in through the configured provider", () => {
 		const stranger = `${randomUUID()}@example.com`
 		const before = await db.selectFrom("user").select("id").execute()
 
-		const res = await signInThrough({
+		const res = await signInThrough(handle.app, {
 			subject: `subject-${randomUUID()}`,
 			email: stranger,
 			emailConfirmed: true,
@@ -291,7 +296,7 @@ describe("signing in through the configured provider", () => {
 		const stranger = `${randomUUID()}@example.com`
 		const sessionsBefore = await db.selectFrom("session").select("id").execute()
 
-		const res = await signInThrough({
+		const res = await signInThrough(handle.app, {
 			subject: `subject-${randomUUID()}`,
 			email: stranger,
 			emailConfirmed: true,
@@ -305,7 +310,7 @@ describe("signing in through the configured provider", () => {
 	it("refuses to match an address the provider has not confirmed, even for a real member", async () => {
 		const invited = await seedMember("owner")
 
-		const res = await signInThrough({
+		const res = await signInThrough(handle.app, {
 			subject: `subject-${randomUUID()}`,
 			email: invited.email,
 			emailConfirmed: false,
@@ -328,7 +333,7 @@ describe("signing in through the configured provider", () => {
 	})
 
 	it("names no failure of its own an internal server error", async () => {
-		const res = await signInThrough({
+		const res = await signInThrough(handle.app, {
 			subject: `subject-${randomUUID()}`,
 			email: `${randomUUID()}@example.com`,
 			emailConfirmed: true,
@@ -375,9 +380,9 @@ describe("what the deployment exposes once a provider is configured", () => {
 		const ip = forwardedFor()
 		tokenRequests = []
 
-		const started = await startSingleSignOn(ip)
+		const started = await startSingleSignOn(handle.app, ip)
 		identity = { subject: `subject-${randomUUID()}`, email: invited.email, emailConfirmed: true }
-		const finished = await completeSingleSignOn(started, ip)
+		const finished = await completeSingleSignOn(handle.app, started, ip)
 
 		expect(tokenRequests.join(" ")).toContain(CLIENT_SECRET)
 		expect(started.authorizeUrl.toString()).not.toContain(CLIENT_SECRET)
@@ -385,5 +390,82 @@ describe("what the deployment exposes once a provider is configured", () => {
 		expect(await finished.clone().text()).not.toContain(CLIENT_SECRET)
 		expect([...finished.headers.entries()].join(" ")).not.toContain(CLIENT_SECRET)
 		expect(logLines.join("\n")).not.toContain(CLIENT_SECRET)
+	})
+})
+
+const adminUrl = process.env.TEST_DATABASE_URL ?? ""
+const untouchedName = `oidc_untouched_${randomUUID().replaceAll("-", "")}`
+
+const onConnection = async (connectionString: string, statement: string): Promise<void> => {
+	const client = new Client({ connectionString })
+	await client.connect()
+	try {
+		await client.query(statement)
+	} finally {
+		await client.end()
+	}
+}
+
+describe("signing in against a deployment nobody has bootstrapped yet", () => {
+	let untouchedDb: Db
+	let untouchedUrl: string
+	let untouchedApp: Hono
+
+	beforeAll(async () => {
+		await onConnection(adminUrl, `create database "${untouchedName}"`)
+		const url = new URL(adminUrl)
+		url.pathname = `/${untouchedName}`
+		untouchedUrl = url.toString()
+		untouchedDb = createDb(untouchedUrl)
+		const migrated = await migrateToLatest(untouchedDb)
+		if (migrated.error) throw migrated.error
+		const mounted = createAuth(untouchedDb, SECRET, BASE_URL, {
+			userCreation: "closed",
+			disableRateLimit: true,
+			trustedOrigins: [ORIGIN],
+			oidc: oidcProviderFrom(await env()),
+		})
+		untouchedApp = new Hono()
+		mountDashboardAuth(untouchedApp, mounted, { oidc: true })
+	}, STARTUP_TIMEOUT_MS)
+
+	afterAll(async () => {
+		await untouchedDb.destroy()
+		await onConnection(adminUrl, `drop database "${untouchedName}" with (force)`)
+	})
+
+	it("refuses the first stranger to arrive, leaving the owner's bootstrap still able to run", async () => {
+		expect(await anyUserExists(untouchedDb)).toBe(false)
+
+		const res = await signInThrough(untouchedApp, {
+			subject: `subject-${randomUUID()}`,
+			email: `${randomUUID()}@example.com`,
+			emailConfirmed: true,
+		})
+
+		expect(locationOf(res).searchParams.get("error")).toBe(REGISTRATION_CLOSED_CODE)
+		expect(locationOf(res).searchParams.get("error_description")).toBe(REGISTRATION_CLOSED_MESSAGE)
+		expect(await untouchedDb.selectFrom("user").select("id").execute()).toEqual([])
+		expect(await untouchedDb.selectFrom("session").select("id").execute()).toEqual([])
+
+		const owner = await bootstrapOwner(
+			untouchedUrl,
+			untouchedDb,
+			createAuth(untouchedDb, SECRET, BASE_URL, {
+				disableSignUp: false,
+				disableRateLimit: true,
+				allowOrganizationCreation: true,
+			}),
+			{
+				email: `${randomUUID()}@example.com`,
+				password: PASSWORD,
+				name: "First Owner",
+				organizationName: "Bootstrapped Org",
+				organizationSlug: `org-${randomUUID()}`,
+			},
+		)
+
+		expect(owner.userId.length).toBeGreaterThan(0)
+		expect(owner.organizationId.length).toBeGreaterThan(0)
 	})
 })

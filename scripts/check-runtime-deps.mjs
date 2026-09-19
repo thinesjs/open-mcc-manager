@@ -5,6 +5,8 @@ const root = process.cwd()
 
 const DOCKERFILES = ["docker/server/Dockerfile", "docker/worker/Dockerfile"]
 
+const BUNDLED_WHOLE = ["docker/web/Dockerfile"]
+
 const PRUNE_SCRIPT = "docker/server/prune-deploy.mjs"
 
 export const externalsIn = (dockerfile) => {
@@ -35,6 +37,13 @@ const main = () => {
 		const externals = externalsIn(fs.readFileSync(path.join(root, file), "utf8"))
 		for (const name of missing(externals, shipped)) {
 			problems.push(`${file} marks ${name} external, but ${PRUNE_SCRIPT} would delete it`)
+		}
+	}
+	for (const file of BUNDLED_WHOLE) {
+		for (const name of externalsIn(fs.readFileSync(path.join(root, file), "utf8"))) {
+			problems.push(
+				`${file} marks ${name} external, but that image ships no node_modules to resolve it from`,
+			)
 		}
 	}
 	if (problems.length > 0) {

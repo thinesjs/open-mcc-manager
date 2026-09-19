@@ -85,6 +85,7 @@ describe("the command pnpm lint runs", () => {
 				"docker/server/Dockerfile":
 					"RUN esbuild --external:pg --external:undici --outfile=server.mjs\n",
 				"docker/worker/Dockerfile": "RUN esbuild --external:pg --outfile=worker.mjs\n",
+				"docker/web/Dockerfile": "RUN esbuild --outfile=web.mjs\n",
 				"docker/server/prune-deploy.mjs": 'const runtimeRoots = [\n\t"pg",\n]\n',
 			})
 
@@ -93,6 +94,26 @@ describe("the command pnpm lint runs", () => {
 			expect(status).toBe(1)
 			expect(output).toContain(
 				"docker/server/Dockerfile marks undici external, but docker/server/prune-deploy.mjs would delete it",
+			)
+		},
+		SPAWN_TIMEOUT_MS,
+	)
+
+	it(
+		"★ exits 1 naming an external the wholly-bundled image has no node_modules to resolve",
+		() => {
+			const root = seeded({
+				"docker/server/Dockerfile": "RUN esbuild --external:pg --outfile=server.mjs\n",
+				"docker/worker/Dockerfile": "RUN esbuild --external:pg --outfile=worker.mjs\n",
+				"docker/web/Dockerfile": "RUN esbuild --external:hono --outfile=web.mjs\n",
+				"docker/server/prune-deploy.mjs": 'const runtimeRoots = [\n\t"pg",\n]\n',
+			})
+
+			const { status, output } = run(root)
+
+			expect(status).toBe(1)
+			expect(output).toContain(
+				"docker/web/Dockerfile marks hono external, but that image ships no node_modules to resolve it from",
 			)
 		},
 		SPAWN_TIMEOUT_MS,

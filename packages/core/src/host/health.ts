@@ -8,16 +8,13 @@ import { systemctl } from "./profile"
 export const HEALTH_TIMEOUT_MS = 15_000
 
 export const failedUnitsCommand = (): string =>
-	`${systemctl("list-units 'open-mcc*' --state=failed --no-legend --plain")} 2>/dev/null | grep -c . || printf 0`
+	systemctl("list-units 'open-mcc*' --state=failed --no-legend --plain")
 
-export const parseFailedUnits = (output: string): number => {
-	const value = Number.parseInt(output.trim(), 10)
-	return Number.isSafeInteger(value) && value > 0 ? value : 0
-}
+export const parseFailedUnits = (output: string): number =>
+	output.split("\n").filter((line) => line.trim().length > 0).length
 
 export type HostObservationResult = {
-	reachable: boolean
-	failedUnits: number
+	failedUnits: number | null
 	osId: string | null
 	osName: string | null
 }
@@ -28,8 +25,7 @@ export const observeHost = async (
 	const failed = await reader.exec(asReadCommand(failedUnitsCommand()))
 	const os = await reader.exec(asReadCommand(OS_RELEASE_COMMAND))
 	return {
-		reachable: true,
-		failedUnits: parseFailedUnits(failed.stdout),
+		failedUnits: failed.exitCode === 0 ? parseFailedUnits(failed.stdout) : null,
 		...parseOsRelease(os.stdout),
 	}
 }

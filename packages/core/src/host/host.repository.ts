@@ -145,7 +145,7 @@ export const createHostRepository = (db: Executor) => ({
 		id: string,
 		organizationId: string,
 		seenAt: Date,
-		observed: { failedUnits: number; osId: string | null; osName: string | null },
+		observed: { failedUnits: number | null; osId: string | null; osName: string | null },
 	): Promise<void> => {
 		await db
 			.updateTable("host")

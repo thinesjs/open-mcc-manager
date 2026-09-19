@@ -1,5 +1,5 @@
 import { OIDC_PROVIDER_ID, SIGN_IN_PATH, type SignInOptions } from "@open-mcc/contracts"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { z } from "zod"
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/sign-in")({
 		try {
 			return await trpcClient.system.signInOptions.query()
 		} catch {
-			return { singleSignOn: null }
+			return { singleSignOn: null, registrationOpen: false }
 		}
 	},
 	component: SignInPage,
@@ -36,7 +36,7 @@ export const Route = createFileRoute("/sign-in")({
 function SignInPage() {
 	const navigate = useNavigate()
 	const { error: failure } = Route.useSearch()
-	const { singleSignOn } = Route.useLoaderData()
+	const { singleSignOn, registrationOpen } = Route.useLoaderData()
 	const [email, setEmail] = useState("")
 	const [password, setPassword] = useState("")
 	const [error, setError] = useState<string | null>(() =>
@@ -140,6 +140,14 @@ function SignInPage() {
 							Continue with {singleSignOn.name}
 						</Button>
 					</div>
+				) : null}
+				{registrationOpen ? (
+					<p className="text-center text-sm text-muted-foreground">
+						No account exists yet.{" "}
+						<Link to="/register" className="text-primary underline-offset-4 hover:underline">
+							Create the first one
+						</Link>
+					</p>
 				) : null}
 				<AffiliationNotice className="text-center" />
 			</div>

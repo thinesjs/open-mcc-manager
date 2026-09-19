@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated.alerts'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated.audit'
@@ -37,6 +38,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const AcceptInvitationRoute = AcceptInvitationRouteImport.update({
   id: '/accept-invitation',
   path: '/accept-invitation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -106,6 +112,7 @@ const AuthenticatedInstancesInstanceIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/register': typeof RegisterRoute
   '/sign-in': typeof SignInRoute
   '/alerts': typeof AuthenticatedAlertsRoute
   '/audit': typeof AuthenticatedAuditRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/register': typeof RegisterRoute
   '/sign-in': typeof SignInRoute
   '/alerts': typeof AuthenticatedAlertsRoute
   '/audit': typeof AuthenticatedAuditRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/accept-invitation': typeof AcceptInvitationRoute
+  '/register': typeof RegisterRoute
   '/sign-in': typeof SignInRoute
   '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/accept-invitation'
+    | '/register'
     | '/sign-in'
     | '/alerts'
     | '/audit'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/accept-invitation'
+    | '/register'
     | '/sign-in'
     | '/alerts'
     | '/audit'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/accept-invitation'
+    | '/register'
     | '/sign-in'
     | '/_authenticated/alerts'
     | '/_authenticated/audit'
@@ -209,6 +221,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AcceptInvitationRoute: typeof AcceptInvitationRoute
+  RegisterRoute: typeof RegisterRoute
   SignInRoute: typeof SignInRoute
 }
 
@@ -233,6 +246,13 @@ declare module '@tanstack/react-router' {
       path: '/accept-invitation'
       fullPath: '/accept-invitation'
       preLoaderRoute: typeof AcceptInvitationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AcceptInvitationRoute: AcceptInvitationRoute,
+  RegisterRoute: RegisterRoute,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport

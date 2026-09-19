@@ -334,6 +334,10 @@ const providerAccountsOf = async (userId: string) =>
 
 const locationOf = (res: Response): URL => new URL(res.headers.get("location") ?? "")
 
+const registrationOpenSchema = z.object({
+	result: z.object({ data: z.object({ registrationOpen: z.boolean() }) }),
+})
+
 describe("signing in through the configured provider", () => {
 	it("lands an invited operator on their own member row, keeping the role they were invited with", async () => {
 		const invited = await seedMember("operator")
@@ -571,7 +575,9 @@ describe("what the deployment exposes once a provider is configured", () => {
 		])
 	})
 
-	it("tells a signed-out visitor the name to put on the button, and nothing else", async () => {
+	it("tells a signed-out visitor the name to put on the button and whether registration is open, and nothing else", async () => {
+		await seedMember("viewer")
+
 		const res = await handle.app.request("/trpc/system.signInOptions", {
 			method: "GET",
 			headers: { Origin: ORIGIN, "x-forwarded-for": forwardedFor() },
@@ -580,7 +586,7 @@ describe("what the deployment exposes once a provider is configured", () => {
 
 		expect(res.status, body).toBe(200)
 		expect(JSON.parse(body)).toEqual({
-			result: { data: { singleSignOn: { name: PROVIDER_NAME } } },
+			result: { data: { singleSignOn: { name: PROVIDER_NAME }, registrationOpen: false } },
 		})
 	})
 
@@ -645,6 +651,25 @@ describe("signing in against a deployment nobody has bootstrapped yet", () => {
 		await untouched.db.destroy()
 		await untouchedDb.destroy()
 		await onConnection(adminUrl, `drop database "${untouchedName}" with (force)`)
+	})
+
+	it("offers first-run registration to the operator, and still refuses the stranger the provider vouched for", async () => {
+		expect(await anyUserExists(untouchedDb)).toBe(false)
+
+		const options = await untouched.app.request("/trpc/system.signInOptions", {
+			headers: { Origin: ORIGIN },
+		})
+		const res = await signInThrough(untouched.app, {
+			subject: `subject-${randomUUID()}`,
+			email: `${randomUUID()}@example.com`,
+			emailConfirmed: true,
+		})
+
+		expect(registrationOpenSchema.parse(await options.json()).result.data.registrationOpen).toBe(
+			true,
+		)
+		expect(locationOf(res).searchParams.get("error")).toBe(REGISTRATION_CLOSED_CODE)
+		expect(await untouchedDb.selectFrom("user").select("id").execute()).toEqual([])
 	})
 
 	it("refuses the first stranger to arrive, leaving the owner's bootstrap still able to run", async () => {

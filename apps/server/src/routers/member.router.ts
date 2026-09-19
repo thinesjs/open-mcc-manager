@@ -8,8 +8,11 @@ import {
 	type MemberSelfView,
 	memberIdInput,
 	type PendingInvitation,
+	type RegisterFirstOwnerResult,
+	registerFirstOwnerInput,
 } from "@open-mcc/contracts"
 import { createAuditRepository } from "@open-mcc/core"
+import { bootstrapOwner } from "../bootstrap-owner"
 import { InvitationNotFoundError } from "../errors"
 import { protectedProcedure, publicProcedure, requireCapability, router } from "../trpc"
 
@@ -67,6 +70,19 @@ export const memberRouter = router({
 				role: input.role,
 				expiresAt: invitation.expiresAt.toISOString(),
 			}
+		}),
+
+	registerFirstOwner: publicProcedure
+		.input(registerFirstOwnerInput)
+		.mutation(async ({ ctx, input }): Promise<RegisterFirstOwnerResult> => {
+			await bootstrapOwner(ctx.databaseUrl, ctx.db, ctx.signupAuth, {
+				email: input.email,
+				password: input.password,
+				name: input.name,
+				organizationName: input.organizationName,
+				organizationSlug: `org-${randomUUID()}`,
+			})
+			return { registered: true }
 		}),
 
 	acceptInvitation: publicProcedure

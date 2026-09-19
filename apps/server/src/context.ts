@@ -1,4 +1,4 @@
-import type { Role, SignInOptions } from "@open-mcc/contracts"
+import type { Role, SingleSignOn } from "@open-mcc/contracts"
 import type {
 	AuditController,
 	BuildInfo,
@@ -26,7 +26,8 @@ export type RequestContext = {
 	actor: Actor | null
 	auth: Auth
 	signupAuth: Auth
-	signInOptions: SignInOptions
+	singleSignOn: SingleSignOn | null
+	databaseUrl: string
 	headers: Headers
 	hostController: HostController
 	processIdentities: ProcessIdentityRepository

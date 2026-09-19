@@ -5,6 +5,7 @@ import {
 	journalRefusedCursor,
 	parseJournal,
 } from "@open-mcc/contracts/boundary/journal"
+import type { InstanceRow } from "@open-mcc/db"
 import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { journalctl } from "../host/profile"
 import { unitName } from "../instance/unit"
@@ -14,18 +15,26 @@ export const JOURNAL_READ_TIMEOUT_MS = 20_000
 
 export const JOURNAL_MAX_LINES = 2_000
 
+export const JOURNAL_LINE_COLUMNS = 130
+
 export const SEED_WINDOW = "-7d"
 
 export const journalResume = (cursor: string | null): string | null =>
 	cursor !== null && isJournalCursor(cursor) ? cursor : null
 
+const widthOf = (command: string): string => `COLUMNS=${JOURNAL_LINE_COLUMNS} ${command}`
+
 export const journalCommand = (instanceId: string, cursor: string | null): string => {
 	const resume = journalResume(cursor)
-	const read = `-u ${unitName(instanceId)} --utc -o short-iso --no-pager --show-cursor`
+	const read = `-u ${unitName(instanceId)} --utc -o short-iso --no-pager --no-full --show-cursor`
 	if (resume === null) {
-		return journalctl(`${read} --since ${JSON.stringify(SEED_WINDOW)} -n ${JOURNAL_MAX_LINES}`)
+		return widthOf(
+			journalctl(`${read} --since ${JSON.stringify(SEED_WINDOW)} -n ${JOURNAL_MAX_LINES}`),
+		)
 	}
-	return journalctl(`${read} --cursor ${JSON.stringify(resume)} -n ${JOURNAL_MAX_LINES + 1}`)
+	return widthOf(
+		journalctl(`${read} --cursor ${JSON.stringify(resume)} -n ${JOURNAL_MAX_LINES + 1}`),
+	)
 }
 
 export type InstanceReading = {
@@ -162,4 +171,22 @@ export const drainConnectionChanges = async (
 	}
 
 	return "drained"
+}
+
+export type InstanceSweep = {
+	observe: (instance: InstanceRow) => Promise<DrainOutcome>
+	onFailed: (instance: InstanceRow, error: Error | string) => void
+}
+
+export const observeEachInstance = async (
+	instances: readonly InstanceRow[],
+	sweep: InstanceSweep,
+): Promise<void> => {
+	for (const instance of instances) {
+		try {
+			if ((await sweep.observe(instance)) === "unleased") return
+		} catch (error) {
+			sweep.onFailed(instance, error instanceof Error ? error : String(error))
+		}
+	}
 }

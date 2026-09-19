@@ -5,7 +5,11 @@ import {
 	journalBatch,
 	journalRefusedCursor,
 } from "../../packages/contracts/src/boundary/journal"
-import { JOURNAL_MAX_LINES, journalCommand } from "../../packages/core/src/status/instance-observer"
+import {
+	JOURNAL_LINE_COLUMNS,
+	JOURNAL_MAX_LINES,
+	journalCommand,
+} from "../../packages/core/src/status/instance-observer"
 import {
 	type As,
 	buildImage,
@@ -33,8 +37,13 @@ const INSTANCE = "cursorprobe"
 
 const UNIT = `open-mcc@${INSTANCE}.service`
 
+const WIDE_MARKER = "widestline"
+
+const WIDE_LINE = `${WIDE_MARKER} ${"w".repeat(JOURNAL_LINE_COLUMNS * 2)}`
+
 const PROBE = [
 	'read -r count run < "$HOME/lines"',
+	`echo ${JSON.stringify(WIDE_LINE)}`,
 	"i=0",
 	'while [ "$i" -lt "$count" ]; do echo "probe $run line $i"; i=$((i + 1)); done',
 	"",
@@ -161,7 +170,7 @@ afterAll(async () => {
 
 const SEED = journalCommand(INSTANCE, null)
 
-const MALFORMED = `XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u ${UNIT} --utc -o short-iso --no-pager --show-cursor --cursor "2026-09-06T06:16:10.000Z" -n ${JOURNAL_MAX_LINES + 1}`
+const MALFORMED = `COLUMNS=${JOURNAL_LINE_COLUMNS} XDG_RUNTIME_DIR=/run/user/$(id -u) journalctl --user -u ${UNIT} --utc -o short-iso --no-pager --no-full --show-cursor --cursor "2026-09-06T06:16:10.000Z" -n ${JOURNAL_MAX_LINES + 1}`
 
 const hostOf = (name: string): string => hosts.get(name) ?? ""
 
@@ -176,6 +185,27 @@ describe.each(TARGETS.map((target) => ({ ...target })))("$name", ({ name }) => {
 		const batch = journalBatch(await ran(host, as, SEED))
 
 		expect(batch.cursor).toBeDefined()
+		expect(isJournalCursor(batch.cursor ?? "")).toBe(true)
+	})
+
+	it("cuts a line wider than the read asked for, and still names its position", async () => {
+		const host = hostOf(name)
+		const as = accountOf(name)
+		await logged(host, as, 3)
+
+		const answer = await ran(host, as, SEED)
+		const batch = journalBatch(answer)
+		const widest = batch.lines.filter((line) => line.includes(WIDE_MARKER))
+
+		expect(widest, answer).not.toEqual([])
+		expect(
+			widest.filter((line) => [...line].length > JOURNAL_LINE_COLUMNS),
+			answer,
+		).toEqual([])
+		expect(
+			widest.filter((line) => line.includes(WIDE_LINE)),
+			answer,
+		).toEqual([])
 		expect(isJournalCursor(batch.cursor ?? "")).toBe(true)
 	})
 

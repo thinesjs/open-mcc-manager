@@ -27,7 +27,12 @@ export {
 	sameConnectionIdentity,
 } from "./read-connections"
 export { createSshTransport } from "./ssh/connection"
-export { ChannelLimitReachedError, CommandAbortedError, StreamOverflowError } from "./ssh/exec"
+export {
+	ChannelLimitReachedError,
+	CommandAbortedError,
+	MAX_STDOUT_BYTES,
+	StreamOverflowError,
+} from "./ssh/exec"
 export type { SshHandshake } from "./ssh/probe"
 export { probeHostKey, probeSshHandshake } from "./ssh/probe"
 export type {

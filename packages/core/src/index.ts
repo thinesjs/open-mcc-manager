@@ -345,6 +345,7 @@ export { createEscalationHandler, readEscalationPayload } from "./status/escalat
 export {
 	drainConnectionChanges,
 	JOURNAL_READ_TIMEOUT_MS,
+	observeEachInstance,
 	readConnectionChanges,
 } from "./status/instance-observer"
 export { nextReachability } from "./status/reachability"

@@ -1,4 +1,11 @@
-import { type HostReader, type ReadCommand, readCommandText } from "@open-mcc/transport"
+import type { InstanceRow } from "@open-mcc/db"
+import {
+	type HostReader,
+	MAX_STDOUT_BYTES,
+	type ReadCommand,
+	readCommandText,
+	StreamOverflowError,
+} from "@open-mcc/transport"
 import { describe, expect, it, vi } from "vitest"
 import { type ConnectionChange, UNOBSERVED_CONNECTION } from "./connection"
 import {
@@ -7,6 +14,7 @@ import {
 	JOURNAL_MAX_LINES,
 	journalCommand,
 	journalResume,
+	observeEachInstance,
 	readConnectionChanges,
 	SEED_WINDOW,
 } from "./instance-observer"
@@ -21,6 +29,17 @@ const REAL_OUTPUT = [
 	"2026-09-06T14:15:38+0800 tjsx100 sh[1689967]: §8[MCC] Kicked by an operator",
 	"2026-09-06T14:16:10+0800 tjsx100 sh[1702654]: §8[MCC] Server was successfully joined.",
 ].join("\n")
+
+const JOURNAL_NOTE_BYTES = 4_096
+
+const UTF8_BYTES_PER_COLUMN = 4
+
+const mostBytesFrom = (command: string): number => {
+	const columns = /(?:^|\s)COLUMNS=(\d+)\s/.exec(command)?.[1]
+	if (columns === undefined || !command.includes("--no-full")) return Number.POSITIVE_INFINITY
+	const lines = Number(/ -n (\d+)/.exec(command)?.[1] ?? 0)
+	return lines * (Number(columns) * UTF8_BYTES_PER_COLUMN + 1) + JOURNAL_NOTE_BYTES
+}
 
 const shown = (stdout: string, cursor: string): string =>
 	stdout.length === 0 ? stdout : `${stdout}\n-- cursor: ${cursor}\n`
@@ -57,6 +76,13 @@ describe("asking the host where the client's log left off", () => {
 		expect(command).toContain(`--cursor "${cursorAt(3)}"`)
 		expect(command).not.toContain("--since")
 		expect(command).toContain(`-n ${JOURNAL_MAX_LINES + 1}`)
+	})
+
+	it("asks for fewer bytes than the transport will carry back", () => {
+		expect(mostBytesFrom(journalCommand("abc123", null))).toBeLessThanOrEqual(MAX_STDOUT_BYTES)
+		expect(mostBytesFrom(journalCommand("abc123", cursorAt(3)))).toBeLessThanOrEqual(
+			MAX_STDOUT_BYTES,
+		)
 	})
 
 	it("reads the journal in UTC, so a line's time and the recorded change agree", () => {
@@ -650,5 +676,87 @@ describe("a bot whose stored position the host no longer accepts", () => {
 		expect(drain.refused).toEqual([])
 		expect(drain.changes.map((change) => change.event)).toEqual(["instance.connection_lost"])
 		expect(drain.cursors).toEqual([cursorAt(49)])
+	})
+})
+
+const bot = (id: string): InstanceRow => ({
+	id,
+	organizationId: "org-1",
+	hostId: "host-1",
+	name: `afk-${id}`,
+	accountType: "microsoft",
+	liveControlPort: 33333,
+	liveControlTokenEncrypted: "sealed",
+	liveControlTokenKeyId: "key-1",
+	minecraftAccount: "afk@example.com",
+	minecraftUsername: null,
+	status: "running",
+	lastExitCode: null,
+	authClaimId: null,
+	authClaimedAt: null,
+	configClaimId: null,
+	configClaimedAt: null,
+	playerListOffset: "0",
+	playerListFingerprint: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	playerListCursorVersion: "0",
+	createdAt: new Date("2026-09-06T12:00:00Z"),
+})
+
+const ON_HOST = [bot("one"), bot("two"), bot("three")]
+
+const sweeping = (failing: string) => {
+	const read: string[] = []
+	const failed: string[] = []
+	return {
+		read,
+		failed,
+		sweep: {
+			observe: async (instance: InstanceRow) => {
+				if (instance.id === failing) {
+					throw new StreamOverflowError("stdout", MAX_STDOUT_BYTES, "")
+				}
+				read.push(instance.id)
+				return "drained" as const
+			},
+			onFailed: (instance: InstanceRow, error: Error | string) => {
+				failed.push(`${instance.id}: ${error instanceof Error ? error.message : error}`)
+			},
+		},
+	}
+}
+
+describe("reading every bot on one host", () => {
+	it("reads the bots after one whose journal could not be read", async () => {
+		const sweeping_ = sweeping("two")
+
+		await observeEachInstance(ON_HOST, sweeping_.sweep)
+
+		expect(sweeping_.read).toEqual(["one", "three"])
+	})
+
+	it("says which bot it could not read, rather than passing it off as read", async () => {
+		const sweeping_ = sweeping("two")
+
+		await observeEachInstance(ON_HOST, sweeping_.sweep)
+
+		expect(sweeping_.failed).toEqual([
+			`two: Command stdout exceeded ${MAX_STDOUT_BYTES} bytes and was terminated`,
+		])
+	})
+
+	it("gives up on the host when no reader is free, instead of trying its other bots", async () => {
+		const read: string[] = []
+		const failed: string[] = []
+
+		await observeEachInstance(ON_HOST, {
+			observe: async (instance) => {
+				if (instance.id === "two") return "unleased"
+				read.push(instance.id)
+				return "drained"
+			},
+			onFailed: (instance) => failed.push(instance.id),
+		})
+
+		expect({ read, failed }).toEqual({ read: ["one"], failed: [] })
 	})
 })

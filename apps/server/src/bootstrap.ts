@@ -37,6 +37,7 @@ import {
 	type Logger,
 	leaseHostReader,
 	lockLostHandler,
+	observeEachInstance,
 	readBuildInfo,
 	reconcileQueues,
 	resolveMinecraftName,
@@ -327,48 +328,59 @@ export const startServer = async (
 			const onHost = (await createInstanceRepository(db).list(scope)).filter(
 				(instance) => instance.hostId === host.id && instance.status !== "needs_auth",
 			)
-			for (const instance of onHost) {
-				const cursor = await statusController.connectionCursor(scope, instance.id)
-				const current = await statusController.currentConnection(scope, instance.id)
-				const outcome = await drainConnectionChanges(
-					{
-						lease: async () => {
-							const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
-							return journal.kind === "leased" ? journal.reader : undefined
+			await observeEachInstance(onHost, {
+				observe: async (instance) => {
+					const cursor = await statusController.connectionCursor(scope, instance.id)
+					const current = await statusController.currentConnection(scope, instance.id)
+					const outcome = await drainConnectionChanges(
+						{
+							lease: async () => {
+								const journal = await lease(JOURNAL_READ_TIMEOUT_MS)
+								return journal.kind === "leased" ? journal.reader : undefined
+							},
+							record: (changes) =>
+								statusController.recordInstanceConnection(
+									scope,
+									{ id: instance.id, name: instance.name },
+									changes,
+								),
+							saveCursor: (next) => statusController.saveConnectionCursor(scope, instance.id, next),
+							onRefused: (refused) =>
+								logger.warn(
+									"Journal position no longer usable, reading this bot's journal afresh",
+									{
+										instanceId: instance.id,
+										instanceName: instance.name,
+										cursor: refused,
+									},
+								),
 						},
-						record: (changes) =>
-							statusController.recordInstanceConnection(
-								scope,
-								{ id: instance.id, name: instance.name },
-								changes,
-							),
-						saveCursor: (next) => statusController.saveConnectionCursor(scope, instance.id, next),
-						onRefused: (refused) =>
-							logger.warn("Journal position no longer usable, reading this bot's journal afresh", {
-								instanceId: instance.id,
-								instanceName: instance.name,
-								cursor: refused,
-							}),
-					},
-					instance.id,
-					current,
-					cursor,
-				)
-				if (outcome === "unleased") return
-				const resolved = await resolveMinecraftName(instance, {
-					latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
-					openToken: (sealed, keyId) => secrets.open(sealed, keyId),
-					reader: async () => {
-						const leased = await lease(LIVE_CONTROL_TIMEOUT_MS)
-						return leased.kind === "leased" ? leased.reader : undefined
-					},
-				})
-				if (resolved !== undefined && resolved !== instance.minecraftUsername) {
-					await createInstanceRepository(db)
-						.update(scope, instance.id, { minecraftUsername: resolved })
-						.catch(() => undefined)
-				}
-			}
+						instance.id,
+						current,
+						cursor,
+					)
+					if (outcome === "unleased") return outcome
+					const resolved = await resolveMinecraftName(instance, {
+						latestConfig: (id) => createInstanceRepository(db).latestConfig(scope, id),
+						openToken: (sealed, keyId) => secrets.open(sealed, keyId),
+						reader: async () => {
+							const leased = await lease(LIVE_CONTROL_TIMEOUT_MS)
+							return leased.kind === "leased" ? leased.reader : undefined
+						},
+					})
+					if (resolved !== undefined && resolved !== instance.minecraftUsername) {
+						await createInstanceRepository(db)
+							.update(scope, instance.id, { minecraftUsername: resolved })
+							.catch(() => undefined)
+					}
+					return outcome
+				},
+				onFailed: (instance, error) =>
+					runtimeErrorReporter(logger)(
+						`Could not read bot ${instance.id} on host ${host.id}`,
+						error,
+					),
+			})
 		},
 		now: () => new Date(),
 		onError: runtimeErrorReporter(logger),

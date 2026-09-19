@@ -517,7 +517,7 @@ describe("the provider's ID token", () => {
 	})
 })
 
-describe("a callback address opened a second time", () => {
+describe("the callback address opened outside a live sign-in", () => {
 	it("sends an operator who reloads it back to the dashboard's sign-in page", async () => {
 		const invited = await seedMember("operator")
 		const journey = await signInJourney(handle.app, {
@@ -541,7 +541,7 @@ describe("a callback address opened a second time", () => {
 		expect((await sessionsOf(invited.userId)).length).toBe(1)
 	})
 
-	it("sends a visitor who opens it carrying nothing to that same page", async () => {
+	it("sends a visitor who opens it carrying nothing to the dashboard's sign-in page", async () => {
 		const res = await handle.app.request(`/api/auth/callback/${OIDC_PROVIDER_ID}`, {
 			method: "GET",
 			headers: { "x-forwarded-for": forwardedFor() },

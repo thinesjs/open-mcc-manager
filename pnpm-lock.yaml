@@ -173,6 +173,22 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
 
+  apps/web-server:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.5)
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.5
+    devDependencies:
+      '@open-mcc/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@open-mcc/web':
+        specifier: workspace:*
+        version: link:../web
+
   apps/worker:
     dependencies:
       '@open-mcc/contracts':

@@ -289,7 +289,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Fifty-two rules stated further down this document are enforced too, and are
+Fifty-eight rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -347,6 +347,12 @@ have:
 | An invited operator reaching their own member row through the configured provider, and a stranger at that provider reaching nothing | `apps/server/src/oidc-sign-in.test.ts` — stands a real OIDC provider on a real port and drives the whole redirect through the running server: the authorize call, the state cookie, the provider's own redirect back, the token exchange, the JWKS fetch and an **RS256-signed `id_token`** the stand-in mints with `node:crypto` — the path a real IdP takes, measured against Keycloak 24.0. It calls `/userinfo` never, and a case requires that count to stay zero while the JWKS count stays above it. It asserts on the **rows**, never on a thrown class. An invited operator lands back on the dashboard's signed-in page with exactly one `user` row for their address, the `member` row and role they were seeded with untouched, one `account` row carrying the provider's subject, and one `session` carrying their organization; a second sign-in adds no second user and no second account. A stranger the deployment never invited is redirected to the sign-in page carrying `registration_closed` and the gate's own sentence, with **no** user row added and **no** session opened. Measured: with `GATES_USER_CREATION.gated` flipped to `false` all three invited-operator cases stay green and the stranger walks in with a `session_token` cookie, so a weakened gate fails loudly rather than quietly; with `accountLinking.requireLocalEmailVerified` dropped the invited operator is refused `account_not_linked` instead, which is what pins the better-auth option this feature rests on across a version bump; with the provider added to `accountLinking.trustedProviders` the unconfirmed-address case stops refusing, which is what pins the takeover vector. `apps/server/src/auth-routes.wiring.test.ts` holds the other half — a deployment that configures no provider mounts exactly the five dashboard routes, so mounting the two unconditionally fails there. Two cases hold the ID token itself. The signature one signs with a second RSA key the stand-in never publishes, under the **published `kid`** so a lookup alone still resolves, and requires `unable_to_get_user_info`, no `session_token` cookie, no `session` row and no `account` row — then signs the **same identity** with the published key and requires `/hosts` with one session and one account, so the key alone decides. The nonce one answers a nonce the deployment never sent and requires the same refusal. Measured: `signedBy` made to sign with the published key whatever it is handed fails the signature case alone, `expected null to be 'unable_to_get_user_info'`, so its refusal is caused by the key and not by something incidental; `disableIdTokenNonceBinding: true` added to `auth.ts`'s provider config — one non-test file — leaves fifteen cases green and fails the nonce one alone with the same message; and the stand-in put back to issuing no `id_token` at all, which is what it did before, fails three, `expected 1 to be +0` on the userinfo count and both ID-token cases going green, which is the whole of what the old fake could not see. Two more hold the fallback error destination: a callback address opened a second time, and one opened carrying nothing, must both answer `302` to the dashboard's `/sign-in` with no session cookie. Measured: `onAPIError` dropped from `auth.ts`, and separately `errorUrl: undefined` forced in `bootstrap.ts` — one non-test file each, the happy path green both times — fail exactly those two, `expected 'http://localhost:3000/api/auth/error' to be 'http://localhost:5173/sign-in'`, which is the 404 a real Keycloak produced. What it does NOT hold: that a **real** IdP behaves like the one it stands up — the stand-in's discovery document, JWKS and token endpoint are this file's own; nor that better-auth's own logger keeps the client secret, since only the logger this deployment passes in is read; nor that the dashboard actually serves `/sign-in`, which `apps/web/src/routes/sign-in.test.tsx` holds instead; nor that `/api/auth/error` answers 404, which is read off the seven mounted paths rather than driven. A second case runs a **second `startServer`** against a scratch database nobody has bootstrapped, so what it drives is the wiring rather than a locally built instance: the first stranger to arrive is refused `registration_closed` with no `user` and no `session` row, and `bootstrapOwner` then still runs against that same database. Measured, `bootstrap.ts`'s `userCreation: "closed"` put back to `gated` — and **nothing else** touched — leaves all ten other cases green and fails that one alone, `expected null to be 'registration_closed'`. An earlier version of this case built its own `createAuth` with the mode hardcoded and mounted it on a bare `Hono`; that pinned `createAuth`'s handling of the mode and pinned the wiring not at all, and the whole server suite passed with the mounted instance reverted. A test that builds the thing it is meant to be checking the wiring of proves nothing, and the mutation must be run against the production file alone |
 | A delivery settled only alongside the job that carries what happens next | `packages/core/src/notification/delivery.job.transaction.test.ts` — drives `createDeliveryHandler` against a real Postgres and a **real pg-boss** on its own schema (`pgboss_delivery_job_test`, because the file deletes queue rows and `packages/core` runs files in parallel), and provokes the refusal rather than modelling it: it warms `boss`'s queue cache with a real send, deletes the queue row behind it, and lets `send` answer `null`. It records what pg-boss actually answered for every call, so a run that took the cold-cache `Queue … does not exist` path instead of the `null` one fails rather than passing for the wrong reason. Both `null` sites are driven — the requeue on `deps.queue` and the set-aside on `notification.deadletter` — and each asserts on the state reached, never on a thrown class: the delivery must still read `queued` with `attempts` 0, a null `settledAt` and a null `lastError`, no `notificationAttempt` row may exist, no job on any queue may carry its id, and the destination must be untouched — still enabled, with a null `lastFailedAt` and `lastFailureReason`. A third case drives the loud half with the cache cold. Two further cases hold the other direction: a retryable outcome must leave the delivery `queued` at `attempts` 1 with exactly one job on its own queue carrying `attempt` "2" and a `start_after` past the 45s the provider asked for, and a terminal outcome must leave it `failed` with exactly one `notification.deadletter` job — and in both, the delivery row, its attempt row and the job must share one `xmin`, so the writes are proved to have committed as one Postgres transaction rather than merely to have all happened. Measured: `createDeliveryTransaction` reduced to a pass-through fails all five, the three refusal cases on the delivery row (`attempts` 1 and a stored `lastError`, or `failed` with nothing set aside) and the two accepted cases on the `xmin` check alone with every other assertion in them still passing; dropping either `null` guard fails exactly its own refusal case and nothing else, so the two are held separately; handing `sendJob` the pool runner instead of the transaction's passes all three refusal cases — they insert no job — and is caught only by the `xmin` check. What it does NOT hold: the **reverse** direction, an enqueue rolled back by a later failure, because nothing in this transaction runs after the enqueue, so it is unreachable without inventing a failure; the provider call, which is a scripted `DeliverySend` here, so nothing in this file holds what `dispatchTo` does or that it stays outside the transaction; a pg `DatabaseError` raised by the job insert; and what becomes of the pg-boss job the worker is running when the handler throws — `deliverQueuedBatch` lets it out, and no test drives pg-boss's own failure handling of it |
 | Every `check-*.mjs` gate refusing input it must reject, rather than reporting success having checked nothing | each checker's own `*.test.ts` — all eight spawn the checker as a subprocess against input carrying a violation and require exit 1 naming the offence, each beside a case requiring exit 0 on input it must accept, so a gate that simply always fails does not pass either. How each is pointed at a seeded tree is a fact about the checker rather than a choice: `check-runtime-deps`, `check-image-notices` and `check-type-policy` read `process.cwd()`, so spawning with `cwd:` is enough; `check-enforcement-count` and `check-thrown-errors` take the path as `process.argv[2]`; `check-commit-subjects` is run over a scratch git repository; `check-control-sizing` and `check-page-loading` derive their root from `import.meta.dirname` and take no argument, so a byte copy is spawned from a scratch `scripts/` beside the tree it will walk — which is why those two cases hold their main guard from a path holding a space as well, measured: the `import.meta.url` form put back in `check-control-sizing.mjs` fails the seeded case beside `main-guards.test.ts`. `check-control-sizing` carries a third case, requiring the module to check nothing when it is **imported** rather than run, because its own suite imports it: the module-scope walk it had before called `process.exit(1)` inside the vitest worker on any violation in `apps/web/src`, and all six of its cases then reported `Tests no tests` rather than failing. Every spawning case in these eight suites carries an explicit 60s timeout, because one of them passed locally at 0.24s and timed out on CI under vitest's 5s default. Measured: a `main()` gutted to `return` at its first line leaves 16 of the 17 script suites green — `main-guards.test.ts` included, since it reads the guard's shape and never spawns — and fails exactly the one case in the eighth, `expected +0 to be 1`. It holds that each gate fires on **one** shape of bad input, NOT that it finds every shape: the seeded violation is a line or two each, so a checker narrowed to exactly that line still passes, and nothing here reads a checker's rule for sense |
+| The dashboard image answering an address its router owns with the shell, and a file it does not carry with a refusal | `apps/web-server/src/static-app.test.ts` — drives the real `apps/web/dist`, building it first when it is not there, so an unknown route, a nested route, a missing hashed asset, a missing unhashed file and the asset directory itself are each asserted against real responses. Deleting the one guard that tells a file from a route leaves every happy-path case green and fails those, which is the shape of the defect it exists for: a broken deploy reading as a blank page rather than as a 404 |
+| The API's own paths left unanswered by the dashboard image, and only those | `apps/web-server/src/static-app.test.ts` — `/healthz`, `/api`, `/api/auth/get-session`, `/api/avatars/:username`, `/trpc`, `/trpc/host.list` and the encoded `/%61pi/auth/get-session` must each refuse and must each not be the shell, while `/apixyz`, `/trpcfoo`, `/healthzz`, `/apis` and `/trpcs` must each answer 200 with the shell. Without the guard only `/trpc/host.list` still refuses, on the dot in its last segment, so it is the undotted forms that make the first half bite; the second half is what narrowing `startsWith("/api/")` to `startsWith("/api")` fails |
+| The two cache rules the dashboard image serves under, taken on the file it resolved rather than the path asked for | `apps/web-server/src/static-app.test.ts` — the literal `public, max-age=31536000, immutable` on a content-hashed asset and the literal `no-store` on the shell and on an unhashed file from `apps/web/public`, written out rather than imported from the module under test, so swapping the two values fails it in both directions. One case drives the two apart on purpose: `/assets/..%2findex.html` must serve the shell `no-store` and `/assets%2findex-<hash>.js` the asset `immutable`, so keying either rule on `c.req.path` fails while every ordinary request still passes |
+| Nothing above `dist` reachable, and a path that cannot be decoded refused | `apps/web-server/src/static-app.test.ts` — three climbs written with an encoded separator, each named with a marker from the file it would have leaked, must refuse and must not carry it; `%2e%2e` forms are not used for this, because the URL parser collapses them before the app sees anything and Hono decodes everything but `%2f` after that. Disabling the containment check leaks all three. Alongside it `/%00`, `/assets/index%00.js` and a half-invalid escape must refuse rather than fall through to the shell — the first two hold the null-byte guard, the third holds the app's own `decodeURIComponent` — and a file asked for under a percent-encoded name must still be found |
+| The security headers on the document the dashboard is served as | `apps/web-server/src/static-app.test.ts` — all eight compared whole as literals, on the shell, on an asset and on a refusal, so a header dropped or weakened fails three cases. It holds this image's list alone; nothing compares it against `apps/server/src/security/headers.ts`, and the two are stated to differ |
+| An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -2424,6 +2430,162 @@ per service.
   same; `apps/web/src/components/sign-out.test.tsx` compares the set of files
   naming `authClient.signOut` against an exact list, so adding one fails until
   it is reviewed.
+
+## Serving the dashboard (apps/web-server, docker/web)
+
+`apps/web` builds to static files, and nothing in `apps/server` serves a static
+file, so before this the API could run in production with no interface in front
+of it. The dashboard reaches production as its own image, `open-mcc-web`, built
+from `docker/web/Dockerfile` and published by `release.yml` beside the other
+three.
+
+`apps/web/src/lib/trpc.ts` asks for `/trpc` and `auth-client.ts` is created with
+no `baseURL`, so every call the dashboard makes is relative and no `VITE_*`
+variable exists anywhere in it. One build therefore runs against any deployment,
+and the price of that is fixed: the dashboard **must** be served from the same
+origin as the API. Splitting that origin between the two images is the ingress's
+work and lives in the GitOps repository, not here.
+
+`apps/web-server` is what serves the files — a Hono app over
+`@hono/node-server`, bundled by esbuild into a single `web.mjs` with nothing
+marked external, on the `gcr.io/distroless/nodejs22-debian12:nonroot` base the
+other two runtime images already use. The runtime layer holds `/app/web.mjs`,
+`/app/dist` and `/licenses/THIRD-PARTY-NOTICES.txt`, and no `node_modules`,
+source or build tooling; `docker/web/Dockerfile` asserts that with
+`test ! -e /out/node_modules` rather than leaving it to inspection. nginx was the
+other answer and was not taken: an nginx configuration can only be exercised by
+building an image and starting a container, which `pnpm test` deliberately does
+not do, so every rule below would have had no test in the unit suite — and it
+would have put a second base image family and a second licence story into a
+repository that has one of each.
+
+The notices are the one place this image's build differs in shape. Nothing the
+image runs comes from `node_modules`, but what it *serves* does: the Vite bundle
+carries React, TanStack, the tRPC client and the rest. So the build deploys
+`@open-mcc/web`'s production tree to `/third-party` purely to read licences off
+it, adds `tailwindcss` and `vite` by hand — Tailwind's preflight and Vite's
+preload helper are both emitted into `dist` although both packages are
+development dependencies — drops the repository's own `@open-mcc/*` packages,
+and throws the tree away. A package whose code lands in `dist` and is reachable
+from neither `apps/web`'s production dependencies nor those two names would go
+unrecorded.
+
+### What is a route and what is a missing file
+
+TanStack Router owns the addresses under the dashboard, so `/hosts` and
+`/instances/abc` must answer with `index.html` or a reload breaks the app. That
+fallback must not also answer for a file that was supposed to be there, because a
+deploy that shipped a broken `dist` would then read as a blank page rather than
+as a 404. The line is drawn three times, in this order:
+
+- a path the API owns — `/healthz`, `/api`, `/api/…`, `/trpc`, `/trpc/…` — is
+  refused, never answered with the shell. The dashboard must not shadow the
+  API's surface, and an ingress pointed at the wrong image should fail visibly
+  rather than answer a tRPC call with HTML. It follows that this image has no
+  `/healthz` of its own: probe it on `GET /`.
+- a path whose last segment carries a dot, or that sits anywhere under
+  `/assets/`, names a file. Not on disk means 404.
+- anything else is a route and gets `index.html`.
+
+A request that is not a `GET` or a `HEAD` is not answered with the shell either.
+
+**Every one of those three decisions is taken on the resolved file, never on the
+path that was asked for.** The request path is decoded once, resolved against
+the root, and refused if it lands outside; the cache rule and the
+file-or-route rule then read the *root-relative resolved* path. Keying them on
+`c.req.path` instead is a live bug, not a style point: `%2f` survives the URL
+parser, so `GET /assets/..%2findex.html` reads as an asset by its request path
+and resolves to the shell, and it shipped once answering 200 with the shell
+under `immutable` — a year-long cache on the one file the split exists to keep
+out of a cache. The inverse, `/assets%2findex-<hash>.js`, gave a hashed asset
+`no-store`.
+
+Two layers have already touched the path before any of this runs, and a test
+written without knowing that holds nothing.
+
+The WHATWG URL parser **collapses** `%2e%2e` and `.` segments:
+`/%2e%2e/assets/index-abc.js` arrives as `/assets/index-abc.js`, and a plain
+`/../x` arrives as `/x`. Then Hono's `c.req.path` **decodes every percent escape
+except `%2f`** — `/assets/x%2Dy.js` arrives as `/assets/x-y.js`,
+`/%61pi/auth` as `/api/auth`, and `/%00` as a path carrying a real null byte —
+and it does not throw on a half-invalid escape, handing `/%e0%a4%a1%zz` on as
+`/ड%zz`.
+
+So a suite that sends only `%2e%2e` forms proves nothing about traversal: the
+parser normalised them away. The climbs that reach the containment check are
+the ones written with an **encoded separator** — `/..%2fpackage.json`,
+`/%2e%2e%2f%2e%2e%2f%2e%2e/apps/server/package.json` — because `%2f` is the one
+escape that survives both layers. The app decodes a second time, which is what
+turns those into real separators, and the containment check is what makes that
+safe. Both halves are held: removing the containment check leaks
+`apps/web/package.json`, `apps/web/index.html` and `apps/server/package.json`
+through those three paths.
+
+The app's own `decodeURIComponent` is deliberately kept even though Hono has
+already decoded the ordinary cases, because Hono's `getPath` is a dependency's
+internal and this is the process serving the origin: the code is correct whether
+or not an upstream layer decoded first. What it adds today is the `%2f` case
+above and a `URIError` on an escape Hono passed through, which is why
+`/%e0%a4%a1%zz` is refused rather than looked up. The null-byte guard sits
+outside the decode, because the null byte arrives from Hono already decoded.
+
+An address that merely *begins* with an API prefix is a dashboard route:
+`/apixyz`, `/trpcfoo` and `/healthzz` all get the shell. That is a boundary, not
+a prefix, and `startsWith("/api/")` narrowed to `startsWith("/api")` is a
+one-character edit away. The reserved check runs on the decoded path, so
+`/%61pi/auth/get-session` is refused too. A path that cannot be decoded, or that
+carries a null byte, is refused rather than treated as a route.
+
+### The two cache rules
+
+Vite writes a content hash into every name under `/assets/`, so those are served
+`public, max-age=31536000, immutable`. Everything else — `index.html` and the
+unhashed files copied from `apps/web/public` — is `no-store`. The failure this
+prevents is an operator holding a cached shell against a new API, and 450 bytes
+a navigation is what it costs.
+
+### The headers the dashboard sends
+
+The API applies `securityHeaders()` in `bootstrap.ts`, but a CSP on a JSON
+response governs nothing. What constrains the dashboard is the CSP on the
+document, and the document comes from this image. `apps/web-server` sends the
+same eight headers with the same values, with one deliberate difference:
+`connect-src` is `'self'` alone rather than `'self' ws: wss:`, because the tRPC
+client uses `httpBatchLink` and the dashboard opens no WebSocket and no
+`EventSource`. The two lists are tied together by nothing, so a change to either
+is a decision to take about the other.
+
+`style-src 'self'` carries no `'unsafe-inline'`, and the dashboard renders under
+it because React writes inline styles through the CSSOM, which CSP does not
+govern, and nothing in the tree injects a `<style>` element at runtime. A
+dependency that starts doing so would be blocked in production and nowhere else,
+since the Vite dev server sends no CSP at all. That is a named limitation to
+check by eye: read the browser console against a real container when a rendering
+dependency changes.
+
+### What no test here covers
+
+`apps/web-server`'s suite drives the real `apps/web/dist` through the same app
+the image runs, so the rules above are held against real responses. It does not
+hold the image's own wiring: that `web.mjs` finds `dist` beside itself, that the
+Dockerfile put it there, or that a distroless container starts at all.
+`docker/web/Dockerfile` asserts the layout at build time — `test -f
+/out/dist/index.html`, `test -d /out/dist/assets`, and an exact-contents check
+on `/out` itself — and the rest is checked by building the image and driving a
+container by hand, which `pnpm test` does not do and CI does not do either. The
+contents check is written as a comparison against the whole sorted listing
+rather than as `test ! -e /out/node_modules`, because nothing in that stage ever
+creates `/out/node_modules`: it was a check that could not fail, which is worse
+than no check, since it reads as coverage.
+
+`check-runtime-deps.mjs` covers all three images but not by one rule. The server
+and the worker ship a pruned `node_modules`, so their externals are checked
+against `prune-deploy.mjs`'s `runtimeRoots`. The web image ships no
+`node_modules` at all — every dependency is inside `web.mjs` — so its rule is
+that it must mark **nothing** external, and the checker lists it under
+`BUNDLED_WHOLE` for that. Adding `--external:hono` to `docker/web/Dockerfile`
+would otherwise produce an image that builds, passes every gate, and dies on its
+first request with an unresolved import.
 
 ## Tests
 

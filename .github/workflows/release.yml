@@ -23,6 +23,10 @@ jobs:
             dockerfile: docker/worker/Dockerfile
             target: runtime
             cache_from: type=gha,scope=open-mcc-worker
+          - image: open-mcc-web
+            dockerfile: docker/web/Dockerfile
+            target: runtime
+            cache_from: type=gha,scope=open-mcc-web
           - image: open-mcc-migrate
             dockerfile: docker/server/Dockerfile
             target: migrate

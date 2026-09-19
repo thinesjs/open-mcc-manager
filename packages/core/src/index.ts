@@ -259,7 +259,11 @@ export type {
 	DeliveryResult,
 	DeliveryStore,
 } from "./notification/delivery.job"
-export { createDeliveryHandler, readDeliveryPayload } from "./notification/delivery.job"
+export {
+	createDeliveryHandler,
+	createDeliveryTransaction,
+	readDeliveryPayload,
+} from "./notification/delivery.job"
 export type {
 	DestinationController,
 	DestinationControllerDeps,

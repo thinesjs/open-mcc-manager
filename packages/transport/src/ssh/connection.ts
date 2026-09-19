@@ -1,6 +1,7 @@
 import { Client, type ClientChannel } from "ssh2"
 import {
 	ChannelOpenTimedOutError,
+	ChannelQueueExpiredError,
 	ForwardTimedOutError,
 	ReadConnectionLostError,
 	TransportInterruptedError,
@@ -14,7 +15,7 @@ import {
 	type ReusableTransport,
 } from "../types"
 import { type ExecChannel, execViaChannel, namedChannelError } from "./exec"
-import { createChannelLimiter, DEFAULT_EXEC_CONCURRENCY } from "./limiter"
+import { type ChannelLimiter, createChannelLimiter, DEFAULT_EXEC_CONCURRENCY } from "./limiter"
 import { verifyHostKey } from "./verify"
 
 export type RequestChannel = (
@@ -65,6 +66,26 @@ export const execWithBoundedAcquisition = (
 			)
 		})
 	})
+
+export const acquireWithinDeadline = async (
+	limiter: Pick<ChannelLimiter, "acquire">,
+	command: string,
+	timeoutMs: number,
+): Promise<void> => {
+	const expiry = new AbortController()
+	const timer = setTimeout(
+		() =>
+			expiry.abort(
+				new ChannelQueueExpiredError(`Command waited too long for a free channel: ${command}`),
+			),
+		timeoutMs,
+	)
+	try {
+		await limiter.acquire(expiry.signal)
+	} finally {
+		clearTimeout(timer)
+	}
+}
 
 const channelFrom = (stream: ClientChannel): ExecChannel => ({
 	write: (chunk) => {
@@ -206,7 +227,8 @@ export const createSshTransport = (): ReusableTransport => {
 		exec: async (command: string, timeoutMs: number, stdin?: string) => {
 			const conn = client
 			if (!conn) throw new Error("Transport is not connected")
-			await limiter.acquire()
+			const startedAt = Date.now()
+			await acquireWithinDeadline(limiter, command, timeoutMs)
 			try {
 				return await execWithBoundedAcquisition(
 					(cmd, callback) =>
@@ -218,7 +240,7 @@ export const createSshTransport = (): ReusableTransport => {
 							callback(undefined, channelFrom(stream))
 						}),
 					command,
-					timeoutMs,
+					Math.max(0, timeoutMs - (Date.now() - startedAt)),
 					stdin,
 				)
 			} finally {

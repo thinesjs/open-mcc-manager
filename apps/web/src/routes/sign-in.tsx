@@ -1,4 +1,4 @@
-import { OIDC_PROVIDER_ID, type SignInOptions } from "@open-mcc/contracts"
+import { OIDC_PROVIDER_ID, SIGN_IN_PATH, type SignInOptions } from "@open-mcc/contracts"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
@@ -76,7 +76,7 @@ function SignInPage() {
 			const started = await authClient.signIn.social({
 				provider: OIDC_PROVIDER_ID,
 				callbackURL: `${window.location.origin}${SIGNED_IN_LANDING}`,
-				errorCallbackURL: `${window.location.origin}/sign-in`,
+				errorCallbackURL: `${window.location.origin}${SIGN_IN_PATH}`,
 			})
 			if (started.error) setError(signInFailureMessage(started.error.code ?? ""))
 		} finally {

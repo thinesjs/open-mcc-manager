@@ -144,6 +144,14 @@ describe("instance control channel", () => {
 		}
 	})
 
+	it("★ judges the command as it arrived, not a copy with the spaces taken off", () => {
+		for (const stored of [" /say hello", "/say hello ", "!reco ", "  /home"]) {
+			expect(() => refuseStoredCredential(stored), stored).not.toThrow()
+		}
+
+		expect(() => refuseStoredCredential("  /login hunter2")).toThrow(StoredCredentialError)
+	})
+
 	it("★ leaves the send door taking the password the store door refuses", () => {
 		expect(sendableLine("/login hunter2")).toBe("//login hunter2")
 		expect(() => refuseStoredCredential("/login hunter2")).toThrow(StoredCredentialError)

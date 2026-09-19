@@ -1371,6 +1371,30 @@ describe("scheduled commands", () => {
 		)
 	})
 
+	it("★ masks in a stored schedule the secrets its credential rule was never looking for", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "/say Authorization: Bearer abcdefghijklmnop",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+
+		expect(deps.commands.upsert).toHaveBeenCalled()
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { schedule: "morning wave", command: "/say Authorization: Bearer [redacted]" },
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("abcdefghijklmnop")
+	})
+
 	it("★ audits without the password the deletion of a schedule an earlier build stored", async () => {
 		const { deps, audit } = makeDeps()
 		vi.mocked(deps.commands.deleteReturning).mockResolvedValue(

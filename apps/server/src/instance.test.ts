@@ -1555,10 +1555,37 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(await answerOf(res)).toEqual({
 			status: 400,
 			errorCode: "INSTANCE_COMMAND_STORES_CREDENTIAL",
-			message: "A command carrying a credential is not stored on a schedule",
+			message: "A command that could carry a credential is not stored on a schedule",
 		})
 		await demoteToRole(orgId, "viewer")
 		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ answers a command that only shares their first word the same way, telling them apart nowhere", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const collateral = await schedule(cookie, instanceId, "/cp backup world")
+		const password = await schedule(cookie, instanceId, "/login hunter2")
+
+		expect(await answerOf(collateral)).toEqual(await answerOf(password))
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ refuses at a stopped bot's schedule what the console would answer is not running", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const atConsole = await call("instance.sendCommand", cookie, {
+			instanceId,
+			command: "/login hunter2",
+		})
+		const onSchedule = await schedule(cookie, instanceId, "/login hunter2")
+		const ordinary = await schedule(cookie, instanceId, "/say hello")
+
+		expect(await answerOf(atConsole)).toEqual(NOT_RUNNING)
+		expect((await answerOf(onSchedule)).errorCode).toBe("INSTANCE_COMMAND_STORES_CREDENTIAL")
+		expect(ordinary.status).toBe(200)
 	})
 
 	it("★ sends at the console the password it will not store on a schedule", async () => {

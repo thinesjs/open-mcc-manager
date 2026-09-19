@@ -382,7 +382,7 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 		return mapped(
 			"BAD_REQUEST",
 			"INSTANCE_COMMAND_STORES_CREDENTIAL",
-			"A command carrying a credential is not stored on a schedule",
+			"A command that could carry a credential is not stored on a schedule",
 		)
 	}
 	if (cause instanceof InstanceAccountNotInteractiveError) {

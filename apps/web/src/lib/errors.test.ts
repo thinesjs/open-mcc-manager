@@ -300,7 +300,7 @@ describe("getErrorMessage", () => {
 		})
 
 		expect(stored).toBe(
-			"This looks like a login or password command, and everyone here can read a saved schedule. Send it from the console instead.",
+			"This command starts with a word that can carry a password, and anyone in this organization can read a saved schedule. Send it at the console while the bot runs.",
 		)
 		expect(stored).not.toMatch(/reach|server/i)
 		expect(stored).not.toBe(doubleSlash)

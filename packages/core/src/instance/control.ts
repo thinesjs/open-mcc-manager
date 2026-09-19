@@ -73,7 +73,7 @@ const refuseDoubleSlashCredential = (command: string): void => {
 export const refuseStoredCredential = (command: string): void => {
 	if (maskCommandCredentials(command) === command) return
 	throw new StoredCredentialError(
-		"A credential command is not stored, where every member of the organization could read it",
+		"A command that could carry a credential is not stored, where every member could read it",
 	)
 }
 

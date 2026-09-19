@@ -1,0 +1,10 @@
+{
+	"extends": "@open-mcc/config/tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"declaration": false,
+		"allowJs": true,
+		"checkJs": false
+	},
+	"include": ["."]
+}

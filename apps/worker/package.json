@@ -1,0 +1,26 @@
+{
+	"name": "@open-mcc/worker",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@open-mcc/contracts": "workspace:*",
+		"@open-mcc/core": "workspace:*",
+		"@open-mcc/db": "workspace:*",
+		"@open-mcc/transport": "workspace:*",
+		"kysely": "^0.29.5",
+		"pg-boss": "^12.30.0",
+		"zod": "^3.24.0"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*",
+		"@opentelemetry/api": "^1.9.1",
+		"@opentelemetry/sdk-trace-node": "^2.11.0",
+		"tsx": "^4.23.13"
+	}
+}

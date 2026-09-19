@@ -1,0 +1,344 @@
+import {
+	AUTH_LEASE_MS,
+	COMMAND_SPANS_LINES,
+	ERROR_CODES,
+	INVISIBLE_CHARACTER_IN_COMMAND,
+} from "@open-mcc/contracts"
+import { describe, expect, it } from "vitest"
+import { getErrorMessage, wasRefused } from "./errors"
+
+describe("getErrorMessage", () => {
+	it("maps a known machine-readable error code to operator-facing copy", () => {
+		const message = getErrorMessage({
+			message: "Host provisioning is already in progress",
+			data: { errorCode: "HOST_PROVISIONING_IN_PROGRESS" },
+		})
+		expect(message).toBe(
+			"A provisioning attempt for this host is already in progress. Retry shortly.",
+		)
+	})
+
+	it("says a start waits for the sign-in that is running", () => {
+		const message = getErrorMessage({
+			message: "Sign-in is running for this instance",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+
+		expect(message).toBe("Sign-in is running. Try again when it's done.")
+	})
+
+	it("★ says a sign-in never started, where the codes beside it say it is running or holding", () => {
+		const notStarted = getErrorMessage({
+			message: "The sign-in did not start on the host",
+			data: { errorCode: "INSTANCE_SIGN_IN_DID_NOT_START" },
+		})
+		const running = getErrorMessage({
+			message: "running",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+		const holding = getErrorMessage({
+			message: "held",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+
+		expect(notStarted).toBe("The sign-in did not start on the host. Try again in a moment.")
+		expect(notStarted).not.toBe(running)
+		expect(notStarted).not.toBe(holding)
+		expect(notStarted).not.toMatch(/device code|is running|holding this bot/i)
+	})
+
+	it("★ says a sign-in that ran and showed no code did run, where the one that never ran did not", () => {
+		const noCode = getErrorMessage({
+			message: "The sign-in started but no device code appeared",
+			data: { errorCode: "INSTANCE_SIGN_IN_NO_DEVICE_CODE" },
+		})
+		const notStarted = getErrorMessage({
+			message: "The sign-in did not start on the host",
+			data: { errorCode: "INSTANCE_SIGN_IN_DID_NOT_START" },
+		})
+
+		expect(noCode).toBe("The sign-in started but no device code appeared. Try again.")
+		expect(noCode).not.toBe(notStarted)
+		expect(noCode).not.toMatch(/did not start|in a moment/i)
+		expect(notStarted).toMatch(/did not start/i)
+	})
+
+	it("★ says how long a sign-in holds the bot, counted off the lease that holds it", () => {
+		const message = getErrorMessage({
+			message: "This instance is being signed in to Microsoft; wait for that to finish",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+
+		expect(message).toBe("A sign-in is holding this bot. The hold can last 15 minutes.")
+		expect(message).toContain(`${AUTH_LEASE_MS / 60_000} minutes`)
+	})
+
+	it("★ claims a sign-in is running only where the host was asked, never off a held claim", () => {
+		const held = getErrorMessage({
+			message: "held",
+			data: { errorCode: "INSTANCE_AUTH_IN_PROGRESS" },
+		})
+		const running = getErrorMessage({
+			message: "running",
+			data: { errorCode: "INSTANCE_SIGN_IN_RUNNING" },
+		})
+
+		expect(held).not.toMatch(/being signed in|is running|wait for (that|it) to finish/i)
+		expect(held).not.toBe(running)
+		expect(running).toMatch(/is running/i)
+	})
+
+	it("says a removal did not finish without naming a step that may have succeeded", () => {
+		const message = getErrorMessage({
+			message: "The host could not finish removing this instance",
+			data: { errorCode: "INSTANCE_REMOVAL_FAILED" },
+		})
+		expect(message).toContain("not removed")
+		expect(message).not.toMatch(/files|account/i)
+	})
+
+	it("★ sends the operator to the page that holds the setting it cannot use", () => {
+		const bots = getErrorMessage({
+			message: "A bot setting cannot be used as it is",
+			data: { errorCode: "INSTANCE_BOT_CONFIG_UNUSABLE" },
+		})
+		const settings = getErrorMessage({
+			message: "These settings must be corrected before the bot can start",
+			data: { errorCode: "INSTANCE_CONFIG_UNUSABLE" },
+		})
+
+		expect(bots).toContain("Open Bots")
+		expect(bots).not.toContain("Settings")
+		expect(settings).toContain("Open Settings")
+	})
+
+	it("does not read the mismatch as a generic failure", () => {
+		const message = getErrorMessage({
+			message: "Host key fingerprint mismatch",
+			data: { errorCode: "FINGERPRINT_MISMATCH" },
+		})
+		expect(message).toContain("did not match the fingerprint you provided")
+	})
+
+	it("falls back to the server message for an unmapped error code", () => {
+		const message = getErrorMessage({
+			message: "Expected an OpenSSH SHA256 fingerprint",
+			data: { errorCode: "BAD_REQUEST" },
+		})
+		expect(message).toBe("Expected an OpenSSH SHA256 fingerprint")
+	})
+
+	it("falls back to the server message when there is no data at all", () => {
+		const message = getErrorMessage({ message: "Network request failed" })
+		expect(message).toBe("Network request failed")
+	})
+
+	it("never shows a list of validation issues as if it were a sentence", () => {
+		const message = getErrorMessage({
+			message:
+				'[ { "validation": "url", "code": "invalid_string", "message": "Invalid url", "path": [ "url" ] } ]',
+			data: { errorCode: "BAD_REQUEST" },
+		})
+		expect(message).toBe("Something went wrong. Please try again.")
+	})
+
+	it("answers a refused drop without a hint that only fits holding an item", () => {
+		expect(
+			getErrorMessage({ message: "refused", data: { errorCode: "INSTANCE_LIVE_ITEM_MISSING" } }),
+		).toBe("The bot does not have that item where it needs it.")
+	})
+
+	it("says the live view is not available rather than calling it a server fault", () => {
+		expect(
+			getErrorMessage({ message: "gone", data: { errorCode: "INSTANCE_LIVE_UNAVAILABLE" } }),
+		).toBe("The bot's live view is not available right now. Try again in a moment.")
+	})
+
+	it("falls back to a generic message when nothing usable is present", () => {
+		const message = getErrorMessage({ message: "" })
+		expect(message).toBe("Something went wrong. Please try again.")
+	})
+
+	it("explains that an in-use ssh key must have its hosts removed first", () => {
+		const message = getErrorMessage({
+			message: "SSH key is still in use by an enrolled host",
+			data: { errorCode: "SSH_KEY_IN_USE" },
+		})
+		expect(message).toContain("still in use")
+		expect(message).toContain("Remove the hosts using it")
+	})
+
+	it("maps each name conflict to copy naming the field the operator must change", () => {
+		expect(
+			getErrorMessage({ message: "conflict", data: { errorCode: "HOST_NAME_TAKEN" } }),
+		).toContain("host with that name already exists")
+		expect(
+			getErrorMessage({ message: "conflict", data: { errorCode: "SSH_KEY_NAME_TAKEN" } }),
+		).toContain("SSH key with that name already exists")
+	})
+
+	it("maps an unnamed constraint violation to copy that does not read as a server fault", () => {
+		const message = getErrorMessage({
+			message: "conflict",
+			data: { errorCode: "CONSTRAINT_VIOLATION" },
+		})
+		expect(message).toContain("conflicts with data already stored")
+		expect(message).not.toContain("Something went wrong")
+	})
+
+	it("★ tells an operator which of start, stop, send and read the host would not do, in words of its own", () => {
+		const read = (message: string, errorCode: string) =>
+			getErrorMessage({ message, data: { errorCode, httpStatus: 400 } })
+
+		const answers = {
+			start: read("The host could not start this instance", "INSTANCE_START_FAILED"),
+			stop: read("The host could not stop this instance", "INSTANCE_STOP_FAILED"),
+			notRunning: read("This instance is not running", "INSTANCE_NOT_RUNNING"),
+			notSent: read("The command did not reach this instance", "INSTANCE_COMMAND_NOT_SENT"),
+			unreadable: read(
+				"The host could not read this instance's output",
+				"INSTANCE_CONSOLE_UNREADABLE",
+			),
+		}
+
+		expect(answers).toEqual({
+			start: "The host could not start this bot. Its console may say why.",
+			stop: "The host could not stop this bot, so it may still be running.",
+			notRunning: "This bot is not running. Start it first.",
+			notSent: "The command did not reach this bot.",
+			unreadable: "The host could not read this bot's output.",
+		})
+		expect(new Set(Object.values(answers)).size).toBe(Object.keys(answers).length)
+		for (const answer of Object.values(answers)) {
+			expect(answer).not.toMatch(/in a moment|internal|server error|went wrong|unit|exit|systemd/i)
+		}
+		expect(answers.unreadable).not.toMatch(/console/i)
+	})
+
+	it("★ tells an operator the host answered unreadably, in words no refusal of its own uses", () => {
+		const unreadable = getErrorMessage({
+			message: "The host answered in a way this manager could not read",
+			data: { errorCode: "HOST_ANSWER_UNREADABLE", httpStatus: 409 },
+		})
+
+		expect(unreadable).toBe("The host answered with something OpenMCC could not read.")
+		expect(unreadable).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(unreadable).not.toMatch(/unit|exit|systemd|journal|\/home/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_ANSWER_UNREADABLE").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(unreadable)
+	})
+
+	it("★ tells an operator the host would not do the work, in words that blame no part of OpenMCC", () => {
+		const refused = getErrorMessage({
+			message: "The host would not do what this manager asked",
+			data: { errorCode: "HOST_REFUSED", httpStatus: 400 },
+		})
+
+		expect(refused).toBe("The host would not do what OpenMCC asked.")
+		expect(refused).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(refused).not.toMatch(/unit|exit|systemd|journal|\/home/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_REFUSED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(refused)
+	})
+
+	it("★ tells an operator an alert was not accepted and not sent, promising no wait", () => {
+		const notQueued = getErrorMessage({
+			message: "This manager could not accept this alert, so nothing was sent",
+			data: { errorCode: "ALERT_NOT_QUEUED", httpStatus: 409 },
+		})
+
+		expect(notQueued).toBe("OpenMCC could not accept this alert. Nothing was sent.")
+		expect(notQueued).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(notQueued).not.toMatch(/queue|job|database|table|row|pg-boss/i)
+		const others = ERROR_CODES.filter((code) => code !== "ALERT_NOT_QUEUED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(notQueued)
+	})
+
+	it("★ tells an operator a host removal never started, and that the host is untouched", () => {
+		const notStarted = getErrorMessage({
+			message: "This manager could not start removing this host, so nothing on it was changed",
+			data: { errorCode: "HOST_REMOVAL_NOT_STARTED", httpStatus: 409 },
+		})
+
+		expect(notStarted).toBe(
+			"OpenMCC could not start removing this host. Nothing on it was changed.",
+		)
+		expect(notStarted).not.toMatch(/in a moment|try again|internal|server error|went wrong/i)
+		expect(notStarted).not.toMatch(/queue|job|database|table|row|pg-boss|teardown/i)
+		const others = ERROR_CODES.filter((code) => code !== "HOST_REMOVAL_NOT_STARTED").map((code) =>
+			getErrorMessage({ message: "x", data: { errorCode: code } }),
+		)
+		expect(others).not.toContain(notStarted)
+	})
+
+	it("★ shows the refusal of a command carrying a tab as the sentence the contract wrote", () => {
+		expect(
+			getErrorMessage({ message: INVISIBLE_CHARACTER_IN_COMMAND, data: { httpStatus: 400 } }),
+		).toBe("Remove tabs and other invisible characters from the command.")
+	})
+
+	it("★ shows the refusal of a command written over two lines as the sentence the contract wrote", () => {
+		expect(getErrorMessage({ message: COMMAND_SPANS_LINES, data: { httpStatus: 400 } })).toBe(
+			"A command is one line. Remove the line breaks.",
+		)
+	})
+
+	it("★ says a saved schedule is readable, where the two-slash refusal says nothing reaches the server", () => {
+		const stored = getErrorMessage({
+			message: "A command carrying a credential is not stored on a schedule",
+			data: { errorCode: "INSTANCE_COMMAND_STORES_CREDENTIAL" },
+		})
+		const doubleSlash = getErrorMessage({
+			message: "A command written with two slashes does not reach the server",
+			data: { errorCode: "INSTANCE_COMMAND_DOUBLE_SLASH" },
+		})
+
+		expect(stored).toBe(
+			"This command starts with a word that can carry a password, and anyone in this organization can read a saved schedule. Send it at the console while the bot runs.",
+		)
+		expect(stored).not.toMatch(/reach|server/i)
+		expect(stored).not.toBe(doubleSlash)
+		expect(doubleSlash).toMatch(/two slashes/i)
+	})
+
+	it("renders static copy, never the server's own text, for every code the server can send", () => {
+		const serverText = "presented SHA256:aaaa expected SHA256:bbbb"
+		for (const errorCode of ERROR_CODES) {
+			const message = getErrorMessage({ message: serverText, data: { errorCode } })
+			expect(message, errorCode).not.toBe(serverText)
+			expect(message, errorCode).not.toBe("Something went wrong. Please try again.")
+		}
+	})
+})
+
+describe("which answers a retry could still change", () => {
+	const answered = (httpStatus: number) => ({ message: "no", data: { httpStatus } })
+
+	it.each([400, 401, 403, 404, 409, 429])(
+		"★ reads %i as the server's decision about this request, which it will make again",
+		(httpStatus) => {
+			expect(wasRefused(answered(httpStatus))).toBe(true)
+		},
+	)
+
+	it.each([500, 502, 503])("★ reads %i as a fault that may not happen twice", (httpStatus) => {
+		expect(wasRefused(answered(httpStatus))).toBe(false)
+	})
+
+	it("★ reads a status that refuses nothing as no refusal, so the lower bound cannot be dropped", () => {
+		expect(wasRefused(answered(200))).toBe(false)
+		expect(wasRefused(answered(304))).toBe(false)
+	})
+
+	it("★ reads a request that never reached the server as no refusal", () => {
+		expect(wasRefused({ message: "Failed to fetch" })).toBe(false)
+		expect(wasRefused({ message: "Failed to fetch", data: null })).toBe(false)
+		expect(wasRefused({ message: "no code", data: { errorCode: "FORBIDDEN" } })).toBe(false)
+	})
+})

@@ -1,0 +1,44 @@
+{
+	"name": "@open-mcc/web",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@base-ui/react": "^1.7.0",
+		"@open-mcc/contracts": "workspace:*",
+		"@tanstack/react-query": "^5.62.0",
+		"@tanstack/react-router": "^1.95.0",
+		"@trpc/client": "^11.0.0",
+		"@trpc/tanstack-react-query": "^11.0.0",
+		"better-auth": "^1.7.2",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"lucide-react": "^0.469.0",
+		"motion": "^13.2.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0",
+		"react-use-measure": "^2.1.7",
+		"tailwind-merge": "^2.6.0",
+		"zod": "^3.24.0"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*",
+		"@open-mcc/server": "workspace:*",
+		"@tailwindcss/vite": "^4.0.0",
+		"@tanstack/router-plugin": "^1.95.0",
+		"@testing-library/dom": "^10.4.1",
+		"@testing-library/react": "^16.3.3",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^4.3.4",
+		"jsdom": "^30.0.1",
+		"tailwindcss": "^4.0.0",
+		"vite": "^6.0.0"
+	}
+}

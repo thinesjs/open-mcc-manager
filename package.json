@@ -1,0 +1,31 @@
+{
+	"name": "open-mcc-manager",
+	"private": true,
+	"packageManager": "pnpm@10.22.0",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"build": "turbo run build",
+		"test": "turbo run test",
+		"test:sandbox": "vitest run --config scripts/sandbox/vitest.config.ts",
+		"typecheck": "turbo run typecheck",
+		"check": "biome check --write .",
+		"check:types-policy": "node scripts/check-type-policy.mjs",
+		"check:commits": "node scripts/check-commit-subjects.mjs",
+		"lint": "node scripts/lint.mjs",
+		"dev:up": "docker compose --env-file .env -f docker/compose.yml -f docker/compose.dev.yml up -d",
+		"dev:up:tailnet": "docker compose --env-file .env -f docker/compose.yml -f docker/compose.dev.yml -f docker/compose.tailnet.yml up -d",
+		"dev:down": "docker compose --env-file .env -f docker/compose.yml -f docker/compose.dev.yml down",
+		"dev:logs": "docker compose --env-file .env -f docker/compose.yml -f docker/compose.dev.yml logs -f",
+		"release": "commit-and-tag-version"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.7",
+		"@types/node": "^22.10.0",
+		"commit-and-tag-version": "^13.1.2",
+		"turbo": "^2.3.0",
+		"typescript": "^5.7.0",
+		"vitest": "^3.2.7"
+	}
+}

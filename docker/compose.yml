@@ -1,0 +1,93 @@
+name: ${COMPOSE_PROJECT_NAME:-open-mcc}
+
+services:
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    restart: "no"
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/server/Dockerfile
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PORT: "3000"
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      SEALBOX_KEYS: ${SEALBOX_KEYS}
+      NOTIFICATION_ALLOW_HTTP: ${NOTIFICATION_ALLOW_HTTP:-false}
+      NOTIFICATION_ALLOWED_HOSTS: ${NOTIFICATION_ALLOWED_HOSTS:-}
+      NOTIFICATION_ALLOWED_ADDRESSES: ${NOTIFICATION_ALLOWED_ADDRESSES:-}
+      NOTIFICATION_TEAMS_HOSTS: ${NOTIFICATION_TEAMS_HOSTS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_NAME: ${OIDC_NAME:-}
+      SELF_HOST_NAME: ${SELF_HOST_NAME:-}
+      SELF_HOST_HOSTNAME: ${SELF_HOST_HOSTNAME:-}
+      SELF_HOST_PORT: ${SELF_HOST_PORT:-}
+      SELF_HOST_USERNAME: ${SELF_HOST_USERNAME:-}
+      SELF_HOST_FINGERPRINT: ${SELF_HOST_FINGERPRINT:-}
+      SELF_HOST_PUBLIC_KEY: ${SELF_HOST_PUBLIC_KEY:-}
+      SELF_HOST_PRIVATE_KEY_SEALED: ${SELF_HOST_PRIVATE_KEY_SEALED:-}
+      SELF_HOST_PRIVATE_KEY_ID: ${SELF_HOST_PRIVATE_KEY_ID:-}
+      SELF_HOST_REACH: ${SELF_HOST_REACH:-}
+      SELF_HOST_SYSTEMD: ${SELF_HOST_SYSTEMD:-}
+      SELF_HOST_LINGER: ${SELF_HOST_LINGER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-3000}:3000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/worker/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SEALBOX_KEYS: ${SEALBOX_KEYS}
+      NOTIFICATION_ALLOW_HTTP: ${NOTIFICATION_ALLOW_HTTP:-false}
+      NOTIFICATION_ALLOWED_HOSTS: ${NOTIFICATION_ALLOWED_HOSTS:-}
+      NOTIFICATION_ALLOWED_ADDRESSES: ${NOTIFICATION_ALLOWED_ADDRESSES:-}
+      NOTIFICATION_TEAMS_HOSTS: ${NOTIFICATION_TEAMS_HOSTS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,191 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+import {
+	COMMAND_HISTORY_LIMIT,
+	COMMAND_HISTORY_PREFIX,
+	clearCommandHistories,
+	purgeCommandHistories,
+	readCommandHistory,
+	rememberCommand,
+	writeCommandHistory,
+} from "./command-history"
+
+const THEME_KEY = "open-mcc-theme"
+const VIEW_KEY = "open-mcc.view.hosts"
+
+const keyFor = (instanceId: string): string => `${COMMAND_HISTORY_PREFIX}${instanceId}`
+
+const stored = (instanceId: string): string | null =>
+	window.localStorage.getItem(keyFor(instanceId))
+
+afterEach(() => {
+	vi.restoreAllMocks()
+	window.localStorage.clear()
+})
+
+describe("rememberCommand", () => {
+	it("puts the newest command first", () => {
+		expect(rememberCommand(["/list"], "/time set day")).toEqual(["/time set day", "/list"])
+	})
+
+	it("moves a repeated command back to the front rather than duplicating it", () => {
+		expect(rememberCommand(["/b", "/a"], "/a")).toEqual(["/a", "/b"])
+	})
+
+	it("ignores blank input", () => {
+		expect(rememberCommand(["/a"], "   ")).toEqual(["/a"])
+	})
+
+	it("trims what it stores", () => {
+		expect(rememberCommand([], "  /list  ")).toEqual(["/list"])
+	})
+
+	it("keeps only the most recent few", () => {
+		const many = Array.from({ length: 20 }, (_, index) => `/c${index}`)
+		const history = many.reduce<string[]>((acc, command) => rememberCommand(acc, command), [])
+
+		expect(history).toHaveLength(COMMAND_HISTORY_LIMIT)
+		expect(history[0]).toBe("/c19")
+	})
+
+	it("does not mutate the history it was given", () => {
+		const original = ["/a"]
+		rememberCommand(original, "/b")
+
+		expect(original).toEqual(["/a"])
+	})
+})
+
+describe("a command that carries a password", () => {
+	it("is never remembered", () => {
+		for (const command of ["/login hunter2", "//login hunter2", "!login hunter2", "/cp a b"]) {
+			expect(rememberCommand(["/list"], command)).toEqual(["/list"])
+		}
+	})
+
+	it("is still remembered when it carries no password", () => {
+		expect(rememberCommand(["/list"], "/login")).toEqual(["/login", "/list"])
+	})
+})
+
+describe("a command that carries a secret which is not a password", () => {
+	it("is never remembered", () => {
+		for (const command of [
+			"/notify https://hooks.slack.com/services/T000/B000/XXXXXXXX",
+			"/notify https://discord.com/api/webhooks/123/abcdef",
+			"/notify https://api.telegram.org/bot123456789:AAF-abcdefghijklmnopqrstuvwxyz012345/x",
+			"/env SEALBOX_KEYS=k1:AAAABBBBCCCC=",
+			"/sign whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw=",
+			"/mail re_abcdefghij0123456789",
+			"/notify https://prod-12.westus.logic.azure.com:443/workflows/aa/triggers/manual",
+			"/fetch /invoke?api-version=1&sig=zAbC123",
+		]) {
+			expect(rememberCommand(["/list"], command)).toEqual(["/list"])
+		}
+	})
+
+	it("is remembered when the only match is a pattern too loose for the browser", () => {
+		for (const command of [
+			"/team join BLUE-TEAM",
+			"/say bearer of bad news",
+			"/say AUTH PLAIN text please",
+			"/say watch https://youtube.com/results?search_query=creeper&sp=EgIIAg%3D%3D",
+		]) {
+			expect(rememberCommand(["/list"], command)).toEqual([command, "/list"])
+		}
+	})
+})
+
+describe("a secret left in storage by an earlier visit", () => {
+	it("is neither returned nor left on disk", () => {
+		writeCommandHistory("abc123", [
+			"/login hunter2",
+			"/notify https://hooks.slack.com/services/T000/B000/XXXXXXXX",
+			"/list",
+			"/say keep me",
+		])
+
+		expect(readCommandHistory("abc123")).toEqual(["/list", "/say keep me"])
+		expect(stored("abc123")).toBe("/list\n/say keep me")
+		expect(readCommandHistory("abc123")).toEqual(["/list", "/say keep me"])
+	})
+
+	it("leaves a history with nothing to purge untouched", () => {
+		writeCommandHistory("abc123", ["/say hi", "/list"])
+
+		expect(readCommandHistory("abc123")).toEqual(["/say hi", "/list"])
+		expect(stored("abc123")).toBe("/say hi\n/list")
+	})
+
+	it("survives storage refusing, as it does in a private window", () => {
+		writeCommandHistory("abc123", ["/list"])
+		const blocked = () => {
+			throw new Error("blocked")
+		}
+		vi.spyOn(Storage.prototype, "getItem").mockImplementation(blocked)
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(blocked)
+		vi.spyOn(Storage.prototype, "key").mockImplementation(blocked)
+
+		expect(readCommandHistory("abc123")).toEqual([])
+		expect(() => writeCommandHistory("abc123", ["/list"])).not.toThrow()
+		expect(() => purgeCommandHistories()).not.toThrow()
+	})
+})
+
+describe("every bot's history, not only the console being opened", () => {
+	it("is swept as the module loads", async () => {
+		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("def456", [
+			"/notify https://hooks.slack.com/services/T000/B000/XXXXXXXX",
+			"/say keep me",
+		])
+		writeCommandHistory("ghi789", ["/team join BLUE-TEAM"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+		window.localStorage.setItem(VIEW_KEY, "list")
+
+		vi.resetModules()
+		await import("./command-history")
+
+		expect(stored("abc123")).toBe("/list")
+		expect(stored("def456")).toBe("/say keep me")
+		expect(stored("ghi789")).toBe("/team join BLUE-TEAM")
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+		expect(window.localStorage.getItem(VIEW_KEY)).toBe("list")
+	})
+
+	it("is swept without disturbing a history that carries no secret", () => {
+		writeCommandHistory("abc123", ["/login hunter2", "/list"])
+		writeCommandHistory("def456", ["/say hi", "/list"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+
+		purgeCommandHistories()
+
+		expect(stored("abc123")).toBe("/list")
+		expect(stored("def456")).toBe("/say hi\n/list")
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+	})
+})
+
+describe("signing out", () => {
+	it("takes every bot's history with it and leaves the rest alone", () => {
+		writeCommandHistory("abc123", ["/list", "/say hi"])
+		writeCommandHistory("def456", ["/time set day"])
+		window.localStorage.setItem(THEME_KEY, "dark")
+		window.localStorage.setItem(VIEW_KEY, "list")
+
+		clearCommandHistories()
+
+		expect(stored("abc123")).toBeNull()
+		expect(stored("def456")).toBeNull()
+		expect(window.localStorage.getItem(THEME_KEY)).toBe("dark")
+		expect(window.localStorage.getItem(VIEW_KEY)).toBe("list")
+	})
+
+	it("costs nothing but the history when storage refuses", () => {
+		writeCommandHistory("abc123", ["/list"])
+		vi.spyOn(Storage.prototype, "key").mockImplementation(() => {
+			throw new Error("blocked")
+		})
+
+		expect(() => clearCommandHistories()).not.toThrow()
+	})
+})

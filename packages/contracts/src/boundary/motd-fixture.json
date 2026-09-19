@@ -1,0 +1,25 @@
+{
+	"extra": [
+		{
+			"bold": true,
+			"color": "yellow",
+			"text": "Example"
+		},
+		{
+			"bold": true,
+			"color": "gold",
+			"text": "Network"
+		},
+		"       ",
+		{
+			"color": "gray",
+			"text": "[1.8 - 26.2] \n             "
+		},
+		{
+			"bold": true,
+			"color": "aqua",
+			"text": "SAMPLE ANNOUNCEMENT"
+		}
+	],
+	"text": "                   "
+}

@@ -1,0 +1,33 @@
+{
+	"name": "@open-mcc/core",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@open-mcc/contracts": "workspace:*",
+		"@open-mcc/db": "workspace:*",
+		"@open-mcc/transport": "workspace:*",
+		"@opentelemetry/api": "^1.9.1",
+		"@opentelemetry/context-async-hooks": "^2.11.0",
+		"@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+		"@opentelemetry/resources": "^2.11.0",
+		"@opentelemetry/sdk-trace-node": "^2.11.0",
+		"@opentelemetry/semantic-conventions": "^1.43.0",
+		"kysely": "^0.29.5",
+		"libsodium-wrappers-sumo": "0.7.15",
+		"nanoid": "^5.0.9",
+		"pg-boss": "^12.30.0",
+		"sshpk": "^1.18.0",
+		"undici": "^8.10.2"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*",
+		"@types/libsodium-wrappers-sumo": "^0.7.8",
+		"@types/sshpk": "^1.17.5"
+	}
+}

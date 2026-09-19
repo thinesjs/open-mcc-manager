@@ -1,0 +1,16 @@
+{
+	"name": "@open-mcc/scripts",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"typescript": "^5.7.0"
+	},
+	"devDependencies": {
+		"@open-mcc/config": "workspace:*"
+	}
+}

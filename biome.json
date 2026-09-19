@@ -1,0 +1,50 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
+	"files": {
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/node_modules",
+			"!apps/web/src/routeTree.gen.ts",
+			"!apps/web/vite.config.ts.timestamp-*.mjs",
+			"!**/.turbo",
+			"!**/coverage",
+			"!**/build",
+			"!.claude",
+			"!**/.superpowers"
+		]
+	},
+	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },
+	"css": { "parser": { "tailwindDirectives": true } },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"suspicious": {
+				"noExplicitAny": "error",
+				"noConsole": { "level": "error", "options": { "allow": ["error", "warn"] } },
+				"noTsIgnore": "error"
+			},
+			"style": {
+				"noNonNullAssertion": "error",
+				"useConst": "error"
+			},
+			"complexity": { "noBannedTypes": "error" }
+		}
+	},
+	"javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },
+	"overrides": [
+		{
+			"includes": ["apps/web/src/index.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noDuplicateProperties": "off",
+						"noDuplicateCustomProperties": "off"
+					},
+					"complexity": { "noImportantStyles": "off" }
+				}
+			}
+		}
+	]
+}

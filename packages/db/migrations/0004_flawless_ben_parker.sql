@@ -1,0 +1,2 @@
+UPDATE "host" SET "provisioningAttemptId" = 'backfill-' || "id", "provisioningClaimedAt" = now() WHERE "status" = 'provisioning' AND ("provisioningAttemptId" IS NULL OR "provisioningClaimedAt" IS NULL);--> statement-breakpoint
+ALTER TABLE "host" ADD CONSTRAINT "host_provisioning_requires_lease" CHECK ("host"."status" <> 'provisioning' or ("host"."provisioningAttemptId" is not null and "host"."provisioningClaimedAt" is not null));

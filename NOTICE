@@ -1,0 +1,129 @@
+open-mcc-manager bundles and derives from third-party work. This file records
+the notices that work requires. It is not a dependency inventory: the lockfile
+records resolved JavaScript packages, and it covers neither source copied into
+this repository nor inputs that are not npm packages, such as container base
+images and GitHub Actions.
+
+--------------------------------------------------------------------------------
+shadcn/ui — MIT
+--------------------------------------------------------------------------------
+
+Portions of the components under apps/web/src/components/ui were added with the
+shadcn registry, which copies component source into this repository rather than
+installing it as a dependency, and have since been edited. Others in that
+directory are this project's own. The registry keeps no record of which files it
+installed, so the split is not derivable from the repository.
+
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+Minecraft Console Client — CDDL-1.0, not distributed here
+--------------------------------------------------------------------------------
+
+This project manages that client but contains none of its source or
+executables. Each managed host downloads the release from the client project's
+own GitHub releases, pinned to a version and verified against a recorded
+SHA-256, so the binary reaches a host from upstream rather than from here.
+
+One fixture, packages/contracts/src/boundary/mcc-config-fixture.ini, holds a
+configuration document that client wrote at runtime, kept so the config parser
+and the drift comparison run against the real key surface. It carries the
+section and key structure and representative values — some configured, some
+pinned by this project rather than the client's own defaults — and none of that
+project's explanatory text.
+
+--------------------------------------------------------------------------------
+Minecraft, and material fetched at runtime
+--------------------------------------------------------------------------------
+
+This is not an official Minecraft product. It is not approved by or associated
+with Mojang or Microsoft.
+
+Two things the dashboard displays are fetched from third-party services at
+runtime and are neither bundled nor redistributed by this repository: item
+renders, which are Minecraft game assets, and player-head avatars, which derive
+from the skin a player set. Both are requested by the control plane on the
+operator's behalf and proxied to the operator's browser.
+
+--------------------------------------------------------------------------------
+Published container images
+--------------------------------------------------------------------------------
+
+The release workflow publishes three images: the server, the worker, and the
+migrate image, which is built from the server's own Dockerfile at a different
+target and so carries the same bundle. The build externalises many
+dependencies, which are deployed under node_modules with their own package
+directories intact, but folds the rest into an esbuild bundle, and then deletes
+the package directories it does not keep at runtime. Being folded into the
+bundle and having a package directory retained are independent: a folded-in
+dependency's licence is unreadable inside the image only when its directory is
+also pruned, and at least one folded-in package keeps its directory.
+
+Measured rather than assumed, by running the same deploy and prune the image
+build runs and building the bundle with the same options: the server bundle
+compiles in fourteen third-party packages — thirteen OpenTelemetry packages
+under Apache-2.0 and smol-toml under BSD-3-Clause. The worker bundle folds in
+the same fourteen. Exactly one of them, @opentelemetry/semantic-conventions,
+keeps its licence file through the prune. The other thirteen do not — but that
+is not thirteen missing notices, and an earlier version of this file drew the
+wrong conclusion from it. The retained
+licence is the generic Apache-2.0 text: 201 lines with no package-specific
+copyright line, and none of the OpenTelemetry packages ships a NOTICE file. One
+unchanged copy satisfies §4(a)'s licence-copy requirement for all thirteen, and
+there is no §4(d) NOTICE content to propagate. That is narrower than saying it
+satisfies everything the licence asks: §4(b) concerns modified files, and the
+mapping should record that these packages were bundled and transformed.
+smol-toml is the real gap: BSD-3-Clause requires its own copyright line,
+conditions and disclaimer to travel with a binary redistribution, and that text
+is present nowhere in the image.
+
+The prune also strips the licence files of four packages that are not in the
+bundle. Those need nothing, because their code is not distributed either.
+
+The bundle is not the only place a notice went missing, and an earlier version
+of this file did not look outside it: it assumed a package directory the prune
+keeps carries a licence file. Five publish none at all — @better-auth/utils,
+@hono/trpc-server, assert-plus, pg-types and pgpass, the last three shipped by
+the worker as well — so their code travelled with no notice of any kind. What
+each manifest declares is recorded for them, there being no text upstream to
+reproduce.
+
+Every image now carries /licenses/THIRD-PARTY-NOTICES.txt, written during the
+build by docker/third-party-notices.mjs from the esbuild metafile and the
+deployed node_modules, so it records what the image actually distributes rather
+than a list someone remembers to maintain. Identical texts are printed once
+against every package that carries them, which is what keeps the thirteen
+OpenTelemetry packages to a single Apache-2.0 copy. A package with neither a
+licence text nor a declared licence fails the build. The base image's own
+notices are left where the base image puts them: Node.js and the libraries it
+bundles under /nodejs/LICENSE, the Debian packages under /usr/share/doc with
+/usr/share/common-licenses.
+
+The release workflow publishes again, and scripts/check-image-notices.mjs is
+what holds it open honestly: it reads the images that workflow publishes and
+fails when the Dockerfile behind one of them stops generating the bundle or
+stops copying it into the published stage. Re-opening the workflow took a
+commit, which is the only thing that should open it. An earlier version instead
+gated the job on `vars.PUBLISH_IMAGES`; because that context can also resolve
+organisation-level configuration variables, an inherited value could have opened
+it.

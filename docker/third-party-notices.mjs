@@ -1,0 +1,259 @@
+import fs from "node:fs"
+import path from "node:path"
+
+const LICENCE_FILE = /^(?:licen[cs]e|copying|notice)(?:[-._]|$)/i
+
+const PREAMBLE = `Third-party notices for the open-mcc-manager container images.
+
+Every third-party package whose code this image distributes is recorded below,
+whether esbuild folded it into the application bundle or it is deployed under
+node_modules. Identical licence texts are printed once, against every package
+that carries them.
+
+The base image's own notices are not repeated here. Node.js and the libraries
+it bundles are covered by /nodejs/LICENSE, and the Debian packages by the
+copyright files under /usr/share/doc with /usr/share/common-licenses.
+`
+
+const RULE = "=".repeat(80)
+
+export const packageAt = (file) => {
+	const marker = "node_modules/"
+	const at = file.lastIndexOf(marker)
+	if (at < 0) return null
+	const head = file.slice(0, at + marker.length)
+	const segments = file.slice(at + marker.length).split("/")
+	const [first, second] = segments
+	if (first === undefined || first.length === 0) return null
+	if (!first.startsWith("@")) return { name: first, dir: `${head}${first}` }
+	if (second === undefined || second.length === 0) return null
+	return { name: `${first}/${second}`, dir: `${head}${first}/${second}` }
+}
+
+const addLocation = (found, name, dir) => {
+	const dirs = found.get(name) ?? new Set()
+	dirs.add(dir)
+	found.set(name, dirs)
+}
+
+export const bundledPackages = (metafile) => {
+	const found = new Map()
+	for (const input of Object.keys(JSON.parse(metafile).inputs ?? {})) {
+		const located = packageAt(input)
+		if (located) addLocation(found, located.name, located.dir)
+	}
+	return found
+}
+
+const directoryEntries = (dir) => {
+	try {
+		return fs.readdirSync(dir, { withFileTypes: true })
+	} catch {
+		return []
+	}
+}
+
+const isWithin = (root, target) => {
+	const rel = path.relative(root, target)
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`))
+}
+
+const resolveEntry = (dir, entry, root) => {
+	if (!entry.isSymbolicLink()) return dir
+	let real
+	try {
+		real = fs.realpathSync(dir)
+	} catch {
+		return null
+	}
+	let stat
+	try {
+		stat = fs.statSync(real)
+	} catch {
+		return null
+	}
+	if (!stat.isDirectory()) return null
+	if (!isWithin(root, real)) {
+		throw new Error(`symlinked package escapes the deployed tree: ${dir} -> ${real}`)
+	}
+	return real
+}
+
+const packageDirsIn = (nodeModules, found, seen, root) => {
+	for (const entry of directoryEntries(nodeModules)) {
+		if (entry.name.startsWith(".")) continue
+		if (!entry.isSymbolicLink() && !entry.isDirectory()) continue
+		const dir = path.join(nodeModules, entry.name)
+		if (entry.name.startsWith("@")) {
+			const scopeDir = resolveEntry(dir, entry, root)
+			if (scopeDir === null) continue
+			for (const scoped of directoryEntries(scopeDir)) {
+				if (scoped.name.startsWith(".")) continue
+				if (!scoped.isSymbolicLink() && !scoped.isDirectory()) continue
+				recordPackageDir(
+					`${entry.name}/${scoped.name}`,
+					path.join(scopeDir, scoped.name),
+					scoped,
+					found,
+					seen,
+					root,
+				)
+			}
+			continue
+		}
+		recordPackageDir(entry.name, dir, entry, found, seen, root)
+	}
+}
+
+const recordPackageDir = (name, dir, entry, found, seen, root) => {
+	const real = resolveEntry(dir, entry, root)
+	if (real === null) return
+	if (seen.has(real)) return
+	seen.add(real)
+	addLocation(found, name, real)
+	packageDirsIn(path.join(real, "node_modules"), found, seen, root)
+}
+
+export const shippedPackages = (nodeModules) => {
+	const found = new Map()
+	let root
+	try {
+		root = fs.realpathSync(nodeModules)
+	} catch {
+		return found
+	}
+	packageDirsIn(root, found, new Set(), root)
+	return found
+}
+
+const licenceTextIn = (dir) => {
+	if (!fs.existsSync(dir)) return ""
+	const files = fs
+		.readdirSync(dir)
+		.filter((entry) => LICENCE_FILE.test(entry))
+		.sort()
+	return files
+		.map((entry) => fs.readFileSync(path.join(dir, entry), "utf8").trim())
+		.filter((text) => text.length > 0)
+		.join("\n\n")
+}
+
+const declaredLicence = (manifest) => {
+	if (typeof manifest.license === "string") return manifest.license
+	if (typeof manifest.license === "object" && manifest.license !== null) {
+		const type = manifest.license.type
+		if (typeof type === "string") return type
+	}
+	if (Array.isArray(manifest.licenses)) {
+		const types = manifest.licenses.flatMap((each) =>
+			typeof each?.type === "string" ? [each.type] : [],
+		)
+		if (types.length > 0) return types.join(" OR ")
+	}
+	return ""
+}
+
+export const readPackage = (name, dir) => {
+	const manifestPath = path.join(dir, "package.json")
+	const manifest = fs.existsSync(manifestPath)
+		? JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+		: {}
+	const declaredName = typeof manifest.name === "string" && manifest.name.length > 0
+	return {
+		name: declaredName ? manifest.name : name,
+		version: typeof manifest.version === "string" ? manifest.version : "",
+		licence: declaredLicence(manifest),
+		text: licenceTextIn(dir),
+	}
+}
+
+export const unattributed = (entries) =>
+	entries
+		.filter((entry) => entry.text.length === 0 && entry.licence.length === 0)
+		.map((entry) => `${entry.name} ${entry.version}`.trim())
+
+export const groupByText = (entries) => {
+	const groups = new Map()
+	for (const entry of entries) {
+		if (entry.text.length === 0) continue
+		const existing = groups.get(entry.text)
+		if (existing) existing.push(entry)
+		else groups.set(entry.text, [entry])
+	}
+	return [...groups].map(([text, members]) => ({ text, members }))
+}
+
+const label = (entry) =>
+	[entry.name, entry.version, entry.licence.length > 0 ? `(${entry.licence})` : ""]
+		.filter((part) => part.length > 0)
+		.join(" ")
+
+export const render = (entries) => {
+	const sorted = [...entries].sort(
+		(a, b) =>
+			a.name.localeCompare(b.name) ||
+			a.version.localeCompare(b.version, undefined, { numeric: true }),
+	)
+	const sections = [PREAMBLE]
+	for (const group of groupByText(sorted)) {
+		sections.push(`${RULE}\n${group.members.map(label).join("\n")}\n${RULE}\n\n${group.text}\n`)
+	}
+	const declaredOnly = sorted.filter((entry) => entry.text.length === 0)
+	if (declaredOnly.length > 0) {
+		sections.push(
+			`${RULE}\nPackages that publish no licence file of their own\n${RULE}\n\nTheir manifests declare the licence recorded beside each name, and their\npublished tarballs carry no text to reproduce.\n\n${declaredOnly
+				.map((entry) => `${entry.name} ${entry.version} — ${entry.licence}`)
+				.join("\n")}\n`,
+		)
+	}
+	return sections.join("\n")
+}
+
+export const collectEntries = (installRoot, deployRoot, metafiles) => {
+	const locations = []
+	for (const metafile of metafiles) {
+		for (const [name, dirs] of bundledPackages(fs.readFileSync(metafile, "utf8"))) {
+			for (const dir of dirs) locations.push({ name, dir: path.resolve(installRoot, dir) })
+		}
+	}
+	for (const [name, dirs] of shippedPackages(path.join(deployRoot, "node_modules"))) {
+		for (const dir of dirs) locations.push({ name, dir })
+	}
+
+	const byVersion = new Map()
+	for (const { name, dir } of locations) {
+		const entry = readPackage(name, dir)
+		const key = entry.version.length > 0 ? `${entry.name}@${entry.version}` : `${entry.name}@${dir}`
+		if (!byVersion.has(key)) byVersion.set(key, entry)
+	}
+	return [...byVersion.values()]
+}
+
+const main = () => {
+	const [, , installRoot, deployRoot, outFile, ...metafiles] = process.argv
+	if (!installRoot || !deployRoot || !outFile) {
+		process.stdout.write(
+			"usage: third-party-notices.mjs <installRoot> <deployRoot> <outFile> <metafile...>\n",
+		)
+		process.exit(1)
+	}
+
+	let entries
+	try {
+		entries = collectEntries(installRoot, deployRoot, metafiles)
+	} catch (error) {
+		process.stdout.write(`${error instanceof Error ? error.message : String(error)}\n`)
+		process.exit(1)
+	}
+	const missing = unattributed(entries)
+	if (missing.length > 0) {
+		process.stdout.write(`no licence text and no declared licence for: ${missing.join(", ")}\n`)
+		process.exit(1)
+	}
+
+	fs.mkdirSync(path.dirname(outFile), { recursive: true })
+	fs.writeFileSync(outFile, render(entries))
+	process.stdout.write(`wrote ${entries.length} third-party notices to ${outFile}\n`)
+}
+
+if (process.argv[1]?.endsWith("third-party-notices.mjs")) main()

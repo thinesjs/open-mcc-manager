@@ -1,0 +1,9 @@
+{
+	"name": "@open-mcc/config",
+	"version": "0.0.0",
+	"private": true,
+	"files": [
+		"tsconfig.base.json",
+		"load-env.mjs"
+	]
+}

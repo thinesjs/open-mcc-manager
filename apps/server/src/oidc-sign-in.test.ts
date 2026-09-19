@@ -90,6 +90,7 @@ type Identity = { subject: string; email: string; emailConfirmed: boolean }
 let issuer = ""
 let identity: Identity = { subject: "", email: "", emailConfirmed: false }
 let signsWith: SigningKey = published
+let nonceOverride: string | undefined
 let tokenRequests: string[] = []
 let userInfoReads = 0
 let jwksReads = 0
@@ -133,7 +134,7 @@ provider.post("/token", async (c) => {
 			email: identity.email,
 			email_verified: identity.emailConfirmed,
 			name: PERSON_NAME,
-			nonce: nonceOfCode.get(new URLSearchParams(body).get("code") ?? "") ?? "",
+			nonce: nonceOverride ?? nonceOfCode.get(new URLSearchParams(body).get("code") ?? "") ?? "",
 			iat: issuedAt,
 			exp: issuedAt + ID_TOKEN_LIFETIME_SECONDS,
 		}),
@@ -282,6 +283,15 @@ const signedBy = async (key: SigningKey, who: Identity): Promise<Response> => {
 		return await signInThrough(handle.app, who)
 	} finally {
 		signsWith = published
+	}
+}
+
+const boundTo = async (nonce: string, who: Identity): Promise<Response> => {
+	nonceOverride = nonce
+	try {
+		return await signInThrough(handle.app, who)
+	} finally {
+		nonceOverride = undefined
 	}
 }
 
@@ -466,8 +476,8 @@ describe("signing in through the configured provider", () => {
 	})
 })
 
-describe("the signature on the provider's ID token", () => {
-	it("decides entry: a key the provider never published is refused, the one it published is admitted", async () => {
+describe("the provider's ID token", () => {
+	it("decides entry by its signature: a key the provider never published is refused, the one it published is admitted", async () => {
 		const invited = await seedMember("operator")
 		const who = {
 			subject: `subject-${randomUUID()}`,
@@ -488,6 +498,22 @@ describe("the signature on the provider's ID token", () => {
 		expect(locationOf(admitted).toString()).toBe(`${ORIGIN}/hosts`)
 		expect((await sessionsOf(invited.userId)).length).toBe(1)
 		expect((await providerAccountsOf(invited.userId)).length).toBe(1)
+	})
+
+	it("must answer the nonce this deployment sent, so one bound to another is refused", async () => {
+		const invited = await seedMember("operator")
+
+		const refused = await boundTo(`nonce-${randomUUID()}`, {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		})
+
+		expect(refused.status).toBe(302)
+		expect(locationOf(refused).searchParams.get("error")).toBe("unable_to_get_user_info")
+		expect(refused.headers.getSetCookie().join("; ")).not.toContain("session_token")
+		expect(await sessionsOf(invited.userId)).toEqual([])
+		expect(await providerAccountsOf(invited.userId)).toEqual([])
 	})
 })
 

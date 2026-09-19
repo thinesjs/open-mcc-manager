@@ -10,6 +10,7 @@ import {
 	createAuditRepository,
 	createCleanupHandler,
 	createDeliveryHandler,
+	createDeliveryTransaction,
 	createEscalationHandler,
 	createHostRepository,
 	createHostTeardownHandler,
@@ -166,12 +167,7 @@ export const startWorker = async (env: WorkerEnv, logger: Logger): Promise<Worke
 	const deliverOn = (queue: QueueName) =>
 		createDeliveryHandler({
 			store: createNotificationRepository(db),
-			withTransaction: (fn) =>
-				db
-					.transaction()
-					.execute((tx) =>
-						fn({ notifications: createNotificationRepository(tx), runner: asSqlRunner(tx) }),
-					),
+			withTransaction: createDeliveryTransaction(db),
 			send,
 			sendJob,
 			queue,

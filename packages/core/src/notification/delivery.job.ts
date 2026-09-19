@@ -1,13 +1,16 @@
 import { DELIVERY_RETRY_LIMIT } from "@open-mcc/contracts"
-import type { Json, NotificationDestinationRow } from "@open-mcc/db"
-import type { SqlRunner } from "../job/executor-adapter"
+import type { Db, Json, NotificationDestinationRow } from "@open-mcc/db"
+import { asSqlRunner, type SqlRunner } from "../job/executor-adapter"
 import type { QueueName, SendJob } from "../job/job.queue"
 import { NOTIFICATION_DEADLETTER_QUEUE } from "../job/queue-setup"
 import { InternalError } from "../lib/errors"
 import type { RuntimeErrorReporter } from "../log/reporters"
 import { redact } from "../security/redact"
 import type { EgressPolicy } from "./egress"
-import type { NotificationRepository } from "./notification.repository"
+import {
+	createNotificationRepository,
+	type NotificationRepository,
+} from "./notification.repository"
 import type { DeliveryOutcome } from "./outcome"
 import { classifyRefusal } from "./outcome"
 import type { NotificationEnvelope } from "./sender"
@@ -65,6 +68,16 @@ export type DeliveryStore = Pick<
 export type SettleTransaction = <T>(
 	fn: (repos: { notifications: DeliveryStore; runner: SqlRunner }) => Promise<T>,
 ) => Promise<T>
+
+export const createDeliveryTransaction = (db: Db): SettleTransaction => {
+	const withTransaction: SettleTransaction = (fn) =>
+		db
+			.transaction()
+			.execute((tx) =>
+				fn({ notifications: createNotificationRepository(tx), runner: asSqlRunner(tx) }),
+			)
+	return withTransaction
+}
 
 export type DeliveryDeps = {
 	readonly store: DeliveryStore

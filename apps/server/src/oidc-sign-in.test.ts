@@ -1,9 +1,16 @@
-import { randomUUID } from "node:crypto"
+import {
+	createSign,
+	generateKeyPairSync,
+	type JsonWebKey,
+	type KeyObject,
+	randomUUID,
+} from "node:crypto"
 import { serve } from "@hono/node-server"
 import {
 	OIDC_PROVIDER_ID,
 	REGISTRATION_CLOSED_CODE,
 	REGISTRATION_CLOSED_MESSAGE,
+	SIGN_IN_PATH,
 } from "@open-mcc/contracts"
 import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
@@ -33,13 +40,61 @@ const BASE_URL = "http://localhost:3000"
 const SECRET = "a-very-long-test-secret-value-000000"
 const PASSWORD = "correct horse battery staple 1"
 const PROVIDER_NAME = "Acme ID"
+const CLIENT_ID = "open-mcc-manager"
 const CLIENT_SECRET = "idp-client-secret-never-leaves-the-server"
+const PERSON_NAME = "Signed In Person"
+const SIGNING_KEY_ID = "idp-signing-key"
+const ID_TOKEN_LIFETIME_SECONDS = 300
+
+type SigningKey = { privateKey: KeyObject; publicJwk: JsonWebKey }
+
+const generateSigningKey = (): SigningKey => {
+	const pair = generateKeyPairSync("rsa", { modulusLength: 2048 })
+	return {
+		privateKey: pair.privateKey,
+		publicJwk: {
+			...pair.publicKey.export({ format: "jwk" }),
+			kid: SIGNING_KEY_ID,
+			alg: "RS256",
+			use: "sig",
+		},
+	}
+}
+
+const segment = (value: string): string => Buffer.from(value).toString("base64url")
+
+type IdTokenClaims = {
+	iss: string
+	aud: string
+	sub: string
+	email: string
+	email_verified: boolean
+	name: string
+	nonce: string
+	iat: number
+	exp: number
+}
+
+const signIdToken = (key: SigningKey, claims: IdTokenClaims): string => {
+	const header = JSON.stringify({ alg: "RS256", typ: "JWT", kid: SIGNING_KEY_ID })
+	const signed = `${segment(header)}.${segment(JSON.stringify(claims))}`
+	const signature = createSign("RSA-SHA256").update(signed).end().sign(key.privateKey)
+	return `${signed}.${signature.toString("base64url")}`
+}
+
+const published = generateSigningKey()
+const unpublished = generateSigningKey()
 
 type Identity = { subject: string; email: string; emailConfirmed: boolean }
 
 let issuer = ""
 let identity: Identity = { subject: "", email: "", emailConfirmed: false }
+let signsWith: SigningKey = published
+let nonceOverride: string | undefined
 let tokenRequests: string[] = []
+let userInfoReads = 0
+let jwksReads = 0
+const nonceOfCode = new Map<string, string>()
 
 const provider = new Hono()
 provider.get("/.well-known/openid-configuration", (c) =>
@@ -48,23 +103,54 @@ provider.get("/.well-known/openid-configuration", (c) =>
 		authorization_endpoint: `${issuer}/authorize`,
 		token_endpoint: `${issuer}/token`,
 		userinfo_endpoint: `${issuer}/userinfo`,
+		jwks_uri: `${issuer}/jwks`,
 		id_token_signing_alg_values_supported: ["RS256"],
 		response_types_supported: ["code"],
 		subject_types_supported: ["public"],
 	}),
 )
-provider.post("/token", async (c) => {
-	tokenRequests.push(await c.req.text())
-	return c.json({ access_token: "idp-access-token", token_type: "Bearer", expires_in: 3600 })
+provider.get("/jwks", (c) => {
+	jwksReads += 1
+	return c.json({ keys: [published.publicJwk] })
 })
-provider.get("/userinfo", (c) =>
-	c.json({
+provider.get("/authorize", (c) => {
+	const code = randomUUID()
+	nonceOfCode.set(code, c.req.query("nonce") ?? "")
+	const back = new URL(c.req.query("redirect_uri") ?? "")
+	back.searchParams.set("code", code)
+	back.searchParams.set("state", c.req.query("state") ?? "")
+	return c.redirect(back.toString(), 302)
+})
+provider.post("/token", async (c) => {
+	const body = await c.req.text()
+	tokenRequests.push(body)
+	const issuedAt = Math.floor(Date.now() / 1000)
+	return c.json({
+		access_token: "idp-access-token",
+		id_token: signIdToken(signsWith, {
+			iss: issuer,
+			aud: CLIENT_ID,
+			sub: identity.subject,
+			email: identity.email,
+			email_verified: identity.emailConfirmed,
+			name: PERSON_NAME,
+			nonce: nonceOverride ?? nonceOfCode.get(new URLSearchParams(body).get("code") ?? "") ?? "",
+			iat: issuedAt,
+			exp: issuedAt + ID_TOKEN_LIFETIME_SECONDS,
+		}),
+		token_type: "Bearer",
+		expires_in: 3600,
+	})
+})
+provider.get("/userinfo", (c) => {
+	userInfoReads += 1
+	return c.json({
 		sub: identity.subject,
 		email: identity.email,
 		email_verified: identity.emailConfirmed,
-		name: "Signed In Person",
-	}),
-)
+		name: PERSON_NAME,
+	})
+})
 
 const env = async (): Promise<Env> => ({
 	DATABASE_URL: process.env.TEST_DATABASE_URL ?? "",
@@ -80,7 +166,7 @@ const env = async (): Promise<Env> => ({
 	NOTIFICATION_TEAMS_HOSTS: "",
 	OTEL_EXPORTER_OTLP_ENDPOINT: "",
 	OIDC_ISSUER_URL: issuer,
-	OIDC_CLIENT_ID: "open-mcc-manager",
+	OIDC_CLIENT_ID: CLIENT_ID,
 	OIDC_CLIENT_SECRET: CLIENT_SECRET,
 	OIDC_NAME: PROVIDER_NAME,
 })
@@ -134,7 +220,7 @@ const forwardedFor = (): string => {
 	return `198.51.100.${lastClientAddress}`
 }
 
-type Started = { state: string; cookie: string; authorizeUrl: URL }
+type Started = { cookie: string; authorizeUrl: URL }
 
 const startSingleSignOn = async (app: Hono, ip: string): Promise<Started> => {
 	const res = await app.request("/api/auth/sign-in/social", {
@@ -143,31 +229,70 @@ const startSingleSignOn = async (app: Hono, ip: string): Promise<Started> => {
 		body: JSON.stringify({
 			provider: OIDC_PROVIDER_ID,
 			callbackURL: `${ORIGIN}/hosts`,
-			errorCallbackURL: `${ORIGIN}/sign-in`,
+			errorCallbackURL: `${ORIGIN}${SIGN_IN_PATH}`,
 		}),
 	})
 	expect(res.status, await res.clone().text()).toBe(200)
-	const authorizeUrl = new URL(authorizeSchema.parse(await res.json()).url)
 	return {
-		state: authorizeUrl.searchParams.get("state") ?? "",
+		authorizeUrl: new URL(authorizeSchema.parse(await res.json()).url),
 		cookie: res.headers
 			.getSetCookie()
 			.map((each) => each.split(";")[0])
 			.join("; "),
-		authorizeUrl,
 	}
 }
 
-const completeSingleSignOn = async (app: Hono, started: Started, ip: string): Promise<Response> =>
-	await app.request(
-		`/api/auth/callback/${OIDC_PROVIDER_ID}?code=authorization-code&state=${encodeURIComponent(started.state)}`,
-		{ method: "GET", headers: { Cookie: started.cookie, "x-forwarded-for": ip } },
-	)
+const authorizeAtProvider = async (started: Started): Promise<string> => {
+	const res = await fetch(started.authorizeUrl, { redirect: "manual" })
+	const back = new URL(res.headers.get("location") ?? "")
+	return `${back.pathname}${back.search}`
+}
 
-const signInThrough = async (app: Hono, who: Identity): Promise<Response> => {
+const followCallback = async (
+	app: Hono,
+	callbackPath: string,
+	cookie: string,
+	ip: string,
+): Promise<Response> =>
+	await app.request(callbackPath, {
+		method: "GET",
+		headers: { Cookie: cookie, "x-forwarded-for": ip },
+	})
+
+type Journey = { started: Started; callbackPath: string; ip: string; response: Response }
+
+const signInJourney = async (app: Hono, who: Identity): Promise<Journey> => {
 	identity = who
 	const ip = forwardedFor()
-	return await completeSingleSignOn(app, await startSingleSignOn(app, ip), ip)
+	const started = await startSingleSignOn(app, ip)
+	const callbackPath = await authorizeAtProvider(started)
+	return {
+		started,
+		callbackPath,
+		ip,
+		response: await followCallback(app, callbackPath, started.cookie, ip),
+	}
+}
+
+const signInThrough = async (app: Hono, who: Identity): Promise<Response> =>
+	(await signInJourney(app, who)).response
+
+const signedBy = async (key: SigningKey, who: Identity): Promise<Response> => {
+	signsWith = key
+	try {
+		return await signInThrough(handle.app, who)
+	} finally {
+		signsWith = published
+	}
+}
+
+const boundTo = async (nonce: string, who: Identity): Promise<Response> => {
+	nonceOverride = nonce
+	try {
+		return await signInThrough(handle.app, who)
+	} finally {
+		nonceOverride = undefined
+	}
 }
 
 const seedMember = async (role: string) => {
@@ -195,6 +320,17 @@ const seedMember = async (role: string) => {
 
 const usersWith = async (email: string) =>
 	await db.selectFrom("user").select(["id", "email"]).where("email", "=", email).execute()
+
+const sessionsOf = async (userId: string) =>
+	await db.selectFrom("session").select("id").where("userId", "=", userId).execute()
+
+const providerAccountsOf = async (userId: string) =>
+	await db
+		.selectFrom("account")
+		.select("id")
+		.where("userId", "=", userId)
+		.where("providerId", "=", OIDC_PROVIDER_ID)
+		.execute()
 
 const locationOf = (res: Response): URL => new URL(res.headers.get("location") ?? "")
 
@@ -229,6 +365,21 @@ describe("signing in through the configured provider", () => {
 		])
 	})
 
+	it("reads who arrived from the signed ID token, never from the provider's userinfo endpoint", async () => {
+		const invited = await seedMember("operator")
+		userInfoReads = 0
+
+		const res = await signInThrough(handle.app, {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		})
+
+		expect(locationOf(res).toString()).toBe(`${ORIGIN}/hosts`)
+		expect(userInfoReads).toBe(0)
+		expect(jwksReads).toBeGreaterThan(0)
+	})
+
 	it("links the provider identity to that same user rather than creating a second one", async () => {
 		const invited = await seedMember("viewer")
 		const subject = `subject-${randomUUID()}`
@@ -261,13 +412,7 @@ describe("signing in through the configured provider", () => {
 		expect(again.status, await again.clone().text()).toBe(302)
 		expect(locationOf(again).toString()).toBe(`${ORIGIN}/hosts`)
 		expect((await usersWith(invited.email)).length).toBe(1)
-		const accounts = await db
-			.selectFrom("account")
-			.select("id")
-			.where("userId", "=", invited.userId)
-			.where("providerId", "=", OIDC_PROVIDER_ID)
-			.execute()
-		expect(accounts.length).toBe(1)
+		expect((await providerAccountsOf(invited.userId)).length).toBe(1)
 	})
 
 	it("turns away a stranger the deployment never invited, and says registration is closed", async () => {
@@ -282,7 +427,7 @@ describe("signing in through the configured provider", () => {
 
 		const location = locationOf(res)
 		expect(res.status).toBe(302)
-		expect(`${location.origin}${location.pathname}`).toBe(`${ORIGIN}/sign-in`)
+		expect(`${location.origin}${location.pathname}`).toBe(`${ORIGIN}${SIGN_IN_PATH}`)
 		expect(location.searchParams.get("error")).toBe(REGISTRATION_CLOSED_CODE)
 		expect(location.searchParams.get("error_description")).toBe(REGISTRATION_CLOSED_MESSAGE)
 		expect(await usersWith(stranger)).toEqual([])
@@ -315,19 +460,8 @@ describe("signing in through the configured provider", () => {
 		})
 
 		expect(locationOf(res).searchParams.get("error")).toBe("account_not_linked")
-		const accounts = await db
-			.selectFrom("account")
-			.select("id")
-			.where("userId", "=", invited.userId)
-			.where("providerId", "=", OIDC_PROVIDER_ID)
-			.execute()
-		expect(accounts).toEqual([])
-		const sessions = await db
-			.selectFrom("session")
-			.select("id")
-			.where("userId", "=", invited.userId)
-			.execute()
-		expect(sessions).toEqual([])
+		expect(await providerAccountsOf(invited.userId)).toEqual([])
+		expect(await sessionsOf(invited.userId)).toEqual([])
 	})
 
 	it("names no failure of its own an internal server error", async () => {
@@ -339,6 +473,83 @@ describe("signing in through the configured provider", () => {
 
 		expect(locationOf(res).searchParams.get("error")).not.toBe("internal_server_error")
 		expect(res.status).toBeLessThan(500)
+	})
+})
+
+describe("the provider's ID token", () => {
+	it("decides entry by its signature: a key the provider never published is refused, the one it published is admitted", async () => {
+		const invited = await seedMember("operator")
+		const who = {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		}
+
+		const refused = await signedBy(unpublished, who)
+
+		expect(refused.status).toBe(302)
+		expect(locationOf(refused).searchParams.get("error")).toBe("unable_to_get_user_info")
+		expect(refused.headers.getSetCookie().join("; ")).not.toContain("session_token")
+		expect(await sessionsOf(invited.userId)).toEqual([])
+		expect(await providerAccountsOf(invited.userId)).toEqual([])
+
+		const admitted = await signedBy(published, who)
+
+		expect(locationOf(admitted).toString()).toBe(`${ORIGIN}/hosts`)
+		expect((await sessionsOf(invited.userId)).length).toBe(1)
+		expect((await providerAccountsOf(invited.userId)).length).toBe(1)
+	})
+
+	it("must answer the nonce this deployment sent, so one bound to another is refused", async () => {
+		const invited = await seedMember("operator")
+
+		const refused = await boundTo(`nonce-${randomUUID()}`, {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		})
+
+		expect(refused.status).toBe(302)
+		expect(locationOf(refused).searchParams.get("error")).toBe("unable_to_get_user_info")
+		expect(refused.headers.getSetCookie().join("; ")).not.toContain("session_token")
+		expect(await sessionsOf(invited.userId)).toEqual([])
+		expect(await providerAccountsOf(invited.userId)).toEqual([])
+	})
+})
+
+describe("the callback address opened outside a live sign-in", () => {
+	it("sends an operator who reloads it back to the dashboard's sign-in page", async () => {
+		const invited = await seedMember("operator")
+		const journey = await signInJourney(handle.app, {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		})
+		expect(locationOf(journey.response).toString()).toBe(`${ORIGIN}/hosts`)
+
+		const reloaded = await followCallback(
+			handle.app,
+			journey.callbackPath,
+			journey.started.cookie,
+			journey.ip,
+		)
+
+		const location = locationOf(reloaded)
+		expect(reloaded.status).toBe(302)
+		expect(`${location.origin}${location.pathname}`).toBe(`${ORIGIN}${SIGN_IN_PATH}`)
+		expect(reloaded.headers.getSetCookie().join("; ")).not.toContain("session_token")
+		expect((await sessionsOf(invited.userId)).length).toBe(1)
+	})
+
+	it("sends a visitor who opens it carrying nothing to the dashboard's sign-in page", async () => {
+		const res = await handle.app.request(`/api/auth/callback/${OIDC_PROVIDER_ID}`, {
+			method: "GET",
+			headers: { "x-forwarded-for": forwardedFor() },
+		})
+
+		const location = locationOf(res)
+		expect(res.status).toBe(302)
+		expect(`${location.origin}${location.pathname}`).toBe(`${ORIGIN}${SIGN_IN_PATH}`)
 	})
 })
 
@@ -375,18 +586,19 @@ describe("what the deployment exposes once a provider is configured", () => {
 
 	it("sends the client secret to the provider alone, never to the browser or this deployment's log", async () => {
 		const invited = await seedMember("viewer")
-		const ip = forwardedFor()
 		tokenRequests = []
 
-		const started = await startSingleSignOn(handle.app, ip)
-		identity = { subject: `subject-${randomUUID()}`, email: invited.email, emailConfirmed: true }
-		const finished = await completeSingleSignOn(handle.app, started, ip)
+		const journey = await signInJourney(handle.app, {
+			subject: `subject-${randomUUID()}`,
+			email: invited.email,
+			emailConfirmed: true,
+		})
 
 		expect(tokenRequests.join(" ")).toContain(CLIENT_SECRET)
-		expect(started.authorizeUrl.toString()).not.toContain(CLIENT_SECRET)
-		expect(started.cookie).not.toContain(CLIENT_SECRET)
-		expect(await finished.clone().text()).not.toContain(CLIENT_SECRET)
-		expect([...finished.headers.entries()].join(" ")).not.toContain(CLIENT_SECRET)
+		expect(journey.started.authorizeUrl.toString()).not.toContain(CLIENT_SECRET)
+		expect(journey.started.cookie).not.toContain(CLIENT_SECRET)
+		expect(await journey.response.clone().text()).not.toContain(CLIENT_SECRET)
+		expect([...journey.response.headers.entries()].join(" ")).not.toContain(CLIENT_SECRET)
 		expect(logLines.join("\n")).not.toContain(CLIENT_SECRET)
 	})
 })

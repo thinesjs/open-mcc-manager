@@ -54,12 +54,16 @@ const oidcPluginsFor = (oidc: OidcProvider | undefined) =>
 const accountFor = (oidc: OidcProvider | undefined) =>
 	oidc === undefined ? undefined : { accountLinking: { requireLocalEmailVerified: false } }
 
+const onApiErrorFor = (errorUrl: string | undefined) =>
+	errorUrl === undefined ? undefined : { errorURL: errorUrl }
+
 export type CreateAuthOptions = {
 	disableSignUp?: boolean
 	disableRateLimit?: boolean
 	allowOrganizationCreation?: boolean
 	trustedOrigins?: readonly string[]
 	userCreation?: UserCreationMode
+	errorUrl?: string | undefined
 	oidc?: OidcProvider | undefined
 }
 
@@ -83,6 +87,7 @@ export const createAuth = (
 		},
 		user: registrationGateFor(options.userCreation ?? "gated", db),
 		account: accountFor(options.oidc),
+		onAPIError: onApiErrorFor(options.errorUrl),
 		trustedOrigins: [...(options.trustedOrigins ?? [])],
 		advanced: {
 			ipAddress: {

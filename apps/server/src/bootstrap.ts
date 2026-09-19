@@ -1,5 +1,6 @@
 import type { serve } from "@hono/node-server"
 import { trpcServer } from "@hono/trpc-server"
+import { SIGN_IN_PATH } from "@open-mcc/contracts"
 import {
 	adminFor,
 	attachQueueWarning,
@@ -138,9 +139,11 @@ export const startServer = async (
 	const oidc = oidcProviderFrom(env)
 	const oidcWarning = oidcWarningFor(env)
 	if (oidcWarning !== undefined) logger.warn(oidcWarning)
+	const dashboard = allowed.at(0)
 	const auth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {
 		userCreation: "closed",
 		trustedOrigins: allowed,
+		errorUrl: dashboard === undefined ? undefined : `${dashboard}${SIGN_IN_PATH}`,
 		oidc,
 	})
 	const signupAuth = createAuth(db, env.BETTER_AUTH_SECRET, env.BETTER_AUTH_URL, {

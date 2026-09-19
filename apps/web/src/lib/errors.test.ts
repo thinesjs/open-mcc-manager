@@ -289,6 +289,24 @@ describe("getErrorMessage", () => {
 		)
 	})
 
+	it("★ says a saved schedule is readable, where the two-slash refusal says nothing reaches the server", () => {
+		const stored = getErrorMessage({
+			message: "A command carrying a credential is not stored on a schedule",
+			data: { errorCode: "INSTANCE_COMMAND_STORES_CREDENTIAL" },
+		})
+		const doubleSlash = getErrorMessage({
+			message: "A command written with two slashes does not reach the server",
+			data: { errorCode: "INSTANCE_COMMAND_DOUBLE_SLASH" },
+		})
+
+		expect(stored).toBe(
+			"This command starts with a word that can carry a password, and anyone in this organization can read a saved schedule. Send it at the console while the bot runs.",
+		)
+		expect(stored).not.toMatch(/reach|server/i)
+		expect(stored).not.toBe(doubleSlash)
+		expect(doubleSlash).toMatch(/two slashes/i)
+	})
+
 	it("renders static copy, never the server's own text, for every code the server can send", () => {
 		const serverText = "presented SHA256:aaaa expected SHA256:bbbb"
 		for (const errorCode of ERROR_CODES) {

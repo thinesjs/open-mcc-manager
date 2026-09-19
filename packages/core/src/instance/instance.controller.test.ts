@@ -71,7 +71,11 @@ import { AUTH_UNIT_NAME, INSTANCE_UNIT_NAME, renderUnitTemplates } from "../host
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import type { CommandRepository } from "./command.repository"
 import { renderInstanceConfig } from "./config"
-import { DisallowedInternalCommandError, DoubleSlashCredentialError } from "./control"
+import {
+	DisallowedInternalCommandError,
+	DoubleSlashCredentialError,
+	StoredCredentialError,
+} from "./control"
 import {
 	type ActorContext,
 	createInstanceController,
@@ -1277,27 +1281,23 @@ describe("scheduled commands", () => {
 		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
 	})
 
-	it("audits a password a schedule stored, without the password", async () => {
+	it("★ refuses to store a password on a schedule, with nothing upserted and nothing audited", async () => {
 		const { deps, audit } = makeDeps()
 		const controller = createInstanceController(deps)
 
-		await controller.setScheduledCommand(owner, {
-			instanceId: "abc123",
-			name: "morning wave",
-			command: "/login hunter2",
-			daysOfWeek: ["Mon"],
-			runAt: { hour: 9, minute: 0 },
-			timezone: "UTC",
-			enabled: true,
-		})
-
-		expect(audit.record).toHaveBeenCalledWith(
-			{ organizationId: "org-1" },
-			expect.objectContaining({
-				detail: { schedule: "morning wave", command: "/login [redacted]" },
+		await expect(
+			controller.setScheduledCommand(owner, {
+				instanceId: "abc123",
+				name: "morning wave",
+				command: "/login hunter2",
+				daysOfWeek: ["Mon"],
+				runAt: { hour: 9, minute: 0 },
+				timezone: "UTC",
+				enabled: true,
 			}),
-		)
-		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("hunter2")
+		).rejects.toThrow(StoredCredentialError)
+		expect(deps.commands.upsert).not.toHaveBeenCalled()
+		expect(audit.record).not.toHaveBeenCalled()
 	})
 
 	it("★ refuses to store a client command it would never run, rather than failing on every run", async () => {
@@ -1371,30 +1371,39 @@ describe("scheduled commands", () => {
 		)
 	})
 
-	it("audits the creation and the deletion of a password schedule without the password", async () => {
+	it("★ masks in a stored schedule the secrets its credential rule was never looking for", async () => {
+		const { deps, audit } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.setScheduledCommand(owner, {
+			instanceId: "abc123",
+			name: "morning wave",
+			command: "/say Authorization: Bearer abcdefghijklmnop",
+			daysOfWeek: ["Mon"],
+			runAt: { hour: 9, minute: 0 },
+			timezone: "UTC",
+			enabled: true,
+		})
+
+		expect(deps.commands.upsert).toHaveBeenCalled()
+		expect(audit.record).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			expect.objectContaining({
+				detail: { schedule: "morning wave", command: "/say Authorization: Bearer [redacted]" },
+			}),
+		)
+		expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain("abcdefghijklmnop")
+	})
+
+	it("★ audits without the password the deletion of a schedule an earlier build stored", async () => {
 		const { deps, audit } = makeDeps()
 		vi.mocked(deps.commands.deleteReturning).mockResolvedValue(
 			commandRow({ command: "/login hunter2" }),
 		)
 		const controller = createInstanceController(deps)
 
-		await controller.setScheduledCommand(owner, {
-			instanceId: "abc123",
-			name: "morning wave",
-			command: "/login hunter2",
-			daysOfWeek: ["Mon"],
-			runAt: { hour: 9, minute: 0 },
-			timezone: "UTC",
-			enabled: true,
-		})
 		await controller.deleteScheduledCommand(owner, "cmd-1")
 
-		expect(audit.record).toHaveBeenCalledWith(
-			{ organizationId: "org-1" },
-			expect.objectContaining({
-				detail: { schedule: "morning wave", command: "/login [redacted]" },
-			}),
-		)
 		expect(audit.record).toHaveBeenCalledWith(
 			{ organizationId: "org-1" },
 			expect.objectContaining({

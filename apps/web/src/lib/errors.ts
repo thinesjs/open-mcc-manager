@@ -96,6 +96,8 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
 		"That client command is not one this manager will run. Chat and server commands still work.",
 	INSTANCE_COMMAND_DOUBLE_SLASH:
 		"Use /login, not //login. Two slashes are for plugin commands whose own name starts with one.",
+	INSTANCE_COMMAND_STORES_CREDENTIAL:
+		"This command starts with a word that can carry a password, and anyone in this organization can read a saved schedule. Send it at the console while the bot runs.",
 	INSTANCE_ACCOUNT_NOT_INTERACTIVE:
 		"This instance signs in without a device code, so there is nothing to approve.",
 	INSTANCE_AUTH_IN_PROGRESS: SIGN_IN_HOLD_MESSAGE,

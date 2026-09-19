@@ -122,6 +122,7 @@ export {
 	DoubleSlashCredentialError,
 	INTERNAL_COMMAND_PREFIX,
 	INTERNAL_COMMANDS,
+	StoredCredentialError,
 	sendCommand,
 } from "./instance/control"
 export type { ExitMeaning } from "./instance/exit-code"

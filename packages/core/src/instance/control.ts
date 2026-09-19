@@ -61,10 +61,19 @@ export class DisallowedInternalCommandError extends Error {}
 
 export class DoubleSlashCredentialError extends Error {}
 
+export class StoredCredentialError extends Error {}
+
 const refuseDoubleSlashCredential = (command: string): void => {
 	if (!command.startsWith("//") || maskCommandCredentials(command) === command) return
 	throw new DoubleSlashCredentialError(
 		"A credential command written with two slashes never reaches the server",
+	)
+}
+
+export const refuseStoredCredential = (command: string): void => {
+	if (maskCommandCredentials(command) === command) return
+	throw new StoredCredentialError(
+		"A command that could carry a credential is not stored, where every member could read it",
 	)
 }
 

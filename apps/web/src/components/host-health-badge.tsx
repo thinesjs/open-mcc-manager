@@ -10,6 +10,7 @@ export type HostHealthInput = {
 const TONE: Record<HostHealth, string> = {
 	online: "bg-success",
 	degraded: "bg-warning",
+	unreadable: "bg-warning",
 	offline: "bg-destructive",
 	unknown: "bg-muted-foreground/40",
 }
@@ -17,6 +18,7 @@ const TONE: Record<HostHealth, string> = {
 const LABEL: Record<HostHealth, string> = {
 	online: "Online",
 	degraded: "Degraded",
+	unreadable: "Not readable",
 	offline: "Offline",
 	unknown: "Not yet reached",
 }

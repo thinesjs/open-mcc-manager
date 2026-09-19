@@ -51,6 +51,13 @@ const host = (overrides: Partial<HostRow> = {}): HostRow => ({
 	...overrides,
 })
 
+const NOTHING_FAILED = ""
+
+const TWO_FAILED = [
+	"open-mcc@one.service loaded failed failed one",
+	"open-mcc@two.service loaded failed failed two",
+].join("\n")
+
 const hostScript = (failed: string, os = "debian\nDebian GNU/Linux 12") => ({
 	[failedUnitsCommand()]: { stdout: failed, stderr: "", exitCode: 0 },
 	[OS_RELEASE_COMMAND]: { stdout: os, stderr: "", exitCode: 0 },
@@ -101,7 +108,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
-			lease: leasing("0"),
+			lease: leasing(NOTHING_FAILED),
 			recordSeen: async () => undefined,
 			recordReachability,
 			now: () => now,
@@ -138,7 +145,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host()],
-			lease: leasing("0"),
+			lease: leasing(NOTHING_FAILED),
 			recordSeen,
 			now: () => now,
 		})
@@ -156,7 +163,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
-			lease: leasing("2"),
+			lease: leasing(TWO_FAILED),
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -184,7 +191,7 @@ describe("keeping the panel's view of each host current", () => {
 
 	it("keeps polling the rest of the fleet after one host fails", async () => {
 		const recordSeen = vi.fn(async () => undefined)
-		const healthy = leasing("0")
+		const healthy = leasing(NOTHING_FAILED)
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host({ id: "a" }), host({ id: "b" })],
@@ -202,7 +209,7 @@ describe("keeping the panel's view of each host current", () => {
 
 		await runHealthPoll({
 			pollableHosts: async () => [host({ osId: "ubuntu", osName: "Ubuntu 24.04" })],
-			lease: leasing("0"),
+			lease: leasing(NOTHING_FAILED),
 			recordSeen,
 			now: () => new Date(),
 		})
@@ -222,7 +229,7 @@ describe("keeping the panel's view of each host current", () => {
 	)
 
 	it("polls a host whose Repair failed, leasing it like any other", async () => {
-		const lease = vi.fn(leasing("0"))
+		const lease = vi.fn(leasing(NOTHING_FAILED))
 
 		const run = await runHealthPoll({
 			pollableHosts: async () => [host({ status: "error" })],
@@ -251,7 +258,7 @@ describe("keeping the panel's view of each host current", () => {
 	] as const)(
 		"never polls a ready host with no %s recorded, and never leases it",
 		async (_field, missing) => {
-			const lease = vi.fn(leasing("0"))
+			const lease = vi.fn(leasing(NOTHING_FAILED))
 
 			const run = await runHealthPoll({
 				pollableHosts: async () => [host(missing)],
@@ -272,7 +279,7 @@ describe("keeping the panel's view of each host current", () => {
 
 	it("gives back every lease it takes, including when the write after it fails", async () => {
 		const released: string[] = []
-		const healthy = leasing("0")
+		const healthy = leasing(NOTHING_FAILED)
 
 		await runHealthPoll({
 			pollableHosts: async () => [host()],
@@ -331,7 +338,7 @@ describe("the health poller on a shared connection", () => {
 		const expectedFingerprints: string[] = []
 		const readConnections = createReadConnections({
 			createTransport: () => {
-				const transport = createFakeTransport(hostScript("0"))
+				const transport = createFakeTransport(hostScript(NOTHING_FAILED))
 				return {
 					...transport,
 					connect: async (options: ConnectOptions) => {

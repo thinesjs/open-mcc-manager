@@ -3,7 +3,7 @@ import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
 import { Client } from "pg"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { type Auth, createAuth } from "./auth"
-import { bootstrapOwner, UsersAlreadyExistError } from "./bootstrap-owner"
+import { BOOTSTRAP_LOCK_KEY, bootstrapOwner, UsersAlreadyExistError } from "./bootstrap-owner"
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? ""
 const databaseName = `bootstrap_owner_test_${randomUUID().replaceAll("-", "")}`
@@ -32,6 +32,8 @@ const resetOwnedDatabase = async (): Promise<void> => {
 }
 
 const SESSIONS_GONE_TIMEOUT_MS = 10_000
+
+const LOCK_WAIT_BUDGET_MS = 2_000
 
 const openSessions = async (): Promise<number> => {
 	const client = new Client({ connectionString: adminUrl })
@@ -128,6 +130,65 @@ describe("bootstrapOwner", () => {
 			.where("name", "=", "Should Not Exist")
 			.executeTakeFirst()
 		expect(org).toBeUndefined()
+	})
+
+	it("leaves no account behind when the organization cannot be created, so the next attempt still can", async () => {
+		await expect(
+			bootstrapOwner(databaseUrl, db, auth, {
+				email: `${randomUUID()}@example.com`,
+				password: "correct horse battery staple 5",
+				name: "Stranded Owner",
+				organizationName: "Org\u0000Name",
+				organizationSlug: `org-${randomUUID()}`,
+			}),
+		).rejects.toThrow()
+
+		expect(await db.selectFrom("user").select("id").execute()).toEqual([])
+		expect(await db.selectFrom("account").select("id").execute()).toEqual([])
+		expect(await db.selectFrom("session").select("id").execute()).toEqual([])
+		expect(await db.selectFrom("organization").select("id").execute()).toEqual([])
+
+		const recovered = await bootstrapOwner(databaseUrl, db, auth, {
+			email: `${randomUUID()}@example.com`,
+			password: "correct horse battery staple 6",
+			name: "Real Owner",
+			organizationName: "Recovered Org",
+			organizationSlug: `org-${randomUUID()}`,
+		})
+
+		expect(recovered.userId.length).toBeGreaterThan(0)
+		expect(recovered.organizationId.length).toBeGreaterThan(0)
+	})
+
+	it("refuses a deployment that already has a user without ever waiting on the bootstrap lock", async () => {
+		await db
+			.insertInto("user")
+			.values({ id: randomUUID(), name: "Existing", email: `${randomUUID()}@example.com` })
+			.execute()
+		const holder = new Client({ connectionString: databaseUrl })
+		await holder.connect()
+
+		try {
+			await holder.query("SELECT pg_advisory_lock($1)", [BOOTSTRAP_LOCK_KEY])
+			const answered = bootstrapOwner(databaseUrl, db, auth, {
+				email: `${randomUUID()}@example.com`,
+				password: "correct horse battery staple 7",
+				name: "Blocked Owner",
+				organizationName: "Blocked Org",
+				organizationSlug: `org-${randomUUID()}`,
+			}).then(
+				() => "created",
+				(error: Error) => error,
+			)
+			const waited = new Promise<string>((resolve) => {
+				setTimeout(() => resolve("still waiting on the lock"), LOCK_WAIT_BUDGET_MS)
+			})
+
+			expect(await Promise.race([answered, waited])).toBeInstanceOf(UsersAlreadyExistError)
+		} finally {
+			await holder.query("SELECT pg_advisory_unlock($1)", [BOOTSTRAP_LOCK_KEY])
+			await holder.end()
+		}
 	})
 
 	it("serializes two concurrent bootstraps against an empty database so exactly one wins", async () => {

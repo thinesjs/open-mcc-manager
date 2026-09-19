@@ -134,7 +134,8 @@ const ctx: RequestContext = {
 	},
 	auth,
 	signupAuth: auth,
-	signInOptions: { singleSignOn: null },
+	singleSignOn: null,
+	databaseUrl: process.env.TEST_DATABASE_URL ?? "",
 	headers: new Headers(),
 	hostController,
 	processIdentities: {

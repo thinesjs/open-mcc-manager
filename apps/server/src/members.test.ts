@@ -66,7 +66,8 @@ beforeAll(async () => {
 			createContext: createRequestContext({
 				auth,
 				signupAuth: auth,
-				signInOptions: { singleSignOn: null },
+				singleSignOn: null,
+				databaseUrl: process.env.TEST_DATABASE_URL ?? "",
 				db,
 				hostController: createHostController({
 					hosts: createHostRepository(db),

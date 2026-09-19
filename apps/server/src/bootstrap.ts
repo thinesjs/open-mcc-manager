@@ -267,7 +267,8 @@ export const startServer = async (
 			createContext: createRequestContext({
 				auth,
 				signupAuth,
-				signInOptions: { singleSignOn: oidc ? { name: oidc.name } : null },
+				singleSignOn: oidc ? { name: oidc.name } : null,
+				databaseUrl: env.DATABASE_URL,
 				db,
 				hostController,
 				processIdentities: identities,

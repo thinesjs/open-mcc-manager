@@ -1,9 +1,15 @@
 import type { SignInOptions, SystemStatus } from "@open-mcc/contracts"
 import { conditionFor, releaseNotesFor, updateStatusFor } from "@open-mcc/core"
+import { anyUserExists } from "../security/registration-gate"
 import { protectedProcedure, publicProcedure, router } from "../trpc"
 
 export const systemRouter = router({
-	signInOptions: publicProcedure.query(({ ctx }): SignInOptions => ctx.signInOptions),
+	signInOptions: publicProcedure.query(
+		async ({ ctx }): Promise<SignInOptions> => ({
+			singleSignOn: ctx.singleSignOn,
+			registrationOpen: !(await anyUserExists(ctx.db)),
+		}),
+	),
 
 	status: protectedProcedure.query(async ({ ctx }): Promise<SystemStatus> => {
 		const worker = await ctx.processIdentities.find("worker")

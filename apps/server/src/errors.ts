@@ -1,6 +1,7 @@
 import {
 	type ErrorCode,
 	isErrorCode,
+	REGISTRATION_CLOSED_MESSAGE,
 	REJECTION_ERROR_CODES,
 	type RejectionCategory,
 } from "@open-mcc/contracts"
@@ -70,6 +71,7 @@ import {
 	TransportInterruptedError,
 } from "@open-mcc/transport"
 import { isAPIError } from "better-auth/api"
+import { UsersAlreadyExistError } from "./bootstrap-owner"
 
 export class InvitationNotFoundError extends Error {}
 
@@ -487,6 +489,9 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"INVITATION_EMAIL_HAS_ACCOUNT",
 			"This email already has an account here",
 		)
+	}
+	if (cause instanceof UsersAlreadyExistError) {
+		return mapped("FORBIDDEN", "REGISTRATION_CLOSED", REGISTRATION_CLOSED_MESSAGE)
 	}
 	if (cause instanceof InvitationNotFoundError) {
 		return mapped(

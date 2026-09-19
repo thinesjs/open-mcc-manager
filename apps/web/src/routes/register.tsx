@@ -1,4 +1,11 @@
-import { REGISTRATION_CLOSED_MESSAGE, type SignInOptions } from "@open-mcc/contracts"
+import {
+	MAX_EMAIL_LENGTH,
+	MAX_PASSWORD_LENGTH,
+	MAX_REGISTRATION_NAME_LENGTH,
+	MIN_PASSWORD_LENGTH,
+	REGISTRATION_CLOSED_MESSAGE,
+	type SignInOptions,
+} from "@open-mcc/contracts"
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, type ReactNode, useState } from "react"
@@ -119,6 +126,7 @@ function RegisterForm() {
 					<Input
 						id="name"
 						required
+						maxLength={MAX_REGISTRATION_NAME_LENGTH}
 						value={name}
 						onChange={(event) => setName(event.target.value)}
 					/>
@@ -128,6 +136,7 @@ function RegisterForm() {
 					<Input
 						id="organizationName"
 						required
+						maxLength={MAX_REGISTRATION_NAME_LENGTH}
 						value={organizationName}
 						onChange={(event) => setOrganizationName(event.target.value)}
 					/>
@@ -139,6 +148,7 @@ function RegisterForm() {
 						type="email"
 						autoComplete="email"
 						required
+						maxLength={MAX_EMAIL_LENGTH}
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
 					/>
@@ -150,7 +160,8 @@ function RegisterForm() {
 						type="password"
 						autoComplete="new-password"
 						required
-						minLength={8}
+						minLength={MIN_PASSWORD_LENGTH}
+						maxLength={MAX_PASSWORD_LENGTH}
 						value={password}
 						onChange={(event) => setPassword(event.target.value)}
 					/>
@@ -162,7 +173,8 @@ function RegisterForm() {
 						type="password"
 						autoComplete="new-password"
 						required
-						minLength={8}
+						minLength={MIN_PASSWORD_LENGTH}
+						maxLength={MAX_PASSWORD_LENGTH}
 						value={confirmPassword}
 						onChange={(event) => setConfirmPassword(event.target.value)}
 					/>

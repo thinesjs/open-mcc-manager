@@ -94,33 +94,66 @@ depth, not a substitute for one.
 
 ## Current controls
 
-- **Closed registration; accounts are provisioned, not self-served.** Public
-  sign-up is disabled (`emailAndPassword.disableSignUp`) — the `/sign-up/email`
-  endpoint refuses every request, regardless of caller, so nobody can create
-  an account by simply reaching the server. That flag covers one method only,
-  and it is read once at construction, so it can neither close a social, OIDC,
-  SAML, passkey, magic-link or OTP path nor express "open until the first
-  account exists". The control that does both is the `user.validateUserInfo`
-  gate (`apps/server/src/security/registration-gate.ts`), which better-auth
-  calls from `internalAdapter.createUser` — the one seam every method's user
-  creation passes through — and which refuses `create-user` whenever any user
-  row exists, without reading the identity or the method. A deployment holding
-  no account admits the first one; a deployment holding one is closed to every
-  method at once, including methods added later, so enabling a social or SSO
-  provider cannot reopen registration by accident. `link-account` and `sign-in`
-  are admitted, so an existing member can still attach a provider and sign
-  back in, and the rejection the client sees names nothing about the
-  deployment. `CreateAuthOptions.userCreation` defaults to `gated`, so a new
-  auth instance is closed unless it declares otherwise; only the non-mounted
-  `signupAuth` used for invitation acceptance is `trusted`, because the router
-  has already verified a specific pending invitation before it creates a user.
-  `apps/server/src/registration-gate.test.ts` proves the closure per method and
-  proves the bootstrap path still works on an empty deployment. The first owner
-  is created by a deployment-time bootstrap
-  (`pnpm --filter @open-mcc/server bootstrap:owner`, reading credentials from
-  environment variables) that refuses to run if any
-  user already exists in the database — a bootstrap that succeeds twice would
-  be a backdoor, so this is enforced as a hard precondition, not a warning.
+- **One self-served account, then closed registration.** The first owner of a
+  deployment registers from the browser at `/register`; every account after
+  that is provisioned by invitation. The two halves are decided by one fact —
+  whether any `user` row exists — and the deployment's own HTTP surface never
+  offers a way to create a second.
+
+  The mounted auth instance is **`userCreation: "closed"`**, which refuses
+  every `create-user` unconditionally, and `mountDashboardAuth` mounts no
+  sign-up route at all, so neither `/sign-up/email` nor a configured OIDC
+  provider can create an account at any point in a deployment's life. That
+  matters most on an empty database: without it, the first stranger who could
+  authenticate at the operator's identity provider would take the owner row.
+  The gate itself is `user.validateUserInfo`
+  (`apps/server/src/security/registration-gate.ts`), which better-auth calls
+  from `internalAdapter.createUser` — the one seam every method's user creation
+  passes through — so it closes a social, OIDC, SAML, passkey, magic-link or
+  OTP path, including methods added later, without reading the identity or the
+  method. `emailAndPassword.disableSignUp` covers one method only and is read
+  once at construction, so it could express neither of those things and is not
+  what this rests on. `link-account` and `sign-in` are admitted, so an existing
+  member can still attach a provider and sign back in, and the rejection the
+  client sees names nothing about the deployment.
+  `CreateAuthOptions.userCreation` defaults to `gated`, so a new auth instance
+  is closed unless it declares otherwise; only the non-mounted `signupAuth` is
+  `trusted`, and it is reached by exactly two routers — invitation acceptance,
+  which has already verified a specific pending invitation, and first-run
+  registration, which runs under the control below.
+
+  First-run registration is `member.registerFirstOwner`, a public tRPC
+  procedure that calls `bootstrapOwner` — the same function the
+  `bootstrap:owner` CLI drives, so the browser and the CLI cannot drift into
+  two different rules. `bootstrapOwner` refuses on a pool read before it costs
+  a connection, then takes a Postgres advisory lock on a dedicated connection
+  and re-reads under it, so two simultaneous registrations cannot both win. It
+  makes two writes that Postgres cannot commit together, because better-auth
+  owns its own adapter: the `user` row, then the organization and the owner
+  membership. If the second fails, the first is **deleted** before the error is
+  raised — otherwise one anonymous request could strand an account, close
+  registration for ever, and leave recovery to direct database access.
+  `apps/server/src/bootstrap-owner.test.ts` drives that compensation against a
+  real database.
+
+  `system.signInOptions`, a public query, tells an unauthenticated visitor
+  whether registration is open. That is one boolean and deliberately so: it is
+  what the sign-in page needs to offer the link, and it says nothing about who
+  the deployment holds. An operator who bookmarks `/register` after the first
+  owner exists is told registration is closed, and a direct POST is refused
+  `REGISTRATION_CLOSED`.
+
+  **Emptying the `user` table reopens registration.** Nothing in the API can do
+  it, but a database restored from a backup taken before the first owner, or
+  one whose users were deleted directly, will admit a new first owner. Treat
+  the database as the authority on who may hold the deployment, and restore it
+  as a whole.
+
+  `apps/server/src/registration-gate.test.ts` proves the closure per method;
+  `apps/server/src/oidc-sign-in.test.ts` proves the mounted instance stays shut
+  on an untouched deployment, which is the case a `gated` mounted instance
+  would reopen; `apps/server/src/first-run-registration.test.ts` drives the
+  whole first-run sequence over HTTP against a real server.
   Every subsequent member is added by invitation, issued by an existing
   member holding `member.manage` (owner only, per the capability matrix
   below); the invited person's account is created only as part of accepting
@@ -132,7 +165,7 @@ depth, not a substitute for one.
   member's role — there is no procedure that changes one afterwards. An owner
   inviting an owner is therefore succession, not escalation: the inviter
   already holds every capability the invitee receives, and a deployment whose
-  only owner is the bootstrap account would otherwise have no way to add a
+  only owner is the first owner would otherwise have no way to add a
   second one, because `bootstrapOwner` refuses to run once any user exists. A
   member below owner cannot reach this path from either end, because they
   cannot issue an invitation in the first place. This closes what would

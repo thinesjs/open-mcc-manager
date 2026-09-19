@@ -19,11 +19,34 @@ export const signInOptionsSchema = z.object({
 
 export type SignInOptions = z.infer<typeof signInOptionsSchema>
 
+export const MAX_EMAIL_LENGTH = 254
+
+export const MIN_PASSWORD_LENGTH = 8
+
+export const MAX_PASSWORD_LENGTH = 128
+
+export const MAX_REGISTRATION_NAME_LENGTH = 64
+
+export const INVISIBLE_CHARACTER_IN_NAME = "Remove tabs and other invisible characters."
+
+const withoutInvisibleCharacters = (value: string): boolean =>
+	[...value].every((character) => {
+		const code = character.codePointAt(0) ?? 0
+		return code >= 0x20 && code !== 0x7f
+	})
+
+const registrationName = z
+	.string()
+	.trim()
+	.min(1)
+	.max(MAX_REGISTRATION_NAME_LENGTH)
+	.refine(withoutInvisibleCharacters, INVISIBLE_CHARACTER_IN_NAME)
+
 export const registerFirstOwnerInput = z.object({
-	email: z.string().email(),
-	password: z.string().min(8),
-	name: z.string().min(1),
-	organizationName: z.string().min(1),
+	email: z.string().email().max(MAX_EMAIL_LENGTH),
+	password: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
+	name: registrationName,
+	organizationName: registrationName,
 })
 
 export type RegisterFirstOwnerInput = z.infer<typeof registerFirstOwnerInput>

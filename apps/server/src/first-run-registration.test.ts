@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { REGISTRATION_CLOSED_MESSAGE } from "@open-mcc/contracts"
+import { INVISIBLE_CHARACTER_IN_NAME, REGISTRATION_CLOSED_MESSAGE } from "@open-mcc/contracts"
 import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { createDb, type Db, migrateToLatest } from "@open-mcc/db"
 import { Client } from "pg"
@@ -42,6 +42,13 @@ const onConnection = async (connectionString: string, statement: string): Promis
 const signInOptionsSchema = z.object({
 	result: z.object({
 		data: z.object({ registrationOpen: z.boolean() }),
+	}),
+})
+
+const inputRefusalSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		data: z.object({ httpStatus: z.number() }),
 	}),
 })
 
@@ -95,6 +102,15 @@ const register = async (email: string): Promise<Response> =>
 		organizationName: ORGANIZATION_NAME,
 	})
 
+const registerWith = async (patch: Record<string, string>): Promise<Response> =>
+	await post("/trpc/member.registerFirstOwner", {
+		email: `${randomUUID()}@example.com`,
+		password: PASSWORD,
+		name: OWNER_NAME,
+		organizationName: ORGANIZATION_NAME,
+		...patch,
+	})
+
 const users = async () => await db.selectFrom("user").select(["id", "email", "name"]).execute()
 
 beforeAll(async () => {
@@ -121,6 +137,27 @@ afterAll(async () => {
 })
 
 describe("registering the first owner of a deployment", () => {
+	it("refuses while this deployment holds any account at all, even one that belongs to no organization", async () => {
+		const id = randomUUID()
+		await db
+			.insertInto("user")
+			.values({ id, name: "Stranded", email: `${randomUUID()}@example.com` })
+			.execute()
+
+		try {
+			expect(await db.selectFrom("organization").select("id").execute()).toEqual([])
+			expect(await registrationOpen()).toBe(false)
+
+			const res = await register(`${randomUUID()}@example.com`)
+
+			expect(res.status).toBe(403)
+			expect(refusalSchema.parse(await res.json()).error.data.errorCode).toBe("REGISTRATION_CLOSED")
+			expect(await users()).toHaveLength(1)
+		} finally {
+			await db.deleteFrom("user").where("id", "=", id).execute()
+		}
+	})
+
 	it("offers registration while this deployment has no owner, and mounts no sign-up endpoint by doing so", async () => {
 		expect(await users()).toEqual([])
 		expect(await registrationOpen()).toBe(true)
@@ -134,6 +171,33 @@ describe("registering the first owner of a deployment", () => {
 
 		expect(res.status).not.toBe(200)
 		expect(await users()).toEqual([])
+	})
+
+	it("refuses a name it could never store, and leaves the deployment registerable", async () => {
+		const res = await registerWith({ organizationName: "Org\u0000Name" })
+		const refusal = inputRefusalSchema.parse(await res.clone().json())
+
+		expect(res.status).toBe(400)
+		expect(refusal.error.message).toBe(INVISIBLE_CHARACTER_IN_NAME)
+		expect(await users()).toEqual([])
+		expect(await registrationOpen()).toBe(true)
+	})
+
+	it("refuses a password longer than the one this deployment can hash, rather than failing on it", async () => {
+		const res = await registerWith({ password: "p".repeat(129) })
+
+		expect(res.status).toBe(400)
+		expect(inputRefusalSchema.parse(await res.json()).error.data.httpStatus).toBe(400)
+		expect(await users()).toEqual([])
+		expect(await registrationOpen()).toBe(true)
+	})
+
+	it("refuses an organization name that is only whitespace", async () => {
+		const res = await registerWith({ organizationName: "   " })
+
+		expect(res.status).toBe(400)
+		expect(await users()).toEqual([])
+		expect(await registrationOpen()).toBe(true)
 	})
 
 	it("creates that owner, their organization and their membership as its owner", async () => {

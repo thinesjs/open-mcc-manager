@@ -78,7 +78,7 @@ import {
 } from "./config"
 import { CONFIG_PATH_NAME } from "./config-drift"
 import { CONSOLE_READ_DEADLINE_MS, readConsole } from "./console"
-import { sendableLine, sendCommand } from "./control"
+import { refuseStoredCredential, sendableLine, sendCommand } from "./control"
 import {
 	createInstanceRepository,
 	type InstanceRepository,
@@ -1473,6 +1473,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			requireCapabilityFor(ctx.role, "console.write")
 			await requireInstance(ctx, input.instanceId)
 			sendableLine(input.command)
+			refuseStoredCredential(input.command)
 
 			const row = await deps.withTransaction(async (repos) => {
 				const stored = await repos.commands.upsert(scopeOf(ctx), {

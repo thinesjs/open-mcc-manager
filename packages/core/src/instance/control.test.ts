@@ -5,6 +5,9 @@ import {
 	DisallowedInternalCommandError,
 	DoubleSlashCredentialError,
 	INTERNAL_COMMANDS,
+	refuseStoredCredential,
+	StoredCredentialError,
+	sendableLine,
 	sendCommand,
 } from "./control"
 
@@ -105,6 +108,45 @@ describe("instance control channel", () => {
 		await sendCommand(transport, "abc", "/login hunter2")
 
 		expect(transport.stdins).toEqual(["//login hunter2\n"])
+	})
+
+	it("★ refuses to store every credential form the redactor masks, and stores the rest", () => {
+		for (const refused of [
+			"/login hunter2",
+			"login hunter2",
+			"//login hunter2",
+			"/l hunter2",
+			"/register hunter2 hunter2",
+			"/unregister hunter2",
+			"/changepassword old new",
+			"/authme changepassword old new",
+			"/email setpassword old new",
+			"  /LOGIN hunter2",
+		]) {
+			expect(() => refuseStoredCredential(refused), refused).toThrow(StoredCredentialError)
+		}
+
+		for (const stored of [
+			"/say hello",
+			"!reco",
+			"/login",
+			"say login hunter2",
+			"/home",
+			"/logistics open",
+		]) {
+			expect(() => refuseStoredCredential(stored), stored).not.toThrow()
+		}
+	})
+
+	it("★ refuses more than passwords: any argument to these verbs counts as one", () => {
+		for (const refused of ["/cp backup world", "/log the weather", "/l lobby", "/reg tuesday"]) {
+			expect(() => refuseStoredCredential(refused), refused).toThrow(StoredCredentialError)
+		}
+	})
+
+	it("★ leaves the send door taking the password the store door refuses", () => {
+		expect(sendableLine("/login hunter2")).toBe("//login hunter2")
+		expect(() => refuseStoredCredential("/login hunter2")).toThrow(StoredCredentialError)
 	})
 
 	it("preserves a doubled slash so plugin commands still reach the server", () => {

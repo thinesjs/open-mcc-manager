@@ -1546,6 +1546,37 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
 	})
 
+	it("★ refuses to store a password on a schedule, so no viewer can read one back", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const res = await schedule(cookie, instanceId, "/login hunter2")
+
+		expect(await answerOf(res)).toEqual({
+			status: 400,
+			errorCode: "INSTANCE_COMMAND_STORES_CREDENTIAL",
+			message: "A command carrying a credential is not stored on a schedule",
+		})
+		await demoteToRole(orgId, "viewer")
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ sends at the console the password it will not store on a schedule", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+		await markRunning(instanceId)
+
+		const atConsole = await call("instance.sendCommand", cookie, {
+			instanceId,
+			command: "/login hunter2",
+		})
+		const onSchedule = await schedule(cookie, instanceId, "/login hunter2")
+
+		expect(atConsole.status).toBe(200)
+		expect((await answerOf(onSchedule)).errorCode).toBe("INSTANCE_COMMAND_STORES_CREDENTIAL")
+		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
 	it("★ a stop that threw something other than an error stays a server fault, not the host's", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()
 		const { instanceId } = await seedReadyInstance(orgId, memberId)

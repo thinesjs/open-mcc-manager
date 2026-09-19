@@ -58,6 +58,7 @@ import {
 	SelfHostUnavailableError,
 	SshKeyInUseError,
 	SshKeyNotFoundError,
+	StoredCredentialError,
 } from "@open-mcc/core"
 import { constraintViolationOf } from "@open-mcc/db"
 import {
@@ -375,6 +376,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_COMMAND_DOUBLE_SLASH",
 			"A command written with two slashes does not reach the server",
+		)
+	}
+	if (cause instanceof StoredCredentialError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_COMMAND_STORES_CREDENTIAL",
+			"A command carrying a credential is not stored on a schedule",
 		)
 	}
 	if (cause instanceof InstanceAccountNotInteractiveError) {

@@ -8,6 +8,7 @@
 			"!apps/web/src/routeTree.gen.ts",
 			"!apps/web/vite.config.ts.timestamp-*.mjs",
 			"!**/.turbo",
+			"!**/.vite",
 			"!**/coverage",
 			"!**/build",
 			"!.claude",

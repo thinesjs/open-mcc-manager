@@ -1332,7 +1332,7 @@ describe("what an operator reads when the host will not do what they asked", () 
 	it("★ a sign-in check the host answered unreadably says so, rather than reading as a manager fault", async () => {
 		const { cookie, orgId, memberId } = await signUpAndActivate()
 		const { instanceId } = await seedReadyInstance(orgId, memberId)
-		hostScript[sessionCacheProbeCommand(instanceId)] = {
+		hostScript[sessionCacheProbeCommand(instanceId, "afk@example.com")] = {
 			stdout: "",
 			stderr: HOST_SAID,
 			exitCode: SESSION_CACHE_UNREADABLE_EXIT,

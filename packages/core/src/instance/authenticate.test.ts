@@ -46,6 +46,7 @@ import {
 	InstanceNotFoundError,
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
+	InstanceSignInOtherAccountError,
 } from "./instance.controller"
 import { AUTH_LEASE_MS, type InstanceRepository } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -454,10 +455,12 @@ describe("beginAuthentication", () => {
 })
 
 describe("completeAuthentication", () => {
-	const STATE_PROBE =
-		'd="$HOME/.local/share/open-mcc/instances/abc123/state"; [ -d "$d" ] || exit 3; out=$(find "$d" -maxdepth 1 -name SessionCache.db -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1'
+	const PROBE_ACCOUNT = "afk@example.com"
 
-	const withProbe = (status: 0 | 1 | 2 | 3) => {
+	const STATE_PROBE =
+		'd="$HOME/.local/share/open-mcc/instances/abc123/state"; [ -d "$d" ] || exit 3; out=$(find "$d" -maxdepth 1 -name SessionCache.db -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit 2; [ -n "$out" ] || exit 1; LC_ALL=C grep -a -i -q -F -e \'afk@example.com\' "$out"; found=$?; [ "$found" -eq 0 ] && exit 0; [ "$found" -eq 1 ] && exit 4; exit 2'
+
+	const withProbe = (status: 0 | 1 | 2 | 3 | 4) => {
 		const made = makeDeps("")
 		const original = made.transport.exec
 		made.transport.exec = async (command: string, timeoutMs: number, stdin?: string) => {
@@ -470,8 +473,8 @@ describe("completeAuthentication", () => {
 	}
 
 	it("builds the probe for the state directory alone, by type and size, following no link", () => {
-		expect(sessionCacheProbeCommand("abc123")).toBe(STATE_PROBE)
-		expect(() => sessionCacheProbeCommand("abc%i")).toThrow()
+		expect(sessionCacheProbeCommand("abc123", PROBE_ACCOUNT)).toBe(STATE_PROBE)
+		expect(() => sessionCacheProbeCommand("abc%i", PROBE_ACCOUNT)).toThrow()
 	})
 
 	it("reports the instance still unauthenticated when no session cache has appeared", async () => {
@@ -481,6 +484,18 @@ describe("completeAuthentication", () => {
 		const state = await completeAuthentication(deps, owner, "abc123")
 
 		expect(state).toEqual({ authenticated: false, status: "needs_auth" })
+		expect(instances.update).not.toHaveBeenCalled()
+		expect(transport.commands.some((each) => each.startsWith("pkill"))).toBe(false)
+	})
+
+	it("refuses a sign-in that used another Microsoft account, leaving the instance waiting", async () => {
+		const { deps, transport, instances } = withProbe(4)
+		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))
+
+		await expect(completeAuthentication(deps, owner, "abc123")).rejects.toThrow(
+			InstanceSignInOtherAccountError,
+		)
+
 		expect(instances.update).not.toHaveBeenCalled()
 		expect(transport.commands.some((each) => each.startsWith("pkill"))).toBe(false)
 	})
@@ -611,7 +626,7 @@ describe("completeAuthentication", () => {
 	it("tells a missing state directory apart from one it could not read", () => {
 		expect(SESSION_CACHE_NO_STATE_DIR_EXIT).not.toBe(SESSION_CACHE_UNREADABLE_EXIT)
 		expect(SESSION_CACHE_NO_STATE_DIR_EXIT).not.toBe(SESSION_CACHE_ABSENT_EXIT)
-		expect(sessionCacheProbeCommand("abc123")).toContain(
+		expect(sessionCacheProbeCommand("abc123", PROBE_ACCOUNT)).toContain(
 			`|| exit ${SESSION_CACHE_NO_STATE_DIR_EXIT}`,
 		)
 	})

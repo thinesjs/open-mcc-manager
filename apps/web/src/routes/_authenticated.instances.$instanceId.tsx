@@ -307,7 +307,9 @@ function InstanceDetailPage() {
 				</Alert>
 			) : null}
 
-			{challenge ? <DeviceCode challenge={challenge} /> : null}
+			{challenge ? (
+				<DeviceCode challenge={challenge} minecraftAccount={instance.minecraftAccount} />
+			) : null}
 
 			<Tabs defaultValue="overview">
 				<TabsList>

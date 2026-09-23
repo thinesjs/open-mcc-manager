@@ -323,37 +323,41 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 		expect(await containers()).toBe("")
 	})
 
-	it("answers the sign-in check from state/ alone: a cache is 0, none, an empty file or a link is 1, an unreadable state/ is 2", async () => {
+	it("answers the sign-in check from state/ alone: this account's cache is 0, none, an empty file or a link is 1, an unreadable state/ is 2, another account's cache is 4", async () => {
 		const state = `${botDir(botId)}/state`
 		const cache = `${state}/SessionCache.db`
 		const elsewhere = `${botDir(botId)}/elsewhere.db`
-		const probe = async (): Promise<number | null> =>
-			(await shell(host, as, sessionCacheProbeCommand(botId))).status
+		const signedIn = "bot@example.com"
+		const someoneElse = "other@example.com"
+		const probe = async (account: string): Promise<number | null> =>
+			(await shell(host, as, sessionCacheProbeCommand(botId, account))).status
 		const arrange = async (script: string, what: string): Promise<void> => {
-			succeeded(await shell(host, as, script, cache, elsewhere, state), what)
+			succeeded(await shell(host, as, script, cache, elsewhere, state, signedIn), what)
 		}
 
 		await arrange('rm -f -- "$1" "$2"', "clearing the cache")
-		const missing = await probe()
+		const missing = await probe(signedIn)
 		await arrange(': > "$1"', "leaving an empty cache")
-		const empty = await probe()
+		const empty = await probe(signedIn)
 		await arrange(
-			'rm -f -- "$1" && printf cache > "$2" && ln -s "$2" "$1"',
+			'rm -f -- "$1" && printf %s "$4" > "$2" && ln -s "$2" "$1"',
 			"planting a link to a full file",
 		)
-		const linked = await probe()
-		await arrange('rm -f -- "$1" "$2" && printf cache > "$1"', "writing a cache")
-		const written = await probe()
+		const linked = await probe(signedIn)
+		await arrange('rm -f -- "$1" "$2" && printf %s "$4" > "$1"', "writing a cache")
+		const written = await probe(signedIn)
+		const otherAccount = await probe(someoneElse)
 		await arrange('chmod 000 "$3"', "making state unreadable")
-		const unreadable = await probe()
+		const unreadable = await probe(signedIn)
 		await arrange('chmod 700 "$3" && rm -f -- "$1"', "restoring state")
 
-		expect({ written, missing, empty, linked, unreadable }).toEqual({
+		expect({ written, missing, empty, linked, unreadable, otherAccount }).toEqual({
 			written: 0,
 			missing: 1,
 			empty: 1,
 			linked: 1,
 			unreadable: 2,
+			otherAccount: 4,
 		})
 	})
 

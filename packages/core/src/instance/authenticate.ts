@@ -22,6 +22,7 @@ import {
 	InstanceNotFoundError,
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
+	InstanceSignInOtherAccountError,
 } from "./instance.controller"
 import { isAuthClaimStale } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
@@ -70,8 +71,10 @@ export const SESSION_CACHE_UNREADABLE_EXIT = 2
 
 export const SESSION_CACHE_NO_STATE_DIR_EXIT = 3
 
-export const sessionCacheProbeCommand = (instanceId: string): string =>
-	`d="$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}"; [ -d "$d" ] || exit ${SESSION_CACHE_NO_STATE_DIR_EXIT}; out=$(find "$d" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit ${SESSION_CACHE_UNREADABLE_EXIT}; [ -n "$out" ] || exit ${SESSION_CACHE_ABSENT_EXIT}`
+export const SESSION_CACHE_OTHER_ACCOUNT_EXIT = 4
+
+export const sessionCacheProbeCommand = (instanceId: string, minecraftAccount: string): string =>
+	`d="$HOME/${INSTANCES_PATH}/instances/${validateInstanceId(instanceId)}/${INSTANCE_LAYOUT.state}"; [ -d "$d" ] || exit ${SESSION_CACHE_NO_STATE_DIR_EXIT}; out=$(find "$d" -maxdepth 1 -name ${SESSION_CACHE_FILES[0]} -type f -size +0 -print -quit); rc=$?; [ "$rc" -eq 0 ] || exit ${SESSION_CACHE_UNREADABLE_EXIT}; [ -n "$out" ] || exit ${SESSION_CACHE_ABSENT_EXIT}; LC_ALL=C grep -a -i -q -F -e ${shellQuote(minecraftAccount)} "$out"; found=$?; [ "$found" -eq 0 ] && exit 0; [ "$found" -eq 1 ] && exit ${SESSION_CACHE_OTHER_ACCOUNT_EXIT}; exit ${SESSION_CACHE_UNREADABLE_EXIT}`
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
@@ -273,9 +276,14 @@ export const completeAuthentication = async (
 		})
 
 		const probe = await transport.exec(
-			sessionCacheProbeCommand(instance.id),
+			sessionCacheProbeCommand(instance.id, instance.minecraftAccount),
 			AUTH_SESSION_TIMEOUT_MS,
 		)
+		if (probe.exitCode === SESSION_CACHE_OTHER_ACCOUNT_EXIT) {
+			throw new InstanceSignInOtherAccountError(
+				`Instance ${instanceId} was signed in with a Microsoft account other than ${instance.minecraftAccount}`,
+			)
+		}
 		if (
 			probe.exitCode === SESSION_CACHE_ABSENT_EXIT ||
 			probe.exitCode === SESSION_CACHE_NO_STATE_DIR_EXIT

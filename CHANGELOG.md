@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.1](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.0...v0.2.1) (2026-09-23)
+
+### Features
+
+* let an operator pin the Minecraft version a bot joins as ([6e2bf31](https://github.com/thinesjs/open-mcc-manager/commit/6e2bf3178d64db64b64efb01ec4ff015b2dfc995))
+
+### Fixes
+
+* check the sign-in matched the account the instance expects ([a56f04a](https://github.com/thinesjs/open-mcc-manager/commit/a56f04a1694eeabc7946c894c1e55438cb8d064e))
+* give the client download time for a slow link, and say when it ran out ([06b6970](https://github.com/thinesjs/open-mcc-manager/commit/06b69705aaa0b8fda8de912dfb477b223b16f6d1))
+* run the client check the way a bot runs the client, and quote only the client ([7a3b8e6](https://github.com/thinesjs/open-mcc-manager/commit/7a3b8e6ff6fd35b254bdf577deaf2198a8a2c7fc))
+* say a bot errored when its unit failed, with what it exited with ([82e8c7d](https://github.com/thinesjs/open-mcc-manager/commit/82e8c7dfeb00105b917e288f4cf5e19334102df9))
+* say only what a missing release tells us ([10e4829](https://github.com/thinesjs/open-mcc-manager/commit/10e4829e1f79dec72ff8201269769f506c6ee8c9))
+* say what really stopped container storage, and undo what the step made ([8f5244b](https://github.com/thinesjs/open-mcc-manager/commit/8f5244b335b52fadf4820a43504a5f98d165d980))
+* turn away a sign-in check for an account that never signs in ([f6f11e7](https://github.com/thinesjs/open-mcc-manager/commit/f6f11e7db5a65fe8712b675fd85cf76da831b104))
+* wrap long console lines instead of scrolling sideways ([ec85366](https://github.com/thinesjs/open-mcc-manager/commit/ec8536664160a8338e3948dda4b55ca2a3038896))
+
+## 0.1.0 (2026-09-19)
 ## 0.2.0 (2026-09-19)
 
 ### Features

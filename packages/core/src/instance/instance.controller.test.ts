@@ -430,6 +430,18 @@ describe("a bot's files and its start", () => {
 		)
 	})
 
+	it("★ starts a bot whose settings predate the version pin, rendering auto rather than refusing them", async () => {
+		const { minecraftVersion: _pinned, ...older } = SAVED_DOCUMENT
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () => configRow({ document: { ...older } })
+		const controller = createInstanceController(deps)
+
+		await controller.start(owner, "abc123")
+
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "auto"')
+	})
+
 	it("★ writes the version the operator pinned at create into the document the host receives", async () => {
 		const { deps, transport, instances } = makeDeps()
 		const controller = createInstanceController(deps)

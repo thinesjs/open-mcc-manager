@@ -39,6 +39,7 @@ RUN apt-get update \
 		"$helper" \
 		catatonit \
 		dbus-user-session \
+		fuse-overlayfs \
 		ca-certificates \
 		curl \
 		iproute2 \

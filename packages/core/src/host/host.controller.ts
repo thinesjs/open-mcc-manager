@@ -477,7 +477,10 @@ export const createHostController = (deps: HostControllerDeps) => {
 					const failure =
 						error instanceof HostUnreachableError
 							? error.message
-							: provisioningFailureFor(reached?.step)
+							: provisioningFailureFor(
+									reached?.step,
+									error instanceof HostProvisioningFailedError ? error.storage : null,
+								)
 					deps.onError?.(
 						`Provisioning host ${hostId} did not finish`,
 						error instanceof Error ? error : String(error),

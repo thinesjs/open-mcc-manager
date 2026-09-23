@@ -201,6 +201,42 @@ trade: never hammer Microsoft auth on a bad token, at the cost of a transient
 network fault during sign-in needing a manual start. The dashboard says so
 rather than claiming the login was rejected.
 
+### Where an instance's status stops being a wish
+
+`instance.status` is the operator's desired state everywhere it is written by a
+start, a stop or a sign-in, and `error` was in the contract's union with nothing
+writing it. A bot whose unit had died therefore kept its **Running** badge and
+its "Instance is connected and being managed by OpenMCC.", while `Last exit
+code` read `—` because no caller ever passed `lastExitCode` either. The only
+place the truth existed was reconciliation's `stateDrift`, on the Host page,
+which the instance page never reads.
+
+Reconciliation now closes that loop. When the unit it observes is `failed` while
+the row says `running` — the same `ObservedState` `desiredStateIsSatisfied`
+already judges, not a second notion of "not running" — it reads
+`systemctl show -p ExecMainStatus -p Result` over the shared reader, outside
+every transaction like every other host read, and records `status: "error"` with
+that exit code. The drift entry is still reported; recording the failure refines
+it rather than replacing it.
+
+**`Result` is read because `ExecMainStatus` alone is ambiguous.** systemd puts
+the main process's `si_status` there, which is an exit status when the process
+exited and a **signal number** when it was killed, so a unit ended by SIGKILL
+would otherwise be recorded as having exited `9`. Only `Result=exit-code` means
+the number is an exit status. `ExecMainStatus=0` under that result is not a
+clean exit either — it is what a failed `ExecStartPre` leaves, the config
+preflight included — so `interpretExitCode` decides it, and `lastExitCode` stays
+`null` in every case the host did not name a real failure code rather than
+inventing one. `exit-code.ts` owns that mapping; nothing else may restate it.
+
+A failure is recorded only against a row that still says `running` and holds no
+config claim, so a reading taken before an operator's start or stop cannot undo
+it. The other direction is the start itself: `finalizeConfigClaim` clears
+`lastExitCode` whenever a lifecycle change lands on `running`, because the
+instance page prefers the exit code's sentence to the status description, and a
+kept code would describe a running bot by the failure it recovered from. A stop
+keeps it — the code is still why the bot went down.
+
 ### The two client settings the supervisor depends on
 
 `renderInstanceConfig` writes `Main.Advanced.ExitOnFailure = true` and
@@ -221,6 +257,42 @@ against.
 self-hosted deployment should not phone home, and the key is not in
 `ALLOWED_CONFIG_KEYS`, so an operator could not have turned it off.
 
+### The version a bot joins as, and why an unknown one is refused
+
+`Main.Advanced.MinecraftVersion` is in `ALLOWED_CONFIG_KEYS`, so an operator
+chooses it and reconciliation treats it like every other managed key. It is
+there because MCC's auto-detect cannot negotiate with every server: one that
+will not say which protocol it speaks answers a join with `This version is not
+supported`, the unit exits 1, and until this setting existed no instance
+pointed at such a server could ever start.
+
+The value is `auto` or one of the 131 strings `MCVer2ProtocolVersion`
+(`MinecraftClient/Protocol/ProtocolHandler.cs`) has a case for, and
+`packages/contracts/src/minecraft-version.ts` refuses everything else. The
+strictness is the point rather than tidiness: `Program.cs` answers an
+unrecognised string by logging `mcc_unknown_version` and **falling back to
+auto-detect**, so a typo would be stored, rendered, reported as converged and
+silently do nothing, leaving an operator looking at a pinned version on a bot
+that is not pinned.
+
+The dropdown offers fewer strings than the schema accepts. MCC spells twenty
+releases both as `X.Y` and as `X.Y.0`, and only one of each pair is a real
+release; both are still accepted on input, because a saved document may hold
+either. `MINECRAFT_VERSION_OPTIONS` is derived from the accepted list rather
+than written beside it, so a version added upstream reaches the dashboard by
+editing one array.
+
+It is stored in the versioned `instanceConfig` document beside the server
+address, not as a column on `instance`. A column would be a second source of
+truth that rolling a config version back would not roll back, and the narrowing
+`packages/db/src/schema/` asks of a constrained column would mean hand-writing a
+132-member union in a package that may not import the contracts. Documents saved
+before this setting existed carry no such key and read as `auto` through the
+schema's default, so no migration adds one. The first start, restart or settings
+save after this change writes the key onto the host; until then reconciliation
+reports managed drift on it, which is the same path a version change itself
+takes.
+
 ### The pinned player-name check, and what depends on it
 
 `renderInstanceConfig` writes `Main.Advanced.IgnoreInvalidPlayerName = true` as a
@@ -240,6 +312,176 @@ rather than the one bad entry. The manager pins and rejects rather than silently
 filtering such an entry, because filtering here would hide either fixed-config
 drift or an upstream change to what the client promises. Do not relax the pin to
 make a player-name test pass, and do not add filtering in its place.
+
+### Rootless overlay needs a package apt was told not to install
+
+Provisioning writes `[storage] driver = "overlay"` and then asks `podman info`
+for the driver it actually got. On a real Ubuntu 24.04 node, kernel
+`6.8.0-134-generic`, that came back `kernel does not support overlay fs … driver
+not supported` on a genuinely fresh account, with user namespaces open
+(`user.max_user_namespaces` 19287, `unprivileged_userns_clone` 1) and no
+`/etc/containers/storage.conf` at all. Podman's own fallback for a kernel that
+will not mount overlay is `fuse-overlayfs`, and the host did not have it.
+
+It did not have it because nothing this project ran asked for it. Both install
+lists — `PODMAN_INSTALL_COMMAND` in `check.ts` and the `apt-get` line the setup
+script pastes — carry `--no-install-recommends`, and `fuse-overlayfs` is exactly
+a *Recommends* of Debian 12's podman 4.3.1, alongside `dbus-user-session`,
+`slirp4netns`, `catatonit | tini | dumb-init` and `uidmap`, which those lists do
+name. Ubuntu 24.04's podman 4.9.3 and Debian 13's podman 5.4.2 do not recommend
+it at all, so no apt setting would have brought it in. Read off the three base
+images themselves: the package is called `fuse-overlayfs` on all three and is in
+each archive (1.10-1, 1.13-1, 1.14-1+b1), so one name serves them. Nothing else
+in either list has the same gap, and the one remaining split — a podman 5 host
+needing `passt` where the list names `slirp4netns` — is already told apart by
+`networkHelperResult`, which has its own command.
+
+Installing it changes nothing where the kernel is willing: containers/storage
+prefers a native overlay mount and looks for the binary only when that fails,
+and `Store.GraphDriverName` reads `overlay` either way. That is why the sandbox's
+three targets are unaffected by adding it to `docker/sandbox/Dockerfile`.
+
+**The check says so before provisioning does.** On a fresh account the check
+deliberately never starts Podman — that is what keeps the account fresh — so it
+cannot read the driver and cannot know whether this kernel will mount one. What
+it can read is whether the fallback is installed, the way `networkHelperResult`
+reads its network stack, and a fresh account without it is a **warn** carrying
+the install command, not a fail: a host whose kernel does mount overlay needs
+nothing, and refusing it would be a second confident guess in place of the one
+being removed.
+
+### A step that fails puts back only what it put there
+
+`storageStepCommand` writes `~/.config/containers/storage.conf` on a fresh
+account and then runs `podman info`, which **creates the graph root**. Both
+survived a failure, so one failed run left an account that was no longer fresh:
+on the node above, every file under `.local/share/containers` and
+`.config/containers` carried the failed run's timestamp. The next attempt reads
+that account as `set-up` or `used` and never writes again, and a store already
+initialised on another driver keeps that driver, so a single failure could block
+every retry until someone deleted files by hand.
+
+The step now records what it created — `ours` for the `storage.conf`, `kept` for
+a graph root that was already a directory — and `undo` runs on every failing
+exit after the write. It removes the `storage.conf` unconditionally when `ours`,
+because a fresh account has none by definition of `fresh`, so whatever is there
+is this run's. For the graph root it deletes the directory only when the run
+created it, and otherwise empties it in place, because `fresh` also admits an
+existing empty directory whose mode is not this step's to change. An account
+that had already run Podman, or whose `storage.conf` this run did not write,
+leaves `ours` at 0, and `undo` returns on its first line without touching
+anything. The compensation is the same shape as
+`bootstrapOwner`'s: undo what this call made, on the failing path, and nothing
+else. What is deliberately left behind is the pair of empty directories
+`~/.config/containers` and `~/.local/share/containers`: neither is read by
+`STORAGE_STATE_COMMAND`, so neither can poison a retry, the second is a mount
+point in the sandbox and was not made by the step in any case, and removing
+either would mean deleting a directory the step cannot prove it made. Verified
+under Debian 12's dash with a stand-in `podman` that fills the graph root and
+then fails: a fresh account comes back with those two directories and nothing
+else, an empty graph root comes back empty and still `0700`, and an account that
+had already run Podman keeps its layer.
+
+### The storage step has four endings, and they are four sentences
+
+`provisioningFailureFor` was a `Record<ProvisionStepLabel, string>`, so every
+failure of **Setting up container storage** read "Use a fresh account that has
+never run Podman." The account above was fresh. A sentence that names a cause
+the code has not established is worse than a vague one, because the operator
+acts on it.
+
+The step already prints what it knows, and the failure is now keyed on that word
+rather than on the step alone: `refused` (something is moving Podman's storage,
+and the step cannot tell which of the four settings, so the sentence names all
+four), `used` (the account really had run Podman — the only sentence allowed to
+say so), `root` (Podman did not report itself rootless), and **no word at all**,
+which is the case above: Podman could not be asked or answered unreadably, and
+the sentence says only that, plus the `podman info` an operator can run on the
+host to see why. `HostProvisioningFailedError` carries the word so the
+controller keeps writing its own copy rather than the host's output, and
+`FAILURES` is typed over `Exclude<ProvisionStepLabel, typeof
+STORAGE_STEP_LABEL>`, so the storage step cannot acquire a second, unreachable
+sentence there.
+
+### A check runs the thing it certifies, under the runtime it certifies
+
+The client probe ran `podman run` with **no `--log-driver`**, so it took
+Podman's default. On a systemd host with a journal directory that default is
+`journald` — `containers/common`'s `defaultLogDriver` returns it whenever
+`/proc/1/comm` reads `systemd` and a machine-id directory under
+`/run/log/journal` or `/var/log/journal` can be read, which all three sandbox
+targets confirm. The bot units pin `--log-driver=passthrough`. So on a host
+whose rootless account cannot write `/run/systemd/journal/socket`, the probe and
+the bot took different paths, and the probe was the one that could fail:
+provisioning refusing a host on which every bot would have run.
+
+Measured on all three targets with the socket at `0600` and real Podman, and
+they do **not** agree, which is why the flag is pinned rather than argued:
+
+| | default `journald` driver | `--log-driver=passthrough` |
+| --- | --- | --- |
+| Debian 12, Podman 4.3.1 | `Error: failed to initialize journal: write unixgram …: sendmsg: permission denied`, exit 125, container never starts | exit 0, banner printed |
+| Ubuntu 24.04, Podman 4.9.3 | exit 0, banner printed | exit 0, banner printed |
+| Debian 13, Podman 5.4.2 | exit 0, banner printed | exit 0, banner printed |
+
+4.3.1 is `PODMAN_FLOOR` itself, so the row that breaks is a fully supported
+host, not an outlier. Do **not** read the table the other way round and conclude
+the flag is optional on the newer two: the point is that the probe must not
+depend on which of those three answers a host happens to give.
+
+**`--log-driver` and `--events-backend` are different settings, and only the
+first was missing.** The `Unable to write container event` line is written by
+`libpod/events.go`, which logs it and carries on; all three targets print that
+family of line four to six times **around a container that ran to completion and
+exited 0**. It is noise, not a cause, and a failure that quotes it is quoting
+the wrong line — see the section below. The probe therefore **tolerates** it:
+`--events-backend` is left unset in the probe exactly as it is unset in the
+units, so the probe sees what a bot sees. Pinning `--events-backend=file` would
+have silenced the line at the cost of making the check quieter than every bot on
+that host — the same defect pointing the other way.
+
+`UNIT_LOG_DRIVER` lives in `unit-template.ts` and is spent by both unit
+templates and by `clientCheckCommand`, so the two cannot drift.
+
+`--log-driver=passthrough` is **refused on a TTY**: `podman create` checks file
+descriptors 0, 1 and 2 and errors out if any is a terminal. The manager's SSH
+exec asks for no pty and the sandbox's `docker exec` passes no `--tty`, so
+neither has one. A person pasting `clientCheckCommand` into an interactive shell
+will be refused; redirect its stdout to a file to run it by hand.
+
+The probe still differs from a unit where it must: `--network=none`, no
+`--name`, no `--env-file`, no published port, and
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp` rather than `/data`. Two unit flags are
+**deliberately not** copied — `--init` and `--security-opt=no-new-privileges`.
+Copying `--init` would make a host missing `catatonit` fail at **Checking the
+client runs** under the sentence "The client did not start", which names the
+wrong cause; that is a separate fix with a sentence of its own, not a fidelity
+tweak.
+
+### The probe's failure quotes only a line the client could have written
+
+`explainClientFailure` took `output.trim().split("\n")[0]` and called it the
+client's. On the host that prompted this, that first line was Podman's own
+logrus event-log line, so the server log said the client said something it never
+said — the same fault as a sentence naming a cause the code has not established,
+one layer down. Worse than misattribution: the line that **was** the cause sat
+further down the same output and was discarded, so the one reading that could
+have identified the host's real fault never reached anyone.
+
+It now skips the lines Podman itself writes — logrus `time="…" level=… msg=…`,
+and its verdict prefix `Error: ` — and reports the **first line left**, which is
+the only line that could have come from the client. `provisionHost` calls it
+only when the whole output lacks `CLIENT_BANNER`, so the client is already known
+never to have announced itself; this function decides **who spoke**, not whether
+the client failed. Three endings: a surviving line is quoted as the client's; no
+surviving line but an `Error: ` line is Podman's refusal and is reported as
+Podman's; neither is "reported nothing".
+
+The residual is a client whose only output began `Error: `, which would be read
+as Podman's. MCC writes no such line — the two `Error: ` sites in its tree are
+inside running bots and carry a bot-name prefix — and a `--help` run prints the
+banner before anything else, so a client that reached its own output would not
+be here at all.
 
 ## Prohibitions
 
@@ -289,7 +531,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Fifty-nine rules stated further down this document are enforced too, and are
+Sixty-six rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -354,6 +596,13 @@ have:
 | Nothing above `dist` reachable, and a path that cannot be decoded refused | `apps/web-server/src/static-app.test.ts` — three climbs written with an encoded separator, each named with a marker from the file it would have leaked, must refuse and must not carry it; `%2e%2e` forms are not used for this, because the URL parser collapses them before the app sees anything and Hono decodes everything but `%2f` after that. Disabling the containment check leaks all three. Alongside it `/%00`, `/assets/index%00.js` and a half-invalid escape must refuse rather than fall through to the shell — the first two hold the null-byte guard, the third holds the app's own `decodeURIComponent` — and a file asked for under a percent-encoded name must still be found |
 | The security headers on the document the dashboard is served as | `apps/web-server/src/static-app.test.ts` — all eight compared whole as literals, on the shell, on an asset and on a refusal, so a header dropped or weakened fails three cases. It holds this image's list alone; nothing compares it against `apps/server/src/security/headers.ts`, and the two are stated to differ |
 | An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
+| A failed storage step leaving the account as it found it, and never a graph root it did not create | `packages/core/src/host/podman-facts.test.ts` — runs the real step under `/bin/sh` against a stand-in `podman` that fills the graph root before it answers, the way a real one does. A fresh account whose Podman fails must come back with no `storage.conf`, no graph root, and the same word on a second run; a graph root that was an empty directory must come back empty, still there, and still `0700`; an account that had already run Podman must keep its layer, and one whose `storage.conf` this run did not write must keep both. The ready case requires the graph root the step filled to **survive**, so an undo that always runs fails there rather than passing on the refusals, and dropping the `ours` guard passes the ready case and fails the two that kept their own files. It proves the shell, NOT what a real Podman leaves: the empty `~/.config/containers` the step creates is deliberately kept, and no test drives a real Podman here — `podman-host.sandbox.ts` does that, and it never fails the step |
+| Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
+| A Minecraft version this client would not recognise refused rather than stored | `packages/contracts/src/minecraft-version.test.ts` — the schema is driven with every string `MCVer2ProtocolVersion` has a case for and with strings it has none for, so widening it to a free-text field fails; `apps/server/src/instance.test.ts` drives an unrecognised version through `instance.updateConfig` over HTTP and requires 400, no new config version and no host command, so a schema loosened anywhere on the way fails there too. What it does NOT hold: that the accepted list still matches MCC's switch after a client bump — nothing reads `ProtocolHandler.cs`, and `docs/mcc-compat.md` is where that audit is recorded |
+| A unit that failed under an instance the manager believed running reading as errored, with what it exited with | `packages/core/src/instance/instance.controller.test.ts` — drives `reconcileHost` against a scripted host whose unit answers `failed` and requires the exit code to reach `recordUnitFailure`, requires the drift entry to still be reported beside it, and requires a unit that answers `active` to produce no such write, so recording the failure in place of the drift, or on every instance, fails there. `packages/core/src/instance/reconcile.test.ts` requires an exit code only for `Result=exit-code`, `null` for a signal, `null` for `ExecMainStatus=0` and `null` for an answer it cannot parse, requires an instance desired `stopped` to drift without a failure being recorded, and requires no exit read to be issued at all for a unit that is up. `packages/core/src/instance/unit.test.ts` pins the command and refuses eleven shapes of answer rather than guessing; `packages/core/src/instance/instance.repository.test.ts` requires the write to skip a row that is not `running` and a row under a config claim, so a reading taken before an operator's start cannot undo it, and `apps/web/src/lib/instance-status.test.ts` requires every status in the contract to carry a label and a description. What it does NOT hold: that a real systemd answers in these shapes — every case is driven through a fake transport — nor that `failed` is the only observed state worth recording |
+| The client probe running under the same log driver as a bot unit, and choosing no events backend of its own | `packages/core/src/host/provision.test.ts` — reads `--log-driver=` off `clientCheckCommand` and off the rendered `open-mcc@.service` and requires the same value, so dropping the flag from either side fails; a second test requires neither to name `--events-backend`, so silencing Podman's event log in the probe alone fails. `scripts/sandbox/provision.sandbox.ts` drives the shipped command on real Podman on all three targets with `/run/systemd/journal/socket` at `0600` and requires the banner and exit 0, which is the Debian 12 row of the table above and fails there without the flag. What it does NOT hold: the same difference on the other two targets, whose Podman survives the refusal either way, so the sandbox catches a dropped flag on one target only; nor any other flag the units carry and the probe does not — `--init` and `--security-opt=no-new-privileges` are named in the notes above and left uncopied on purpose |
+| A probe failure quoting only a line the client could have written | `packages/core/src/host/provision.test.ts` — Podman's logrus line in front of the client's message must be skipped and the client's message reported whole; the same output ending in Podman's `Error:` verdict with no client line must be reported as Podman's refusal and not as the client's; two client lines must report the first, so reading the end of the output instead fails. What it does NOT hold: that a surviving line really came from the client — only that it is not one Podman writes |
+| A download that ran out of time told apart from one that failed some other way, and the budget that makes the difference worth having | `packages/core/src/host/provision-failure.test.ts` — requires the download step's timed-out sentence to differ from its ordinary one, and requires **no other step** to produce the timed-out sentence even when the flag is set, so widening the condition fails. `packages/core/src/host/provision.test.ts` — drives `provisionHost` against a download exiting 28 and one exiting 22 and requires `downloadRanOutOfTime` true and false respectively, so keying it on any non-zero exit fails; a second test requires the rendered deadline to be over 95% of the wait the step is given, so shrinking the deadline back while leaving the wait alone fails. What it does NOT hold: that 450s is enough for any particular host — the floor it implies, 190 KB/s, is arithmetic recorded above and is not asserted anywhere, because the artefact's size is not a constant this repository keeps |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -837,8 +1086,8 @@ Dependency direction is one-way: router → controller → repository.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
   the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
-  fifteen 15s commands, the 180s client download, the 180s image pull and the
-  30s client check, 625s against a 900s lease today. The lease, the connect
+  fifteen 15s commands, the 460s client download, the 180s image pull and the
+  30s client check, 905s against a 1200s lease today. The lease, the connect
   timeout and the three provisioning timeouts live in three files and nothing
   but that arithmetic ties them together, so one more command, or a longer
   timeout, would silently push the worst case
@@ -848,7 +1097,7 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
-- The client download retries, and its three bounds are coupled to the 180s
+- The client download retries, and its three bounds are coupled to the 460s
   that step is given. `clientDownloadCommand` (`provision.ts`) renders a loop
   around `curl` bounded by `DOWNLOAD_ATTEMPTS`, by `DOWNLOAD_DEADLINE_SECONDS`
   recomputed each pass into `--max-time`, and by a backoff that starts at
@@ -857,11 +1106,43 @@ Dependency direction is one-way: router → controller → repository.
   the last backoff is slept **after** the last one and is not inside it — and
   that must stay under `PROVISION_DOWNLOAD_TIMEOUT_MS`, or the exec is killed
   mid-retry and the operator is told the command did not finish rather than
-  what the origin said. 170 + 2 = 172s against 180s today. Four numbers in one
+  what the origin said. 450 + 2 = 452s against 460s today. Four numbers in one
   file and a fifth above them, tied by nothing but that arithmetic, so
   `provision.test.ts` reads all four back off the command `provisionHost`
   issues and checks the relationship rather than the values: five attempts
   still fits and passes, six does not and fails.
+- **That retry does not cover a transfer that is merely slow, and the budget is
+  what does.** The deadline is shared across attempts, so a `curl` that spends
+  all of it and exits 28 leaves `left` at zero, and the next pass exits at
+  `[ "$left" -gt 0 ] || exit 28` without a second request. Measured on the
+  rendered command with the deadline cut to 3s: a transfer still running prints
+  **one** `curl: (28)` line and takes 4.0s, while a refused connect prints
+  **two** `curl: (7)` lines and takes 3.1s. So the loop retries what fails
+  *quickly* — a 500, a reset, a body cut short, a refused connect — and a slow
+  link gets exactly one attempt. Two real hosts hit it: 47 433 518 and 75 405 873
+  of 85 549 587 bytes, `curl: (28)` both times.
+  `DOWNLOAD_DEADLINE_SECONDS` is therefore **450**, which is the number that
+  sets the floor: 85 549 587 bytes in 450s is **190 KB/s**, about 1.5 Mbit/s,
+  against the 503 KB/s the old 170s demanded. That is the whole fix, and it is
+  why `PROVISIONING_LEASE_MS` went to 20 minutes with it — the bullet above is
+  the arithmetic that forced the second number, not an afterthought.
+  **Do not reach for `curl -C -` to "make it resumable".** Within a fixed
+  deadline resumption buys no transfer time at all; it only stops a retry
+  re-fetching bytes it already had, and at the floor this budget is designed
+  for there is no room for a second attempt either way. It also costs three new
+  failure modes, measured: `-C -` against an origin that ignores `Range`
+  exits **33** on any file that already has bytes (verified against a server
+  without Range support), a complete file draws a **416** under `-f`, and
+  neither is in the transient list. If the budget ever has to grow enough for a
+  second full attempt to fit, revisit it then, with those three handled.
+- **A download that ran out of time says so.** `provisionHost` reads the
+  download step's own exit status rather than routing it through `step()`, and
+  `curl`'s 28 becomes `HostProvisioningFailedError.downloadRanOutOfTime`, which
+  `provisioningFailureFor` turns into "The client download ran out of time"
+  instead of the generic "The client could not be downloaded." That is the only
+  thing the exit status establishes — it does **not** say the link is slow, only
+  that the transfer did not finish in the time allowed — and no other step's
+  failure may borrow the sentence.
 - **What that retry treats as transient is a decision, not a default.** A 500,
   a 502, a 503, a 408 and a 429, and curl's 6, 7, 18, 28, 35, 52, 55 and 56 —
   DNS, connect, partial file, timeout, SSL connect, empty reply, send and recv

@@ -196,11 +196,19 @@ export const memoryManager = async (
 			const next = {
 				...current,
 				...(patch.status !== undefined && { status: patch.status }),
+				...(patch.lastExitCode !== undefined && { lastExitCode: patch.lastExitCode }),
 				configClaimId: null,
 				configClaimedAt: null,
 			}
 			rows.set(id, next)
 			return next
+		},
+		recordUnitFailure: async (_scope, id, lastExitCode) => {
+			const current = rows.get(id)
+			if (current === undefined || current.status !== "running") return false
+			if (current.configClaimId !== null) return false
+			rows.set(id, { ...current, status: "error", lastExitCode })
+			return true
 		},
 		releaseConfigClaim: async (_scope, id, claimId) => {
 			const current = rowUnderClaim(id, claimId)

@@ -79,14 +79,23 @@ export const parsePodmanInfo = (output: string) => {
 	return { rootless: rootless === "true", driver }
 }
 
+export const STORAGE_STEP_WORDS = ["refused", "used", "root"] as const
+
+export type StorageStepWord = (typeof STORAGE_STEP_WORDS)[number]
+
+export const storageStepWord = (output: string): StorageStepWord | null =>
+	STORAGE_STEP_WORDS.find((word) => word === output.trim()) ?? null
+
 export const storageStepCommand = (): string =>
 	[
 		`overrides=$(${storageOverridesCommand(SYSTEM_STORAGE_CONF)})`,
 		`if [ -n "$overrides" ]; then printf 'refused\\n'; exit 1; fi`,
 		`state=$(${STORAGE_STATE_COMMAND})`,
-		`if [ "$state" = storage=fresh ]; then dir="$HOME"/.config/containers; mkdir -p "$dir" || exit 1; tmp=$(mktemp "$dir"/.storage.conf.XXXXXX) || exit 1; if ! printf '${STORAGE_CONF_FORMAT}' > "$tmp" || ! mv -f "$tmp" "$dir"/storage.conf; then rm -f "$tmp"; exit 1; fi; fi`,
-		`if ! info=$(${PODMAN_INFO_COMMAND}); then [ "$state" != storage=used ] || printf 'used\\n'; exit 1; fi`,
-		`case "$info" in "true overlay") printf 'ready\\n' ;; "true "*) printf 'used\\n'; exit 1 ;; *) printf 'root\\n'; exit 1 ;; esac`,
+		"ours=0; kept=0",
+		`undo() { [ "$ours" = 1 ] || return 0; rm -f ${CONF_PATH}; if [ "$kept" = 1 ]; then rm -rf ${GRAPH_ROOT}/..?* ${GRAPH_ROOT}/.[!.]* ${GRAPH_ROOT}/*; else rm -rf ${GRAPH_ROOT}; fi; }`,
+		`if [ "$state" = storage=fresh ]; then dir="$HOME"/.config/containers; [ ! -d ${GRAPH_ROOT} ] || kept=1; mkdir -p "$dir" || exit 1; tmp=$(mktemp "$dir"/.storage.conf.XXXXXX) || exit 1; if ! printf '${STORAGE_CONF_FORMAT}' > "$tmp" || ! mv -f "$tmp" ${CONF_PATH}; then rm -f "$tmp"; exit 1; fi; ours=1; fi`,
+		`if ! info=$(${PODMAN_INFO_COMMAND}); then undo; [ "$state" != storage=used ] || printf 'used\\n'; exit 1; fi`,
+		`case "$info" in "true overlay") printf 'ready\\n' ;; "true "*) undo; printf 'used\\n'; exit 1 ;; *) undo; printf 'root\\n'; exit 1 ;; esac`,
 	].join("\n")
 
 const fact = (key: string, command: string): string =>
@@ -94,6 +103,8 @@ const fact = (key: string, command: string): string =>
 
 const subordinateLines = (key: string, file: string): string =>
 	`awk -F: -v u="$(id -un 2>/dev/null)" -v i="$(id -u 2>/dev/null)" 'NF == 3 && $1 != "" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { if ($1 == u || $1 == i) own = 1; e = $2 + $3; if (e > top) top = e } END { printf "${key}=%s\\n${key}-end=%.0f\\n", (own ? "own" : "other"), top }' ${file} 2>/dev/null`
+
+export const OVERLAY_HELPER = "fuse-overlayfs"
 
 export const HOST_FACTS_COMMAND = [
 	fact("uid", "id -u"),
@@ -109,6 +120,7 @@ export const HOST_FACTS_COMMAND = [
 	...NETWORK_STACKS.map(
 		(stack) => `! command -v ${stack} >/dev/null 2>&1 || printf 'helper=${stack}\\n'`,
 	),
+	`! command -v ${OVERLAY_HELPER} >/dev/null 2>&1 || printf 'overlay-helper=${OVERLAY_HELPER}\\n'`,
 	`if command -v curl >/dev/null 2>&1; then ${fact("metadata", "curl -s --max-time 1 -o /dev/null -w '%{http_code}' http://169.254.169.254/")}; else printf 'metadata=none\\n'; fi`,
 	"exit 0",
 ].join("\n")
@@ -159,6 +171,7 @@ export const parseHostFacts = (output: string) => {
 		helpers: NETWORK_STACKS.filter((stack) =>
 			all("helper").some((value) => value.trim() === stack),
 		),
+		overlayHelper: all("overlay-helper").some((value) => value.trim() === OVERLAY_HELPER),
 		metadata:
 			metadata === "none"
 				? METADATA_REACH[2]

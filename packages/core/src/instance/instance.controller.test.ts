@@ -116,6 +116,7 @@ import {
 	instanceLayoutSteps,
 	renderEnvironmentFile,
 	startUnitCommand,
+	unitExitCommand,
 	unitName,
 } from "./unit"
 
@@ -200,6 +201,7 @@ const SAVED_DOCUMENT = {
 	accountType: "microsoft",
 	minecraftAccount: "a@b.com",
 	serverAddress: "play.example.net",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -324,6 +326,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		claimForConfig: vi.fn(async () => instanceRow()),
 		claimForLifecycle: vi.fn(async () => instanceRow()),
 		finalizeConfigClaim: vi.fn(async () => instanceRow()),
+		recordUnitFailure: vi.fn(async () => true),
 		releaseConfigClaim: vi.fn(async () => true),
 		writeTokenUnderClaim: vi.fn(async () => true),
 		deleteUnderClaim: vi.fn(async () => true),
@@ -412,6 +415,7 @@ describe("a bot's files and its start", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const port = vi.mocked(deps.instances.insert).mock.calls[0]?.[1].liveControlPort ?? 0
@@ -426,6 +430,37 @@ describe("a bot's files and its start", () => {
 				configDocument: written,
 			}).map((step) => step.command),
 		)
+	})
+
+	it("★ starts a bot whose settings predate the version pin, rendering auto rather than refusing them", async () => {
+		const { minecraftVersion: _pinned, ...older } = SAVED_DOCUMENT
+		const { deps, transport } = makeDeps()
+		deps.instances.latestConfig = async () => configRow({ document: { ...older } })
+		const controller = createInstanceController(deps)
+
+		await controller.start(owner, "abc123")
+
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "auto"')
+	})
+
+	it("★ writes the version the operator pinned at create into the document the host receives", async () => {
+		const { deps, transport, instances } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.skyblock.net",
+			minecraftVersion: "1.8.9",
+		})
+
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "1.8.9"')
+		const saved = vi.mocked(instances.insertConfigVersion).mock.calls[0]
+		expect(JSON.parse(String(saved?.[2] ?? "{}")).minecraftVersion).toBe("1.8.9")
 	})
 
 	it("writes into what create made on start and restart, and never makes a directory", async () => {
@@ -498,8 +533,19 @@ describe("a bot's files and its start", () => {
 			expect.anything(),
 			"abc123",
 			expect.any(String),
-			{ status: "running" },
+			{ status: "running", lastExitCode: null },
 		)
+	})
+
+	it("★ clears the exit code a past failure left, so a running bot is not described by it", async () => {
+		const { deps, instances } = makeDeps()
+
+		await createInstanceController(deps).start(owner, "abc123")
+
+		expect(vi.mocked(instances.finalizeConfigClaim).mock.calls[0]?.[3]).toEqual({
+			status: "running",
+			lastExitCode: null,
+		})
 	})
 
 	const STOP_COMMAND = `${SYSTEMCTL} stop 'open-mcc@abc123'`
@@ -732,6 +778,7 @@ describe("instance controller authorization", () => {
 				accountType: "microsoft",
 				minecraftAccount: "a@b.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow(ForbiddenError)
 	})
@@ -836,6 +883,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(created.createdAt).toBe("2026-09-01T00:00:00.000Z")
@@ -850,6 +898,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const joined = transport.commands.join("\n")
@@ -869,6 +918,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(deps.instances.insert).toHaveBeenCalledWith(
@@ -890,6 +940,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const written = transport.stdins.find((each) => each.includes("[ChatBot.McpServer]"))
@@ -907,6 +958,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const joined = transport.commands.join("\n")
@@ -1246,6 +1298,65 @@ describe("reconciliation", () => {
 		expect(result.reachable).toBe(false)
 		if (result.reachable) throw new Error("unreachable expected")
 		expect(result.reason).toBe("unprovisioned")
+	})
+
+	const afterFailedUnit = async (exit: string) => {
+		const made = makeDeps()
+		vi.mocked(made.instances.list).mockResolvedValue([instanceRow({ status: "running" })])
+		const original = made.transport.execUntil
+		made.transport.execUntil = async (command: string, signal: AbortSignal) => {
+			if (command.includes("is-active")) return { stdout: "failed", stderr: "", exitCode: 3 }
+			if (command === unitExitCommand("abc123")) return { stdout: exit, stderr: "", exitCode: 0 }
+			return await original(command, signal)
+		}
+
+		const result = await createInstanceController(made.deps).reconcileHost(owner, "host-1")
+		return { ...made, result }
+	}
+
+	it("★ writes the failure onto the instance, so its badge stops saying it is running", async () => {
+		const { instances } = await afterFailedUnit("ExecMainStatus=3\nResult=exit-code\n")
+
+		expect(instances.recordUnitFailure).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			3,
+		)
+	})
+
+	it("★ still reports the drift it saw, so the host page does not go quiet about it", async () => {
+		const { result } = await afterFailedUnit("ExecMainStatus=3\nResult=exit-code\n")
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.stateDrift).toEqual([
+			{ instanceId: "abc123", desired: "running", observed: "failed" },
+		])
+	})
+
+	it("★ records the failure even when the host would not say what it exited with", async () => {
+		const { instances } = await afterFailedUnit(
+			"Unit open-mcc@abc123.service could not be found.\n",
+		)
+
+		expect(instances.recordUnitFailure).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			null,
+		)
+	})
+
+	it("writes nothing onto an instance whose unit is up", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.list).mockResolvedValue([instanceRow({ status: "running" })])
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
+			command.includes("is-active")
+				? { stdout: "active", stderr: "", exitCode: 0 }
+				: await original(command, signal)
+
+		await createInstanceController(deps).reconcileHost(owner, "host-1")
+
+		expect(instances.recordUnitFailure).not.toHaveBeenCalled()
 	})
 })
 
@@ -1877,6 +1988,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogEnabled: true,
 					autoRelogDelaySeconds: 10,
@@ -1901,6 +2013,7 @@ describe("running several instances on one host", () => {
 				accountType: "microsoft",
 				minecraftAccount: "a@b.com",
 				serverAddress: "play.example.net",
+				minecraftVersion: "auto",
 				autoRelogRetries: 3,
 				autoRelogEnabled: true,
 				autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -1932,6 +2045,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -1962,6 +2076,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -1997,6 +2112,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2037,6 +2153,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2107,6 +2224,7 @@ describe("running several instances on one host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(documents).toHaveLength(1)
@@ -2127,6 +2245,7 @@ describe("running several instances on one host", () => {
 				accountType: "microsoft",
 				minecraftAccount: "afk@example.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow(/port/i)
 		expect(busy.state()).not.toBe("ready")
@@ -2156,6 +2275,7 @@ describe("running several instances on one host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(claimed).toEqual([33334, 33335])
@@ -2175,6 +2295,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2205,6 +2326,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2245,6 +2367,7 @@ describe("the four readouts a controller hands back", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2314,6 +2437,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		accountType: "microsoft",
 		minecraftAccount: "a@b.com",
 		serverAddress: "play.example.net",
+		minecraftVersion: "auto",
 		autoRelogRetries: 3,
 		autoRelogEnabled: true,
 		autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -2441,6 +2565,18 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const document = writtenDocument(instances)
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "false" })
 		expect(document.serverAddress).toBe("moved.example.net")
+	})
+
+	it("★ carries a version change onto the host, so a running bot can be reconciled onto it", async () => {
+		const { deps, instances, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", { ...settings, minecraftVersion: "1.8.9" }, 1)
+
+		expect(writtenDocument(instances).minecraftVersion).toBe("1.8.9")
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "1.8.9"')
 	})
 
 	it("★ keeps the saved advanced keys when the operator saves the settings beside them", async () => {
@@ -2580,6 +2716,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 				accountType: "offline",
 				minecraftAccount: "OpenMccBot",
 				serverAddress: "play.example.com/../../etc",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow()
 		expect(instances.insert).not.toHaveBeenCalled()
@@ -2861,6 +2998,7 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 				accountType: "microsoft",
 				minecraftAccount: "afk@example.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toBeInstanceOf(InstanceHostNotProvisionedError)
 		expect(transport.commands).toEqual([])
@@ -2927,6 +3065,7 @@ describe("a bot on a host with no recorded runtime", () => {
 					accountType: "microsoft",
 					minecraftAccount: "afk@example.com",
 					serverAddress: "play.example.com",
+					minecraftVersion: "auto",
 				})
 			},
 		],
@@ -3205,6 +3344,7 @@ describe("saving settings under a claim", () => {
 		accountType: "offline",
 		minecraftAccount: "afk",
 		serverAddress: "play.example.com",
+		minecraftVersion: "auto",
 	} as const
 
 	const BOTS = { botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: {} }
@@ -3313,6 +3453,10 @@ describe("saving settings under a claim", () => {
 		finalizeConfigClaim: (...args) => {
 			note()
 			return inner.finalizeConfigClaim(...args)
+		},
+		recordUnitFailure: (...args) => {
+			note()
+			return inner.recordUnitFailure(...args)
 		},
 		releaseConfigClaim: (...args) => {
 			note()
@@ -3677,6 +3821,7 @@ describe("creating a bot under its claim", () => {
 		accountType: "offline",
 		minecraftAccount: "afk",
 		serverAddress: "play.example.com",
+		minecraftVersion: "auto",
 	} as const
 
 	const LAYOUT = instanceLayoutSteps({

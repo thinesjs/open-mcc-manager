@@ -77,14 +77,18 @@ export const LINGER_STEP_LABEL = "Checking that instances survive a logout"
 
 export const CLIENT_RUNS_STEP_LABEL = "Checking the client runs"
 
+export const STORAGE_STEP_LABEL = "Setting up container storage"
+
+export const DOWNLOAD_STEP_LABEL = "Downloading the client"
+
 export const PROVISION_STEP_LABELS = [
 	"Checking systemd",
 	LINGER_STEP_LABEL,
 	"Checking Podman",
-	"Setting up container storage",
+	STORAGE_STEP_LABEL,
 	"Creating the instances directory",
 	"Reading the host architecture",
-	"Downloading the client",
+	DOWNLOAD_STEP_LABEL,
 	"Verifying the download",
 	"Installing the client",
 	"Downloading the runtime image",

@@ -13,6 +13,7 @@ const BASE = defaultInstanceConfig({
 	accountType: "offline",
 	minecraftAccount: "OpenMccBot",
 	serverAddress: "100.101.102.103",
+	minecraftVersion: "auto",
 })
 
 const CANDIDATES = [

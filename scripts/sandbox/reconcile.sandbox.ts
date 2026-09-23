@@ -226,6 +226,7 @@ const managerFor = async (
 			claimForConfig: refuse,
 			claimForLifecycle: refuse,
 			finalizeConfigClaim: refuse,
+			recordUnitFailure: refuse,
 			releaseConfigClaim: refuse,
 			writeTokenUnderClaim: refuse,
 			deleteUnderClaim: refuse,

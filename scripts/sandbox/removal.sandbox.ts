@@ -99,6 +99,7 @@ describe.each(PODMAN_TARGETS)("removing bots from a rootless Podman host on $nam
 			accountType: "offline",
 			minecraftAccount: "SandboxBot",
 			serverAddress: "127.0.0.1",
+			minecraftVersion: "auto",
 		})
 		await manager.controller.start(owner, created.id)
 		return { id: created.id, port: manager.rows.get(created.id)?.liveControlPort ?? 0 }

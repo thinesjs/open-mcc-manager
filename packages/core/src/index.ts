@@ -147,6 +147,7 @@ export {
 	InstanceRemovalFailedError,
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
+	InstanceSignInOtherAccountError,
 	InstanceSignInRunningError,
 	InstanceStartFailedError,
 	InstanceStillInUseError,

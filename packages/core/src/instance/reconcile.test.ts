@@ -26,6 +26,7 @@ import {
 	unitRuntimeFor,
 	WITHHELD_VALUE,
 } from "./reconcile"
+import { unitExitCommand } from "./unit"
 
 const UNIT_RUNTIME = {
 	networkStack: "slirp4netns",
@@ -281,6 +282,99 @@ describe("reconciling a host", () => {
 		expect(result.stateDrift).toEqual([
 			{ instanceId: "abc123", desired: "running", observed: "inactive" },
 		])
+	})
+})
+
+describe("a unit that failed under an instance the manager believes is running", () => {
+	const IS_ACTIVE =
+		"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active 'open-mcc@abc123.service' || true"
+
+	const EXIT = unitExitCommand("abc123")
+
+	const observing = async (
+		row: InstanceRow,
+		exit: { stdout: string; stderr: string; exitCode: number },
+	) => {
+		const expected = expectedUnits([row], [], renderScheduleUnits, UNIT_RUNTIME)
+		const transport = await connected({
+			...hostReplies(expected),
+			[IS_ACTIVE]: { stdout: "failed", stderr: "", exitCode: 3 },
+			[EXIT]: exit,
+		})
+		return await reconcileHostOverTransport(transport, "host-1", UNIT_RUNTIME, [row], expected)
+	}
+
+	it("carries the exit code systemd recorded for it", async () => {
+		const { failures } = await observing(instance(), {
+			stdout: "ExecMainStatus=3\nResult=exit-code\n",
+			stderr: "",
+			exitCode: 0,
+		})
+
+		expect([...failures]).toEqual([["abc123", 3]])
+	})
+
+	it("carries no exit code when the unit did not end at its own exit status", async () => {
+		const { failures } = await observing(instance(), {
+			stdout: "ExecMainStatus=9\nResult=signal\n",
+			stderr: "",
+			exitCode: 0,
+		})
+
+		expect([...failures]).toEqual([["abc123", null]])
+	})
+
+	it("carries no exit code when the process never ran, so 0 is not read as a clean exit", async () => {
+		const { failures } = await observing(instance(), {
+			stdout: "ExecMainStatus=0\nResult=exit-code\n",
+			stderr: "",
+			exitCode: 0,
+		})
+
+		expect([...failures]).toEqual([["abc123", null]])
+	})
+
+	it("carries no exit code when the host's answer could not be read", async () => {
+		const { failures } = await observing(instance(), {
+			stdout: "Unit open-mcc@abc123.service could not be found.\n",
+			stderr: "",
+			exitCode: 0,
+		})
+
+		expect([...failures]).toEqual([["abc123", null]])
+	})
+
+	it("says nothing about an instance the operator asked to stop, which still drifts", async () => {
+		const { failures, reconciliation } = await observing(instance({ status: "stopped" }), {
+			stdout: "ExecMainStatus=3\nResult=exit-code\n",
+			stderr: "",
+			exitCode: 0,
+		})
+		if (!reconciliation.reachable) throw new Error("expected a reachable host")
+
+		expect([...failures]).toEqual([])
+		expect(reconciliation.stateDrift).toEqual([
+			{ instanceId: "abc123", desired: "stopped", observed: "failed" },
+		])
+	})
+
+	it("asks nothing of the host about a unit that is up", async () => {
+		const expected = expectedUnits([instance()], [], renderScheduleUnits, UNIT_RUNTIME)
+		const { transport, reader } = await opened({
+			...hostReplies(expected),
+			[IS_ACTIVE]: { stdout: "active", stderr: "", exitCode: 0 },
+		})
+
+		const { failures } = await reconcileHostOverTransport(
+			reader,
+			"host-1",
+			UNIT_RUNTIME,
+			[instance()],
+			expected,
+		)
+
+		expect([...failures]).toEqual([])
+		expect(transport.commands).not.toContain(EXIT)
 	})
 })
 
@@ -558,6 +652,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -615,6 +710,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 5, max: 20 },
@@ -698,6 +794,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 5, max: 20 },
@@ -755,6 +852,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 5, max: 20 },
@@ -808,6 +906,7 @@ describe("comparing a host's client config", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com:25566",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 5, max: 20 },
@@ -869,6 +968,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -931,6 +1031,7 @@ describe("comparing a host's client config", () => {
 			accountType: "offline",
 			minecraftAccount: "Steve",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 			autoRelogRetries: 3,
 			autoRelogEnabled: true,
 			autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -1233,6 +1334,7 @@ describe("a live control endpoint that is on but silent", () => {
 		accountType: "offline",
 		minecraftAccount: "Steve",
 		serverAddress: "play.example.net",
+		minecraftVersion: "auto",
 		autoRelogRetries: 3,
 		autoRelogEnabled: true,
 		autoRelogDelaySeconds: { min: 10, max: 10 },

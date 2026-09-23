@@ -2121,6 +2121,7 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 		accountType: "offline" as const,
 		minecraftAccount: "LockBot",
 		serverAddress: "play.example.com",
+		minecraftVersion: "auto" as const,
 	})
 
 	const hostControllerOn = (

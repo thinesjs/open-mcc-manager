@@ -230,6 +230,7 @@ export class InstanceAuthInProgressError extends Error {}
 export class InstanceSignInRunningError extends Error {}
 export class InstanceSignInDidNotStartError extends Error {}
 export class InstanceSignInNoDeviceCodeError extends Error {}
+export class InstanceSignInOtherAccountError extends Error {}
 export class InstanceAccountNotInteractiveError extends Error {}
 export class InstanceConcurrentlyModifiedError extends Error {}
 export class InstanceBusyError extends Error {}
@@ -813,6 +814,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const scope = scopeOf(ctx)
 			const finalized = await repos.instances.finalizeConfigClaim(scope, instanceId, claimId, {
 				status,
+				...(status === "running" && { lastExitCode: null }),
 			})
 			if (!finalized) {
 				throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
@@ -1032,6 +1034,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					accountType: input.accountType,
 					minecraftAccount: input.minecraftAccount,
 					serverAddress: input.serverAddress,
+					minecraftVersion: input.minecraftVersion,
 				})
 
 				const created = await insertWithFreePort(async () => {
@@ -1438,6 +1441,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						.update(scope, id, { minecraftUsername: player })
 						.catch(() => undefined)
 				}
+			}
+			for (const [id, lastExitCode] of observed.failures) {
+				await deps.instances.recordUnitFailure(scope, id, lastExitCode).catch(() => undefined)
 			}
 			const reconciliation = observed.reconciliation
 			if (!reconciliation.reachable || unusable.length === 0) return reconciliation

@@ -241,6 +241,96 @@ filtering such an entry, because filtering here would hide either fixed-config
 drift or an upstream change to what the client promises. Do not relax the pin to
 make a player-name test pass, and do not add filtering in its place.
 
+### Rootless overlay needs a package apt was told not to install
+
+Provisioning writes `[storage] driver = "overlay"` and then asks `podman info`
+for the driver it actually got. On a real Ubuntu 24.04 node, kernel
+`6.8.0-134-generic`, that came back `kernel does not support overlay fs … driver
+not supported` on a genuinely fresh account, with user namespaces open
+(`user.max_user_namespaces` 19287, `unprivileged_userns_clone` 1) and no
+`/etc/containers/storage.conf` at all. Podman's own fallback for a kernel that
+will not mount overlay is `fuse-overlayfs`, and the host did not have it.
+
+It did not have it because nothing this project ran asked for it. Both install
+lists — `PODMAN_INSTALL_COMMAND` in `check.ts` and the `apt-get` line the setup
+script pastes — carry `--no-install-recommends`, and `fuse-overlayfs` is exactly
+a *Recommends* of Debian 12's podman 4.3.1, alongside `dbus-user-session`,
+`slirp4netns`, `catatonit | tini | dumb-init` and `uidmap`, which those lists do
+name. Ubuntu 24.04's podman 4.9.3 and Debian 13's podman 5.4.2 do not recommend
+it at all, so no apt setting would have brought it in. Read off the three base
+images themselves: the package is called `fuse-overlayfs` on all three and is in
+each archive (1.10-1, 1.13-1, 1.14-1+b1), so one name serves them. Nothing else
+in either list has the same gap, and the one remaining split — a podman 5 host
+needing `passt` where the list names `slirp4netns` — is already told apart by
+`networkHelperResult`, which has its own command.
+
+Installing it changes nothing where the kernel is willing: containers/storage
+prefers a native overlay mount and looks for the binary only when that fails,
+and `Store.GraphDriverName` reads `overlay` either way. That is why the sandbox's
+three targets are unaffected by adding it to `docker/sandbox/Dockerfile`.
+
+**The check says so before provisioning does.** On a fresh account the check
+deliberately never starts Podman — that is what keeps the account fresh — so it
+cannot read the driver and cannot know whether this kernel will mount one. What
+it can read is whether the fallback is installed, the way `networkHelperResult`
+reads its network stack, and a fresh account without it is a **warn** carrying
+the install command, not a fail: a host whose kernel does mount overlay needs
+nothing, and refusing it would be a second confident guess in place of the one
+being removed.
+
+### A step that fails puts back only what it put there
+
+`storageStepCommand` writes `~/.config/containers/storage.conf` on a fresh
+account and then runs `podman info`, which **creates the graph root**. Both
+survived a failure, so one failed run left an account that was no longer fresh:
+on the node above, every file under `.local/share/containers` and
+`.config/containers` carried the failed run's timestamp. The next attempt reads
+that account as `set-up` or `used` and never writes again, and a store already
+initialised on another driver keeps that driver, so a single failure could block
+every retry until someone deleted files by hand.
+
+The step now records what it created — `ours` for the `storage.conf`, `kept` for
+a graph root that was already a directory — and `undo` runs on every failing
+exit after the write. It removes the `storage.conf` unconditionally when `ours`,
+because a fresh account has none by definition of `fresh`, so whatever is there
+is this run's. For the graph root it deletes the directory only when the run
+created it, and otherwise empties it in place, because `fresh` also admits an
+existing empty directory whose mode is not this step's to change. An account
+that had already run Podman, or whose `storage.conf` this run did not write,
+leaves `ours` at 0, and `undo` returns on its first line without touching
+anything. The compensation is the same shape as
+`bootstrapOwner`'s: undo what this call made, on the failing path, and nothing
+else. What is deliberately left behind is the pair of empty directories
+`~/.config/containers` and `~/.local/share/containers`: neither is read by
+`STORAGE_STATE_COMMAND`, so neither can poison a retry, the second is a mount
+point in the sandbox and was not made by the step in any case, and removing
+either would mean deleting a directory the step cannot prove it made. Verified
+under Debian 12's dash with a stand-in `podman` that fills the graph root and
+then fails: a fresh account comes back with those two directories and nothing
+else, an empty graph root comes back empty and still `0700`, and an account that
+had already run Podman keeps its layer.
+
+### The storage step has four endings, and they are four sentences
+
+`provisioningFailureFor` was a `Record<ProvisionStepLabel, string>`, so every
+failure of **Setting up container storage** read "Use a fresh account that has
+never run Podman." The account above was fresh. A sentence that names a cause
+the code has not established is worse than a vague one, because the operator
+acts on it.
+
+The step already prints what it knows, and the failure is now keyed on that word
+rather than on the step alone: `refused` (something is moving Podman's storage,
+and the step cannot tell which of the four settings, so the sentence names all
+four), `used` (the account really had run Podman — the only sentence allowed to
+say so), `root` (Podman did not report itself rootless), and **no word at all**,
+which is the case above: Podman could not be asked or answered unreadably, and
+the sentence says only that, plus the `podman info` an operator can run on the
+host to see why. `HostProvisioningFailedError` carries the word so the
+controller keeps writing its own copy rather than the host's output, and
+`FAILURES` is typed over `Exclude<ProvisionStepLabel, typeof
+STORAGE_STEP_LABEL>`, so the storage step cannot acquire a second, unreachable
+sentence there.
+
 ## Prohibitions
 
 - No Next.js, in any form, ever.
@@ -289,7 +379,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Fifty-nine rules stated further down this document are enforced too, and are
+Sixty-one rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -354,6 +444,8 @@ have:
 | Nothing above `dist` reachable, and a path that cannot be decoded refused | `apps/web-server/src/static-app.test.ts` — three climbs written with an encoded separator, each named with a marker from the file it would have leaked, must refuse and must not carry it; `%2e%2e` forms are not used for this, because the URL parser collapses them before the app sees anything and Hono decodes everything but `%2f` after that. Disabling the containment check leaks all three. Alongside it `/%00`, `/assets/index%00.js` and a half-invalid escape must refuse rather than fall through to the shell — the first two hold the null-byte guard, the third holds the app's own `decodeURIComponent` — and a file asked for under a percent-encoded name must still be found |
 | The security headers on the document the dashboard is served as | `apps/web-server/src/static-app.test.ts` — all eight compared whole as literals, on the shell, on an asset and on a refusal, so a header dropped or weakened fails three cases. It holds this image's list alone; nothing compares it against `apps/server/src/security/headers.ts`, and the two are stated to differ |
 | An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
+| A failed storage step leaving the account as it found it, and never a graph root it did not create | `packages/core/src/host/podman-facts.test.ts` — runs the real step under `/bin/sh` against a stand-in `podman` that fills the graph root before it answers, the way a real one does. A fresh account whose Podman fails must come back with no `storage.conf`, no graph root, and the same word on a second run; a graph root that was an empty directory must come back empty, still there, and still `0700`; an account that had already run Podman must keep its layer, and one whose `storage.conf` this run did not write must keep both. The ready case requires the graph root the step filled to **survive**, so an undo that always runs fails there rather than passing on the refusals, and dropping the `ours` guard passes the ready case and fails the two that kept their own files. It proves the shell, NOT what a real Podman leaves: the empty `~/.config/containers` the step creates is deliberately kept, and no test drives a real Podman here — `podman-host.sandbox.ts` does that, and it never fails the step |
+| Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

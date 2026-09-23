@@ -59,7 +59,7 @@ const fakePodman = (home: string, info: string, status = 0): string => {
 	mkdirSync(bin)
 	writeFileSync(
 		join(bin, "podman"),
-		`#!/bin/sh\necho "$*" >> "$HOME/podman-calls"\nprintf '%s\\n' '${info}'\nexit ${status}\n`,
+		`#!/bin/sh\necho "$*" >> "$HOME/podman-calls"\nmkdir -p "$HOME/${GRAPH}/overlay" "$HOME/${GRAPH}/db"\nprintf '%s\\n' '${info}'\nexit ${status}\n`,
 	)
 	chmodSync(join(bin, "podman"), 0o755)
 	return `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`
@@ -218,6 +218,7 @@ describe("the storage step", () => {
 		expect(outputOf(ran).trim()).toBe("ready")
 		expect(readFileSync(join(home, CONF), "utf8")).toBe(STORAGE_CONF)
 		expect(readdirSync(join(home, ".config/containers"))).toEqual(["storage.conf"])
+		expect(readdirSync(join(home, GRAPH)).sort()).toEqual(["db", "overlay"])
 		expect(podmanCalls(home)).toContain("info")
 		expect(storageStepCommand()).toContain("mv -f")
 	})
@@ -308,6 +309,70 @@ describe("the storage step", () => {
 		expect(existsSync(join(home, ".config"))).toBe(false)
 		expect(podmanCalls(home)).toBe("")
 	})
+
+	it("leaves a fresh account as it found it when Podman fails, so the next run is still its first", () => {
+		const home = scratchHome()
+		const path = fakePodman(home, "", 125)
+
+		const failed = runIn(home, storageStepCommand(), {}, path)
+		const again = runIn(home, storageStepCommand(), {}, path)
+
+		expect(failed.status).not.toBe(0)
+		expect(existsSync(join(home, CONF))).toBe(false)
+		expect(existsSync(join(home, GRAPH))).toBe(false)
+		expect(outputOf(again).trim()).toBe(outputOf(failed).trim())
+	})
+
+	it.each([
+		{ answer: "true vfs", word: "used" },
+		{ answer: "false overlay", word: "root" },
+	])("takes back the storage.conf it wrote when Podman answers $answer", ({ answer, word }) => {
+		const home = scratchHome()
+		const path = fakePodman(home, answer)
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(outputOf(ran).trim()).toBe(word)
+		expect(existsSync(join(home, CONF))).toBe(false)
+		expect(existsSync(join(home, GRAPH))).toBe(false)
+	})
+
+	it("keeps the graph root of an account that already ran Podman", () => {
+		const home = scratchHome()
+		const layer = writeFile(home, `${GRAPH}/vfs/layer`, "a layer this account already had")
+		const path = fakePodman(home, "true vfs")
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(outputOf(ran).trim()).toBe("used")
+		expect(readFileSync(layer, "utf8")).toBe("a layer this account already had")
+	})
+
+	it("keeps the storage.conf it did not write, on an account it had already set up", () => {
+		const home = scratchHome()
+		writeFile(home, CONF, STORAGE_CONF)
+		const layer = writeFile(home, `${GRAPH}/overlay/layer`, "a layer from an earlier run")
+		const path = fakePodman(home, "", 125)
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(ran.status).not.toBe(0)
+		expect(readFileSync(join(home, CONF), "utf8")).toBe(STORAGE_CONF)
+		expect(readFileSync(layer, "utf8")).toBe("a layer from an earlier run")
+	})
+
+	it("empties the graph root it filled without removing a folder that was already there", () => {
+		const home = scratchHome()
+		mkdirSync(join(home, GRAPH), { recursive: true })
+		chmodSync(join(home, GRAPH), 0o700)
+		const path = fakePodman(home, "", 125)
+
+		const ran = runIn(home, storageStepCommand(), {}, path)
+
+		expect(ran.status).not.toBe(0)
+		expect(readdirSync(join(home, GRAPH))).toEqual([])
+		expect(statSync(join(home, GRAPH)).mode & 0o777).toBe(0o700)
+	})
 })
 
 describe("commands that must parse in dash, the /bin/sh of Debian and Ubuntu", () => {
@@ -336,6 +401,7 @@ describe("parsing the host facts", () => {
 		"subgid-end=231072",
 		"cgroup=cgroup2fs",
 		"helper=slirp4netns",
+		"overlay-helper=fuse-overlayfs",
 		"metadata=000",
 	].join("\n")
 
@@ -351,8 +417,14 @@ describe("parsing the host facts", () => {
 			subgid: { own: true, end: 231072 },
 			cgroupV2: true,
 			helpers: ["slirp4netns"],
+			overlayHelper: true,
 			metadata: "unanswered",
 		})
+	})
+
+	it("reads an account with no fuse-overlayfs on it as having none", () => {
+		expect(parseHostFacts("overlay-helper=/usr/bin/fuse-overlayfs").overlayHelper).toBe(false)
+		expect(parseHostFacts("").overlayHelper).toBe(false)
 	})
 
 	it("reads cgroup2fs as cgroup v2 and anything else as not", () => {

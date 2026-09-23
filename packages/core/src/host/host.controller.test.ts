@@ -37,7 +37,7 @@ import type {
 	OrgScope,
 } from "./host.repository"
 import { PROVISIONING_LEASE_MS } from "./host.repository"
-import { HOST_FACTS_COMMAND } from "./podman-facts"
+import { HOST_FACTS_COMMAND, storageStepCommand } from "./podman-facts"
 import { HostProvisioningFailedError, provisionHost, SYSTEM_COMMAND } from "./provision"
 import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
 
@@ -1426,7 +1426,9 @@ describe("what provisioning tells the operator when it fails", () => {
 			update: vi.fn(async () => makeHostRow()),
 			delete: vi.fn(async () => true),
 			recordProvisioningProgress: vi.fn(async () => undefined),
-			recordProvisioningFailure: vi.fn(async () => undefined),
+			recordProvisioningFailure: vi.fn(
+				async (_scope: OrgScope, _id: string, _attemptId: string, _reason: string) => undefined,
+			),
 			lockHost: vi.fn(async () => undefined),
 			claimForProvisioning: vi.fn(async () =>
 				makeHostRow({
@@ -1547,6 +1549,27 @@ describe("what provisioning tells the operator when it fails", () => {
 			expect.stringMatching(/.+/),
 			undefined,
 		)
+	})
+
+	it("★ records a different reason for each way the storage step can fail", async () => {
+		const recorded: string[] = []
+
+		for (const printed of ["refused", "used", "root", ""]) {
+			const { controller, hosts } = provisioningHosts(
+				createFakeTransport({
+					...PROVISIONABLE,
+					[storageStepCommand()]: { stdout: printed, stderr: "", exitCode: 1 },
+				}),
+			)
+
+			await expect(controller.provision(ctx, "host-1")).rejects.toBeInstanceOf(
+				HostProvisioningFailedError,
+			)
+			recorded.push(hosts.recordProvisioningFailure.mock.calls[0]?.[3] ?? "")
+		}
+
+		expect(new Set(recorded).size).toBe(recorded.length)
+		expect(recorded.filter((each) => each.includes("never run Podman"))).toHaveLength(1)
 	})
 })
 

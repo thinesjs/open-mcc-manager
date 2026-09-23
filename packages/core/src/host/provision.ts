@@ -17,7 +17,9 @@ import {
 	PODMAN_FLOOR,
 	parseHostFacts,
 	requiredStackFor,
+	type StorageStepWord,
 	storageStepCommand,
+	storageStepWord,
 } from "./podman-facts"
 import { INSTANCES_ROOT, isUsableHome, systemctl, UNIT_DIR } from "./profile"
 import {
@@ -30,7 +32,14 @@ import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
-export class HostProvisioningFailedError extends Error {}
+export class HostProvisioningFailedError extends Error {
+	readonly storage: StorageStepWord | null
+
+	constructor(message: string, storage: StorageStepWord | null = null) {
+		super(message)
+		this.storage = storage
+	}
+}
 
 export const PROVISION_STEPS = PROVISION_STEP_LABELS
 
@@ -244,6 +253,7 @@ export const provisionHost = async (
 	if (storage.exitCode !== 0 || storage.stdout.trim() !== "ready") {
 		throw new HostProvisioningFailedError(
 			`Failed to set up container storage: ${storage.stdout.trim()} ${storage.stderr.trim()}`,
+			storageStepWord(storage.stdout),
 		)
 	}
 

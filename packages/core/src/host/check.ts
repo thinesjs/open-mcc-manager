@@ -18,6 +18,7 @@ import {
 	type HostPodmanFacts,
 	meetsPodmanFloor,
 	nextSubordinateRange,
+	OVERLAY_HELPER,
 	PODMAN_FLOOR,
 	PODMAN_INFO_COMMAND,
 	parseHostFacts,
@@ -40,7 +41,9 @@ export const STORAGE_SETTINGS_REFUSAL = "This account's Podman storage settings 
 
 const APT_INSTALL = "sudo apt-get install -y --no-install-recommends --no-remove"
 
-export const PODMAN_INSTALL_COMMAND = `${APT_INSTALL} podman uidmap slirp4netns catatonit dbus-user-session`
+export const PODMAN_INSTALL_COMMAND = `${APT_INSTALL} podman uidmap slirp4netns catatonit dbus-user-session ${OVERLAY_HELPER}`
+
+export const OVERLAY_HELPER_COMMAND = `${APT_INSTALL} ${OVERLAY_HELPER}`
 
 const PACKAGE_FOR_STACK: Record<NetworkStack, string> = {
 	slirp4netns: "slirp4netns",
@@ -186,7 +189,18 @@ const storageResult = (facts: HostPodmanFacts, info: PodmanInfo | null): HostChe
 			hint: "Unset XDG_CONFIG_HOME, XDG_DATA_HOME and CONTAINERS_STORAGE_CONF for this account, and remove rootless_storage_path from /etc/containers/storage.conf.",
 		})
 	}
-	if (facts.storage === "fresh") return warn("storage", "Set up during provisioning.")
+	if (facts.storage === "fresh") {
+		return facts.overlayHelper
+			? warn("storage", "Set up during provisioning.")
+			: warn(
+					"storage",
+					`Set up during provisioning. Some kernels need ${OVERLAY_HELPER} for that.`,
+					{
+						command: OVERLAY_HELPER_COMMAND,
+						hint: "Podman uses the kernel's own overlay where it can. Where it can't, this package is the only way, and provisioning stops without it.",
+					},
+				)
+	}
 	if (info === null) return skipped("storage", NOT_CHECKED)
 	const anotherDriver = info.driver !== null && info.driver !== "overlay"
 	const unreadableAfterUse = info.driver === null && facts.storage === "used"

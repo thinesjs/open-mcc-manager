@@ -190,7 +190,7 @@ elif command -v apt-get >/dev/null 2>&1; then
     echo "This distribution has no Podman package." >&2; rm -f "$log"; exit 1
   fi
   helper=slirp4netns; [ "$major" -ge 5 ] && helper=passt
-  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session >"$log" 2>&1; then
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session fuse-overlayfs >"$log" 2>&1; then
     echo "Could not install Podman:" >&2; tail -5 "$log" >&2; rm -f "$log"; exit 1
   fi
   rm -f "$log"

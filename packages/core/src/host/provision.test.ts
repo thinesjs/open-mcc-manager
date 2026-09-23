@@ -377,6 +377,18 @@ describe("setting up container storage", () => {
 		expect(transport.commands.some((command) => command.includes("install -d"))).toBe(false)
 	})
 
+	it.each([
+		{ printed: "refused", word: "refused" },
+		{ printed: "used", word: "used" },
+		{ printed: "root", word: "root" },
+		{ printed: "", word: null },
+		{ printed: "overlay is off", word: null },
+	])("carries the word the step printed for '$printed'", async ({ printed, word }) => {
+		const transport = await connected({ [storageStepCommand()]: answer(printed, 1) })
+
+		await expect(provisionHost(transport)).rejects.toMatchObject({ storage: word })
+	})
+
 	it("writes storage.conf on a fresh account through a temporary file and a rename", async () => {
 		const command = await storageCommandIssued()
 		const home = scratchHome()

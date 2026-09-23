@@ -182,7 +182,7 @@ describe("preparing a host to run bots in Podman", () => {
 		expect(script).toContain("apt-cache policy podman")
 		expect(script).toContain('helper=slirp4netns; [ "$major" -ge 5 ] && helper=passt')
 		expect(script).toContain(
-			'apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session',
+			'apt-get install -y -qq -o Dpkg::Use-Pty=0 --no-install-recommends --no-remove podman uidmap "$helper" catatonit dbus-user-session fuse-overlayfs',
 		)
 	})
 

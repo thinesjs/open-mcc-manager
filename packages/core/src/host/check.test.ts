@@ -6,6 +6,7 @@ import {
 	checkHostOverTransport,
 	FORWARD_PROBE_PORT,
 	LINGER_COMMAND,
+	OVERLAY_HELPER_COMMAND,
 	PODMAN_INSTALL_COMMAND,
 	ROOT_REFUSAL,
 	unreachableReport,
@@ -36,7 +37,11 @@ const OWN_RANGES = [
 	"subgid=own",
 	"subgid-end=231072",
 	"helper=slirp4netns",
+	"overlay-helper=fuse-overlayfs",
 ]
+
+const withoutOverlayHelper = (): readonly string[] =>
+	OWN_RANGES.filter((line) => !line.startsWith("overlay-helper="))
 
 const ok = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 })
 
@@ -298,6 +303,20 @@ describe("container storage", () => {
 		expect(transport.commands.some((each) => each.includes("podman info"))).toBe(false)
 	})
 
+	it("names the package a kernel that will not mount overlay needs, before provisioning tries", async () => {
+		const report = await check(hostWith(FRESH_FACTS, withoutOverlayHelper()))
+
+		expect(report.ready).toBe(true)
+		expect(resultOf(report, "storage")).toMatchObject({
+			outcome: "warn",
+			detail: "Set up during provisioning. Some kernels need fuse-overlayfs for that.",
+			command: OVERLAY_HELPER_COMMAND,
+		})
+		expect(OVERLAY_HELPER_COMMAND).toBe(
+			"sudo apt-get install -y --no-install-recommends --no-remove fuse-overlayfs",
+		)
+	})
+
 	it("passes an account whose storage.conf is already the manager's", async () => {
 		const report = await check(
 			hostWith({ ...FRESH_FACTS, storage: "set-up" }, OWN_RANGES, {
@@ -365,7 +384,7 @@ describe("Podman itself", () => {
 			command: PODMAN_INSTALL_COMMAND,
 		})
 		expect(PODMAN_INSTALL_COMMAND).toBe(
-			"sudo apt-get install -y --no-install-recommends --no-remove podman uidmap slirp4netns catatonit dbus-user-session",
+			"sudo apt-get install -y --no-install-recommends --no-remove podman uidmap slirp4netns catatonit dbus-user-session fuse-overlayfs",
 		)
 		expect(outcomeOf(report, "network-helper")).toBe("skipped")
 	})

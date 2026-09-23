@@ -305,6 +305,7 @@ describe.each(PODMAN_TARGETS)("collecting from a rootless Podman bot on $name", 
 					accountType: "offline",
 					minecraftAccount: "SandboxBot",
 					serverAddress: "127.0.0.1",
+					minecraftVersion: "auto",
 				}),
 			),
 		})) {

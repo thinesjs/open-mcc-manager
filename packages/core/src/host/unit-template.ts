@@ -13,6 +13,8 @@ export const AUTH_UNIT_NAME = "open-mcc-auth@.service"
 
 export const QUIT_WRITE_TIMEOUT_SECONDS = 5
 
+export const UNIT_LOG_DRIVER = "passthrough"
+
 export const SLEEP_UNIT_NAMES = [SLEEP_STOP_UNIT_NAME, SLEEP_START_UNIT_NAME] as const
 
 export const SUPPORTING_UNIT_NAMES = [
@@ -66,7 +68,7 @@ WorkingDirectory=${DIR}
 ${skipWhileActive("open-mcc-auth@%i.service")}
 ${CONFIG_PREFLIGHT}
 ExecStartPre=/usr/bin/flock -w 30 "${DIR}/${collectLock}" /bin/sh -c 'rm -rf -- "${DIR}/${recordingCache}" && mkdir -m 0700 "${DIR}/${recordingCache}"'
-ExecStart=/bin/sh -c 'exec 3<>"${DIR}/${control}"; exec /usr/bin/podman run --replace --rm -d -i --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges --env-file="${DIR}/${env}" -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v ${ROOT}/bin:/opt/mcc:ro -v "${DIR}/${config}":/config:ro -v "${DIR}/${state}":/data -v "${DIR}/${replays}":/data/replay_recordings -v "${DIR}/${recordingCache}":/data/recording_cache -w /data --network=${network} -p 127.0.0.1:${PORT}:${PORT} ${imageId} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO <&3'
+ExecStart=/bin/sh -c 'exec 3<>"${DIR}/${control}"; exec /usr/bin/podman run --replace --rm -d -i --pull=never --sdnotify=conmon --cgroups=split --log-driver=${UNIT_LOG_DRIVER} --init --name open-mcc-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges --env-file="${DIR}/${env}" -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v ${ROOT}/bin:/opt/mcc:ro -v "${DIR}/${config}":/config:ro -v "${DIR}/${state}":/data -v "${DIR}/${replays}":/data/replay_recordings -v "${DIR}/${recordingCache}":/data/recording_cache -w /data --network=${network} -p 127.0.0.1:${PORT}:${PORT} ${imageId} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO <&3'
 ExecStop=/bin/sh -c '[ -z "$$MAINPID" ] || { timeout ${QUIT_WRITE_TIMEOUT_SECONDS} sh -c "echo /quit > \\"${DIR}/${control}\\"" && while kill -0 $$MAINPID 2>/dev/null; do sleep 1; done; }'
 StandardOutput=journal
 StandardError=journal
@@ -92,7 +94,7 @@ WorkingDirectory=${DIR}
 ${skipWhileActive("open-mcc@%i.service")}
 ${CONFIG_PREFLIGHT}
 ExecStartPre=/usr/bin/flock -w 30 "${DIR}/${collectLock}" /bin/true
-ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=passthrough --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v ${ROOT}/bin:/opt/mcc:ro -v "${DIR}/${config}":/config:ro -v "${DIR}/${state}":/data -w /data --network=${network} ${imageId} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'
+ExecStart=/bin/sh -c 'exec /usr/bin/podman run --replace --rm -d --pull=never --sdnotify=conmon --cgroups=split --log-driver=${UNIT_LOG_DRIVER} --init --name open-mcc-auth-%i --user 0:0 --read-only --cap-drop=all --security-opt=no-new-privileges -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/data -v ${ROOT}/bin:/opt/mcc:ro -v "${DIR}/${config}":/config:ro -v "${DIR}/${state}":/data -w /data --network=${network} ${imageId} /opt/mcc/MinecraftClient /config/MinecraftClient.ini BasicIO-NoColor </dev/null >"${DIR}/auth.log" 2>&1'
 TimeoutStartSec=20
 TimeoutStopSec=10
 `

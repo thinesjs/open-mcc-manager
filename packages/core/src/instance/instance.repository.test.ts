@@ -389,6 +389,52 @@ describe("writes under a config claim match the claim id", () => {
 	})
 })
 
+describe("recording a unit that failed", () => {
+	const seedRunning = async (): Promise<string> => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.update({ organizationId: orgA }, row.id, { status: "running" })
+		return row.id
+	}
+
+	it("says the instance errored and keeps what it exited with", async () => {
+		const id = await seedRunning()
+		expect(await repo.recordUnitFailure({ organizationId: orgA }, id, 3)).toBe(true)
+		const stored = await storedInstance(id)
+		expect(stored.status).toBe("error")
+		expect(stored.lastExitCode).toBe(3)
+	})
+
+	it("says the instance errored even when the host named no exit code", async () => {
+		const id = await seedRunning()
+		expect(await repo.recordUnitFailure({ organizationId: orgA }, id, null)).toBe(true)
+		const stored = await storedInstance(id)
+		expect(stored.status).toBe("error")
+		expect(stored.lastExitCode).toBeNull()
+	})
+
+	it("leaves an instance nobody asked to run alone, since its unit is meant to be down", async () => {
+		const row = await seedInstance(orgA, hostA)
+		await repo.update({ organizationId: orgA }, row.id, { status: "stopped" })
+		expect(await repo.recordUnitFailure({ organizationId: orgA }, row.id, 3)).toBe(false)
+		const stored = await storedInstance(row.id)
+		expect(stored.status).toBe("stopped")
+		expect(stored.lastExitCode).toBeNull()
+	})
+
+	it("leaves an instance mid-change alone, so a stale reading cannot undo a start", async () => {
+		const id = await seedRunning()
+		await repo.claimForConfig({ organizationId: orgA }, id, "claim-1")
+		expect(await repo.recordUnitFailure({ organizationId: orgA }, id, 3)).toBe(false)
+		expect((await storedInstance(id)).status).toBe("running")
+	})
+
+	it("records nothing against another organization's instance", async () => {
+		const id = await seedRunning()
+		expect(await repo.recordUnitFailure({ organizationId: orgB }, id, 3)).toBe(false)
+		expect((await storedInstance(id)).status).toBe("running")
+	})
+})
+
 describe("sign-in and the lifecycle exclude each other", () => {
 	it("refuses a lifecycle claim while a sign-in claim is live, and still takes a save's claim", async () => {
 		const row = await seedInstance(orgA, hostA)

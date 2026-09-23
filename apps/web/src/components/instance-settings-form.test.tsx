@@ -484,3 +484,37 @@ describe("★ what a save that lost the race tells the operator", () => {
 		expect(screen.getByLabelText("Server address")).toHaveProperty("value", "mine.example.com")
 	})
 })
+
+describe("★ pinning the version this bot joins as", () => {
+	it("★ sends the saved version untouched, so saving another field cannot unpin it", async () => {
+		const { rerender } = mount({})
+		remount(rerender, "i2", instanceConfigInput.parse({ ...CONFIG, minecraftVersion: "1.8.9" }))
+		fireEvent.change(screen.getByLabelText("Server address"), {
+			target: { value: "moved.example.com" },
+		})
+
+		await save()
+
+		expect(sentConfig()?.minecraftVersion).toBe("1.8.9")
+	})
+
+	it("sends auto-detect for a bot nobody pinned", async () => {
+		mount({})
+
+		await save()
+
+		expect(sentConfig()?.minecraftVersion).toBe("auto")
+	})
+
+	it("★ shows the pinned version, so an operator can see what the bot is held to", () => {
+		const { rerender } = mount({})
+		remount(rerender, "i2", instanceConfigInput.parse({ ...CONFIG, minecraftVersion: "1.12.2" }))
+
+		expect(screen.getByLabelText("Minecraft version").textContent).toContain("1.12.2")
+	})
+
+	it("puts the version beside the server address, because it is part of which server it joins", () => {
+		expect(form.indexOf("settings-version")).toBeGreaterThan(form.indexOf("settings-server"))
+		expect(form.indexOf("settings-version")).toBeLessThan(form.indexOf("settings-retries"))
+	})
+})

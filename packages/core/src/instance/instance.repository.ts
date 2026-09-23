@@ -205,12 +205,13 @@ export const createInstanceRepository = (db: Executor) => ({
 		scope: OrgScope,
 		id: string,
 		claimId: string,
-		patch: Pick<InstanceUpdateValues, "status">,
+		patch: Pick<InstanceUpdateValues, "status" | "lastExitCode">,
 	): Promise<InstanceRow | undefined> =>
 		db
 			.updateTable("instance")
 			.set({
 				...(patch.status !== undefined && { status: patch.status }),
+				...(patch.lastExitCode !== undefined && { lastExitCode: patch.lastExitCode }),
 				configClaimId: null,
 				configClaimedAt: null,
 			})
@@ -219,6 +220,23 @@ export const createInstanceRepository = (db: Executor) => ({
 			.where("configClaimId", "=", claimId)
 			.returningAll()
 			.executeTakeFirst(),
+
+	recordUnitFailure: async (
+		scope: OrgScope,
+		id: string,
+		lastExitCode: number | null,
+	): Promise<boolean> => {
+		const rows = await db
+			.updateTable("instance")
+			.set({ status: "error", lastExitCode })
+			.where("id", "=", id)
+			.where("organizationId", "=", scope.organizationId)
+			.where("status", "=", "running")
+			.where("configClaimId", "is", null)
+			.returningAll()
+			.execute()
+		return rows.length > 0
+	},
 
 	releaseConfigClaim: async (scope: OrgScope, id: string, claimId: string): Promise<boolean> => {
 		const rows = await db

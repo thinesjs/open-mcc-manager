@@ -8,9 +8,10 @@ const TICK_MS = 15_000
 
 export type DeviceCodeProps = {
 	challenge: DeviceCodeChallenge
+	minecraftAccount: string
 }
 
-export const DeviceCode = ({ challenge }: DeviceCodeProps) => {
+export const DeviceCode = ({ challenge, minecraftAccount }: DeviceCodeProps) => {
 	const [now, setNow] = useState(() => Date.now())
 
 	useEffect(() => {
@@ -41,6 +42,10 @@ export const DeviceCode = ({ challenge }: DeviceCodeProps) => {
 				and enter the code{" "}
 				<span className="font-mono font-semibold tracking-wider">{challenge.userCode}</span>. Then
 				choose “I finished signing in”.
+			</span>
+			<span className="block">
+				Sign in as <span className="font-medium text-foreground">{minecraftAccount}</span>. Another
+				account will not work here.
 			</span>
 			<span className="block text-xs">{describeCodeValidity(challenge.expiresAt, now)}</span>
 		</Alert>

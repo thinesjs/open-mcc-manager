@@ -48,6 +48,7 @@ import {
 	InstanceRemovalFailedError,
 	InstanceSignInDidNotStartError,
 	InstanceSignInNoDeviceCodeError,
+	InstanceSignInOtherAccountError,
 	InstanceSignInRunningError,
 	InstanceStartFailedError,
 	InstanceStillInUseError,
@@ -413,6 +414,13 @@ export const mapKnownError = (cause: Error): MappedError | null => {
 			"BAD_REQUEST",
 			"INSTANCE_SIGN_IN_NO_DEVICE_CODE",
 			"The sign-in started but no device code appeared",
+		)
+	}
+	if (cause instanceof InstanceSignInOtherAccountError) {
+		return mapped(
+			"BAD_REQUEST",
+			"INSTANCE_SIGN_IN_OTHER_ACCOUNT",
+			"That sign-in used a different Microsoft account than this instance expects",
 		)
 	}
 	if (cause instanceof InstanceSignInRunningError) {

@@ -43,6 +43,7 @@ const SAVED = {
 	accountType: "microsoft",
 	minecraftAccount: "a@b.com",
 	serverAddress: "play.example.net",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -346,6 +347,7 @@ describe("a bot still being created", () => {
 			accountType: "offline",
 			minecraftAccount: "afk",
 			serverAddress: "play.example.net",
+			minecraftVersion: "auto",
 		})
 		trackInstanceId(made.id)
 		return made

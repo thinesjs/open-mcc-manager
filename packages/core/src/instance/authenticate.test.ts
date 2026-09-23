@@ -199,6 +199,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 		claimForConfig: vi.fn(async () => instanceRow()),
 		claimForLifecycle: vi.fn(async () => instanceRow()),
 		finalizeConfigClaim: vi.fn(async () => instanceRow()),
+		recordUnitFailure: vi.fn(async () => true),
 		releaseConfigClaim: vi.fn(async () => true),
 		writeTokenUnderClaim: vi.fn(async () => true),
 		deleteUnderClaim: vi.fn(async () => true),

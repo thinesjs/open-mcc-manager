@@ -116,6 +116,7 @@ import {
 	instanceLayoutSteps,
 	renderEnvironmentFile,
 	startUnitCommand,
+	unitExitCommand,
 	unitName,
 } from "./unit"
 
@@ -325,6 +326,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 		claimForConfig: vi.fn(async () => instanceRow()),
 		claimForLifecycle: vi.fn(async () => instanceRow()),
 		finalizeConfigClaim: vi.fn(async () => instanceRow()),
+		recordUnitFailure: vi.fn(async () => true),
 		releaseConfigClaim: vi.fn(async () => true),
 		writeTokenUnderClaim: vi.fn(async () => true),
 		deleteUnderClaim: vi.fn(async () => true),
@@ -531,8 +533,19 @@ describe("a bot's files and its start", () => {
 			expect.anything(),
 			"abc123",
 			expect.any(String),
-			{ status: "running" },
+			{ status: "running", lastExitCode: null },
 		)
+	})
+
+	it("★ clears the exit code a past failure left, so a running bot is not described by it", async () => {
+		const { deps, instances } = makeDeps()
+
+		await createInstanceController(deps).start(owner, "abc123")
+
+		expect(vi.mocked(instances.finalizeConfigClaim).mock.calls[0]?.[3]).toEqual({
+			status: "running",
+			lastExitCode: null,
+		})
 	})
 
 	const STOP_COMMAND = `${SYSTEMCTL} stop 'open-mcc@abc123'`
@@ -1285,6 +1298,65 @@ describe("reconciliation", () => {
 		expect(result.reachable).toBe(false)
 		if (result.reachable) throw new Error("unreachable expected")
 		expect(result.reason).toBe("unprovisioned")
+	})
+
+	const afterFailedUnit = async (exit: string) => {
+		const made = makeDeps()
+		vi.mocked(made.instances.list).mockResolvedValue([instanceRow({ status: "running" })])
+		const original = made.transport.execUntil
+		made.transport.execUntil = async (command: string, signal: AbortSignal) => {
+			if (command.includes("is-active")) return { stdout: "failed", stderr: "", exitCode: 3 }
+			if (command === unitExitCommand("abc123")) return { stdout: exit, stderr: "", exitCode: 0 }
+			return await original(command, signal)
+		}
+
+		const result = await createInstanceController(made.deps).reconcileHost(owner, "host-1")
+		return { ...made, result }
+	}
+
+	it("★ writes the failure onto the instance, so its badge stops saying it is running", async () => {
+		const { instances } = await afterFailedUnit("ExecMainStatus=3\nResult=exit-code\n")
+
+		expect(instances.recordUnitFailure).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			3,
+		)
+	})
+
+	it("★ still reports the drift it saw, so the host page does not go quiet about it", async () => {
+		const { result } = await afterFailedUnit("ExecMainStatus=3\nResult=exit-code\n")
+		if (!result.reachable) throw new Error("expected a reachable host")
+
+		expect(result.stateDrift).toEqual([
+			{ instanceId: "abc123", desired: "running", observed: "failed" },
+		])
+	})
+
+	it("★ records the failure even when the host would not say what it exited with", async () => {
+		const { instances } = await afterFailedUnit(
+			"Unit open-mcc@abc123.service could not be found.\n",
+		)
+
+		expect(instances.recordUnitFailure).toHaveBeenCalledWith(
+			{ organizationId: "org-1" },
+			"abc123",
+			null,
+		)
+	})
+
+	it("writes nothing onto an instance whose unit is up", async () => {
+		const { deps, transport, instances } = makeDeps()
+		vi.mocked(instances.list).mockResolvedValue([instanceRow({ status: "running" })])
+		const original = transport.execUntil
+		transport.execUntil = async (command: string, signal: AbortSignal) =>
+			command.includes("is-active")
+				? { stdout: "active", stderr: "", exitCode: 0 }
+				: await original(command, signal)
+
+		await createInstanceController(deps).reconcileHost(owner, "host-1")
+
+		expect(instances.recordUnitFailure).not.toHaveBeenCalled()
 	})
 })
 
@@ -3381,6 +3453,10 @@ describe("saving settings under a claim", () => {
 		finalizeConfigClaim: (...args) => {
 			note()
 			return inner.finalizeConfigClaim(...args)
+		},
+		recordUnitFailure: (...args) => {
+			note()
+			return inner.recordUnitFailure(...args)
 		},
 		releaseConfigClaim: (...args) => {
 			note()

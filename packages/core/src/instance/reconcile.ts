@@ -25,6 +25,7 @@ import {
 	isOperatorKey,
 	isSecretKey,
 } from "./config-drift"
+import { interpretExitCode } from "./exit-code"
 import { probeListening } from "./live-control"
 import { parseDaysOfWeek as parseStoredDays, renderSleepTimers } from "./schedule"
 import {
@@ -32,7 +33,10 @@ import {
 	HostAnswerUnreadableError,
 	INSTANCE_LAYOUT,
 	instanceDir,
+	MAIN_PROCESS_EXITED,
+	parseUnitExitState,
 	renderUnitEnv,
+	unitExitCommand,
 	unitName,
 } from "./unit"
 
@@ -245,6 +249,18 @@ export const activeCheckCommand = (instanceId: string): ReadCommand =>
 export type HostObservation = {
 	reconciliation: HostReconciliation
 	seenPlayers: ReadonlyMap<string, string>
+	failures: ReadonlyMap<string, number | null>
+}
+
+const readUnitExitCode = async (
+	reader: SetupReader,
+	instanceId: string,
+): Promise<number | null> => {
+	const result = await reader.exec(asReadCommand(unitExitCommand(instanceId)))
+	if (result.exitCode !== 0) return null
+	const exit = parseUnitExitState(result.stdout)
+	if (exit === undefined || exit.result !== MAIN_PROCESS_EXITED) return null
+	return interpretExitCode(exit.execMainStatus) === "clean" ? null : exit.execMainStatus
 }
 
 const readInstanceConfig = async (
@@ -418,6 +434,7 @@ export const reconcileHostOverTransport = async (
 	const stateDrift: StateDrift[] = []
 	const joined = new Set<string>()
 	const seenPlayers = new Map<string, string>()
+	const failures = new Map<string, number | null>()
 	for (const instance of instances) {
 		const result = await reader.exec(
 			asReadCommand(
@@ -438,6 +455,9 @@ export const reconcileHostOverTransport = async (
 		}
 		if (!desiredStateIsSatisfied(instance.status, observed)) {
 			stateDrift.push({ instanceId: instance.id, desired: instance.status, observed })
+			if (instance.status === "running" && observed === "failed") {
+				failures.set(instance.id, await readUnitExitCode(reader, instance.id))
+			}
 		}
 	}
 
@@ -448,6 +468,7 @@ export const reconcileHostOverTransport = async (
 	return {
 		reconciliation: { hostId, reachable: true, runtimeDrift, unitDrift, stateDrift, configDrift },
 		seenPlayers,
+		failures,
 	}
 }
 

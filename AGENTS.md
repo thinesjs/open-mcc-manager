@@ -331,6 +331,86 @@ controller keeps writing its own copy rather than the host's output, and
 STORAGE_STEP_LABEL>`, so the storage step cannot acquire a second, unreachable
 sentence there.
 
+### A check runs the thing it certifies, under the runtime it certifies
+
+The client probe ran `podman run` with **no `--log-driver`**, so it took
+Podman's default. On a systemd host with a journal directory that default is
+`journald` — `containers/common`'s `defaultLogDriver` returns it whenever
+`/proc/1/comm` reads `systemd` and a machine-id directory under
+`/run/log/journal` or `/var/log/journal` can be read, which all three sandbox
+targets confirm. The bot units pin `--log-driver=passthrough`. So on a host
+whose rootless account cannot write `/run/systemd/journal/socket`, the probe and
+the bot took different paths, and the probe was the one that could fail:
+provisioning refusing a host on which every bot would have run.
+
+Measured on all three targets with the socket at `0600` and real Podman, and
+they do **not** agree, which is why the flag is pinned rather than argued:
+
+| | default `journald` driver | `--log-driver=passthrough` |
+| --- | --- | --- |
+| Debian 12, Podman 4.3.1 | `Error: failed to initialize journal: write unixgram …: sendmsg: permission denied`, exit 125, container never starts | exit 0, banner printed |
+| Ubuntu 24.04, Podman 4.9.3 | exit 0, banner printed | exit 0, banner printed |
+| Debian 13, Podman 5.4.2 | exit 0, banner printed | exit 0, banner printed |
+
+4.3.1 is `PODMAN_FLOOR` itself, so the row that breaks is a fully supported
+host, not an outlier. Do **not** read the table the other way round and conclude
+the flag is optional on the newer two: the point is that the probe must not
+depend on which of those three answers a host happens to give.
+
+**`--log-driver` and `--events-backend` are different settings, and only the
+first was missing.** The `Unable to write container event` line is written by
+`libpod/events.go`, which logs it and carries on; all three targets print that
+family of line four to six times **around a container that ran to completion and
+exited 0**. It is noise, not a cause, and a failure that quotes it is quoting
+the wrong line — see the section below. The probe therefore **tolerates** it:
+`--events-backend` is left unset in the probe exactly as it is unset in the
+units, so the probe sees what a bot sees. Pinning `--events-backend=file` would
+have silenced the line at the cost of making the check quieter than every bot on
+that host — the same defect pointing the other way.
+
+`UNIT_LOG_DRIVER` lives in `unit-template.ts` and is spent by both unit
+templates and by `clientCheckCommand`, so the two cannot drift.
+
+`--log-driver=passthrough` is **refused on a TTY**: `podman create` checks file
+descriptors 0, 1 and 2 and errors out if any is a terminal. The manager's SSH
+exec asks for no pty and the sandbox's `docker exec` passes no `--tty`, so
+neither has one. A person pasting `clientCheckCommand` into an interactive shell
+will be refused; redirect its stdout to a file to run it by hand.
+
+The probe still differs from a unit where it must: `--network=none`, no
+`--name`, no `--env-file`, no published port, and
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp` rather than `/data`. Two unit flags are
+**deliberately not** copied — `--init` and `--security-opt=no-new-privileges`.
+Copying `--init` would make a host missing `catatonit` fail at **Checking the
+client runs** under the sentence "The client did not start", which names the
+wrong cause; that is a separate fix with a sentence of its own, not a fidelity
+tweak.
+
+### The probe's failure quotes only a line the client could have written
+
+`explainClientFailure` took `output.trim().split("\n")[0]` and called it the
+client's. On the host that prompted this, that first line was Podman's own
+logrus event-log line, so the server log said the client said something it never
+said — the same fault as a sentence naming a cause the code has not established,
+one layer down. Worse than misattribution: the line that **was** the cause sat
+further down the same output and was discarded, so the one reading that could
+have identified the host's real fault never reached anyone.
+
+It now skips the lines Podman itself writes — logrus `time="…" level=… msg=…`,
+and its verdict prefix `Error: ` — and reports the **first line left**, which is
+the only line that could have come from the client. `provisionHost` calls it
+only when the whole output lacks `CLIENT_BANNER`, so the client is already known
+never to have announced itself; this function decides **who spoke**, not whether
+the client failed. Three endings: a surviving line is quoted as the client's; no
+surviving line but an `Error: ` line is Podman's refusal and is reported as
+Podman's; neither is "reported nothing".
+
+The residual is a client whose only output began `Error: `, which would be read
+as Podman's. MCC writes no such line — the two `Error: ` sites in its tree are
+inside running bots and carry a bot-name prefix — and a `--help` run prints the
+banner before anything else, so a client that reached its own output would not
+be here at all.
+
 ## Prohibitions
 
 - No Next.js, in any form, ever.
@@ -379,7 +459,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-one rules stated further down this document are enforced too, and are
+Sixty-three rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -446,6 +526,8 @@ have:
 | An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
 | A failed storage step leaving the account as it found it, and never a graph root it did not create | `packages/core/src/host/podman-facts.test.ts` — runs the real step under `/bin/sh` against a stand-in `podman` that fills the graph root before it answers, the way a real one does. A fresh account whose Podman fails must come back with no `storage.conf`, no graph root, and the same word on a second run; a graph root that was an empty directory must come back empty, still there, and still `0700`; an account that had already run Podman must keep its layer, and one whose `storage.conf` this run did not write must keep both. The ready case requires the graph root the step filled to **survive**, so an undo that always runs fails there rather than passing on the refusals, and dropping the `ours` guard passes the ready case and fails the two that kept their own files. It proves the shell, NOT what a real Podman leaves: the empty `~/.config/containers` the step creates is deliberately kept, and no test drives a real Podman here — `podman-host.sandbox.ts` does that, and it never fails the step |
 | Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
+| The client probe running under the same log driver as a bot unit, and choosing no events backend of its own | `packages/core/src/host/provision.test.ts` — reads `--log-driver=` off `clientCheckCommand` and off the rendered `open-mcc@.service` and requires the same value, so dropping the flag from either side fails; a second test requires neither to name `--events-backend`, so silencing Podman's event log in the probe alone fails. `scripts/sandbox/provision.sandbox.ts` drives the shipped command on real Podman on all three targets with `/run/systemd/journal/socket` at `0600` and requires the banner and exit 0, which is the Debian 12 row of the table above and fails there without the flag. What it does NOT hold: the same difference on the other two targets, whose Podman survives the refusal either way, so the sandbox catches a dropped flag on one target only; nor any other flag the units carry and the probe does not — `--init` and `--security-opt=no-new-privileges` are named in the notes above and left uncopied on purpose |
+| A probe failure quoting only a line the client could have written | `packages/core/src/host/provision.test.ts` — Podman's logrus line in front of the client's message must be skipped and the client's message reported whole; the same output ending in Podman's `Error:` verdict with no client line must be reported as Podman's refusal and not as the client's; two client lines must report the first, so reading the end of the output instead fails. What it does NOT hold: that a surviving line really came from the client — only that it is not one Podman writes |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

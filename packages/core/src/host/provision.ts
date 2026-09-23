@@ -28,7 +28,12 @@ import {
 	runtimeImageFor,
 	runtimeImageReference,
 } from "./runtime-image"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "./unit-template"
+import {
+	INSTANCE_UNIT_NAME,
+	renderUnitTemplates,
+	SUPPORTING_UNIT_NAMES,
+	UNIT_LOG_DRIVER,
+} from "./unit-template"
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
@@ -102,11 +107,23 @@ export const parseSystem = (output: string) => {
 	}
 }
 
+const PODMAN_LOG_LINE = /^time="[^"]*" level=[a-z]+ msg=/
+
+const PODMAN_VERDICT = "Error: "
+
 export const explainClientFailure = (output: string): string => {
-	const firstLine = output.trim().split("\n")[0] ?? ""
-	return firstLine.length > 0
-		? `The installed client could not start: ${firstLine}`
-		: "The installed client could not start, and reported nothing."
+	const lines = output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+	const fromClient = lines.find(
+		(line) => !PODMAN_LOG_LINE.test(line) && !line.startsWith(PODMAN_VERDICT),
+	)
+	if (fromClient !== undefined) return `The installed client could not start: ${fromClient}`
+	const verdict = lines.find((line) => line.startsWith(PODMAN_VERDICT))
+	if (verdict !== undefined)
+		return `Podman did not run the client: ${verdict.slice(PODMAN_VERDICT.length)}`
+	return "The installed client could not start, and reported nothing."
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -157,7 +174,7 @@ export const imageIdCommand = (image: RuntimeImage): string =>
 	`podman image inspect --format '{{.Id}}' ${shellQuote(runtimeImageReference(image))}`
 
 export const clientCheckCommand = (image: RuntimeImage): string =>
-	`podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
+	`podman run --rm --network=none --pull=never --log-driver=${UNIT_LOG_DRIVER} --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
 
 const step = async (
 	transport: HostTransport,

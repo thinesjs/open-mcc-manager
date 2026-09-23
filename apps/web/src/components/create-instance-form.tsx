@@ -3,10 +3,13 @@ import {
 	ACCOUNT_TYPES,
 	type AccountType,
 	isOfflineAccount,
+	MINECRAFT_VERSION_AUTO,
+	type MinecraftVersion,
 } from "@open-mcc/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
+import { MinecraftVersionSelect } from "~/components/minecraft-version-select"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Input } from "~/components/ui/input"
@@ -40,13 +43,21 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 	const [accountType, setAccountType] = useState<AccountType>("microsoft")
 	const [minecraftAccount, setMinecraftAccount] = useState("")
 	const [serverAddress, setServerAddress] = useState("")
+	const [minecraftVersion, setMinecraftVersion] = useState<MinecraftVersion>(MINECRAFT_VERSION_AUTO)
 
 	const isOffline = isOfflineAccount(accountType)
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
 		createMutation.mutate(
-			{ hostId: selectedHost, name, accountType, minecraftAccount, serverAddress },
+			{
+				hostId: selectedHost,
+				name,
+				accountType,
+				minecraftAccount,
+				serverAddress,
+				minecraftVersion,
+			},
 			{
 				onSuccess: (instance) => {
 					queryClient.invalidateQueries({ queryKey: trpc.instance.list.queryKey() })
@@ -168,6 +179,15 @@ export const CreateInstanceForm = ({ hostId, onCreated, onCancel }: CreateInstan
 					placeholder="play.example.net"
 					value={serverAddress}
 					onChange={(event) => setServerAddress(event.target.value)}
+				/>
+			</div>
+
+			<div className="space-y-1.5">
+				<Label htmlFor="instance-version">Minecraft version</Label>
+				<MinecraftVersionSelect
+					id="instance-version"
+					value={minecraftVersion}
+					onChange={setMinecraftVersion}
 				/>
 			</div>
 

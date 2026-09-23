@@ -3,6 +3,7 @@ import {
 	type DelaySecondsRange,
 	type InstanceConfigInput,
 	isOfflineAccount,
+	type MinecraftVersion,
 } from "@open-mcc/contracts"
 import type { AdvancedKeys, BotConfig } from "@open-mcc/contracts/boundary/mcc-config-keys"
 import {
@@ -24,6 +25,7 @@ export const ALLOWED_CONFIG_KEYS = [
 	"Main.General.Account.Password",
 	"Main.General.Server.Host",
 	"Main.General.Server.Port",
+	"Main.Advanced.MinecraftVersion",
 	"Main.Advanced.AutoRespawn",
 	"ChatBot.McpServer.Enabled",
 	"ChatBot.McpServer.Transport.Port",
@@ -156,10 +158,12 @@ export const defaultInstanceConfig = (values: {
 	accountType: AccountType
 	minecraftAccount: string
 	serverAddress: string
+	minecraftVersion: MinecraftVersion
 }): InstanceConfigInput => ({
 	accountType: values.accountType,
 	minecraftAccount: values.minecraftAccount,
 	serverAddress: values.serverAddress,
+	minecraftVersion: values.minecraftVersion,
 	autoRelogRetries: DEFAULT_AUTO_RELOG_RETRIES,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: DEFAULT_AUTO_RELOG_DELAY_SECONDS,
@@ -246,6 +250,7 @@ export const renderInstanceConfig = (config: InstanceConfigInput): string =>
 		`InternalCmdChar = ${tomlString(INTERNAL_CMD_CHAR)}`,
 		`ShowGithubStarReminder = ${tomlBool(false)}`,
 		"BotOwners = []",
+		`MinecraftVersion = ${tomlString(config.minecraftVersion)}`,
 		`AutoRespawn = ${tomlBool(config.autoRespawnEnabled)}`,
 		`TerrainAndMovements = ${tomlBool(config.worldDataEnabled)}`,
 		`InventoryHandling = ${tomlBool(config.inventoryDataEnabled)}`,

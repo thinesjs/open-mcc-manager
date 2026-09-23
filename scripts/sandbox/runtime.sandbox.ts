@@ -191,6 +191,7 @@ describe.each(PODMAN_TARGETS)("running a bot in rootless Podman on $name", (targ
 			accountType: "offline",
 			minecraftAccount: "SandboxBot",
 			serverAddress: "127.0.0.1",
+			minecraftVersion: "auto",
 		})
 		botId = created.id
 		const since = await hostClock()

@@ -200,6 +200,7 @@ const SAVED_DOCUMENT = {
 	accountType: "microsoft",
 	minecraftAccount: "a@b.com",
 	serverAddress: "play.example.net",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -412,6 +413,7 @@ describe("a bot's files and its start", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const port = vi.mocked(deps.instances.insert).mock.calls[0]?.[1].liveControlPort ?? 0
@@ -426,6 +428,25 @@ describe("a bot's files and its start", () => {
 				configDocument: written,
 			}).map((step) => step.command),
 		)
+	})
+
+	it("★ writes the version the operator pinned at create into the document the host receives", async () => {
+		const { deps, transport, instances } = makeDeps()
+		const controller = createInstanceController(deps)
+
+		await controller.create(owner, {
+			hostId: "host-1",
+			name: "afk-1",
+			accountType: "microsoft",
+			minecraftAccount: "afk@example.com",
+			serverAddress: "play.skyblock.net",
+			minecraftVersion: "1.8.9",
+		})
+
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "1.8.9"')
+		const saved = vi.mocked(instances.insertConfigVersion).mock.calls[0]
+		expect(JSON.parse(String(saved?.[2] ?? "{}")).minecraftVersion).toBe("1.8.9")
 	})
 
 	it("writes into what create made on start and restart, and never makes a directory", async () => {
@@ -732,6 +753,7 @@ describe("instance controller authorization", () => {
 				accountType: "microsoft",
 				minecraftAccount: "a@b.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow(ForbiddenError)
 	})
@@ -836,6 +858,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(created.createdAt).toBe("2026-09-01T00:00:00.000Z")
@@ -850,6 +873,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const joined = transport.commands.join("\n")
@@ -869,6 +893,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(deps.instances.insert).toHaveBeenCalledWith(
@@ -890,6 +915,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const written = transport.stdins.find((each) => each.includes("[ChatBot.McpServer]"))
@@ -907,6 +933,7 @@ describe("instance creation prepares the host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		const joined = transport.commands.join("\n")
@@ -1877,6 +1904,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogEnabled: true,
 					autoRelogDelaySeconds: 10,
@@ -1901,6 +1929,7 @@ describe("running several instances on one host", () => {
 				accountType: "microsoft",
 				minecraftAccount: "a@b.com",
 				serverAddress: "play.example.net",
+				minecraftVersion: "auto",
 				autoRelogRetries: 3,
 				autoRelogEnabled: true,
 				autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -1932,6 +1961,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -1962,6 +1992,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -1997,6 +2028,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2037,6 +2069,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2107,6 +2140,7 @@ describe("running several instances on one host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(documents).toHaveLength(1)
@@ -2127,6 +2161,7 @@ describe("running several instances on one host", () => {
 				accountType: "microsoft",
 				minecraftAccount: "afk@example.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow(/port/i)
 		expect(busy.state()).not.toBe("ready")
@@ -2156,6 +2191,7 @@ describe("running several instances on one host", () => {
 			accountType: "microsoft",
 			minecraftAccount: "afk@example.com",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(claimed).toEqual([33334, 33335])
@@ -2175,6 +2211,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2205,6 +2242,7 @@ describe("running several instances on one host", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2245,6 +2283,7 @@ describe("the four readouts a controller hands back", () => {
 					accountType: "microsoft",
 					minecraftAccount: "a@b.com",
 					serverAddress: "play.example.net",
+					minecraftVersion: "auto",
 					autoRelogRetries: 3,
 					autoRelogDelaySeconds: 10,
 					antiAfkEnabled: false,
@@ -2314,6 +2353,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		accountType: "microsoft",
 		minecraftAccount: "a@b.com",
 		serverAddress: "play.example.net",
+		minecraftVersion: "auto",
 		autoRelogRetries: 3,
 		autoRelogEnabled: true,
 		autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -2441,6 +2481,18 @@ describe("saving the client's own bots, which reuses the config write", () => {
 		const document = writtenDocument(instances)
 		expect(document.botConfig).toEqual({ "ChatBot.Alerts.Enabled": "false" })
 		expect(document.serverAddress).toBe("moved.example.net")
+	})
+
+	it("★ carries a version change onto the host, so a running bot can be reconciled onto it", async () => {
+		const { deps, instances, transport } = withSavedConfig()
+		const controller = createInstanceController(deps)
+		const { botConfig: _bots, advancedKeys: _keys, ...settings } = SAVED
+
+		await controller.updateSettings(owner, "abc123", { ...settings, minecraftVersion: "1.8.9" }, 1)
+
+		expect(writtenDocument(instances).minecraftVersion).toBe("1.8.9")
+		const written = transport.stdins.find((each) => each.includes("[Main.Advanced]")) ?? ""
+		expect(written).toContain('MinecraftVersion = "1.8.9"')
 	})
 
 	it("★ keeps the saved advanced keys when the operator saves the settings beside them", async () => {
@@ -2580,6 +2632,7 @@ describe("saving the client's own bots, which reuses the config write", () => {
 				accountType: "offline",
 				minecraftAccount: "OpenMccBot",
 				serverAddress: "play.example.com/../../etc",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toThrow()
 		expect(instances.insert).not.toHaveBeenCalled()
@@ -2861,6 +2914,7 @@ describe("a bot on a host whose Repair setup did not finish", () => {
 				accountType: "microsoft",
 				minecraftAccount: "afk@example.com",
 				serverAddress: "play.example.com",
+				minecraftVersion: "auto",
 			}),
 		).rejects.toBeInstanceOf(InstanceHostNotProvisionedError)
 		expect(transport.commands).toEqual([])
@@ -2927,6 +2981,7 @@ describe("a bot on a host with no recorded runtime", () => {
 					accountType: "microsoft",
 					minecraftAccount: "afk@example.com",
 					serverAddress: "play.example.com",
+					minecraftVersion: "auto",
 				})
 			},
 		],
@@ -3205,6 +3260,7 @@ describe("saving settings under a claim", () => {
 		accountType: "offline",
 		minecraftAccount: "afk",
 		serverAddress: "play.example.com",
+		minecraftVersion: "auto",
 	} as const
 
 	const BOTS = { botConfig: { "ChatBot.Alerts.Enabled": "true" }, advancedKeys: {} }
@@ -3677,6 +3733,7 @@ describe("creating a bot under its claim", () => {
 		accountType: "offline",
 		minecraftAccount: "afk",
 		serverAddress: "play.example.com",
+		minecraftVersion: "auto",
 	} as const
 
 	const LAYOUT = instanceLayoutSteps({

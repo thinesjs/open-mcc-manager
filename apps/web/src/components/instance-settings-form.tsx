@@ -7,6 +7,7 @@ import type {
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
 import { type FormEvent, useState } from "react"
+import { MinecraftVersionSelect } from "~/components/minecraft-version-select"
 import { Alert } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import { Choice } from "~/components/ui/choice"
@@ -140,6 +141,18 @@ export const InstanceSettingsForm = ({
 						value={draft.serverAddress}
 						onChange={(event) => setDraft({ ...draft, serverAddress: event.target.value })}
 					/>
+				</div>
+
+				<div className="mb-4 break-inside-avoid space-y-1.5">
+					<Label htmlFor="settings-version">Minecraft version</Label>
+					<MinecraftVersionSelect
+						id="settings-version"
+						value={draft.minecraftVersion}
+						onChange={(minecraftVersion) => setDraft({ ...draft, minecraftVersion })}
+					/>
+					<p className="text-xs text-muted-foreground">
+						Set this only when the server says the version is not supported.
+					</p>
 				</div>
 
 				<div className="mb-4 break-inside-avoid space-y-1.5">

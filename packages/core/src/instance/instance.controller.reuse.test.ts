@@ -101,6 +101,7 @@ const SAVED_DOCUMENT = {
 	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
 	serverAddress: "play.example.net",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },

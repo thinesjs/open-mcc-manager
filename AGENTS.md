@@ -221,6 +221,42 @@ against.
 self-hosted deployment should not phone home, and the key is not in
 `ALLOWED_CONFIG_KEYS`, so an operator could not have turned it off.
 
+### The version a bot joins as, and why an unknown one is refused
+
+`Main.Advanced.MinecraftVersion` is in `ALLOWED_CONFIG_KEYS`, so an operator
+chooses it and reconciliation treats it like every other managed key. It is
+there because MCC's auto-detect cannot negotiate with every server: one that
+will not say which protocol it speaks answers a join with `This version is not
+supported`, the unit exits 1, and until this setting existed no instance
+pointed at such a server could ever start.
+
+The value is `auto` or one of the 131 strings `MCVer2ProtocolVersion`
+(`MinecraftClient/Protocol/ProtocolHandler.cs`) has a case for, and
+`packages/contracts/src/minecraft-version.ts` refuses everything else. The
+strictness is the point rather than tidiness: `Program.cs` answers an
+unrecognised string by logging `mcc_unknown_version` and **falling back to
+auto-detect**, so a typo would be stored, rendered, reported as converged and
+silently do nothing, leaving an operator looking at a pinned version on a bot
+that is not pinned.
+
+The dropdown offers fewer strings than the schema accepts. MCC spells twenty
+releases both as `X.Y` and as `X.Y.0`, and only one of each pair is a real
+release; both are still accepted on input, because a saved document may hold
+either. `MINECRAFT_VERSION_OPTIONS` is derived from the accepted list rather
+than written beside it, so a version added upstream reaches the dashboard by
+editing one array.
+
+It is stored in the versioned `instanceConfig` document beside the server
+address, not as a column on `instance`. A column would be a second source of
+truth that rolling a config version back would not roll back, and the narrowing
+`packages/db/src/schema/` asks of a constrained column would mean hand-writing a
+132-member union in a package that may not import the contracts. Documents saved
+before this setting existed carry no such key and read as `auto` through the
+schema's default, so no migration adds one. The first start, restart or settings
+save after this change writes the key onto the host; until then reconciliation
+reports managed drift on it, which is the same path a version change itself
+takes.
+
 ### The pinned player-name check, and what depends on it
 
 `renderInstanceConfig` writes `Main.Advanced.IgnoreInvalidPlayerName = true` as a
@@ -289,7 +325,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Fifty-nine rules stated further down this document are enforced too, and are
+Sixty rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -354,6 +390,7 @@ have:
 | Nothing above `dist` reachable, and a path that cannot be decoded refused | `apps/web-server/src/static-app.test.ts` — three climbs written with an encoded separator, each named with a marker from the file it would have leaked, must refuse and must not carry it; `%2e%2e` forms are not used for this, because the URL parser collapses them before the app sees anything and Hono decodes everything but `%2f` after that. Disabling the containment check leaks all three. Alongside it `/%00`, `/assets/index%00.js` and a half-invalid escape must refuse rather than fall through to the shell — the first two hold the null-byte guard, the third holds the app's own `decodeURIComponent` — and a file asked for under a percent-encoded name must still be found |
 | The security headers on the document the dashboard is served as | `apps/web-server/src/static-app.test.ts` — all eight compared whole as literals, on the shell, on an asset and on a refusal, so a header dropped or weakened fails three cases. It holds this image's list alone; nothing compares it against `apps/server/src/security/headers.ts`, and the two are stated to differ |
 | An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
+| A Minecraft version this client would not recognise refused rather than stored | `packages/contracts/src/minecraft-version.test.ts` — the schema is driven with every string `MCVer2ProtocolVersion` has a case for and with strings it has none for, so widening it to a free-text field fails; `apps/server/src/instance.test.ts` drives an unrecognised version through `instance.updateConfig` over HTTP and requires 400, no new config version and no host command, so a schema loosened anywhere on the way fails there too. What it does NOT hold: that the accepted list still matches MCC's switch after a client bump — nothing reads `ProtocolHandler.cs`, and `docs/mcc-compat.md` is where that audit is recorded |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

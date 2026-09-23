@@ -4,6 +4,7 @@ import {
 	botConfigSchema,
 	storedBotConfigSchema,
 } from "./boundary/mcc-config-keys"
+import { MINECRAFT_VERSION_AUTO, minecraftVersionSchema } from "./minecraft-version"
 
 export const instanceStatusSchema = z.enum(["created", "needs_auth", "stopped", "running", "error"])
 export type InstanceStatus = z.infer<typeof instanceStatusSchema>
@@ -68,6 +69,7 @@ export const createInstanceInput = z
 		accountType: accountTypeSchema.default("microsoft"),
 		minecraftAccount: z.string().min(1).max(255),
 		serverAddress: z.string().min(1).max(253).refine(withoutPathParts, NO_PATH_IN_IT),
+		minecraftVersion: minecraftVersionSchema.default(MINECRAFT_VERSION_AUTO),
 	})
 	.superRefine((value, ctx) => {
 		const result = accountIdentifier(value.accountType).safeParse(value.minecraftAccount)
@@ -102,6 +104,7 @@ export const instanceConfigInput = z
 		accountType: accountTypeSchema,
 		minecraftAccount: z.string().min(1).max(255).refine(withoutPathParts, NO_PATH_IN_IT),
 		serverAddress: z.string().min(1).max(253).refine(withoutPathParts, NO_PATH_IN_IT),
+		minecraftVersion: minecraftVersionSchema.default(MINECRAFT_VERSION_AUTO),
 		autoRelogRetries: z.number().int().min(0).max(1000),
 		autoRelogEnabled: z.boolean(),
 		autoRelogDelaySeconds: delaySecondsRange,

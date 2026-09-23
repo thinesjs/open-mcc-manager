@@ -38,7 +38,7 @@ export const ConsoleOutput = ({ lines }: ConsoleOutputProps) => {
 			<pre
 				ref={viewport}
 				onScroll={onScroll}
-				className="max-h-96 overflow-auto rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground"
+				className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius)] border border-border bg-card p-4 font-mono text-xs leading-relaxed text-foreground"
 			>
 				{lines.map((line) => (
 					<MinecraftText key={line.key} value={line.text} />

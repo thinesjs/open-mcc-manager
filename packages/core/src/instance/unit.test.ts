@@ -24,11 +24,13 @@ import {
 	instanceDir,
 	instanceLayoutSteps,
 	parseEnvWriteAnswer,
+	parseUnitExitState,
 	parseUnitStartState,
 	RUNNING_UNIT_STATES,
 	renderEnvironmentFile,
 	renderUnitEnv,
 	startUnitCommand,
+	unitExitCommand,
 	unitName,
 	validateInstanceId,
 } from "./unit"
@@ -371,6 +373,41 @@ describe("starting a bot and reading what systemd made of it", () => {
 		["both on one line", "ActiveState=active Result=success SignIn=inactive"],
 	])("refuses output with %s rather than guess", (_case, output) => {
 		expect(parseUnitStartState(output)).toBeUndefined()
+	})
+})
+
+describe("reading what a failed unit exited with", () => {
+	it("asks systemd for the main process's status and for what it made of it", () => {
+		expect(unitExitCommand("abc123")).toBe(
+			"XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user show -p ExecMainStatus -p Result 'open-mcc@abc123.service'",
+		)
+	})
+
+	it("reads the two properties in any order", () => {
+		expect(parseUnitExitState("ExecMainStatus=3\nResult=exit-code\n")).toEqual({
+			execMainStatus: 3,
+			result: "exit-code",
+		})
+		expect(parseUnitExitState("Result=signal\nExecMainStatus=9")).toEqual({
+			execMainStatus: 9,
+			result: "signal",
+		})
+	})
+
+	it.each([
+		["nothing", ""],
+		["no result", "ExecMainStatus=3\n"],
+		["no status", "Result=exit-code\n"],
+		["an extra property", "ExecMainStatus=3\nResult=exit-code\nActiveState=failed\n"],
+		["Windows line endings", "ExecMainStatus=3\r\nResult=exit-code\r\n"],
+		["a repeated property", "ExecMainStatus=3\nExecMainStatus=4\n"],
+		["an empty value", "ExecMainStatus=3\nResult=\n"],
+		["a status that is not a number", "ExecMainStatus=exit-code\nResult=exit-code\n"],
+		["a status no exit status can reach", "ExecMainStatus=1000\nResult=exit-code\n"],
+		["a result that is not a word", "ExecMainStatus=3\nResult=4\n"],
+		["both on one line", "ExecMainStatus=3 Result=exit-code"],
+	])("refuses output with %s rather than guess", (_case, output) => {
+		expect(parseUnitExitState(output)).toBeUndefined()
 	})
 })
 

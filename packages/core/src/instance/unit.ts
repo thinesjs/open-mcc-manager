@@ -215,3 +215,32 @@ export const parseUnitStartState = (output: string) => {
 		? undefined
 		: { activeState, result, signIn }
 }
+
+export const MAIN_PROCESS_EXITED = "exit-code"
+
+export const unitExitCommand = (instanceId: string): string =>
+	systemctl(`show -p ExecMainStatus -p Result ${shellQuote(`${unitName(instanceId)}.service`)}`)
+
+const UNIT_EXIT_LINE = /^(ExecMainStatus|Result)=(.+)$/
+
+const EXIT_STATUS = /^(?:0|[1-9][0-9]{0,2})$/
+
+const UNIT_RESULT = /^[a-z][a-z-]*$/
+
+export const parseUnitExitState = (output: string) => {
+	const lines = (output.endsWith("\n") ? output.slice(0, -1) : output).split("\n")
+	if (lines.length !== 2) return undefined
+	const values = new Map<string, string>()
+	for (const line of lines) {
+		const match = UNIT_EXIT_LINE.exec(line)
+		if (match === null) return undefined
+		const [, key = "", value = ""] = match
+		if (values.has(key)) return undefined
+		values.set(key, value)
+	}
+	const status = values.get("ExecMainStatus")
+	const result = values.get("Result")
+	if (status === undefined || result === undefined) return undefined
+	if (!EXIT_STATUS.test(status) || !UNIT_RESULT.test(result)) return undefined
+	return { execMainStatus: Number(status), result }
+}

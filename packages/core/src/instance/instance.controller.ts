@@ -814,6 +814,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			const scope = scopeOf(ctx)
 			const finalized = await repos.instances.finalizeConfigClaim(scope, instanceId, claimId, {
 				status,
+				...(status === "running" && { lastExitCode: null }),
 			})
 			if (!finalized) {
 				throw new InstanceBusyError(`Instance ${instanceId} is busy with another change`)
@@ -1440,6 +1441,9 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 						.update(scope, id, { minecraftUsername: player })
 						.catch(() => undefined)
 				}
+			}
+			for (const [id, lastExitCode] of observed.failures) {
+				await deps.instances.recordUnitFailure(scope, id, lastExitCode).catch(() => undefined)
 			}
 			const reconciliation = observed.reconciliation
 			if (!reconciliation.reachable || unusable.length === 0) return reconciliation

@@ -201,6 +201,42 @@ trade: never hammer Microsoft auth on a bad token, at the cost of a transient
 network fault during sign-in needing a manual start. The dashboard says so
 rather than claiming the login was rejected.
 
+### Where an instance's status stops being a wish
+
+`instance.status` is the operator's desired state everywhere it is written by a
+start, a stop or a sign-in, and `error` was in the contract's union with nothing
+writing it. A bot whose unit had died therefore kept its **Running** badge and
+its "Instance is connected and being managed by OpenMCC.", while `Last exit
+code` read `—` because no caller ever passed `lastExitCode` either. The only
+place the truth existed was reconciliation's `stateDrift`, on the Host page,
+which the instance page never reads.
+
+Reconciliation now closes that loop. When the unit it observes is `failed` while
+the row says `running` — the same `ObservedState` `desiredStateIsSatisfied`
+already judges, not a second notion of "not running" — it reads
+`systemctl show -p ExecMainStatus -p Result` over the shared reader, outside
+every transaction like every other host read, and records `status: "error"` with
+that exit code. The drift entry is still reported; recording the failure refines
+it rather than replacing it.
+
+**`Result` is read because `ExecMainStatus` alone is ambiguous.** systemd puts
+the main process's `si_status` there, which is an exit status when the process
+exited and a **signal number** when it was killed, so a unit ended by SIGKILL
+would otherwise be recorded as having exited `9`. Only `Result=exit-code` means
+the number is an exit status. `ExecMainStatus=0` under that result is not a
+clean exit either — it is what a failed `ExecStartPre` leaves, the config
+preflight included — so `interpretExitCode` decides it, and `lastExitCode` stays
+`null` in every case the host did not name a real failure code rather than
+inventing one. `exit-code.ts` owns that mapping; nothing else may restate it.
+
+A failure is recorded only against a row that still says `running` and holds no
+config claim, so a reading taken before an operator's start or stop cannot undo
+it. The other direction is the start itself: `finalizeConfigClaim` clears
+`lastExitCode` whenever a lifecycle change lands on `running`, because the
+instance page prefers the exit code's sentence to the status description, and a
+kept code would describe a running bot by the failure it recovered from. A stop
+keeps it — the code is still why the bot went down.
+
 ### The two client settings the supervisor depends on
 
 `renderInstanceConfig` writes `Main.Advanced.ExitOnFailure = true` and
@@ -415,7 +451,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-two rules stated further down this document are enforced too, and are
+Sixty-three rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -483,6 +519,7 @@ have:
 | A failed storage step leaving the account as it found it, and never a graph root it did not create | `packages/core/src/host/podman-facts.test.ts` — runs the real step under `/bin/sh` against a stand-in `podman` that fills the graph root before it answers, the way a real one does. A fresh account whose Podman fails must come back with no `storage.conf`, no graph root, and the same word on a second run; a graph root that was an empty directory must come back empty, still there, and still `0700`; an account that had already run Podman must keep its layer, and one whose `storage.conf` this run did not write must keep both. The ready case requires the graph root the step filled to **survive**, so an undo that always runs fails there rather than passing on the refusals, and dropping the `ours` guard passes the ready case and fails the two that kept their own files. It proves the shell, NOT what a real Podman leaves: the empty `~/.config/containers` the step creates is deliberately kept, and no test drives a real Podman here — `podman-host.sandbox.ts` does that, and it never fails the step |
 | Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
 | A Minecraft version this client would not recognise refused rather than stored | `packages/contracts/src/minecraft-version.test.ts` — the schema is driven with every string `MCVer2ProtocolVersion` has a case for and with strings it has none for, so widening it to a free-text field fails; `apps/server/src/instance.test.ts` drives an unrecognised version through `instance.updateConfig` over HTTP and requires 400, no new config version and no host command, so a schema loosened anywhere on the way fails there too. What it does NOT hold: that the accepted list still matches MCC's switch after a client bump — nothing reads `ProtocolHandler.cs`, and `docs/mcc-compat.md` is where that audit is recorded |
+| A unit that failed under an instance the manager believed running reading as errored, with what it exited with | `packages/core/src/instance/instance.controller.test.ts` — drives `reconcileHost` against a scripted host whose unit answers `failed` and requires the exit code to reach `recordUnitFailure`, requires the drift entry to still be reported beside it, and requires a unit that answers `active` to produce no such write, so recording the failure in place of the drift, or on every instance, fails there. `packages/core/src/instance/reconcile.test.ts` requires an exit code only for `Result=exit-code`, `null` for a signal, `null` for `ExecMainStatus=0` and `null` for an answer it cannot parse, requires an instance desired `stopped` to drift without a failure being recorded, and requires no exit read to be issued at all for a unit that is up. `packages/core/src/instance/unit.test.ts` pins the command and refuses eleven shapes of answer rather than guessing; `packages/core/src/instance/instance.repository.test.ts` requires the write to skip a row that is not `running` and a row under a config claim, so a reading taken before an operator's start cannot undo it, and `apps/web/src/lib/instance-status.test.ts` requires every status in the contract to carry a label and a description. What it does NOT hold: that a real systemd answers in these shapes — every case is driven through a fake transport — nor that `failed` is the only observed state worth recording |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

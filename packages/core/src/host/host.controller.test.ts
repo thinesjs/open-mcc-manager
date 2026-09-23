@@ -1400,8 +1400,8 @@ describe("provisionHost", () => {
 		const remoteBudgetMs = transport.timeouts.reduce((total, each) => total + each, 0)
 		const worstCaseMs = CONNECT_TIMEOUT_MS + remoteBudgetMs
 		expect(transport.timeouts).toHaveLength(transport.commands.length)
-		expect(worstCaseMs).toBe(625_000)
-		expect(PROVISIONING_LEASE_MS).toBe(15 * 60 * 1000)
+		expect(worstCaseMs).toBe(905_000)
+		expect(PROVISIONING_LEASE_MS).toBe(20 * 60 * 1000)
 		expect(worstCaseMs).toBeLessThan(PROVISIONING_LEASE_MS)
 	})
 })

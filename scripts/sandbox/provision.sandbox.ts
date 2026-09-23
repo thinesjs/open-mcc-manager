@@ -19,6 +19,8 @@ import { type As, exec, ROOT, read, remove, shell, succeeded } from "./sandbox"
 
 const FILES = `${HOME}/.local/share/open-mcc`
 
+const JOURNAL_SOCKET = "/run/systemd/journal/socket"
+
 describe.each(PODMAN_TARGETS)("provisioning a Podman host on $name", (target) => {
 	let host = ""
 	let as: As = ROOT
@@ -136,4 +138,29 @@ describe.each(PODMAN_TARGETS)("provisioning a Podman host on $name", (target) =>
 
 		expect(result.networkStack).toBe(target.stack)
 	}, 900_000)
+
+	it("runs the client on a host whose journal refuses this account, where a bot unit would run", async () => {
+		const image = runtimeImageFor(
+			architectureForMachine(succeeded(await exec(host, as, ["uname", "-m"]), "uname -m")),
+		)
+		const mode = succeeded(
+			await exec(host, ROOT, ["stat", "-c", "%a", JOURNAL_SOCKET]),
+			"reading the journal socket's mode",
+		).trim()
+		succeeded(
+			await exec(host, ROOT, ["chmod", "0600", JOURNAL_SOCKET]),
+			"closing the journal socket",
+		)
+		try {
+			const checked = await shell(host, { ...as, timeoutMs: 60_000 }, clientCheckCommand(image))
+
+			expect(checked.stdout, checked.stderr).toContain(CLIENT_BANNER)
+			expect(checked.status, checked.stdout).toBe(0)
+		} finally {
+			succeeded(
+				await exec(host, ROOT, ["chmod", mode, JOURNAL_SOCKET]),
+				"reopening the journal socket",
+			)
+		}
+	}, 300_000)
 })

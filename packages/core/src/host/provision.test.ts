@@ -18,9 +18,12 @@ import { LINGER_COMMAND } from "./check"
 import { mccReleaseForMachine } from "./mcc-release"
 import { HOST_FACTS_COMMAND, STORAGE_CONF, storageStepCommand } from "./podman-facts"
 import {
+	CLIENT_BANNER,
+	CURL_RAN_OUT_OF_TIME,
 	clientCheckCommand,
 	clientDownloadCommand,
 	explainClientFailure,
+	HostProvisioningFailedError,
 	imageIdCommand,
 	imagePullCommand,
 	PROVISION_DOWNLOAD_TIMEOUT_MS,
@@ -30,11 +33,26 @@ import {
 	SYSTEM_COMMAND,
 } from "./provision"
 import { factsOutput, provisionableHost, systemOutput } from "./provisionable-host"
-import { runtimeImageFor } from "./runtime-image"
+import { podmanImageId, runtimeImageFor } from "./runtime-image"
+import { INSTANCE_UNIT_NAME, renderUnitTemplates } from "./unit-template"
 
 const answer = (stdout: string, exitCode = 0) => ({ stdout, stderr: "", exitCode })
 
 const ARM64 = runtimeImageFor("arm64")
+
+const BOT_UNIT = (): string =>
+	renderUnitTemplates({ networkStack: "slirp4netns", imageId: podmanImageId(ARM64) })[
+		INSTANCE_UNIT_NAME
+	] ?? ""
+
+const logDriverOf = (command: string): string | null =>
+	/--log-driver=(\S+)/.exec(command)?.[1] ?? null
+
+const PODMAN_EVENT_REFUSED =
+	'time="2026-09-24T02:35:54+08:00" level=error msg="Unable to write container event: \\"write unixgram @d5643->/run/systemd/journal/socket: sendmsg: permission denied\\""'
+
+const PODMAN_JOURNAL_REFUSED =
+	"Error: failed to initialize journal: write unixgram @6867c->/run/systemd/journal/socket: sendmsg: permission denied"
 
 const ON_ARM64: FakeScript = { "uname -m": answer("aarch64\n") }
 
@@ -126,7 +144,7 @@ describe("provisionHost", () => {
 				15_000,
 			],
 			["Reading the host architecture", "uname -m", 15_000],
-			["Downloading the client", expect.stringContaining("curl -fsSL"), 180_000],
+			["Downloading the client", expect.stringContaining("curl -fsSL"), 460_000],
 			["Verifying the download", expect.stringContaining("sha256sum -c"), 15_000],
 			["Installing the client", expect.stringContaining("install -D -m 0755"), 15_000],
 			["Installing the client", expect.stringMatching(/^rm -rf /), 15_000],
@@ -192,6 +210,39 @@ describe("provisionHost", () => {
 		await provisionHost(transport)
 
 		expect(transport.commands).toContain(clientDownloadCommand(mccReleaseForMachine("aarch64").url))
+	})
+
+	it("spends nearly the whole wait on the transfer, rather than leaving the host's link short", async () => {
+		const transport = await connected(ON_ARM64)
+
+		await provisionHost(transport)
+
+		const index = transport.commands.findIndex((command) => command.includes("curl -fsSL"))
+		const download = transport.commands[index] ?? ""
+		const waitMs = transport.timeouts[index] ?? 0
+		const seconds = Number(/deadline=\$\(\(\$\(date \+%s\) \+ (\d+)\)\)/.exec(download)?.[1])
+
+		expect(seconds * 1000).toBeGreaterThan(waitMs * 0.95)
+	})
+
+	it("says a download that ran out of time ran out of time, and any other failure did not", async () => {
+		const url = mccReleaseForMachine("aarch64").url
+		const timedOut = await connected({
+			...ON_ARM64,
+			[clientDownloadCommand(url)]: {
+				stdout: "",
+				stderr: "curl: (28) Operation timed out after 449_000 milliseconds",
+				exitCode: CURL_RAN_OUT_OF_TIME,
+			},
+		})
+		const refused = await connected({
+			...ON_ARM64,
+			[clientDownloadCommand(url)]: { stdout: "", stderr: "curl: (22) 404", exitCode: 22 },
+		})
+
+		await expect(provisionHost(timedOut)).rejects.toMatchObject({ downloadRanOutOfTime: true })
+		await expect(provisionHost(refused)).rejects.toMatchObject({ downloadRanOutOfTime: false })
+		await expect(provisionHost(refused)).rejects.toBeInstanceOf(HostProvisioningFailedError)
 	})
 
 	it("retries the download, and finishes every attempt and every backoff inside the wait it is given", async () => {
@@ -492,7 +543,7 @@ describe("the runtime image", () => {
 describe("checking the client runs", () => {
 	it("runs the installed client in the pinned image by ID, with no network and no pull", () => {
 		expect(clientCheckCommand(ARM64)).toBe(
-			'podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v "$HOME"/.local/share/open-mcc/bin:/opt/mcc:ro b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9 /opt/mcc/MinecraftClient --help < /dev/null 2>&1',
+			'podman run --rm --network=none --pull=never --log-driver=passthrough --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v "$HOME"/.local/share/open-mcc/bin:/opt/mcc:ro b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9 /opt/mcc/MinecraftClient --help < /dev/null 2>&1',
 		)
 	})
 
@@ -522,6 +573,57 @@ describe("checking the client runs", () => {
 
 		await expect(provisionHost(transport)).rejects.toThrow(/image not known/)
 		expect(transport.commands.some((command) => command.includes("daemon-reload"))).toBe(false)
+	})
+
+	it("runs the client through the log driver the bot units run it through", () => {
+		const driver = logDriverOf(BOT_UNIT())
+
+		expect(driver).not.toBeNull()
+		expect(logDriverOf(clientCheckCommand(ARM64))).toBe(driver)
+	})
+
+	it("chooses no events backend, because a bot unit chooses none either", () => {
+		expect(clientCheckCommand(ARM64)).not.toContain("--events-backend")
+		expect(BOT_UNIT()).not.toContain("--events-backend")
+	})
+
+	it("finishes on a host where Podman cannot write its own events", async () => {
+		const transport = await connected({
+			...ON_ARM64,
+			[clientCheckCommand(ARM64)]: answer(
+				[
+					PODMAN_EVENT_REFUSED,
+					`${CLIENT_BANNER} v26.2 - for MC 1.4.6 to 26.2`,
+					PODMAN_EVENT_REFUSED,
+				].join("\n"),
+			),
+		})
+
+		await expect(provisionHost(transport)).resolves.toMatchObject({ architecture: "arm64" })
+	})
+
+	it("reads past Podman's own log lines to what the client said", () => {
+		expect(
+			explainClientFailure(
+				[PODMAN_EVENT_REFUSED, "Couldn't find a valid ICU package installed on the system."].join(
+					"\n",
+				),
+			),
+		).toBe(
+			"The installed client could not start: Couldn't find a valid ICU package installed on the system.",
+		)
+	})
+
+	it("names Podman, not the client, when Podman is the one that refused", () => {
+		expect(explainClientFailure([PODMAN_EVENT_REFUSED, PODMAN_JOURNAL_REFUSED].join("\n"))).toBe(
+			"Podman did not run the client: failed to initialize journal: write unixgram @6867c->/run/systemd/journal/socket: sendmsg: permission denied",
+		)
+	})
+
+	it("quotes the first thing the client said, not the last", () => {
+		expect(explainClientFailure("Unhandled exception.\n   at MinecraftClient.Program.Main()")).toBe(
+			"The installed client could not start: Unhandled exception.",
+		)
 	})
 
 	it("quotes what the client said when it could not start", () => {

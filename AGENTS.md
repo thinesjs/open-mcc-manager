@@ -403,6 +403,86 @@ controller keeps writing its own copy rather than the host's output, and
 STORAGE_STEP_LABEL>`, so the storage step cannot acquire a second, unreachable
 sentence there.
 
+### A check runs the thing it certifies, under the runtime it certifies
+
+The client probe ran `podman run` with **no `--log-driver`**, so it took
+Podman's default. On a systemd host with a journal directory that default is
+`journald` — `containers/common`'s `defaultLogDriver` returns it whenever
+`/proc/1/comm` reads `systemd` and a machine-id directory under
+`/run/log/journal` or `/var/log/journal` can be read, which all three sandbox
+targets confirm. The bot units pin `--log-driver=passthrough`. So on a host
+whose rootless account cannot write `/run/systemd/journal/socket`, the probe and
+the bot took different paths, and the probe was the one that could fail:
+provisioning refusing a host on which every bot would have run.
+
+Measured on all three targets with the socket at `0600` and real Podman, and
+they do **not** agree, which is why the flag is pinned rather than argued:
+
+| | default `journald` driver | `--log-driver=passthrough` |
+| --- | --- | --- |
+| Debian 12, Podman 4.3.1 | `Error: failed to initialize journal: write unixgram …: sendmsg: permission denied`, exit 125, container never starts | exit 0, banner printed |
+| Ubuntu 24.04, Podman 4.9.3 | exit 0, banner printed | exit 0, banner printed |
+| Debian 13, Podman 5.4.2 | exit 0, banner printed | exit 0, banner printed |
+
+4.3.1 is `PODMAN_FLOOR` itself, so the row that breaks is a fully supported
+host, not an outlier. Do **not** read the table the other way round and conclude
+the flag is optional on the newer two: the point is that the probe must not
+depend on which of those three answers a host happens to give.
+
+**`--log-driver` and `--events-backend` are different settings, and only the
+first was missing.** The `Unable to write container event` line is written by
+`libpod/events.go`, which logs it and carries on; all three targets print that
+family of line four to six times **around a container that ran to completion and
+exited 0**. It is noise, not a cause, and a failure that quotes it is quoting
+the wrong line — see the section below. The probe therefore **tolerates** it:
+`--events-backend` is left unset in the probe exactly as it is unset in the
+units, so the probe sees what a bot sees. Pinning `--events-backend=file` would
+have silenced the line at the cost of making the check quieter than every bot on
+that host — the same defect pointing the other way.
+
+`UNIT_LOG_DRIVER` lives in `unit-template.ts` and is spent by both unit
+templates and by `clientCheckCommand`, so the two cannot drift.
+
+`--log-driver=passthrough` is **refused on a TTY**: `podman create` checks file
+descriptors 0, 1 and 2 and errors out if any is a terminal. The manager's SSH
+exec asks for no pty and the sandbox's `docker exec` passes no `--tty`, so
+neither has one. A person pasting `clientCheckCommand` into an interactive shell
+will be refused; redirect its stdout to a file to run it by hand.
+
+The probe still differs from a unit where it must: `--network=none`, no
+`--name`, no `--env-file`, no published port, and
+`DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp` rather than `/data`. Two unit flags are
+**deliberately not** copied — `--init` and `--security-opt=no-new-privileges`.
+Copying `--init` would make a host missing `catatonit` fail at **Checking the
+client runs** under the sentence "The client did not start", which names the
+wrong cause; that is a separate fix with a sentence of its own, not a fidelity
+tweak.
+
+### The probe's failure quotes only a line the client could have written
+
+`explainClientFailure` took `output.trim().split("\n")[0]` and called it the
+client's. On the host that prompted this, that first line was Podman's own
+logrus event-log line, so the server log said the client said something it never
+said — the same fault as a sentence naming a cause the code has not established,
+one layer down. Worse than misattribution: the line that **was** the cause sat
+further down the same output and was discarded, so the one reading that could
+have identified the host's real fault never reached anyone.
+
+It now skips the lines Podman itself writes — logrus `time="…" level=… msg=…`,
+and its verdict prefix `Error: ` — and reports the **first line left**, which is
+the only line that could have come from the client. `provisionHost` calls it
+only when the whole output lacks `CLIENT_BANNER`, so the client is already known
+never to have announced itself; this function decides **who spoke**, not whether
+the client failed. Three endings: a surviving line is quoted as the client's; no
+surviving line but an `Error: ` line is Podman's refusal and is reported as
+Podman's; neither is "reported nothing".
+
+The residual is a client whose only output began `Error: `, which would be read
+as Podman's. MCC writes no such line — the two `Error: ` sites in its tree are
+inside running bots and carry a bot-name prefix — and a `--help` run prints the
+banner before anything else, so a client that reached its own output would not
+be here at all.
+
 ## Prohibitions
 
 - No Next.js, in any form, ever.
@@ -451,7 +531,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-three rules stated further down this document are enforced too, and are
+Sixty-six rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -520,6 +600,9 @@ have:
 | Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
 | A Minecraft version this client would not recognise refused rather than stored | `packages/contracts/src/minecraft-version.test.ts` — the schema is driven with every string `MCVer2ProtocolVersion` has a case for and with strings it has none for, so widening it to a free-text field fails; `apps/server/src/instance.test.ts` drives an unrecognised version through `instance.updateConfig` over HTTP and requires 400, no new config version and no host command, so a schema loosened anywhere on the way fails there too. What it does NOT hold: that the accepted list still matches MCC's switch after a client bump — nothing reads `ProtocolHandler.cs`, and `docs/mcc-compat.md` is where that audit is recorded |
 | A unit that failed under an instance the manager believed running reading as errored, with what it exited with | `packages/core/src/instance/instance.controller.test.ts` — drives `reconcileHost` against a scripted host whose unit answers `failed` and requires the exit code to reach `recordUnitFailure`, requires the drift entry to still be reported beside it, and requires a unit that answers `active` to produce no such write, so recording the failure in place of the drift, or on every instance, fails there. `packages/core/src/instance/reconcile.test.ts` requires an exit code only for `Result=exit-code`, `null` for a signal, `null` for `ExecMainStatus=0` and `null` for an answer it cannot parse, requires an instance desired `stopped` to drift without a failure being recorded, and requires no exit read to be issued at all for a unit that is up. `packages/core/src/instance/unit.test.ts` pins the command and refuses eleven shapes of answer rather than guessing; `packages/core/src/instance/instance.repository.test.ts` requires the write to skip a row that is not `running` and a row under a config claim, so a reading taken before an operator's start cannot undo it, and `apps/web/src/lib/instance-status.test.ts` requires every status in the contract to carry a label and a description. What it does NOT hold: that a real systemd answers in these shapes — every case is driven through a fake transport — nor that `failed` is the only observed state worth recording |
+| The client probe running under the same log driver as a bot unit, and choosing no events backend of its own | `packages/core/src/host/provision.test.ts` — reads `--log-driver=` off `clientCheckCommand` and off the rendered `open-mcc@.service` and requires the same value, so dropping the flag from either side fails; a second test requires neither to name `--events-backend`, so silencing Podman's event log in the probe alone fails. `scripts/sandbox/provision.sandbox.ts` drives the shipped command on real Podman on all three targets with `/run/systemd/journal/socket` at `0600` and requires the banner and exit 0, which is the Debian 12 row of the table above and fails there without the flag. What it does NOT hold: the same difference on the other two targets, whose Podman survives the refusal either way, so the sandbox catches a dropped flag on one target only; nor any other flag the units carry and the probe does not — `--init` and `--security-opt=no-new-privileges` are named in the notes above and left uncopied on purpose |
+| A probe failure quoting only a line the client could have written | `packages/core/src/host/provision.test.ts` — Podman's logrus line in front of the client's message must be skipped and the client's message reported whole; the same output ending in Podman's `Error:` verdict with no client line must be reported as Podman's refusal and not as the client's; two client lines must report the first, so reading the end of the output instead fails. What it does NOT hold: that a surviving line really came from the client — only that it is not one Podman writes |
+| A download that ran out of time told apart from one that failed some other way, and the budget that makes the difference worth having | `packages/core/src/host/provision-failure.test.ts` — requires the download step's timed-out sentence to differ from its ordinary one, and requires **no other step** to produce the timed-out sentence even when the flag is set, so widening the condition fails. `packages/core/src/host/provision.test.ts` — drives `provisionHost` against a download exiting 28 and one exiting 22 and requires `downloadRanOutOfTime` true and false respectively, so keying it on any non-zero exit fails; a second test requires the rendered deadline to be over 95% of the wait the step is given, so shrinking the deadline back while leaving the wait alone fails. What it does NOT hold: that 450s is enough for any particular host — the floor it implies, 190 KB/s, is arithmetic recorded above and is not asserted anywhere, because the artefact's size is not a constant this repository keeps |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -1003,8 +1086,8 @@ Dependency direction is one-way: router → controller → repository.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
   the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
-  fifteen 15s commands, the 180s client download, the 180s image pull and the
-  30s client check, 625s against a 900s lease today. The lease, the connect
+  fifteen 15s commands, the 460s client download, the 180s image pull and the
+  30s client check, 905s against a 1200s lease today. The lease, the connect
   timeout and the three provisioning timeouts live in three files and nothing
   but that arithmetic ties them together, so one more command, or a longer
   timeout, would silently push the worst case
@@ -1014,7 +1097,7 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
-- The client download retries, and its three bounds are coupled to the 180s
+- The client download retries, and its three bounds are coupled to the 460s
   that step is given. `clientDownloadCommand` (`provision.ts`) renders a loop
   around `curl` bounded by `DOWNLOAD_ATTEMPTS`, by `DOWNLOAD_DEADLINE_SECONDS`
   recomputed each pass into `--max-time`, and by a backoff that starts at
@@ -1023,11 +1106,43 @@ Dependency direction is one-way: router → controller → repository.
   the last backoff is slept **after** the last one and is not inside it — and
   that must stay under `PROVISION_DOWNLOAD_TIMEOUT_MS`, or the exec is killed
   mid-retry and the operator is told the command did not finish rather than
-  what the origin said. 170 + 2 = 172s against 180s today. Four numbers in one
+  what the origin said. 450 + 2 = 452s against 460s today. Four numbers in one
   file and a fifth above them, tied by nothing but that arithmetic, so
   `provision.test.ts` reads all four back off the command `provisionHost`
   issues and checks the relationship rather than the values: five attempts
   still fits and passes, six does not and fails.
+- **That retry does not cover a transfer that is merely slow, and the budget is
+  what does.** The deadline is shared across attempts, so a `curl` that spends
+  all of it and exits 28 leaves `left` at zero, and the next pass exits at
+  `[ "$left" -gt 0 ] || exit 28` without a second request. Measured on the
+  rendered command with the deadline cut to 3s: a transfer still running prints
+  **one** `curl: (28)` line and takes 4.0s, while a refused connect prints
+  **two** `curl: (7)` lines and takes 3.1s. So the loop retries what fails
+  *quickly* — a 500, a reset, a body cut short, a refused connect — and a slow
+  link gets exactly one attempt. Two real hosts hit it: 47 433 518 and 75 405 873
+  of 85 549 587 bytes, `curl: (28)` both times.
+  `DOWNLOAD_DEADLINE_SECONDS` is therefore **450**, which is the number that
+  sets the floor: 85 549 587 bytes in 450s is **190 KB/s**, about 1.5 Mbit/s,
+  against the 503 KB/s the old 170s demanded. That is the whole fix, and it is
+  why `PROVISIONING_LEASE_MS` went to 20 minutes with it — the bullet above is
+  the arithmetic that forced the second number, not an afterthought.
+  **Do not reach for `curl -C -` to "make it resumable".** Within a fixed
+  deadline resumption buys no transfer time at all; it only stops a retry
+  re-fetching bytes it already had, and at the floor this budget is designed
+  for there is no room for a second attempt either way. It also costs three new
+  failure modes, measured: `-C -` against an origin that ignores `Range`
+  exits **33** on any file that already has bytes (verified against a server
+  without Range support), a complete file draws a **416** under `-f`, and
+  neither is in the transient list. If the budget ever has to grow enough for a
+  second full attempt to fit, revisit it then, with those three handled.
+- **A download that ran out of time says so.** `provisionHost` reads the
+  download step's own exit status rather than routing it through `step()`, and
+  `curl`'s 28 becomes `HostProvisioningFailedError.downloadRanOutOfTime`, which
+  `provisioningFailureFor` turns into "The client download ran out of time"
+  instead of the generic "The client could not be downloaded." That is the only
+  thing the exit status establishes — it does **not** say the link is slow, only
+  that the transfer did not finish in the time allowed — and no other step's
+  failure may borrow the sentence.
 - **What that retry treats as transient is a decision, not a default.** A 500,
   a 502, a 503, a 408 and a 429, and curl's 6, 7, 18, 28, 35, 52, 55 and 56 —
   DNS, connect, partial file, timeout, SSL connect, empty reply, send and recv

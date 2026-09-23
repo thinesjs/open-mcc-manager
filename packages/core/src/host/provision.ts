@@ -28,16 +28,28 @@ import {
 	runtimeImageFor,
 	runtimeImageReference,
 } from "./runtime-image"
-import { INSTANCE_UNIT_NAME, renderUnitTemplates, SUPPORTING_UNIT_NAMES } from "./unit-template"
+import {
+	INSTANCE_UNIT_NAME,
+	renderUnitTemplates,
+	SUPPORTING_UNIT_NAMES,
+	UNIT_LOG_DRIVER,
+} from "./unit-template"
 
 export { INSTANCE_UNIT_NAME, SUPPORTING_UNIT_NAMES }
 
 export class HostProvisioningFailedError extends Error {
 	readonly storage: StorageStepWord | null
 
-	constructor(message: string, storage: StorageStepWord | null = null) {
+	readonly downloadRanOutOfTime: boolean
+
+	constructor(
+		message: string,
+		storage: StorageStepWord | null = null,
+		downloadRanOutOfTime = false,
+	) {
 		super(message)
 		this.storage = storage
+		this.downloadRanOutOfTime = downloadRanOutOfTime
 	}
 }
 
@@ -67,7 +79,9 @@ export type ProvisionReporter = (progress: ProvisionProgress) => void
 
 export const PROVISION_STEP_TIMEOUT_MS = 15_000
 
-export const PROVISION_DOWNLOAD_TIMEOUT_MS = 180_000
+export const PROVISION_DOWNLOAD_TIMEOUT_MS = 460_000
+
+export const IMAGE_PULL_TIMEOUT_MS = 180_000
 
 export const CLIENT_PROBE_TIMEOUT_MS = 30_000
 
@@ -102,24 +116,38 @@ export const parseSystem = (output: string) => {
 	}
 }
 
+const PODMAN_LOG_LINE = /^time="[^"]*" level=[a-z]+ msg=/
+
+const PODMAN_VERDICT = "Error: "
+
 export const explainClientFailure = (output: string): string => {
-	const firstLine = output.trim().split("\n")[0] ?? ""
-	return firstLine.length > 0
-		? `The installed client could not start: ${firstLine}`
-		: "The installed client could not start, and reported nothing."
+	const lines = output
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+	const fromClient = lines.find(
+		(line) => !PODMAN_LOG_LINE.test(line) && !line.startsWith(PODMAN_VERDICT),
+	)
+	if (fromClient !== undefined) return `The installed client could not start: ${fromClient}`
+	const verdict = lines.find((line) => line.startsWith(PODMAN_VERDICT))
+	if (verdict !== undefined)
+		return `Podman did not run the client: ${verdict.slice(PODMAN_VERDICT.length)}`
+	return "The installed client could not start, and reported nothing."
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 export const DOWNLOAD_ATTEMPTS = 3
 
-export const DOWNLOAD_DEADLINE_SECONDS = 170
+export const DOWNLOAD_DEADLINE_SECONDS = 450
 
 export const DOWNLOAD_FIRST_BACKOFF_SECONDS = 1
 
 const RETRYABLE_HTTP_CODES = ["408", "429", "5??"] as const
 
-const RETRYABLE_CURL_EXITS = [6, 7, 18, 28, 35, 52, 55, 56] as const
+export const CURL_RAN_OUT_OF_TIME = 28
+
+const RETRYABLE_CURL_EXITS = [6, 7, 18, CURL_RAN_OUT_OF_TIME, 35, 52, 55, 56] as const
 
 const TRANSIENT = [
 	...RETRYABLE_HTTP_CODES.map((code) => `22:${code}`),
@@ -157,7 +185,7 @@ export const imageIdCommand = (image: RuntimeImage): string =>
 	`podman image inspect --format '{{.Id}}' ${shellQuote(runtimeImageReference(image))}`
 
 export const clientCheckCommand = (image: RuntimeImage): string =>
-	`podman run --rm --network=none --pull=never --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
+	`podman run --rm --network=none --pull=never --log-driver=${UNIT_LOG_DRIVER} --user 0:0 --read-only --cap-drop=all -e DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp -v ${INSTANCES_ROOT}/bin:/opt/mcc:ro ${podmanImageId(image)} /opt/mcc/MinecraftClient --help < /dev/null 2>&1`
 
 const step = async (
 	transport: HostTransport,
@@ -270,12 +298,18 @@ export const provisionHost = async (
 	const image = runtimeImageFor(release.architecture)
 
 	advance()
-	const workDir = await step(
-		transport,
+	const download = await transport.exec(
 		clientDownloadCommand(release.url),
-		"Failed to download the Minecraft Console Client",
 		PROVISION_DOWNLOAD_TIMEOUT_MS,
 	)
+	if (download.exitCode !== 0) {
+		throw new HostProvisioningFailedError(
+			`Failed to download the Minecraft Console Client: ${download.stderr.trim()}`,
+			null,
+			download.exitCode === CURL_RAN_OUT_OF_TIME,
+		)
+	}
+	const workDir = download.stdout.trim()
 
 	try {
 		advance()
@@ -302,7 +336,7 @@ export const provisionHost = async (
 		transport,
 		imagePullCommand(image),
 		"Failed to download the runtime image",
-		PROVISION_DOWNLOAD_TIMEOUT_MS,
+		IMAGE_PULL_TIMEOUT_MS,
 	)
 
 	advance()

@@ -1,7 +1,11 @@
-import { PROVISION_STEP_LABELS, STORAGE_STEP_LABEL } from "@open-mcc/contracts"
+import { DOWNLOAD_STEP_LABEL, PROVISION_STEP_LABELS, STORAGE_STEP_LABEL } from "@open-mcc/contracts"
 import { describe, expect, it } from "vitest"
 import { STORAGE_STEP_WORDS } from "./podman-facts"
-import { PROVISIONING_STOPPED_EARLY, provisioningFailureFor } from "./provision-failure"
+import {
+	DOWNLOAD_RAN_OUT_OF_TIME,
+	PROVISIONING_STOPPED_EARLY,
+	provisioningFailureFor,
+} from "./provision-failure"
 
 const storageOutcomes = [...STORAGE_STEP_WORDS, null].map((word) => ({
 	word,
@@ -19,6 +23,19 @@ describe("what an operator is told when provisioning stops", () => {
 	it("says the same thing for every other step, whatever the storage step printed", () => {
 		for (const step of PROVISION_STEP_LABELS.filter((label) => label !== STORAGE_STEP_LABEL)) {
 			expect(provisioningFailureFor(step, "used")).toBe(provisioningFailureFor(step, null))
+		}
+	})
+
+	it("tells a download that ran out of time from one that failed some other way", () => {
+		const ranOut = provisioningFailureFor(DOWNLOAD_STEP_LABEL, null, true)
+
+		expect(ranOut).toBe(DOWNLOAD_RAN_OUT_OF_TIME)
+		expect(ranOut).not.toBe(provisioningFailureFor(DOWNLOAD_STEP_LABEL, null, false))
+	})
+
+	it("says a download ran out of time for no step but the download", () => {
+		for (const step of PROVISION_STEP_LABELS.filter((label) => label !== DOWNLOAD_STEP_LABEL)) {
+			expect(provisioningFailureFor(step, null, true)).not.toBe(DOWNLOAD_RAN_OUT_OF_TIME)
 		}
 	})
 

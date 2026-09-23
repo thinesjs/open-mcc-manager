@@ -1,5 +1,6 @@
 import {
 	CLIENT_RUNS_STEP_LABEL,
+	DOWNLOAD_STEP_LABEL,
 	LINGER_STEP_LABEL,
 	type ProvisionStepLabel,
 	STORAGE_STEP_LABEL,
@@ -17,7 +18,7 @@ const FAILURES: Readonly<Record<OtherStepLabel, string>> = {
 	"Creating the instances directory": "The instances directory could not be created.",
 	"Reading the host architecture":
 		"This host's processor could not be read, or has no client build.",
-	"Downloading the client": "The client could not be downloaded.",
+	[DOWNLOAD_STEP_LABEL]: "The client could not be downloaded.",
 	"Verifying the download": "The download did not match its checksum, so it was not installed.",
 	"Installing the client": "The client could not be installed.",
 	"Downloading the runtime image": "The runtime image could not be downloaded.",
@@ -36,6 +37,9 @@ const STORAGE_FAILURES: Readonly<Record<StorageStepWord, string>> = {
 	root: "Podman does not run rootless for this account. Bots can only run where it does.",
 }
 
+export const DOWNLOAD_RAN_OUT_OF_TIME =
+	"The client download ran out of time. Provision again, or put this host on a faster connection."
+
 export const STORAGE_STEP_SAID_NOTHING =
 	"Podman did not answer on this account, so nothing was set up on it. Run podman info there as this account to see why."
 
@@ -44,8 +48,11 @@ export const PROVISIONING_STOPPED_EARLY = "Provisioning stopped before its first
 export const provisioningFailureFor = (
 	step: ProvisionStepLabel | undefined,
 	storage: StorageStepWord | null,
+	downloadRanOutOfTime = false,
 ): string => {
 	if (step === undefined) return PROVISIONING_STOPPED_EARLY
-	if (step !== STORAGE_STEP_LABEL) return FAILURES[step]
-	return storage === null ? STORAGE_STEP_SAID_NOTHING : STORAGE_FAILURES[storage]
+	if (step === STORAGE_STEP_LABEL)
+		return storage === null ? STORAGE_STEP_SAID_NOTHING : STORAGE_FAILURES[storage]
+	if (step === DOWNLOAD_STEP_LABEL && downloadRanOutOfTime) return DOWNLOAD_RAN_OUT_OF_TIME
+	return FAILURES[step]
 }

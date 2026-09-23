@@ -488,6 +488,19 @@ describe("completeAuthentication", () => {
 		expect(transport.commands.some((each) => each.startsWith("pkill"))).toBe(false)
 	})
 
+	it("refuses an account that never signs in with a code, before reaching the host", async () => {
+		const { deps, transport, instances } = withProbe(0)
+		vi.mocked(instances.findById).mockResolvedValue(
+			instanceRow({ accountType: "offline", minecraftAccount: "Steve", status: "stopped" }),
+		)
+
+		await expect(completeAuthentication(deps, owner, "abc123")).rejects.toThrow(
+			InstanceAccountNotInteractiveError,
+		)
+
+		expect(transport.commands).toEqual([])
+	})
+
 	it("refuses a sign-in that used another Microsoft account, leaving the instance waiting", async () => {
 		const { deps, transport, instances } = withProbe(4)
 		vi.mocked(instances.findById).mockResolvedValue(instanceRow({ status: "needs_auth" }))

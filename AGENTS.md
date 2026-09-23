@@ -221,6 +221,42 @@ against.
 self-hosted deployment should not phone home, and the key is not in
 `ALLOWED_CONFIG_KEYS`, so an operator could not have turned it off.
 
+### The version a bot joins as, and why an unknown one is refused
+
+`Main.Advanced.MinecraftVersion` is in `ALLOWED_CONFIG_KEYS`, so an operator
+chooses it and reconciliation treats it like every other managed key. It is
+there because MCC's auto-detect cannot negotiate with every server: one that
+will not say which protocol it speaks answers a join with `This version is not
+supported`, the unit exits 1, and until this setting existed no instance
+pointed at such a server could ever start.
+
+The value is `auto` or one of the 131 strings `MCVer2ProtocolVersion`
+(`MinecraftClient/Protocol/ProtocolHandler.cs`) has a case for, and
+`packages/contracts/src/minecraft-version.ts` refuses everything else. The
+strictness is the point rather than tidiness: `Program.cs` answers an
+unrecognised string by logging `mcc_unknown_version` and **falling back to
+auto-detect**, so a typo would be stored, rendered, reported as converged and
+silently do nothing, leaving an operator looking at a pinned version on a bot
+that is not pinned.
+
+The dropdown offers fewer strings than the schema accepts. MCC spells twenty
+releases both as `X.Y` and as `X.Y.0`, and only one of each pair is a real
+release; both are still accepted on input, because a saved document may hold
+either. `MINECRAFT_VERSION_OPTIONS` is derived from the accepted list rather
+than written beside it, so a version added upstream reaches the dashboard by
+editing one array.
+
+It is stored in the versioned `instanceConfig` document beside the server
+address, not as a column on `instance`. A column would be a second source of
+truth that rolling a config version back would not roll back, and the narrowing
+`packages/db/src/schema/` asks of a constrained column would mean hand-writing a
+132-member union in a package that may not import the contracts. Documents saved
+before this setting existed carry no such key and read as `auto` through the
+schema's default, so no migration adds one. The first start, restart or settings
+save after this change writes the key onto the host; until then reconciliation
+reports managed drift on it, which is the same path a version change itself
+takes.
+
 ### The pinned player-name check, and what depends on it
 
 `renderInstanceConfig` writes `Main.Advanced.IgnoreInvalidPlayerName = true` as a
@@ -379,7 +415,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-one rules stated further down this document are enforced too, and are
+Sixty-two rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -446,6 +482,7 @@ have:
 | An image that bundles every dependency marking none of them external | `check-runtime-deps.mjs` — `docker/web/Dockerfile` is listed under `BUNDLED_WHOLE`, where any `--external:` at all is a failure, because that image ships no `node_modules` to resolve one from. `check-runtime-deps.test.ts` seeds a tree whose web Dockerfile marks `hono` external and requires exit 1 naming it |
 | A failed storage step leaving the account as it found it, and never a graph root it did not create | `packages/core/src/host/podman-facts.test.ts` — runs the real step under `/bin/sh` against a stand-in `podman` that fills the graph root before it answers, the way a real one does. A fresh account whose Podman fails must come back with no `storage.conf`, no graph root, and the same word on a second run; a graph root that was an empty directory must come back empty, still there, and still `0700`; an account that had already run Podman must keep its layer, and one whose `storage.conf` this run did not write must keep both. The ready case requires the graph root the step filled to **survive**, so an undo that always runs fails there rather than passing on the refusals, and dropping the `ours` guard passes the ready case and fails the two that kept their own files. It proves the shell, NOT what a real Podman leaves: the empty `~/.config/containers` the step creates is deliberately kept, and no test drives a real Podman here — `podman-host.sandbox.ts` does that, and it never fails the step |
 | Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
+| A Minecraft version this client would not recognise refused rather than stored | `packages/contracts/src/minecraft-version.test.ts` — the schema is driven with every string `MCVer2ProtocolVersion` has a case for and with strings it has none for, so widening it to a free-text field fails; `apps/server/src/instance.test.ts` drives an unrecognised version through `instance.updateConfig` over HTTP and requires 400, no new config version and no host command, so a schema loosened anywhere on the way fails there too. What it does NOT hold: that the accepted list still matches MCC's switch after a client bump — nothing reads `ProtocolHandler.cs`, and `docs/mcc-compat.md` is where that audit is recorded |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

@@ -1033,6 +1033,7 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					accountType: input.accountType,
 					minecraftAccount: input.minecraftAccount,
 					serverAddress: input.serverAddress,
+					minecraftVersion: input.minecraftVersion,
 				})
 
 				const created = await insertWithFreePort(async () => {

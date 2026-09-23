@@ -278,6 +278,7 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 					accountType: "microsoft",
 					minecraftAccount: "sandbox@example.invalid",
 					serverAddress: "127.0.0.1",
+					minecraftVersion: "auto",
 				}),
 			),
 		})) {
@@ -500,6 +501,7 @@ describe.each(PODMAN_TARGETS)("signing in to Microsoft in rootless Podman on $na
 			accountType: "microsoft",
 			minecraftAccount: "sandbox@example.invalid",
 			serverAddress: "127.0.0.1",
+			minecraftVersion: "auto",
 		})
 		await ready().controller.stop(owner, created.id)
 		const lock = `${FILES}/instances/${created.id}/collect.lock`

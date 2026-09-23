@@ -3,6 +3,7 @@ import { trpcServer } from "@hono/trpc-server"
 import {
 	COMMAND_SPANS_LINES,
 	INVISIBLE_CHARACTER_IN_COMMAND,
+	instanceConfigStored,
 	instancePublic,
 	type ScheduledCommandPublic,
 	scheduledCommandPublic,
@@ -1124,6 +1125,43 @@ describe("a save that lost the race", () => {
 		expect(res.status).toBe(200)
 		expect(await latestVersion(instanceId)).toBe(3)
 		expect(issuedCommands().filter((each) => each.includes("MinecraftClient.ini"))).toHaveLength(1)
+	})
+
+	it("★ carries a pinned version to the database and to the file the client reads", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: { ...SETTINGS, minecraftVersion: "1.8.9" },
+			expectedVersion: 2,
+		})
+
+		expect(res.status).toBe(200)
+		const saved = await db
+			.selectFrom("instanceConfig")
+			.select("document")
+			.where("instanceId", "=", instanceId)
+			.orderBy("version", "desc")
+			.executeTakeFirst()
+		expect(instanceConfigStored.parse(saved?.document).minecraftVersion).toBe("1.8.9")
+		const written = hostTransports.flatMap((each) => each.stdins)
+		expect(written.filter((each) => each.includes('MinecraftVersion = "1.8.9"'))).toHaveLength(1)
+	})
+
+	it("★ refuses a version the client would not recognise, rather than storing one it ignores", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const instanceId = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.updateConfig", cookie, {
+			instanceId,
+			config: { ...SETTINGS, minecraftVersion: "1.21.99" },
+			expectedVersion: 2,
+		})
+
+		expect(res.status).toBe(400)
+		expect(await latestVersion(instanceId)).toBe(2)
+		expect(issuedCommands()).toEqual([])
 	})
 
 	it("★ refuses a save on a bot another change is already holding", async () => {

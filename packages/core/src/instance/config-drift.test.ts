@@ -8,6 +8,7 @@ const base = {
 	accountType: "offline",
 	minecraftAccount: "OpenMccBot",
 	serverAddress: "100.101.102.103",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -318,6 +319,49 @@ describe("comparing delay ranges", () => {
 
 		expect(drift.map(describeConfigDrift)).toEqual([
 			"ChatBot.AutoRelog.Delay is 6-21, expected 5-20",
+		])
+	})
+
+	it("★ reports a pinned version the host does not hold, so a running bot is reconciled onto it", () => {
+		const expected = renderInstanceConfig({ ...base, minecraftVersion: "1.8.9" })
+		const actual = renderInstanceConfig(base)
+
+		const drift = compareInstanceConfig(expected, actual).filter(
+			(entry) => entry.kind !== "section",
+		)
+
+		expect(drift).toEqual([
+			{
+				kind: "managed",
+				key: "Main.Advanced.MinecraftVersion",
+				expected: "1.8.9",
+				actual: "auto",
+			},
+		])
+		expect(drift.map(describeConfigDrift)).toEqual([
+			'Main.Advanced.MinecraftVersion is "auto", expected "1.8.9"',
+		])
+		expect(drift.some(isSafetyDrift)).toBe(false)
+	})
+
+	it("reports a version a host left out entirely, rather than passing an absent key", () => {
+		const expected = renderInstanceConfig({ ...base, minecraftVersion: "1.16.5" })
+		const actual = expected
+			.split("\n")
+			.filter((line) => !line.startsWith("MinecraftVersion = "))
+			.join("\n")
+
+		const drift = compareInstanceConfig(expected, actual).filter(
+			(entry) => entry.kind !== "section",
+		)
+
+		expect(drift).toEqual([
+			{
+				kind: "managed",
+				key: "Main.Advanced.MinecraftVersion",
+				expected: "1.16.5",
+				actual: undefined,
+			},
 		])
 	})
 

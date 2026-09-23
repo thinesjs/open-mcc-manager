@@ -14,6 +14,7 @@ const base = {
 	accountType: "microsoft",
 	minecraftAccount: "afk@example.com",
 	serverAddress: "play.example.com:25566",
+	minecraftVersion: "auto",
 	autoRelogRetries: 3,
 	autoRelogEnabled: true,
 	autoRelogDelaySeconds: { min: 10, max: 10 },
@@ -78,6 +79,7 @@ describe("instance config rendering", () => {
 			"InternalCmdChar",
 			"ShowGithubStarReminder",
 			"BotOwners",
+			"MinecraftVersion",
 			"AutoRespawn",
 			"TerrainAndMovements",
 			"InventoryHandling",
@@ -538,11 +540,29 @@ describe("delay ranges and the auto-relog toggle", () => {
 		expect(FIXED_CONFIG_KEYS).toContain("Main.Advanced.IgnoreInvalidPlayerName")
 	})
 
+	it("leaves version negotiation to the client when nothing is pinned", () => {
+		const rendered = renderInstanceConfig(base)
+
+		expect(valueInSection(rendered, "[Main.Advanced]", "MinecraftVersion")).toBe('"auto"')
+	})
+
+	it("★ pins the version the operator chose, which is the only way onto a server that refuses auto-detect", () => {
+		const rendered = renderInstanceConfig({ ...base, minecraftVersion: "1.8.9" })
+
+		expect(valueInSection(rendered, "[Main.Advanced]", "MinecraftVersion")).toBe('"1.8.9"')
+	})
+
+	it("leaves the version to the operator rather than pinning it, and puts it beside the server", () => {
+		expect(ALLOWED_CONFIG_KEYS).toContain("Main.Advanced.MinecraftVersion")
+		expect(FIXED_CONFIG_KEYS).not.toContain("Main.Advanced.MinecraftVersion")
+	})
+
 	it("starts a new instance with auto-relog on, which is what the client did before the toggle", () => {
 		const config = defaultInstanceConfig({
 			accountType: "offline",
 			minecraftAccount: "AfkBot",
 			serverAddress: "play.example.com",
+			minecraftVersion: "auto",
 		})
 
 		expect(config.autoRelogEnabled).toBe(true)

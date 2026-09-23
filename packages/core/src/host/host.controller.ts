@@ -480,6 +480,7 @@ export const createHostController = (deps: HostControllerDeps) => {
 							: provisioningFailureFor(
 									reached?.step,
 									error instanceof HostProvisioningFailedError ? error.storage : null,
+									error instanceof HostProvisioningFailedError && error.downloadRanOutOfTime,
 								)
 					deps.onError?.(
 						`Provisioning host ${hostId} did not finish`,

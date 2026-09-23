@@ -459,7 +459,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-three rules stated further down this document are enforced too, and are
+Sixty-four rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -528,6 +528,7 @@ have:
 | Each way container storage can refuse an account reaching the operator in its own words | `packages/core/src/host/provision-failure.test.ts` — walks the three words the step prints and the case where it printed none, requires the four sentences distinct, requires only the `used` one to name an account that has never run Podman, requires the `refused` one to name all four settings it cannot choose between, and requires every other step's sentence not to change when a word is passed, so a table that returns the storage sentence whenever a word arrives fails it. `packages/core/src/host/provision.test.ts` requires the word to reach `HostProvisioningFailedError.storage`, and an unrecognised line to reach it as `null`; `packages/core/src/host/host.controller.test.ts` drives all four over `provision` against a scripted host and compares what `recordProvisioningFailure` was given, so a controller that drops the word fails there. What it does NOT hold: that a word is true of the host. `root` is the step's catch-all for any `podman info` line that is not `true <driver>`, and nothing distinguishes a Podman that answered unreadably from one that could not be run |
 | The client probe running under the same log driver as a bot unit, and choosing no events backend of its own | `packages/core/src/host/provision.test.ts` — reads `--log-driver=` off `clientCheckCommand` and off the rendered `open-mcc@.service` and requires the same value, so dropping the flag from either side fails; a second test requires neither to name `--events-backend`, so silencing Podman's event log in the probe alone fails. `scripts/sandbox/provision.sandbox.ts` drives the shipped command on real Podman on all three targets with `/run/systemd/journal/socket` at `0600` and requires the banner and exit 0, which is the Debian 12 row of the table above and fails there without the flag. What it does NOT hold: the same difference on the other two targets, whose Podman survives the refusal either way, so the sandbox catches a dropped flag on one target only; nor any other flag the units carry and the probe does not — `--init` and `--security-opt=no-new-privileges` are named in the notes above and left uncopied on purpose |
 | A probe failure quoting only a line the client could have written | `packages/core/src/host/provision.test.ts` — Podman's logrus line in front of the client's message must be skipped and the client's message reported whole; the same output ending in Podman's `Error:` verdict with no client line must be reported as Podman's refusal and not as the client's; two client lines must report the first, so reading the end of the output instead fails. What it does NOT hold: that a surviving line really came from the client — only that it is not one Podman writes |
+| A download that ran out of time told apart from one that failed some other way, and the budget that makes the difference worth having | `packages/core/src/host/provision-failure.test.ts` — requires the download step's timed-out sentence to differ from its ordinary one, and requires **no other step** to produce the timed-out sentence even when the flag is set, so widening the condition fails. `packages/core/src/host/provision.test.ts` — drives `provisionHost` against a download exiting 28 and one exiting 22 and requires `downloadRanOutOfTime` true and false respectively, so keying it on any non-zero exit fails; a second test requires the rendered deadline to be over 95% of the wait the step is given, so shrinking the deadline back while leaving the wait alone fails. What it does NOT hold: that 450s is enough for any particular host — the floor it implies, 190 KB/s, is arithmetic recorded above and is not asserted anywhere, because the artefact's size is not a constant this repository keeps |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -1011,8 +1012,8 @@ Dependency direction is one-way: router → controller → repository.
 - `PROVISIONING_LEASE_MS` (`host.repository.ts`) must exceed the longest an
   attempt can hold its claim: `CONNECT_TIMEOUT_MS` (`host.controller.ts`) plus
   the timeout (`provision.ts`) of every command `provisionHost` runs — 10s,
-  fifteen 15s commands, the 180s client download, the 180s image pull and the
-  30s client check, 625s against a 900s lease today. The lease, the connect
+  fifteen 15s commands, the 460s client download, the 180s image pull and the
+  30s client check, 905s against a 1200s lease today. The lease, the connect
   timeout and the three provisioning timeouts live in three files and nothing
   but that arithmetic ties them together, so one more command, or a longer
   timeout, would silently push the worst case
@@ -1022,7 +1023,7 @@ Dependency direction is one-way: router → controller → repository.
   `host.controller.test.ts` counts the commands a real `provisionHost` call
   issues rather than a written-down step count, so adding a step fails it.
   Raise the lease, or shorten the steps, before adding one.
-- The client download retries, and its three bounds are coupled to the 180s
+- The client download retries, and its three bounds are coupled to the 460s
   that step is given. `clientDownloadCommand` (`provision.ts`) renders a loop
   around `curl` bounded by `DOWNLOAD_ATTEMPTS`, by `DOWNLOAD_DEADLINE_SECONDS`
   recomputed each pass into `--max-time`, and by a backoff that starts at
@@ -1031,11 +1032,43 @@ Dependency direction is one-way: router → controller → repository.
   the last backoff is slept **after** the last one and is not inside it — and
   that must stay under `PROVISION_DOWNLOAD_TIMEOUT_MS`, or the exec is killed
   mid-retry and the operator is told the command did not finish rather than
-  what the origin said. 170 + 2 = 172s against 180s today. Four numbers in one
+  what the origin said. 450 + 2 = 452s against 460s today. Four numbers in one
   file and a fifth above them, tied by nothing but that arithmetic, so
   `provision.test.ts` reads all four back off the command `provisionHost`
   issues and checks the relationship rather than the values: five attempts
   still fits and passes, six does not and fails.
+- **That retry does not cover a transfer that is merely slow, and the budget is
+  what does.** The deadline is shared across attempts, so a `curl` that spends
+  all of it and exits 28 leaves `left` at zero, and the next pass exits at
+  `[ "$left" -gt 0 ] || exit 28` without a second request. Measured on the
+  rendered command with the deadline cut to 3s: a transfer still running prints
+  **one** `curl: (28)` line and takes 4.0s, while a refused connect prints
+  **two** `curl: (7)` lines and takes 3.1s. So the loop retries what fails
+  *quickly* — a 500, a reset, a body cut short, a refused connect — and a slow
+  link gets exactly one attempt. Two real hosts hit it: 47 433 518 and 75 405 873
+  of 85 549 587 bytes, `curl: (28)` both times.
+  `DOWNLOAD_DEADLINE_SECONDS` is therefore **450**, which is the number that
+  sets the floor: 85 549 587 bytes in 450s is **190 KB/s**, about 1.5 Mbit/s,
+  against the 503 KB/s the old 170s demanded. That is the whole fix, and it is
+  why `PROVISIONING_LEASE_MS` went to 20 minutes with it — the bullet above is
+  the arithmetic that forced the second number, not an afterthought.
+  **Do not reach for `curl -C -` to "make it resumable".** Within a fixed
+  deadline resumption buys no transfer time at all; it only stops a retry
+  re-fetching bytes it already had, and at the floor this budget is designed
+  for there is no room for a second attempt either way. It also costs three new
+  failure modes, measured: `-C -` against an origin that ignores `Range`
+  exits **33** on any file that already has bytes (verified against a server
+  without Range support), a complete file draws a **416** under `-f`, and
+  neither is in the transient list. If the budget ever has to grow enough for a
+  second full attempt to fit, revisit it then, with those three handled.
+- **A download that ran out of time says so.** `provisionHost` reads the
+  download step's own exit status rather than routing it through `step()`, and
+  `curl`'s 28 becomes `HostProvisioningFailedError.downloadRanOutOfTime`, which
+  `provisioningFailureFor` turns into "The client download ran out of time"
+  instead of the generic "The client could not be downloaded." That is the only
+  thing the exit status establishes — it does **not** say the link is slow, only
+  that the transfer did not finish in the time allowed — and no other step's
+  failure may borrow the sentence.
 - **What that retry treats as transient is a decision, not a default.** A 500,
   a 502, a 503, a 408 and a 429, and curl's 6, 7, 18, 28, 35, 52, 55 and 56 —
   DNS, connect, partial file, timeout, SSL connect, empty reply, send and recv

@@ -19,9 +19,11 @@ import { mccReleaseForMachine } from "./mcc-release"
 import { HOST_FACTS_COMMAND, STORAGE_CONF, storageStepCommand } from "./podman-facts"
 import {
 	CLIENT_BANNER,
+	CURL_RAN_OUT_OF_TIME,
 	clientCheckCommand,
 	clientDownloadCommand,
 	explainClientFailure,
+	HostProvisioningFailedError,
 	imageIdCommand,
 	imagePullCommand,
 	PROVISION_DOWNLOAD_TIMEOUT_MS,
@@ -142,7 +144,7 @@ describe("provisionHost", () => {
 				15_000,
 			],
 			["Reading the host architecture", "uname -m", 15_000],
-			["Downloading the client", expect.stringContaining("curl -fsSL"), 180_000],
+			["Downloading the client", expect.stringContaining("curl -fsSL"), 460_000],
 			["Verifying the download", expect.stringContaining("sha256sum -c"), 15_000],
 			["Installing the client", expect.stringContaining("install -D -m 0755"), 15_000],
 			["Installing the client", expect.stringMatching(/^rm -rf /), 15_000],
@@ -208,6 +210,39 @@ describe("provisionHost", () => {
 		await provisionHost(transport)
 
 		expect(transport.commands).toContain(clientDownloadCommand(mccReleaseForMachine("aarch64").url))
+	})
+
+	it("spends nearly the whole wait on the transfer, rather than leaving the host's link short", async () => {
+		const transport = await connected(ON_ARM64)
+
+		await provisionHost(transport)
+
+		const index = transport.commands.findIndex((command) => command.includes("curl -fsSL"))
+		const download = transport.commands[index] ?? ""
+		const waitMs = transport.timeouts[index] ?? 0
+		const seconds = Number(/deadline=\$\(\(\$\(date \+%s\) \+ (\d+)\)\)/.exec(download)?.[1])
+
+		expect(seconds * 1000).toBeGreaterThan(waitMs * 0.95)
+	})
+
+	it("says a download that ran out of time ran out of time, and any other failure did not", async () => {
+		const url = mccReleaseForMachine("aarch64").url
+		const timedOut = await connected({
+			...ON_ARM64,
+			[clientDownloadCommand(url)]: {
+				stdout: "",
+				stderr: "curl: (28) Operation timed out after 449_000 milliseconds",
+				exitCode: CURL_RAN_OUT_OF_TIME,
+			},
+		})
+		const refused = await connected({
+			...ON_ARM64,
+			[clientDownloadCommand(url)]: { stdout: "", stderr: "curl: (22) 404", exitCode: 22 },
+		})
+
+		await expect(provisionHost(timedOut)).rejects.toMatchObject({ downloadRanOutOfTime: true })
+		await expect(provisionHost(refused)).rejects.toMatchObject({ downloadRanOutOfTime: false })
+		await expect(provisionHost(refused)).rejects.toBeInstanceOf(HostProvisioningFailedError)
 	})
 
 	it("retries the download, and finishes every attempt and every backoff inside the wait it is given", async () => {

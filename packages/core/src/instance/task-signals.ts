@@ -4,6 +4,7 @@ import {
 	journalRefusedCursor,
 	parseJournal,
 } from "@open-mcc/contracts/boundary/journal"
+import type { McpEventPage } from "@open-mcc/contracts/boundary/mcp"
 import { asReadCommand, type HostReader } from "@open-mcc/transport"
 import { JOURNAL_MAX_LINES, journalCommand, journalResume } from "../status/instance-observer"
 import { type LiveReadTarget, readRecentEvents } from "./live-control"
@@ -101,13 +102,12 @@ export type RespawnReading = {
 	seeded: boolean
 }
 
-export const readRespawnSightings = async (
-	target: LiveReadTarget,
+export const respawnsFrom = (
+	page: McpEventPage,
 	cursor: number | null,
 	at: Date,
-): Promise<RespawnReading> => {
+): RespawnReading => {
 	const afterId = cursor ?? 0
-	const page = await readRecentEvents(target, afterId, RESPAWN_PAGE_MAX)
 	const highest = page.events.reduce((seen, event) => Math.max(seen, event.id), page.latestId)
 	const next = Math.max(afterId, highest)
 	if (cursor === null) return { respawns: [], cursor: next, seeded: true }
@@ -118,6 +118,13 @@ export const readRespawnSightings = async (
 
 	return { respawns, cursor: next, seeded: false }
 }
+
+export const readRespawnSightings = async (
+	target: LiveReadTarget,
+	cursor: number | null,
+	at: Date,
+): Promise<RespawnReading> =>
+	respawnsFrom(await readRecentEvents(target, cursor ?? 0, RESPAWN_PAGE_MAX), cursor, at)
 
 const momentOf = (stamp: string, fallback: Date): Date => {
 	const moment = new Date(stamp)

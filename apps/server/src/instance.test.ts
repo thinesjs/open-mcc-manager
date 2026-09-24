@@ -5,6 +5,7 @@ import {
 	INVISIBLE_CHARACTER_IN_COMMAND,
 	instanceConfigStored,
 	instancePublic,
+	instanceTaskPublic,
 	type ScheduledCommandPublic,
 	scheduledCommandPublic,
 } from "@open-mcc/contracts"
@@ -1642,6 +1643,122 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(atConsole.status).toBe(200)
 		expect((await answerOf(onSchedule)).errorCode).toBe("INSTANCE_COMMAND_STORES_CREDENTIAL")
 		expect(await scheduledCommands(cookie, instanceId)).toEqual([])
+	})
+
+	const TASK = {
+		id: null,
+		name: "Switch to eco",
+		timezone: "Europe/London",
+		onLogin: true,
+	}
+
+	const setTask = async (cookie: string, instanceId: string, steps: string[]): Promise<Response> =>
+		await call("instance.setTask", cookie, { instanceId, steps, ...TASK })
+
+	const tasks = async (cookie: string, instanceId: string) => {
+		const res = await app.request(
+			`/trpc/instance.listTasks?input=${encodeURIComponent(JSON.stringify({ instanceId }))}`,
+			{ headers: { Origin: ORIGIN, Cookie: cookie } },
+		)
+		expect(res.status).toBe(200)
+		const body = z
+			.object({ result: z.object({ data: z.array(instanceTaskPublic) }) })
+			.parse(await res.json())
+		return body.result.data
+	}
+
+	it("★ keeps a task's steps in the order they were given, so /visit never runs before /local", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		expect((await setTask(cookie, instanceId, ["/economy", "/local", "/visit .x"])).status).toBe(
+			200,
+		)
+
+		expect((await tasks(cookie, instanceId))[0]?.steps).toEqual(["/economy", "/local", "/visit .x"])
+	})
+
+	it("★ refuses a task step this manager would not send, in the schedule's own words", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const onTask = await setTask(cookie, instanceId, ["/economy", "!nope"])
+		const onSchedule = await schedule(cookie, instanceId, "!nope")
+
+		expect(await answerOf(onTask)).toEqual(await answerOf(onSchedule))
+		expect(await tasks(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ refuses to store a password on a task, the same way a schedule refuses one", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const onTask = await setTask(cookie, instanceId, ["/economy", "/login hunter2"])
+		const onSchedule = await schedule(cookie, instanceId, "/login hunter2")
+
+		expect(await answerOf(onTask)).toEqual(await answerOf(onSchedule))
+		await demoteToRole(orgId, "viewer")
+		expect(await tasks(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ refuses a task step written over two lines before anything is stored", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		expect(await answerOf(await setTask(cookie, instanceId, ["say hello\nsay again"]))).toEqual({
+			status: 400,
+			errorCode: undefined,
+			message: COMMAND_SPANS_LINES,
+		})
+		expect(await tasks(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ refuses a task no trigger would ever fire", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		const res = await call("instance.setTask", cookie, {
+			...TASK,
+			instanceId,
+			steps: ["/economy"],
+			onLogin: false,
+		})
+
+		expect((await answerOf(res)).status).toBe(400)
+		expect(await tasks(cookie, instanceId)).toEqual([])
+	})
+
+	it("★ replaces a task's steps on an edit rather than adding to them", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		expect((await setTask(cookie, instanceId, ["/economy", "/local"])).status).toBe(200)
+		const stored = (await tasks(cookie, instanceId))[0]
+		if (!stored) throw new Error("expected the task to be stored")
+
+		const edited = await call("instance.setTask", cookie, {
+			...TASK,
+			id: stored.id,
+			instanceId,
+			steps: ["/hub"],
+		})
+
+		expect(edited.status).toBe(200)
+		const listed = await tasks(cookie, instanceId)
+		expect(listed).toHaveLength(1)
+		expect(listed[0]?.steps).toEqual(["/hub"])
+	})
+
+	it("★ takes a task away when it is deleted", async () => {
+		const { cookie, orgId, memberId } = await signUpAndActivate()
+		const { instanceId } = await seedReadyInstance(orgId, memberId)
+
+		expect((await setTask(cookie, instanceId, ["/economy"])).status).toBe(200)
+		const stored = (await tasks(cookie, instanceId))[0]
+		if (!stored) throw new Error("expected the task to be stored")
+
+		expect((await call("instance.deleteTask", cookie, { id: stored.id })).status).toBe(200)
+		expect(await tasks(cookie, instanceId)).toEqual([])
 	})
 
 	it("★ a stop that threw something other than an error stays a server fault, not the host's", async () => {

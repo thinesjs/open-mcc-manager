@@ -152,6 +152,7 @@ export {
 	InstanceStartFailedError,
 	InstanceStillInUseError,
 	InstanceStopFailedError,
+	InstanceTaskNotFoundError,
 	scheduledRunFailure,
 } from "./instance/instance.controller"
 export type {
@@ -221,8 +222,6 @@ export type {
 	TaskValues,
 } from "./instance/task.repository"
 export { createTaskRepository } from "./instance/task.repository"
-export type { TaskStep, TaskStepRunner } from "./instance/task-run"
-export { InstanceTaskStepsFailedError, sendStepsInOrder } from "./instance/task-run"
 export type {
 	TaskSchedulerDeps,
 	TaskSchedulerHandle,

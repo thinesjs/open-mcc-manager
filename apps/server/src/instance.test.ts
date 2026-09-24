@@ -1675,7 +1675,11 @@ describe("what an operator reads when the host will not do what they asked", () 
 			200,
 		)
 
-		expect((await tasks(cookie, instanceId))[0]?.steps).toEqual(["/economy", "/local", "/visit .x"])
+		expect((await tasks(cookie, instanceId))[0]?.steps).toEqual([
+			{ position: 0, command: "/economy" },
+			{ position: 1, command: "/local" },
+			{ position: 2, command: "/visit .x" },
+		])
 	})
 
 	it("★ refuses a task step this manager would not send, in the schedule's own words", async () => {
@@ -1746,7 +1750,7 @@ describe("what an operator reads when the host will not do what they asked", () 
 		expect(edited.status).toBe(200)
 		const listed = await tasks(cookie, instanceId)
 		expect(listed).toHaveLength(1)
-		expect(listed[0]?.steps).toEqual(["/hub"])
+		expect(listed[0]?.steps).toEqual([{ position: 0, command: "/hub" }])
 	})
 
 	it("★ takes a task away when it is deleted", async () => {

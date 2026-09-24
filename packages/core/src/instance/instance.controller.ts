@@ -723,7 +723,10 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		id: parts.task.id,
 		instanceId: parts.task.instanceId,
 		name: parts.task.name,
-		steps: orderedSteps(definitionOf(parts)).map((step) => step.command),
+		steps: orderedSteps(definitionOf(parts)).map((step) => ({
+			position: step.position,
+			command: step.command,
+		})),
 		stepDelaySeconds: parts.task.stepDelaySeconds,
 		enabled: parts.task.enabled,
 		timezone: parts.task.timezone,

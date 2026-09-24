@@ -167,6 +167,12 @@ export const instanceTaskInput = z
 	)
 export type InstanceTaskInput = z.infer<typeof instanceTaskInput>
 
+export const instanceTaskStepPublic = z.object({
+	position: z.number().int(),
+	command: z.string(),
+})
+export type InstanceTaskStepPublic = z.infer<typeof instanceTaskStepPublic>
+
 export const instanceTaskRunPublic = z.object({
 	id: z.string(),
 	trigger: taskTriggerSchema,
@@ -182,7 +188,7 @@ export const instanceTaskPublic = z.object({
 	id: z.string(),
 	instanceId: z.string(),
 	name: z.string(),
-	steps: z.array(z.string()),
+	steps: z.array(instanceTaskStepPublic),
 	stepDelaySeconds: z.number().int(),
 	enabled: z.boolean(),
 	timezone: z.string(),

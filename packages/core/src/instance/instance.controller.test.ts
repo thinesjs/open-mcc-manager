@@ -106,6 +106,7 @@ import {
 	verifyGoneCommand,
 } from "./removal"
 import type { ScheduleRepository } from "./schedule.repository"
+import type { InstanceTaskRepos } from "./task.repository"
 import {
 	configWriteCommand,
 	ENV_KEPT,
@@ -354,6 +355,22 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 	const sshKeys: Pick<SshKeyRepository, "findById"> = {
 		findById: vi.fn(async () => sshKeyRow),
 	}
+	const tasks: InstanceTaskRepos = {
+		insert: vi.fn(async () => {
+			throw new Error("tasks.insert is not exercised here")
+		}),
+		update: vi.fn(async () => undefined),
+		replaceSteps: vi.fn(async () => undefined),
+		replaceTimes: vi.fn(async () => undefined),
+		listForInstance: vi.fn(async () => []),
+		findById: vi.fn(async () => undefined),
+		deleteReturning: vi.fn(async () => undefined),
+		recordSignal: vi.fn(async () => true),
+		hasJoinedAs: vi.fn(async () => false),
+		readSignalCursor: vi.fn(async () => null),
+		writeSignalCursor: vi.fn(async () => undefined),
+	}
+
 	const deps: InstanceControllerDeps = {
 		instances,
 		schedules,
@@ -372,6 +389,7 @@ const makeDeps = (overrides: Partial<InstanceControllerDeps> = {}) => {
 				instances,
 				schedules,
 				commands,
+				tasks,
 				audit,
 				hosts: { ...hosts, lockHost: vi.fn(async () => undefined) },
 			}),

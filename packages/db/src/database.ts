@@ -9,6 +9,14 @@ import type {
 } from "./schema/instance"
 import type { InstanceArtifactTable } from "./schema/instance-artifact"
 import type {
+	InstanceSignalCursorTable,
+	InstanceSignalTable,
+	InstanceTaskRunTable,
+	InstanceTaskStepTable,
+	InstanceTaskTable,
+	InstanceTaskTimeTable,
+} from "./schema/instance-task"
+import type {
 	NotificationAttemptTable,
 	NotificationDeliveryTable,
 	NotificationDestinationTable,
@@ -36,6 +44,12 @@ export type Database = Omit<
 	| "instanceConfig"
 	| "instanceSchedule"
 	| "instanceCommand"
+	| "instanceTask"
+	| "instanceTaskStep"
+	| "instanceTaskTime"
+	| "instanceTaskRun"
+	| "instanceSignal"
+	| "instanceSignalCursor"
 	| "statusEvent"
 	| "statusCondition"
 	| "statusInterval"
@@ -57,6 +71,12 @@ export type Database = Omit<
 	instanceConfig: InstanceConfigTable
 	instanceSchedule: InstanceScheduleTable
 	instanceCommand: InstanceCommandTable
+	instanceTask: InstanceTaskTable
+	instanceTaskStep: InstanceTaskStepTable
+	instanceTaskTime: InstanceTaskTimeTable
+	instanceTaskRun: InstanceTaskRunTable
+	instanceSignal: InstanceSignalTable
+	instanceSignalCursor: InstanceSignalCursorTable
 	statusEvent: StatusEventTable
 	statusCondition: StatusConditionTable
 	statusInterval: StatusIntervalTable

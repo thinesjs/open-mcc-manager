@@ -13,6 +13,7 @@ import { InstanceBotsTab, InstanceSettingsTab } from "~/components/instance-conf
 import { InstanceControls } from "~/components/instance-controls"
 import { InstanceDangerZone } from "~/components/instance-danger-zone"
 import { InstanceStatusBadge } from "~/components/instance-status-badge"
+import { InstanceTasks } from "~/components/instance-tasks"
 import { LiveChat } from "~/components/live-chat"
 import { LiveConnection } from "~/components/live-connection"
 import { LiveEvents } from "~/components/live-events"
@@ -512,6 +513,8 @@ function InstanceDetailPage() {
 
 				<TabsPanel value="schedule">
 					<SleepWindow instanceId={instanceId} />
+
+					<InstanceTasks instanceId={instanceId} />
 
 					<ScheduledCommands instanceId={instanceId} />
 				</TabsPanel>

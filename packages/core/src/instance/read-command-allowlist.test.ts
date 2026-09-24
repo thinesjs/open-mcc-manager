@@ -45,6 +45,7 @@ describe("who may turn text into a command a shared connection will run", () => 
 			"packages/core/src/host/health.ts",
 			"packages/core/src/instance/console.ts",
 			"packages/core/src/instance/reconcile.ts",
+			"packages/core/src/instance/task-signals.ts",
 			"packages/core/src/status/instance-observer.ts",
 			"packages/core/src/system/host-metrics.ts",
 			"packages/transport/src/index.ts",

@@ -829,7 +829,12 @@ describe("coming back to a tab that was left open", () => {
 
 		await comeBack()
 
-		expect([...asked].sort()).toEqual(["get", "getSleepWindow", "listScheduledCommands"])
+		expect([...asked].sort()).toEqual([
+			"get",
+			"getSleepWindow",
+			"listScheduledCommands",
+			"listTasks",
+		])
 	})
 })
 

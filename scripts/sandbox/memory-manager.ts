@@ -10,6 +10,7 @@ import {
 	CONFIG_CLAIM_LEASE_MS,
 	isAuthClaimStale,
 } from "../../packages/core/src/instance/instance.repository"
+import type { InstanceTaskRepos } from "../../packages/core/src/instance/task.repository"
 import type {
 	HostRow,
 	InstanceConfigRow,
@@ -280,6 +281,22 @@ export const memoryManager = async (
 		recordRun: async () => undefined,
 	}
 
+	const tasks: InstanceTaskRepos = {
+		insert: async () => {
+			throw new Error("the sandbox manager stores no tasks")
+		},
+		update: async () => undefined,
+		replaceSteps: async () => undefined,
+		replaceTimes: async () => undefined,
+		listForInstance: async () => [],
+		findById: async () => undefined,
+		deleteReturning: async () => undefined,
+		recordSignal: async () => true,
+		hasJoinedAs: async () => false,
+		readSignalCursor: async () => null,
+		writeSignalCursor: async () => undefined,
+	}
+
 	const readConnections = createReadConnections({
 		createTransport: transport,
 		idleMs: READ_CONNECTION_IDLE_MS,
@@ -313,6 +330,7 @@ export const memoryManager = async (
 				instances,
 				schedules,
 				commands,
+				tasks,
 				hosts: { findById: async () => hostRow, lockHost: async () => undefined },
 				audit: {
 					record: async (_scope, entry) => ({

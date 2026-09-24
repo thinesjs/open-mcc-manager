@@ -26,6 +26,7 @@ import {
 	createSshKeyRepository,
 	createStatusController,
 	createStatusControllerTransaction,
+	createTaskRepository,
 	drainConnectionChanges,
 	egressPolicy,
 	generateSshKeyPair,
@@ -48,6 +49,8 @@ import {
 	startHealthPoller,
 	startHeartbeat,
 	startScheduler,
+	startTaskScheduler,
+	type TaskSchedulerHandle,
 	tracedDialect,
 	usesKnownInsecureKey,
 } from "@open-mcc/core"
@@ -90,6 +93,7 @@ export type ServerHandle = {
 	lock: SingletonLock
 	db: Db
 	scheduler: SchedulerHandle
+	taskScheduler: TaskSchedulerHandle
 	healthPoller: HealthPollerHandle
 	boss: PgBoss
 	heartbeat: { stop: () => void }
@@ -296,12 +300,38 @@ export const startServer = async (
 	)
 
 	const commands = createCommandRepository(db)
+	const tasks = createTaskRepository(db)
 	const scheduler = startScheduler({
 		dueCommands: () => commands.listEnabledAcrossOrganizations(),
 		send: (row) => instanceController.runScheduledCommand(row),
 		describeFailure: scheduledRunFailure,
 		claimRun: (id, ranAt, notRunSince) => commands.claimRun(id, ranAt, notRunSince),
 		recordRun: (id, ranAt, error) => commands.recordRun(id, ranAt, error),
+		now: () => new Date(),
+		onError: runtimeErrorReporter(logger),
+	})
+
+	const taskScheduler = startTaskScheduler({
+		enabledTasks: (runsSince) => tasks.listEnabledAcrossOrganizations(runsSince),
+		isRunning: async (scope, instanceId) =>
+			(await createInstanceRepository(db).findById(scope, instanceId))?.status === "running",
+		observeSignals: (scope, instanceId, needs, at) =>
+			instanceController.observeTaskSignals(scope, instanceId, needs, at),
+		signalsSince: (scope, instanceId, since) => tasks.signalsSince(scope, instanceId, since),
+		armInterval: (scope, taskId, arm) => tasks.armInterval(scope, taskId, arm),
+		claimRun: (scope, taskId, claim, at) =>
+			tasks.claimRun(scope, taskId, claim.trigger, claim.claimKey, at),
+		send: (parts) => instanceController.runTask(parts),
+		finishRun: (scope, runId, outcome, stepsSent, error, at) =>
+			tasks.finishRun(scope, runId, outcome, stepsSent, error, at),
+		recordTaskOutcome: (scope, taskId, ranAt, error) =>
+			tasks.recordTaskOutcome(scope, taskId, ranAt, error),
+		sweep: async (abandonBefore, runsBefore, signalsBefore, reason) => {
+			await tasks.abandonStaleRuns(abandonBefore, reason)
+			await tasks.pruneRuns(runsBefore)
+			await tasks.pruneSignals(signalsBefore)
+		},
+		describeFailure: scheduledRunFailure,
 		now: () => new Date(),
 		onError: runtimeErrorReporter(logger),
 	})
@@ -387,5 +417,17 @@ export const startServer = async (
 		onError: runtimeErrorReporter(logger),
 	})
 
-	return { app, server, lock, db, scheduler, healthPoller, boss, heartbeat, build, schemaVersion }
+	return {
+		app,
+		server,
+		lock,
+		db,
+		scheduler,
+		taskScheduler,
+		healthPoller,
+		boss,
+		heartbeat,
+		build,
+		schemaVersion,
+	}
 }

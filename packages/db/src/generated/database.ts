@@ -161,6 +161,76 @@ export interface InstanceSchedule {
 	timezone: string
 }
 
+export interface InstanceSignal {
+	firstForProcess: Generated<boolean>
+	id: string
+	identity: string
+	instanceId: string
+	kind: string
+	observedAt: Generated<Timestamp>
+	occurredAt: Timestamp
+	organizationId: string
+	process: string | null
+}
+
+export interface InstanceSignalCursor {
+	cursor: string
+	id: string
+	instanceId: string
+	lastObservedAt: Timestamp
+	organizationId: string
+	source: string
+}
+
+export interface InstanceTask {
+	createdAt: Generated<Timestamp>
+	enabled: Generated<boolean>
+	id: string
+	instanceId: string
+	intervalMaxSeconds: number | null
+	intervalMinSeconds: number | null
+	intervalNextRunAt: Timestamp | null
+	intervalObservedAt: Timestamp | null
+	lastRunAt: Timestamp | null
+	lastRunError: string | null
+	name: string
+	onFirstLogin: Generated<boolean>
+	onLogin: Generated<boolean>
+	onRespawn: Generated<boolean>
+	organizationId: string
+	stepDelaySeconds: Generated<number>
+	timezone: string
+}
+
+export interface InstanceTaskRun {
+	claimKey: string
+	error: string | null
+	finishedAt: Timestamp | null
+	id: string
+	organizationId: string
+	outcome: Generated<string>
+	startedAt: Generated<Timestamp>
+	stepsSent: Generated<number>
+	taskId: string
+	trigger: string
+}
+
+export interface InstanceTaskStep {
+	command: string
+	id: string
+	organizationId: string
+	position: number
+	taskId: string
+}
+
+export interface InstanceTaskTime {
+	daysOfWeek: string
+	id: string
+	minuteOfDay: number
+	organizationId: string
+	taskId: string
+}
+
 export interface Invitation {
 	createdAt: Generated<Timestamp>
 	email: string
@@ -390,6 +460,12 @@ export interface DB {
 	instanceCommand: InstanceCommand
 	instanceConfig: InstanceConfig
 	instanceSchedule: InstanceSchedule
+	instanceSignal: InstanceSignal
+	instanceSignalCursor: InstanceSignalCursor
+	instanceTask: InstanceTask
+	instanceTaskRun: InstanceTaskRun
+	instanceTaskStep: InstanceTaskStep
+	instanceTaskTime: InstanceTaskTime
 	invitation: Invitation
 	member: Member
 	notification: Notification

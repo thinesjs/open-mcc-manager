@@ -11,6 +11,7 @@ import {
 	TASK_ABANDONED_REASON,
 	TASK_RUN_RETENTION_DAYS,
 	TASK_SIGNAL_CATCH_UP_MS,
+	TASK_SIGNAL_RETENTION_DAYS,
 	TASK_TICK_MS,
 	type TaskClaim,
 	timeClaims,
@@ -75,7 +76,12 @@ export type TaskSchedulerDeps = {
 		ranAt: Date,
 		error: string | null,
 	) => Promise<void>
-	sweep: (abandonBefore: Date, pruneBefore: Date, reason: string) => Promise<void>
+	sweep: (
+		abandonBefore: Date,
+		runsBefore: Date,
+		signalsBefore: Date,
+		reason: string,
+	) => Promise<void>
 	now: () => Date
 	jitter?: IntervalJitter
 	describeFailure: (error: Error | string) => string
@@ -113,6 +119,7 @@ export const runTaskSchedulerTick = async (deps: TaskSchedulerDeps): Promise<Tas
 		await deps.sweep(
 			new Date(at.getTime() - TASK_ABANDONED_AFTER_MS),
 			retainedSince,
+			new Date(at.getTime() - TASK_SIGNAL_RETENTION_DAYS * 24 * 60 * 60 * 1000),
 			TASK_ABANDONED_REASON,
 		)
 	} catch (error) {

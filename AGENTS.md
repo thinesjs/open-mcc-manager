@@ -254,7 +254,11 @@ is unique on `(organizationId, instanceId, kind, identity)`.
   whole job is to put the bot back on the right sub-server.
 - `firstForProcess` is decided by whether this instance has a join row for that
   pid already. Linux reuses pids, so a pid that comes round again on a long-lived
-  host can cost one `onFirstLogin` firing. It cannot cause a spurious one.
+  host can cost one `onFirstLogin` firing. The other direction is why
+  `TASK_SIGNAL_RETENTION_DAYS` is 120 rather than the runs' 7: a client process
+  that outlives the signal retention and then relogs would look like a new
+  process and fire `onFirstLogin` a second time. Shortening that constant to
+  "tidy up" reintroduces exactly that.
 - `onRespawn` is MCC's own notion of a respawn, and `McClient.OnRespawn` is
   dispatched on a login and on a world change as well as after a death. The UI's
   tooltip says that. A respawn that happens shortly before a disconnect is

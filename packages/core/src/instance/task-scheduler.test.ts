@@ -117,10 +117,11 @@ describe("a task scheduler tick", () => {
 	it("sweeps abandoned and expired runs before it considers anything", async () => {
 		const order: string[] = []
 		const made = harness([partsOf()], {
-			sweep: async (abandonBefore, pruneBefore, reason) => {
+			sweep: async (abandonBefore, runsBefore, signalsBefore, reason) => {
 				order.push("sweep")
 				expect(abandonBefore.getTime()).toBeLessThan(NOW.getTime())
-				expect(pruneBefore.getTime()).toBeLessThan(abandonBefore.getTime())
+				expect(runsBefore.getTime()).toBeLessThan(abandonBefore.getTime())
+				expect(signalsBefore.getTime()).toBeLessThan(runsBefore.getTime())
 				expect(reason).toContain("manager stopped")
 			},
 			enabledTasks: async () => {

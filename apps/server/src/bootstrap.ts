@@ -326,10 +326,10 @@ export const startServer = async (
 			tasks.finishRun(scope, runId, outcome, stepsSent, error, at),
 		recordTaskOutcome: (scope, taskId, ranAt, error) =>
 			tasks.recordTaskOutcome(scope, taskId, ranAt, error),
-		sweep: async (abandonBefore, pruneBefore, reason) => {
+		sweep: async (abandonBefore, runsBefore, signalsBefore, reason) => {
 			await tasks.abandonStaleRuns(abandonBefore, reason)
-			await tasks.pruneRuns(pruneBefore)
-			await tasks.pruneSignals(pruneBefore)
+			await tasks.pruneRuns(runsBefore)
+			await tasks.pruneSignals(signalsBefore)
 		},
 		describeFailure: scheduledRunFailure,
 		now: () => new Date(),

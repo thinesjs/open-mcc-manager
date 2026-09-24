@@ -15,6 +15,8 @@ export const TASK_SIGNAL_CATCH_UP_MS = 10 * 60 * 1000
 
 export const TASK_RUN_RETENTION_DAYS = 7
 
+export const TASK_SIGNAL_RETENTION_DAYS = 120
+
 export const TASK_RUNS_KEPT = 10
 
 export const TASK_ABANDONED_AFTER_MS = 15 * 60 * 1000

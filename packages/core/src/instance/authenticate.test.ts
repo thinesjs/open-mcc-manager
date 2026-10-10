@@ -51,6 +51,7 @@ import {
 import { AUTH_LEASE_MS, type InstanceRepository } from "./instance.repository"
 import { UNIT_STOP_TIMEOUT_MS } from "./removal"
 import type { ScheduleRepository } from "./schedule.repository"
+import type { InstanceTaskRepos } from "./task.repository"
 import { stopAuthCommand } from "./unit"
 
 const FAST_POLL = { attempts: 2, intervalMs: 1 }
@@ -231,6 +232,22 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 	const hosts: Pick<HostRepository, "findById"> = { findById: vi.fn(async () => hostRow) }
 	const sshKeys: Pick<SshKeyRepository, "findById"> = { findById: vi.fn(async () => sshKeyRow) }
 
+	const tasks: InstanceTaskRepos = {
+		insert: vi.fn(async () => {
+			throw new Error("tasks.insert is not exercised here")
+		}),
+		update: vi.fn(async () => undefined),
+		replaceSteps: vi.fn(async () => undefined),
+		replaceTimes: vi.fn(async () => undefined),
+		listForInstance: vi.fn(async () => []),
+		findById: vi.fn(async () => undefined),
+		deleteReturning: vi.fn(async () => undefined),
+		recordSignal: vi.fn(async () => true),
+		hasJoinedAs: vi.fn(async () => false),
+		readSignalCursor: vi.fn(async () => null),
+		writeSignalCursor: vi.fn(async () => undefined),
+	}
+
 	const deps: InstanceControllerDeps = {
 		instances,
 		schedules,
@@ -253,6 +270,7 @@ const makeDeps = (journal: string, overrides: Partial<InstanceControllerDeps> = 
 				instances,
 				schedules,
 				commands,
+				tasks,
 				audit,
 				hosts: { ...hosts, lockHost: vi.fn(async () => undefined) },
 			}),

@@ -13,6 +13,12 @@ import {
 	type UserCreationMode,
 } from "./security/registration-gate"
 
+export const COOKIE_PREFIX = "open-mcc"
+
+export const HOST_COOKIE_PREFIX = "__Host-"
+
+export const hostCookie = (name: string): string => `${HOST_COOKIE_PREFIX}${COOKIE_PREFIX}.${name}`
+
 const operatorRole = defaultAc.newRole({})
 const viewerRole = defaultAc.newRole({})
 
@@ -94,8 +100,14 @@ export const createAuth = (
 				ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
 			},
 			disableOriginCheck: false,
-			useSecureCookies: true,
-			cookiePrefix: "__Host-",
+			useSecureCookies: false,
+			cookiePrefix: COOKIE_PREFIX,
+			cookies: {
+				session_token: { name: hostCookie("session_token") },
+				session_data: { name: hostCookie("session_data") },
+				account_data: { name: hostCookie("account_data") },
+				dont_remember: { name: hostCookie("dont_remember") },
+			},
 			defaultCookieAttributes: {
 				httpOnly: true,
 				secure: true,

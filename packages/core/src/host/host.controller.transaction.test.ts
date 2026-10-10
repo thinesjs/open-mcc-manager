@@ -23,6 +23,7 @@ import {
 import { createInstanceRepository } from "../instance/instance.repository"
 import { activeCheckCommand } from "../instance/reconcile"
 import { createScheduleRepository } from "../instance/schedule.repository"
+import { createTaskRepository } from "../instance/task.repository"
 import { createSshKeyRepository, type SshKeyRepository } from "../ssh-key/ssh-key.repository"
 import {
 	seedMember,
@@ -2249,6 +2250,7 @@ describe("a new bot and its host's removal take the host's lock in turn (real Po
 					},
 					schedules: createScheduleRepository(tx),
 					commands: createCommandRepository(tx),
+					tasks: createTaskRepository(tx),
 					audit: createAuditRepository(tx),
 					hosts: createHostRepository(tx),
 				})

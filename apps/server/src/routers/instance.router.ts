@@ -3,6 +3,7 @@ import {
 	dropInventoryItemInput,
 	hostIdInput,
 	instanceIdInput,
+	instanceTaskInput,
 	readInstanceConsoleInput,
 	scheduledCommandInput,
 	selectHeldItemInput,
@@ -190,6 +191,24 @@ export const instanceRouter = router({
 		.mutation(async ({ ctx, input }) => {
 			requireCapability(ctx.actor.role, "console.write")
 			await ctx.instanceController.deleteScheduledCommand(ctx.actor, input.id)
+			return { deleted: true }
+		}),
+
+	listTasks: protectedProcedure.input(instanceIdInput).query(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "instance.read")
+		return ctx.instanceController.listTasks(ctx.actor, input.instanceId)
+	}),
+
+	setTask: protectedProcedure.input(instanceTaskInput).mutation(({ ctx, input }) => {
+		requireCapability(ctx.actor.role, "console.write")
+		return ctx.instanceController.setTask(ctx.actor, input)
+	}),
+
+	deleteTask: protectedProcedure
+		.input(z.object({ id: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			requireCapability(ctx.actor.role, "console.write")
+			await ctx.instanceController.deleteTask(ctx.actor, input.id)
 			return { deleted: true }
 		}),
 

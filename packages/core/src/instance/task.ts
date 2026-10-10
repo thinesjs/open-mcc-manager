@@ -50,10 +50,13 @@ export const signalClaims = (
 	const respawn = latestOf(signals, "respawn")
 
 	if (login !== undefined && login.occurredAt.getTime() > row.createdAt.getTime()) {
-		if (row.onFirstLogin && login.firstForProcess) {
-			claims.push({ trigger: "firstLogin", claimKey: `firstLogin:${login.identity}` })
+		const asFirstLogin = row.onFirstLogin && login.firstForProcess
+		if (row.onLogin || asFirstLogin) {
+			claims.push({
+				trigger: asFirstLogin ? "firstLogin" : "login",
+				claimKey: `login:${login.identity}`,
+			})
 		}
-		if (row.onLogin) claims.push({ trigger: "login", claimKey: `login:${login.identity}` })
 	}
 
 	if (

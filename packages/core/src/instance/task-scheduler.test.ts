@@ -221,14 +221,25 @@ describe("a task scheduler tick", () => {
 		expect(second.unclaimed).toBe(1)
 	})
 
-	it("fires first login and login as two separately claimed runs", async () => {
-		const made = harness([partsOf({ onFirstLogin: true })], {}, [joinSignal()])
-		const run = await runTaskSchedulerTick(made.deps)
-		expect(made.claimed).toEqual([
-			"task-1|firstLogin:4242:2024-03-02T10:00:00.000Z",
-			"task-1|login:4242:2024-03-02T10:00:00.000Z",
-		])
-		expect(run.fired).toEqual(["task-1", "task-1"])
+	it("sends one run for a join with both login triggers on, never the steps twice", async () => {
+		const sends: number[] = []
+		const made = harness(
+			[partsOf({ onFirstLogin: true })],
+			{
+				send: async (parts) => {
+					sends.push(parts.steps.length)
+					return parts.steps.length
+				},
+			},
+			[joinSignal()],
+		)
+		const first = await runTaskSchedulerTick(made.deps)
+		const second = await runTaskSchedulerTick(made.deps)
+		expect(sends).toEqual([2])
+		expect(made.finished).toEqual([{ outcome: "sent", stepsSent: 2, error: null }])
+		expect(made.claimed).toEqual(["task-1|login:4242:2024-03-02T10:00:00.000Z"])
+		expect(first.fired).toEqual(["task-1"])
+		expect(second.fired).toEqual([])
 	})
 
 	it("sends nothing while the bot is down, even when a time is due", async () => {

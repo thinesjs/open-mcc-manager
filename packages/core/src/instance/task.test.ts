@@ -78,13 +78,24 @@ describe("claims a join raises", () => {
 		expect(claims).toEqual([{ trigger: "login", claimKey: "login:4242:2024-03-02T10:00:00.000Z" }])
 	})
 
-	it("raises first login only for the first join of a process, and login alongside it", () => {
+	it("raises one claim for a join however many login triggers are on, the way MCC ORs them", () => {
 		const both = taskRow({ onLogin: true, onFirstLogin: true })
-		const first = signalClaims(both, [signalRow({ firstForProcess: true })])
-		expect(first.map((claim) => claim.trigger)).toEqual(["firstLogin", "login"])
+		expect(signalClaims(both, [signalRow({ firstForProcess: true })])).toEqual([
+			{ trigger: "firstLogin", claimKey: "login:4242:2024-03-02T10:00:00.000Z" },
+		])
 
-		const later = signalClaims(both, [signalRow({ firstForProcess: false })])
-		expect(later.map((claim) => claim.trigger)).toEqual(["login"])
+		expect(signalClaims(both, [signalRow({ firstForProcess: false })])).toEqual([
+			{ trigger: "login", claimKey: "login:4242:2024-03-02T10:00:00.000Z" },
+		])
+	})
+
+	it("keys first login on the join too, so unticking a trigger cannot fire the same join again", () => {
+		const firstOnly = taskRow({ onFirstLogin: true })
+		expect(signalClaims(firstOnly, [signalRow({ firstForProcess: true })])).toEqual([
+			{ trigger: "firstLogin", claimKey: "login:4242:2024-03-02T10:00:00.000Z" },
+		])
+
+		expect(signalClaims(firstOnly, [signalRow({ firstForProcess: false })])).toEqual([])
 	})
 
 	it("takes the newest join when the window holds several, so a relog burst fires once", () => {

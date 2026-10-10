@@ -62,7 +62,7 @@ const UNPUBLISHED_PORT = 34103
 const TOKEN = "31337a0b1c2d3e4f5a6b7c8d9e0f3133"
 
 const NETWORK = {
-	slirp4netns: "slirp4netns:port_handler=slirp4netns",
+	slirp4netns: "slirp4netns",
 	pasta: "pasta",
 } as const
 

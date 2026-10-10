@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.3](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.2...v0.2.3) (2026-10-10)
+
+### Fixes
+
+* keep the telemetry package pg-boss imports without declaring ([610bd1e](https://github.com/thinesjs/open-mcc-manager/commit/610bd1e81114b9a57192e338894a2faef71095ba))
 ## [0.2.2](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.1...v0.2.2) (2026-10-10)
 
 ### Features

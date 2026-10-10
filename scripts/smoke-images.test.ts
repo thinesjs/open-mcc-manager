@@ -14,18 +14,18 @@ import {
 	IMAGES,
 	liveAttempt,
 	POSTGRES_CLIENT_IMAGE,
-	pollFor,
 	PROBE_ATTEMPTS,
+	pollFor,
 	RELATION_COUNT_QUERY,
-	scheduleRefusal,
+	runArgs,
 	SEALBOX_KEY_ID,
 	SERVER_PORT,
 	SHELL_MARKER,
+	scheduleRefusal,
 	shellRefusal,
 	smoke,
 	stateOf,
 	tagFor,
-	runArgs,
 	WEB_PORT,
 } from "./smoke-images.mjs"
 
@@ -45,13 +45,11 @@ const REUSABLE = "uses: ./.github/workflows/image-smoke.yml"
 type Covered = { image: string; dockerfile: string; target: string }
 
 const matrixImages = (release: string): Covered[] =>
-	[...release.matchAll(/- image: (\S+)\n\s+dockerfile: (\S+)\n\s+target: (\S+)/g)].map(
-		(match) => ({
-			image: match[1] ?? "",
-			dockerfile: match[2] ?? "",
-			target: match[3] ?? "",
-		}),
-	)
+	[...release.matchAll(/- image: (\S+)\n\s+dockerfile: (\S+)\n\s+target: (\S+)/g)].map((match) => ({
+		image: match[1] ?? "",
+		dockerfile: match[2] ?? "",
+		target: match[3] ?? "",
+	}))
 
 const buildSteps = (smokeWorkflow: string): Map<string, string> => {
 	const found = new Map<string, string>()
@@ -289,7 +287,11 @@ describe("reading a container's state", () => {
 	})
 
 	it("★ treats a crashed container as fatal, naming its exit code", async () => {
-		const outcome = await liveAttempt("a", async () => ({ ok: true }), () => ok("false 1"))()
+		const outcome = await liveAttempt(
+			"a",
+			async () => ({ ok: true }),
+			() => ok("false 1"),
+		)()
 		expect(outcome.fatal).toBe(true)
 		expect(outcome.detail).toContain("a exited 1 while starting")
 	})

@@ -48,27 +48,24 @@ export const sleep = (ms) =>
 const defaultDocker = (args) =>
 	spawnSync("docker", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
 
-export const runArgs = ({
-	name,
-	image,
-	env = {},
-	publish = [],
-	detached = false,
-	command = [],
-	remove = false,
-}) => [
-	"run",
-	...(detached ? ["-d"] : []),
-	...(remove ? ["--rm"] : []),
-	"--name",
-	name,
-	"--add-host",
-	`${DATABASE_HOST_ALIAS}:host-gateway`,
-	...publish.flatMap((port) => ["-p", `127.0.0.1:${port}:${port}`]),
-	...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
-	image,
-	...command,
-]
+export const runArgs = (options) => {
+	const publish = options.publish ?? []
+	const env = options.env ?? {}
+	const command = options.command ?? []
+	return [
+		"run",
+		...(options.detached === true ? ["-d"] : []),
+		...(options.remove === true ? ["--rm"] : []),
+		"--name",
+		options.name,
+		"--add-host",
+		`${DATABASE_HOST_ALIAS}:host-gateway`,
+		...publish.flatMap((port) => ["-p", `127.0.0.1:${port}:${port}`]),
+		...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+		options.image,
+		...command,
+	]
+}
 
 export const outputOf = (result) => `${result.stdout ?? ""}${result.stderr ?? ""}`
 
@@ -79,13 +76,13 @@ export const stateOf = (name, docker) => {
 }
 
 export const pollFor = async (attempt, { attempts, delayMs, wait }) => {
-	let last = { ok: false, detail: "nothing was attempted" }
+	let last = { ok: false, fatal: false, detail: "nothing was attempted", body: "" }
 	for (let index = 0; index < attempts; index += 1) {
 		last = await attempt()
 		if (last.ok === true || last.fatal === true) return last
 		await wait(delayMs)
 	}
-	return { ok: false, detail: `${last.detail}, still after ${attempts} attempts` }
+	return { ...last, ok: false, detail: `${last.detail}, still after ${attempts} attempts` }
 }
 
 export const httpAttempt = (url, refusalIn, fetchFn) => async () => {
@@ -128,7 +125,8 @@ export const assetRefusal = (body) =>
 
 export const scheduleRefusal = (output) => {
 	const count = Number.parseInt(output.trim(), 10)
-	if (Number.isNaN(count)) return `pg-boss had written no schema yet: ${output.trim().slice(0, 200)}`
+	if (Number.isNaN(count))
+		return `pg-boss had written no schema yet: ${output.trim().slice(0, 200)}`
 	return count > 0 ? undefined : "pg-boss had registered no schedule"
 }
 
@@ -185,9 +183,7 @@ const applyMigrations = ({ docker, say }, databaseUrl) => {
 	const image = tagFor("open-mcc-migrate")
 	const name = containerFor("open-mcc-migrate")
 	say(`${image}: applying the schema to ${DATABASE_HOST_ALIAS}`)
-	const result = docker(
-		runArgs({ name, image, env: { DATABASE_URL: databaseUrl }, remove: true }),
-	)
+	const result = docker(runArgs({ name, image, env: { DATABASE_URL: databaseUrl }, remove: true }))
 	if (result.status !== 0) {
 		failWith(`${image} exited ${result.status} instead of applying the schema`, outputOf(result))
 	}
@@ -209,10 +205,11 @@ const bootServer = async ({ docker, fetchFn, wait, say }, databaseUrl, sealboxKe
 	if (started.status !== 0) failWith(`${image} would not start`, outputOf(started))
 
 	const url = `http://127.0.0.1:${SERVER_PORT}/healthz`
-	const ready = await pollFor(
-		liveAttempt(name, httpAttempt(url, healthRefusal, fetchFn), docker),
-		{ attempts: PROBE_ATTEMPTS, delayMs: PROBE_DELAY_MS, wait },
-	)
+	const ready = await pollFor(liveAttempt(name, httpAttempt(url, healthRefusal, fetchFn), docker), {
+		attempts: PROBE_ATTEMPTS,
+		delayMs: PROBE_DELAY_MS,
+		wait,
+	})
 	if (!ready.ok) failWith(`${image} never answered /healthz: ${ready.detail}`, logsOf(name, docker))
 	say(`${image}: /healthz answered ${ready.body.trim()}`)
 }
@@ -305,7 +302,10 @@ const bootWeb = async ({ docker, fetchFn, wait, say }) => {
 	const asset = ASSET_REFERENCE.exec(shell.body)?.[1] ?? ""
 	const served = await httpAttempt(`${origin}${asset}`, () => undefined, fetchFn)()
 	if (!served.ok) {
-		failWith(`${image} serves a shell whose module is missing: ${served.detail}`, logsOf(name, docker))
+		failWith(
+			`${image} serves a shell whose module is missing: ${served.detail}`,
+			logsOf(name, docker),
+		)
 	}
 	say(`${image}: served the shell and ${asset}`)
 }

@@ -26,6 +26,6 @@
 		"commit-and-tag-version": "^13.1.2",
 		"turbo": "^2.3.0",
 		"typescript": "^5.7.0",
-		"vitest": "^3.2.7"
+		"vitest": "^4.1.11"
 	}
 }

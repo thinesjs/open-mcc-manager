@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.4](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.3...v0.2.4) (2026-10-10)
+
+### Fixes
+
+* drop the slirp4netns port handler that broke container start ([e1a2791](https://github.com/thinesjs/open-mcc-manager/commit/e1a27912d1230107b29dde36f4eb2296448ebf7a))
+* fire a login task once per join however many triggers are ticked ([ef735ad](https://github.com/thinesjs/open-mcc-manager/commit/ef735adfce9492640f8b12d2a564d2464fb5abeb))
 ## [0.2.3](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.2...v0.2.3) (2026-10-10)
 
 ### Fixes

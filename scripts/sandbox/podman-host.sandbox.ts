@@ -27,7 +27,7 @@ const TARGETS = [
 		osId: "debian",
 		major: 4,
 		stack: "slirp4netns",
-		network: "slirp4netns:port_handler=slirp4netns",
+		network: "slirp4netns",
 	},
 	{
 		name: "Debian 13",
@@ -43,7 +43,7 @@ const TARGETS = [
 		osId: "ubuntu",
 		major: 4,
 		stack: "slirp4netns",
-		network: "slirp4netns:port_handler=slirp4netns",
+		network: "slirp4netns",
 	},
 ] as const
 

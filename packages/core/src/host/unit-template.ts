@@ -36,7 +36,7 @@ const { config, state, replays, recordingCache, unitEnv, env, control, collectLo
 	INSTANCE_LAYOUT
 
 const NETWORK: Readonly<Record<NetworkStack, string>> = {
-	slirp4netns: "slirp4netns:port_handler=slirp4netns",
+	slirp4netns: "slirp4netns",
 	pasta: "pasta",
 }
 

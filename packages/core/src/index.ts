@@ -152,6 +152,7 @@ export {
 	InstanceStartFailedError,
 	InstanceStillInUseError,
 	InstanceStopFailedError,
+	InstanceTaskNotFoundError,
 	scheduledRunFailure,
 } from "./instance/instance.controller"
 export type {
@@ -189,6 +190,61 @@ export {
 	SCHEDULER_TICK_MS,
 	startScheduler,
 } from "./instance/scheduler"
+export type {
+	IntervalArm,
+	IntervalJitter,
+	IntervalPlan,
+	TaskClaim,
+	TaskDefinition,
+} from "./instance/task"
+export {
+	evenJitter,
+	intervalArmOf,
+	intervalClaimOf,
+	intervalPlan,
+	orderedSteps,
+	signalClaims,
+	TASK_ABANDONED_AFTER_MS,
+	TASK_ABANDONED_REASON,
+	TASK_RUN_RETENTION_DAYS,
+	TASK_SIGNAL_CATCH_UP_MS,
+	TASK_SIGNAL_RETENTION_DAYS,
+	TASK_TICK_MS,
+	timeClaims,
+	wantsJoinSignal,
+	wantsRespawnSignal,
+} from "./instance/task"
+export type {
+	InstanceTaskRepos,
+	SignalValues,
+	TaskParts,
+	TaskRepository,
+	TaskTimeValues,
+	TaskValues,
+} from "./instance/task.repository"
+export { createTaskRepository } from "./instance/task.repository"
+export type {
+	TaskSchedulerDeps,
+	TaskSchedulerHandle,
+	TaskSchedulerRun,
+	TaskSignalNeeds,
+} from "./instance/task-scheduler"
+export {
+	runTaskSchedulerTick,
+	startTaskScheduler,
+	TASK_SCHEDULER_ACTOR_LABEL,
+} from "./instance/task-scheduler"
+export type {
+	JoinReading,
+	JoinSighting,
+	RespawnReading,
+	RespawnSighting,
+} from "./instance/task-signals"
+export {
+	drainJoinSightings,
+	readJoinSightings,
+	readRespawnSightings,
+} from "./instance/task-signals"
 export {
 	ENV_WRITTEN,
 	envWriteUnlessRunningCommand,

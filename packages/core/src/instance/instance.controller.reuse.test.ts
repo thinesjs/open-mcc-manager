@@ -28,6 +28,7 @@ import {
 } from "./instance.controller"
 import type { InstanceRepository } from "./instance.repository"
 import type { ScheduleRepository } from "./schedule.repository"
+import type { InstanceTaskRepos } from "./task.repository"
 import { instanceDir } from "./unit"
 
 const owner: ActorContext = {
@@ -273,6 +274,22 @@ const build = () => {
 	const hostsFindById = vi.fn(async (scope: OrgScope, id: string) =>
 		scope.organizationId === hostRow.organizationId && id === hostRow.id ? hostRow : undefined,
 	)
+	const tasks: InstanceTaskRepos = {
+		insert: vi.fn(async () => {
+			throw new Error("tasks.insert is not exercised here")
+		}),
+		update: vi.fn(async () => undefined),
+		replaceSteps: vi.fn(async () => undefined),
+		replaceTimes: vi.fn(async () => undefined),
+		listForInstance: vi.fn(async () => []),
+		findById: vi.fn(async () => undefined),
+		deleteReturning: vi.fn(async () => undefined),
+		recordSignal: vi.fn(async () => true),
+		hasJoinedAs: vi.fn(async () => false),
+		readSignalCursor: vi.fn(async () => null),
+		writeSignalCursor: vi.fn(async () => undefined),
+	}
+
 	const controller = createInstanceController({
 		instances,
 		schedules,
@@ -291,6 +308,7 @@ const build = () => {
 				instances,
 				schedules,
 				commands,
+				tasks,
 				audit,
 				hosts: { findById: hostsFindById, lockHost: async () => undefined },
 			}),

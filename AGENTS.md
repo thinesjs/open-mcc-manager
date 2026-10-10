@@ -167,13 +167,121 @@ would look like a quiet bot. It is left that way deliberately:
 So `batch.cursor ?? cursor` — keep the position when the host named none — is the
 correct call, and turning it into a re-seed is a regression, not an improvement.
 
+### What fires a task, and what that signal cannot see
+
+`instanceTask` is this manager's replacement for MCC's `ScriptScheduler`, which
+stays pinned shut: `ChatBot.ScriptScheduler.Enabled` is a FIXED key and nothing
+here changes it, so every step still goes out through the control FIFO and its
+allowlist. A task is a **named, ordered list of commands** rather than MCC's one
+action, because the owner's three commands must arrive in order and MCC
+guarantees no ordering at all.
+
+`packages/core/src/instance/task-scheduler.ts` runs on its own 30s tick beside
+the existing `startScheduler`, which is untouched. Every firing is claimed before
+it runs, by an insert into `instanceTaskRun` unique on
+`(organizationId, taskId, claimKey)` with `ON CONFLICT DO NOTHING RETURNING id`:
+a claim that comes back empty is a claim someone else holds, and nothing is sent.
+The claim key is what makes a trigger idempotent, so pick one that names the
+occasion rather than the moment the tick noticed it:
+
+- `time:<local date>:<minute of day>` — one firing per local day per entry, which
+  is what lets `CATCH_UP_GRACE_MINUTES` stay an hour without firing an hour's
+  worth of ticks. `isDue` is reused unchanged with `lastRunAt: null`; the ledger,
+  not the row, is what remembers.
+- `interval:<armed nextRunAt>` — the armed moment is persisted on the row, so a
+  worker that restarts mid-countdown neither loses the firing nor repeats it.
+- `login:<pid>:<joined at>` and `firstLogin:<pid>:<joined at>` — the join itself.
+- `respawn:<the client's own event id>`.
+
+**A half-finished run is recorded, never resumed.** `sendStepsInOrder`
+(`task-run.ts`) stops at the step that failed, and the claim it ran under is
+already taken, so the next tick does nothing. The run keeps `stepsSent` and a
+sentence naming which step of how many failed. That is deliberate and is the
+owner's requirement stated back: a task that resumes at step 2 could send
+`/visit` before `/local`, and a recorded failure is better than a bot on the
+wrong sub-server. A run the manager died inside is closed as `abandoned` by the
+next tick's sweep once it is older than `TASK_ABANDONED_AFTER_MS`, which is
+deliberately longer than the worst run the schema allows (10 steps, 60s apart).
+
+**The login triggers read journald, and that choice is load-bearing.** MCC logs
+`Server was successfully joined` from `McClient.cs` the moment `handler.Login`
+returns true, and AutoRelog reaches that line again through
+`Program.Restart → InitializeClient → new McClient`, in the same process — which
+is exactly why `Trigger_On_First_Login` is once per process and `Trigger_On_Login`
+is once per join. The manager already recognises that line as `JOINED_MARKER`
+(`packages/contracts/src/boundary/journal.ts`), and journald is append-only and
+resumed by cursor, so **no join can be skipped however fast a disconnect and
+reconnect follow each other**. Three things were considered and rejected:
+
+- `mcc_session_status` over the live channel is a snapshot. A disconnect and a
+  rejoin inside one poll window are invisible in it.
+- `mcc_recent_events` cannot see a join either, and this is worth writing down
+  because the feed looks continuous when it is not: `McpServer.AfterGameJoined`
+  and `OnDisconnect` both call `ClearStores() → MccObservedStateStore.ClearAll()`,
+  which empties the buffer, while `s_nextRecentEventId` is `static` and is **not**
+  reset — so ids keep climbing across a rejoin and a cursor reader sees a gap it
+  cannot tell from quiet. The `disconnect` event `OnDisconnect` writes is
+  destroyed by the `ClearStores()` on the line after it and can never be read.
+- The unit's own start sees `onFirstLogin` and no AutoRelog reconnect at all.
+
+**The signals are read on the task tick, not on the health poll, and they have
+their own cursor.** The health poller's drain writes `statusEvent` rows off its
+changes, so a second loop advancing the same `statusSourceCursor` would
+double-record connection events and could move the stored position backwards.
+`instanceSignalCursor` is therefore a separate row per instance per source
+(`journal`, `liveEvents`), and the task drain records join sightings only.
+Duplicate observation across the two loops is harmless anyway: `instanceSignal`
+is unique on `(organizationId, instanceId, kind, identity)`.
+
+**What the login triggers honestly cannot do.**
+
+- They are reliable, not instant. The drain runs on the 30s tick, so a login task
+  starts within about 30 seconds of the join plus its own send time, and the UI
+  says so rather than implying it is immediate. Riding the 30s tick instead of
+  the 60s health poll costs two extra `journalctl` execs a minute per gated
+  instance and one extra SSH login a minute per host carrying one — the reader
+  ends a connection 10s after its last lease, and 30s is longer than that.
+- **The gate is the point.** Only an instance with an enabled `onFirstLogin`,
+  `onLogin` or `onRespawn` task is read at all. Widening that to every instance
+  puts the cost on hosts that asked for none of it.
+- A seed read records **no** joins. The first time an instance is observed, and
+  after journald refuses a stored cursor, the week the seed window covers is not
+  replayed as firings. So a join that happened before this manager ever watched
+  the bot does not fire a login task.
+- Only the newest join inside `TASK_SIGNAL_CATCH_UP_MS` is considered. If a bot
+  relogs twice between two ticks, the task fires once, for the later join, where
+  MCC would have fired twice. Firing once is the safer answer for a task whose
+  whole job is to put the bot back on the right sub-server.
+- `firstForProcess` is decided by whether this instance has a join row for that
+  pid already. Linux reuses pids, so a pid that comes round again on a long-lived
+  host can cost one `onFirstLogin` firing. The other direction is why
+  `TASK_SIGNAL_RETENTION_DAYS` is 120 rather than the runs' 7: a client process
+  that outlives the signal retention and then relogs would look like a new
+  process and fire `onFirstLogin` a second time. Shortening that constant to
+  "tidy up" reintroduces exactly that.
+- `onRespawn` is MCC's own notion of a respawn, and `McClient.OnRespawn` is
+  dispatched on a login and on a world change as well as after a death. The UI's
+  tooltip says that. A respawn that happens shortly before a disconnect is
+  destroyed by `ClearStores()` before any poll can see it, and is lost.
+
+`intervalNextRunAt` and `intervalObservedAt` are a **paused** countdown, not a
+reset one: while the instance is not `running` the tick pushes the armed moment
+forward by the time since it last looked, so a bot that was down for eight hours
+wakes with the wait it had left rather than with a backlog. That matches MCC,
+whose `Update()` returns early while disconnected, and it is why the observed
+moment is written on every tick — take that write away and the pause shifts by
+the running time too.
+
 ### Why the scheduler needs no actor context
 
-`runScheduledCommand` takes an `InstanceCommandRow` and no `ActorContext`. It
-derives its scope from `row.organizationId` alone. That is safe because of a
-database constraint, not because of the code: `instanceCommand` and
-`instanceSchedule` both carry a composite foreign key
-`(organizationId, instanceId) → instance(organizationId, id)`, so a row's
+`runScheduledCommand` takes an `InstanceCommandRow` and no `ActorContext`, and
+`runTask` takes a loaded task and no `ActorContext` for the same reason. Both
+derive their scope from `row.organizationId` alone. That is safe because of a
+database constraint, not because of the code: `instanceCommand`,
+`instanceSchedule` and `instanceTask` all carry a composite foreign key
+`(organizationId, instanceId) → instance(organizationId, id)`, and
+`instanceTaskStep`, `instanceTaskTime` and `instanceTaskRun` carry
+`(organizationId, taskId) → instanceTask(organizationId, id)`, so a row's
 organization and instance are guaranteed to belong together. A row cannot point
 at another organization's instance even if something managed to write one.
 
@@ -531,7 +639,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Sixty-six rules stated further down this document are enforced too, and are
+Sixty-eight rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -603,6 +711,8 @@ have:
 | The client probe running under the same log driver as a bot unit, and choosing no events backend of its own | `packages/core/src/host/provision.test.ts` — reads `--log-driver=` off `clientCheckCommand` and off the rendered `open-mcc@.service` and requires the same value, so dropping the flag from either side fails; a second test requires neither to name `--events-backend`, so silencing Podman's event log in the probe alone fails. `scripts/sandbox/provision.sandbox.ts` drives the shipped command on real Podman on all three targets with `/run/systemd/journal/socket` at `0600` and requires the banner and exit 0, which is the Debian 12 row of the table above and fails there without the flag. What it does NOT hold: the same difference on the other two targets, whose Podman survives the refusal either way, so the sandbox catches a dropped flag on one target only; nor any other flag the units carry and the probe does not — `--init` and `--security-opt=no-new-privileges` are named in the notes above and left uncopied on purpose |
 | A probe failure quoting only a line the client could have written | `packages/core/src/host/provision.test.ts` — Podman's logrus line in front of the client's message must be skipped and the client's message reported whole; the same output ending in Podman's `Error:` verdict with no client line must be reported as Podman's refusal and not as the client's; two client lines must report the first, so reading the end of the output instead fails. What it does NOT hold: that a surviving line really came from the client — only that it is not one Podman writes |
 | A download that ran out of time told apart from one that failed some other way, and the budget that makes the difference worth having | `packages/core/src/host/provision-failure.test.ts` — requires the download step's timed-out sentence to differ from its ordinary one, and requires **no other step** to produce the timed-out sentence even when the flag is set, so widening the condition fails. `packages/core/src/host/provision.test.ts` — drives `provisionHost` against a download exiting 28 and one exiting 22 and requires `downloadRanOutOfTime` true and false respectively, so keying it on any non-zero exit fails; a second test requires the rendered deadline to be over 95% of the wait the step is given, so shrinking the deadline back while leaving the wait alone fails. What it does NOT hold: that 450s is enough for any particular host — the floor it implies, 190 KB/s, is arithmetic recorded above and is not asserted anywhere, because the artefact's size is not a constant this repository keeps |
+| Every task firing claimed before it runs, so two workers cannot both send | `packages/core/src/instance/task.repository.test.ts` — on a real database two concurrent `claimRun` calls on one key leave exactly one winner, a second claim on the same key is refused however much later it comes, and a different key and a different task are both still claimable, so narrowing or widening the unique `(organizationId, taskId, claimKey)` fails it. `packages/core/src/instance/task-scheduler.test.ts` — requires the claim to be taken **before** anything is sent, requires nothing sent when the claim came back taken, and drives two ticks over one join requiring the second to fire nothing. What it does NOT hold: that the claim key names the right occasion — the key builders are held separately by `task.test.ts`, which pins the local-day key for a time, the armed moment for an interval and the join identity for a login |
+| A task's steps sent in order, and a half-finished run recorded rather than resumed | `packages/core/src/instance/task-run.test.ts` — sends a shuffled list and requires position order, requires the steps behind a failed one never to be sent, and requires the failure to name which step of how many and how many had been sent. `packages/core/src/instance/task-scheduler.test.ts` — after a failed run, a second tick over the same trigger fires nothing, so a resume added later fails it. `apps/server/src/instance.test.ts` drives **Set task** over HTTP and reads the stored order back. What it does NOT hold: that a step actually reached the client — only that the order and the stopping point are what this manager decided |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and

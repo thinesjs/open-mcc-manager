@@ -9,6 +9,9 @@ import {
 	type InstanceConfigView,
 	type InstancePublic,
 	type InstanceSettingsInput,
+	type InstanceTaskInput,
+	type InstanceTaskPublic,
+	type InstanceTaskRunPublic,
 	instanceBotsInput,
 	instanceConfigInput,
 	instanceConfigStored,
@@ -41,6 +44,10 @@ import {
 	type InstanceConfigRow,
 	type InstanceRow,
 	type InstanceScheduleRow,
+	type InstanceTaskRow,
+	type InstanceTaskRunRow,
+	type InstanceTaskStepRow,
+	type InstanceTaskTimeRow,
 } from "@open-mcc/db"
 import {
 	ChannelLimitReachedError,
@@ -67,6 +74,7 @@ import { HostRefusedError, InternalError } from "../lib/errors"
 import { assertExhaustive } from "../lib/exhaustive"
 import { redactCommand } from "../security/redact"
 import type { SshKeyRepository } from "../ssh-key/ssh-key.repository"
+import { JOURNAL_READ_TIMEOUT_MS } from "../status/instance-observer"
 import { HOST_METRICS_TIMEOUT_MS, type HostMetrics, readHostMetrics } from "../system/host-metrics"
 import { type CommandRepository, createCommandRepository } from "./command.repository"
 import {
@@ -130,6 +138,21 @@ import {
 } from "./schedule"
 import { createScheduleRepository, type ScheduleRepository } from "./schedule.repository"
 import { SCHEDULER_ACTOR_LABEL } from "./scheduler"
+import { orderedSteps, TASK_RUN_RETENTION_DAYS, type TaskDefinition } from "./task"
+import {
+	createTaskRepository,
+	type InstanceTaskRepos,
+	type TaskParts,
+	type TaskRepository,
+} from "./task.repository"
+import { InstanceTaskStepsFailedError, sendStepsInOrder } from "./task-run"
+import { TASK_SCHEDULER_ACTOR_LABEL, type TaskSignalNeeds } from "./task-scheduler"
+import {
+	drainJoinSightings,
+	type JoinSighting,
+	readJoinSightings,
+	readRespawnSightings,
+} from "./task-signals"
 import {
 	configWriteCommand,
 	ENV_WRITTEN,
@@ -156,6 +179,7 @@ export type InstanceTransactionRepos = {
 	instances: InstanceRepository
 	schedules: ScheduleRepository
 	commands: CommandRepository
+	tasks: InstanceTaskRepos
 	audit: Pick<AuditRepository, "record">
 	hosts: Pick<HostRepository, "lockHost" | "findById">
 }
@@ -171,6 +195,7 @@ export const createInstanceControllerTransaction = (db: Db): WithInstanceTransac
 				instances: createInstanceRepository(tx),
 				schedules: createScheduleRepository(tx),
 				commands: createCommandRepository(tx),
+				tasks: createTaskRepository(tx),
 				audit: createAuditRepository(tx),
 				hosts: createHostRepository(tx),
 			}),
@@ -211,6 +236,7 @@ export class InstanceConfigUnusableError extends Error {}
 
 export class InstanceBotConfigUnusableError extends Error {}
 export class InstanceHostNotFoundError extends Error {}
+export class InstanceTaskNotFoundError extends Error {}
 export class InstanceHostNotProvisionedError extends Error {}
 
 export const scheduledRunFailure = (error: Error | string): string => {
@@ -584,13 +610,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 		return parsed.data
 	}
 
-	const liveEndpointFor = async (
-		ctx: ActorContext,
-		instanceId: string,
+	const liveEndpointOf = async (
+		scope: OrgScope,
+		instance: InstanceRow,
 	): Promise<{ hostId: string; port: number; route: string; token: string } | undefined> => {
-		const instance = await requireInstance(ctx, instanceId)
 		if (!instance.liveControlTokenEncrypted || !instance.liveControlTokenKeyId) return undefined
-		const saved = await deps.instances.latestConfig(scopeOf(ctx), instanceId)
+		const saved = await deps.instances.latestConfig(scope, instance.id)
 		if (!saved) return undefined
 		const config = instanceConfigStored.safeParse(saved.document)
 		if (!config.success || !config.data.liveControlEnabled) return undefined
@@ -601,6 +626,12 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			token: deps.secrets.open(instance.liveControlTokenEncrypted, instance.liveControlTokenKeyId),
 		}
 	}
+
+	const liveEndpointFor = async (
+		ctx: ActorContext,
+		instanceId: string,
+	): Promise<{ hostId: string; port: number; route: string; token: string } | undefined> =>
+		await liveEndpointOf(scopeOf(ctx), await requireInstance(ctx, instanceId))
 
 	const liveReadTargetFor = async (
 		ctx: ActorContext,
@@ -676,6 +707,163 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 			if (error instanceof TransportInterruptedError) return undefined
 			throw error
 		}
+	}
+
+	const toTaskRunPublic = (row: InstanceTaskRunRow): InstanceTaskRunPublic => ({
+		id: row.id,
+		trigger: row.trigger,
+		outcome: row.outcome,
+		startedAt: row.startedAt.toISOString(),
+		finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
+		stepsSent: row.stepsSent,
+		error: row.error,
+	})
+
+	const toTaskPublic = (parts: TaskParts): InstanceTaskPublic => ({
+		id: parts.task.id,
+		instanceId: parts.task.instanceId,
+		name: parts.task.name,
+		steps: orderedSteps(definitionOf(parts)).map((step) => ({
+			position: step.position,
+			command: step.command,
+		})),
+		stepDelaySeconds: parts.task.stepDelaySeconds,
+		enabled: parts.task.enabled,
+		timezone: parts.task.timezone,
+		onFirstLogin: parts.task.onFirstLogin,
+		onLogin: parts.task.onLogin,
+		onRespawn: parts.task.onRespawn,
+		times: parts.times.map((time) => ({
+			daysOfWeek: parseDaysOfWeek(time.daysOfWeek),
+			runAt: timeOfDay(time.minuteOfDay),
+		})),
+		interval:
+			parts.task.intervalMinSeconds === null || parts.task.intervalMaxSeconds === null
+				? null
+				: {
+						minSeconds: parts.task.intervalMinSeconds,
+						maxSeconds: parts.task.intervalMaxSeconds,
+					},
+		nextIntervalRunAt:
+			parts.task.intervalNextRunAt === null ? null : parts.task.intervalNextRunAt.toISOString(),
+		lastRunAt: parts.task.lastRunAt === null ? null : parts.task.lastRunAt.toISOString(),
+		lastRunError: parts.task.lastRunError,
+		runs: parts.runs.map(toTaskRunPublic),
+	})
+
+	const definitionOf = (parts: TaskParts): TaskDefinition => ({
+		row: parts.task,
+		steps: parts.steps,
+		times: parts.times,
+	})
+
+	const taskRunsSince = (): Date =>
+		new Date(deps.now() - TASK_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+
+	const recordJoinSightings = async (
+		scope: OrgScope,
+		instanceId: string,
+		joins: readonly JoinSighting[],
+		at: Date,
+	): Promise<void> => {
+		for (const join of joins) {
+			await deps.withTransaction(async (repos) => {
+				const seen = await repos.tasks.hasJoinedAs(scope, instanceId, join.process)
+				await repos.tasks.recordSignal(scope, {
+					instanceId,
+					kind: "login",
+					identity: `${join.process}:${join.occurredAt.toISOString()}`,
+					process: join.process,
+					firstForProcess: !seen,
+					occurredAt: join.occurredAt,
+					observedAt: at,
+				})
+			})
+		}
+	}
+
+	const observeJoins = async (scope: OrgScope, instance: InstanceRow, at: Date): Promise<void> => {
+		const cursor = await deps.withTransaction((repos) =>
+			repos.tasks.readSignalCursor(scope, instance.id, "journal"),
+		)
+		await drainJoinSightings(
+			{
+				read: async (from) => {
+					const leased = await leaseTrustedHost(
+						scope,
+						instance.hostId,
+						JOURNAL_READ_TIMEOUT_MS,
+						"runtime",
+					)
+					try {
+						return await readJoinSightings(leased.reader, instance.id, from)
+					} finally {
+						leased.reader.release()
+					}
+				},
+				record: (joins) => recordJoinSightings(scope, instance.id, joins, at),
+				saveCursor: (next) =>
+					deps.withTransaction((repos) =>
+						repos.tasks.writeSignalCursor(scope, instance.id, "journal", next, at),
+					),
+			},
+			cursor,
+		)
+	}
+
+	const observeRespawns = async (
+		scope: OrgScope,
+		instance: InstanceRow,
+		at: Date,
+	): Promise<void> => {
+		const endpoint = await liveEndpointOf(scope, instance)
+		if (!endpoint) return
+
+		const stored = await deps.withTransaction((repos) =>
+			repos.tasks.readSignalCursor(scope, instance.id, "liveEvents"),
+		)
+		const parsed = stored === null ? Number.NaN : Number(stored)
+		const cursor = Number.isFinite(parsed) ? parsed : null
+
+		const leased = await leaseTrustedHost(
+			scope,
+			endpoint.hostId,
+			LIVE_CONTROL_TIMEOUT_MS,
+			"setUpOnce",
+		)
+		let reading: Awaited<ReturnType<typeof readRespawnSightings>>
+		try {
+			reading = await readRespawnSightings(
+				{
+					reader: leased.reader,
+					port: endpoint.port,
+					route: endpoint.route,
+					token: endpoint.token,
+				},
+				cursor,
+				at,
+			)
+		} finally {
+			leased.reader.release()
+		}
+
+		for (const respawn of reading.respawns) {
+			await deps.withTransaction((repos) =>
+				repos.tasks.recordSignal(scope, {
+					instanceId: instance.id,
+					kind: "respawn",
+					identity: String(respawn.eventId),
+					process: null,
+					firstForProcess: false,
+					occurredAt: respawn.occurredAt,
+					observedAt: at,
+				}),
+			)
+		}
+
+		await deps.withTransaction((repos) =>
+			repos.tasks.writeSignalCursor(scope, instance.id, "liveEvents", String(reading.cursor), at),
+		)
 	}
 
 	const requireInstance = async (ctx: ActorContext, instanceId: string): Promise<InstanceRow> => {
@@ -1555,6 +1743,163 @@ export const createInstanceController = (deps: InstanceControllerDeps) => {
 					detail: { command: redactCommand(row.command), schedule: row.name },
 				})
 			})
+		},
+
+		listTasks: async (ctx: ActorContext, instanceId: string): Promise<InstanceTaskPublic[]> => {
+			requireCapabilityFor(ctx.role, "instance.read")
+			await requireInstance(ctx, instanceId)
+			const parts = await deps.withTransaction((repos) =>
+				repos.tasks.listForInstance(scopeOf(ctx), instanceId, taskRunsSince()),
+			)
+			return parts.map(toTaskPublic)
+		},
+
+		setTask: async (ctx: ActorContext, input: InstanceTaskInput): Promise<InstanceTaskPublic> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			await requireInstance(ctx, input.instanceId)
+			for (const command of input.steps) {
+				sendableLine(command)
+				refuseStoredCredential(command)
+			}
+
+			const values = {
+				instanceId: input.instanceId,
+				name: input.name,
+				stepDelaySeconds: input.stepDelaySeconds,
+				enabled: input.enabled,
+				timezone: input.timezone,
+				onFirstLogin: input.onFirstLogin,
+				onLogin: input.onLogin,
+				onRespawn: input.onRespawn,
+				intervalMinSeconds: input.interval === null ? null : input.interval.minSeconds,
+				intervalMaxSeconds: input.interval === null ? null : input.interval.maxSeconds,
+			}
+
+			const parts = await deps.withTransaction(async (repos) => {
+				const stored =
+					input.id === null
+						? await repos.tasks.insert(scopeOf(ctx), values)
+						: await repos.tasks.update(scopeOf(ctx), input.id, values)
+				if (!stored) throw new InstanceTaskNotFoundError(`Task not found: ${input.id}`)
+
+				await repos.tasks.replaceSteps(scopeOf(ctx), stored.id, input.steps)
+				await repos.tasks.replaceTimes(
+					scopeOf(ctx),
+					stored.id,
+					input.times.map((time) => ({
+						daysOfWeek: renderDaysOfWeek(time.daysOfWeek),
+						minuteOfDay: minuteOfDay(time.runAt),
+					})),
+				)
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: input.instanceId,
+					detail: {
+						task: stored.name,
+						steps: input.steps.map(redactCommand).join(" ; "),
+					},
+				})
+
+				const listed = await repos.tasks.listForInstance(
+					scopeOf(ctx),
+					input.instanceId,
+					taskRunsSince(),
+				)
+				const found = listed.find((each) => each.task.id === stored.id)
+				if (!found) throw new InstanceTaskNotFoundError(`Task not found: ${stored.id}`)
+				return found
+			})
+
+			return toTaskPublic(parts)
+		},
+
+		deleteTask: async (ctx: ActorContext, id: string): Promise<void> => {
+			requireCapabilityFor(ctx.role, "console.write")
+			await deps.withTransaction(async (repos) => {
+				const removed = await repos.tasks.deleteReturning(scopeOf(ctx), id)
+				if (!removed) return
+				await repos.audit.record(scopeOf(ctx), {
+					actorId: ctx.memberId,
+					actorLabel: ctx.actorLabel,
+					action: "instance.schedule",
+					subjectType: "instance",
+					subjectId: removed.instanceId,
+					detail: { removed: "true", task: removed.name, taskId: removed.id },
+				})
+			})
+		},
+
+		observeTaskSignals: async (
+			scope: OrgScope,
+			instanceId: string,
+			needs: TaskSignalNeeds,
+			at: Date,
+		): Promise<void> => {
+			const instance = await deps.instances.findById(scope, instanceId)
+			if (!instance || instance.status !== "running") return
+
+			if (needs.join) await observeJoins(scope, instance, at)
+			if (!needs.respawn) return
+			try {
+				await observeRespawns(scope, instance, at)
+			} catch (error) {
+				if (error instanceof LiveChannelUnavailableError) return
+				if (error instanceof TransportInterruptedError) return
+				throw error
+			}
+		},
+
+		runTask: async (parts: TaskParts): Promise<number> => {
+			const scope = { organizationId: parts.task.organizationId }
+			const instance = await deps.instances.findById(scope, parts.task.instanceId)
+			if (!instance) {
+				throw new InstanceNotFoundError(`Instance not found: ${parts.task.instanceId}`)
+			}
+			if (instance.status !== "running") {
+				throw new InstanceNotRunningError(
+					`Instance ${parts.task.instanceId} is ${instance.status}, so its task was not run`,
+				)
+			}
+
+			const transport = await connectToHost(scope, instance.hostId, "runtime")
+			let sent = 0
+			try {
+				sent = await sendStepsInOrder(
+					orderedSteps(definitionOf(parts)),
+					parts.task.stepDelaySeconds,
+					{
+						send: (command) => sendCommand(transport, instance.id, command),
+						wait: (milliseconds) =>
+							new Promise((resolve) => {
+								setTimeout(resolve, milliseconds)
+							}),
+						describeFailure: scheduledRunFailure,
+					},
+				)
+			} finally {
+				await transport.close().catch(() => undefined)
+			}
+
+			await deps.withTransaction(async (repos) => {
+				await repos.audit.record(scope, {
+					actorId: null,
+					actorLabel: TASK_SCHEDULER_ACTOR_LABEL,
+					action: "instance.command",
+					subjectType: "instance",
+					subjectId: parts.task.instanceId,
+					detail: {
+						task: parts.task.name,
+						commands: orderedSteps(definitionOf(parts))
+							.map((step) => redactCommand(step.command))
+							.join(" ; "),
+					},
+				})
+			})
+
+			return sent
 		},
 
 		getSleepWindow: async (

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { createLogger, generateKeyPair } from "@open-mcc/core"
 import { createDb, type Db } from "@open-mcc/db"
 import { Hono } from "hono"
@@ -54,6 +55,60 @@ const signIn = async (app: Hono, origin: string): Promise<Response> =>
 		headers: { "content-type": "application/json", Origin: origin },
 		body: SIGN_IN_BODY,
 	})
+
+const signUpApp = (database: Db): Hono => {
+	const auth = createAuth(
+		database,
+		"a-very-long-test-secret-value-000000",
+		"http://localhost:3000",
+		{
+			trustedOrigins: [DASHBOARD_ORIGIN],
+			disableSignUp: false,
+			userCreation: "trusted",
+			disableRateLimit: true,
+		},
+	)
+	const app = new Hono()
+	app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+	return app
+}
+
+const signUp = async (app: Hono): Promise<Response> =>
+	app.request("/api/auth/sign-up/email", {
+		method: "POST",
+		headers: { "content-type": "application/json", Origin: DASHBOARD_ORIGIN },
+		body: JSON.stringify({
+			email: `${randomUUID()}@example.com`,
+			password: "correct horse battery staple 9",
+			name: "Cookie Prefix",
+		}),
+	})
+
+describe("session cookie prefix", () => {
+	it("carries the __Host- prefix a browser enforces, rather than one buried behind __Secure-", async () => {
+		db = createDb(process.env.TEST_DATABASE_URL ?? "")
+
+		const res = await signUp(signUpApp(db))
+		const all = res.headers.getSetCookie()
+		const session = all.find((each) => each.includes("session_token"))
+
+		expect(session, all.join(" | ")).toBeDefined()
+		expect(session?.startsWith("__Host-"), session).toBe(true)
+		expect(session?.startsWith("__Secure-"), session).toBe(false)
+	})
+
+	it("carries every attribute the __Host- prefix requires, so a browser will not drop it", async () => {
+		db = createDb(process.env.TEST_DATABASE_URL ?? "")
+
+		const res = await signUp(signUpApp(db))
+		const session = res.headers.getSetCookie().find((each) => each.includes("session_token")) ?? ""
+
+		expect(session).toContain("Secure")
+		expect(session).toContain("Path=/")
+		expect(session).toContain("HttpOnly")
+		expect(session.toLowerCase(), session).not.toContain("domain=")
+	})
+})
 
 describe("better-auth trusted origins", () => {
 	it("lets a dashboard origin the deployment allows authenticate against the mounted handler", async () => {

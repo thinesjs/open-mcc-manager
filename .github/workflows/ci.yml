@@ -75,6 +75,9 @@ jobs:
           BETTER_AUTH_SECRET: ci-only-not-a-real-secret
           SEALBOX_KEYS: ci-only-not-a-real-key
 
+  images:
+    uses: ./.github/workflows/image-smoke.yml
+
   sandbox:
     runs-on: ubuntu-latest
     timeout-minutes: 15

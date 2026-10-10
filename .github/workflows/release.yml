@@ -9,7 +9,11 @@ permissions:
   packages: write
 
 jobs:
+  smoke:
+    uses: ./.github/workflows/image-smoke.yml
+
   publish:
+    needs: smoke
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

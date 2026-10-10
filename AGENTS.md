@@ -692,7 +692,7 @@ here and adding the test that proves it.
 | Derived types, never hand-written | nothing — review only |
 | Discriminated unions with `assertExhaustive` | nothing — review only; the helper itself is covered by `packages/core/src/lib/exhaustive.test.ts` |
 
-Seventy rules stated further down this document are enforced too, and are
+Seventy-one rules stated further down this document are enforced too, and are
 listed here for the same reason — so that nothing claims enforcement it does not
 have:
 
@@ -751,7 +751,7 @@ have:
 | Every `.mjs` main guard in the repository taking the `process.argv[1]?.endsWith("<filename>.mjs")` form | `main-guards.test.ts` — walks every `.mjs` in the tree rather than reading a list, so a script written next month is covered the day it is made, and fails naming the file and the line of any that compares `import.meta.url` or reads `process.argv[1]` without the suffix naming its own file. It holds the guard's *shape*, not that the main block does anything useful, and it cannot see a script that guards correctly and then checks nothing. Measured: the broken form put back in `check-page-loading.mjs`, `check-runtime-deps.mjs`, `check-image-notices.mjs` and `lint.mjs` leaves the rest of the suite 339/339 green and fails this one alone, naming all four — `lint.mjs` being the severe site, where a regressed guard makes `pnpm lint` exit 0 having spawned none of the eight checkers |
 | An invited operator reaching their own member row through the configured provider, and a stranger at that provider reaching nothing | `apps/server/src/oidc-sign-in.test.ts` — stands a real OIDC provider on a real port and drives the whole redirect through the running server: the authorize call, the state cookie, the provider's own redirect back, the token exchange, the JWKS fetch and an **RS256-signed `id_token`** the stand-in mints with `node:crypto` — the path a real IdP takes, measured against Keycloak 24.0. It calls `/userinfo` never, and a case requires that count to stay zero while the JWKS count stays above it. It asserts on the **rows**, never on a thrown class. An invited operator lands back on the dashboard's signed-in page with exactly one `user` row for their address, the `member` row and role they were seeded with untouched, one `account` row carrying the provider's subject, and one `session` carrying their organization; a second sign-in adds no second user and no second account. A stranger the deployment never invited is redirected to the sign-in page carrying `registration_closed` and the gate's own sentence, with **no** user row added and **no** session opened. Measured: with `GATES_USER_CREATION.gated` flipped to `false` all three invited-operator cases stay green and the stranger walks in with a `session_token` cookie, so a weakened gate fails loudly rather than quietly; with `accountLinking.requireLocalEmailVerified` dropped the invited operator is refused `account_not_linked` instead, which is what pins the better-auth option this feature rests on across a version bump; with the provider added to `accountLinking.trustedProviders` the unconfirmed-address case stops refusing, which is what pins the takeover vector. `apps/server/src/auth-routes.wiring.test.ts` holds the other half — a deployment that configures no provider mounts exactly the five dashboard routes, so mounting the two unconditionally fails there. Two cases hold the ID token itself. The signature one signs with a second RSA key the stand-in never publishes, under the **published `kid`** so a lookup alone still resolves, and requires `unable_to_get_user_info`, no `session_token` cookie, no `session` row and no `account` row — then signs the **same identity** with the published key and requires `/hosts` with one session and one account, so the key alone decides. The nonce one answers a nonce the deployment never sent and requires the same refusal. Measured: `signedBy` made to sign with the published key whatever it is handed fails the signature case alone, `expected null to be 'unable_to_get_user_info'`, so its refusal is caused by the key and not by something incidental; `disableIdTokenNonceBinding: true` added to `auth.ts`'s provider config — one non-test file — leaves fifteen cases green and fails the nonce one alone with the same message; and the stand-in put back to issuing no `id_token` at all, which is what it did before, fails three, `expected 1 to be +0` on the userinfo count and both ID-token cases going green, which is the whole of what the old fake could not see. Two more hold the fallback error destination: a callback address opened a second time, and one opened carrying nothing, must both answer `302` to the dashboard's `/sign-in` with no session cookie. Measured: `onAPIError` dropped from `auth.ts`, and separately `errorUrl: undefined` forced in `bootstrap.ts` — one non-test file each, the happy path green both times — fail exactly those two, `expected 'http://localhost:3000/api/auth/error' to be 'http://localhost:5173/sign-in'`, which is the 404 a real Keycloak produced. What it does NOT hold: that a **real** IdP behaves like the one it stands up — the stand-in's discovery document, JWKS and token endpoint are this file's own; nor that better-auth's own logger keeps the client secret, since only the logger this deployment passes in is read; nor that the dashboard actually serves `/sign-in`, which `apps/web/src/routes/sign-in.test.tsx` holds instead; nor that `/api/auth/error` answers 404, which is read off the seven mounted paths rather than driven. Two cases run a **second `startServer`** against a scratch database nobody has bootstrapped, so what they drive is the wiring rather than a locally built instance: one requires registration to read open to the operator's browser **in the same breath** as the stranger the provider vouched for being refused `registration_closed` with no `user` row, so opening first-run registration cannot be mistaken for opening a door the provider can use; the other requires the first stranger to arrive to be refused with no `user` and no `session` row, and `bootstrapOwner` to still run against that same database afterwards. Measured, `bootstrap.ts`'s `userCreation: "closed"` put back to `gated` — and **nothing else** touched — leaves all fifteen other cases green and fails those two alone, the first on `expected null to be 'registration_closed'` and the second on `expected true to be false`, the empty-database precondition the admitted stranger had already destroyed. An earlier version of this case built its own `createAuth` with the mode hardcoded and mounted it on a bare `Hono`; that pinned `createAuth`'s handling of the mode and pinned the wiring not at all, and the whole server suite passed with the mounted instance reverted. A test that builds the thing it is meant to be checking the wiring of proves nothing, and the mutation must be run against the production file alone |
 | A delivery settled only alongside the job that carries what happens next | `packages/core/src/notification/delivery.job.transaction.test.ts` — drives `createDeliveryHandler` against a real Postgres and a **real pg-boss** on its own schema (`pgboss_delivery_job_test`, because the file deletes queue rows and `packages/core` runs files in parallel), and provokes the refusal rather than modelling it: it warms `boss`'s queue cache with a real send, deletes the queue row behind it, and lets `send` answer `null`. It records what pg-boss actually answered for every call, so a run that took the cold-cache `Queue … does not exist` path instead of the `null` one fails rather than passing for the wrong reason. Both `null` sites are driven — the requeue on `deps.queue` and the set-aside on `notification.deadletter` — and each asserts on the state reached, never on a thrown class: the delivery must still read `queued` with `attempts` 0, a null `settledAt` and a null `lastError`, no `notificationAttempt` row may exist, no job on any queue may carry its id, and the destination must be untouched — still enabled, with a null `lastFailedAt` and `lastFailureReason`. A third case drives the loud half with the cache cold. Two further cases hold the other direction: a retryable outcome must leave the delivery `queued` at `attempts` 1 with exactly one job on its own queue carrying `attempt` "2" and a `start_after` past the 45s the provider asked for, and a terminal outcome must leave it `failed` with exactly one `notification.deadletter` job — and in both, the delivery row, its attempt row and the job must share one `xmin`, so the writes are proved to have committed as one Postgres transaction rather than merely to have all happened. Measured: `createDeliveryTransaction` reduced to a pass-through fails all five, the three refusal cases on the delivery row (`attempts` 1 and a stored `lastError`, or `failed` with nothing set aside) and the two accepted cases on the `xmin` check alone with every other assertion in them still passing; dropping either `null` guard fails exactly its own refusal case and nothing else, so the two are held separately; handing `sendJob` the pool runner instead of the transaction's passes all three refusal cases — they insert no job — and is caught only by the `xmin` check. What it does NOT hold: the **reverse** direction, an enqueue rolled back by a later failure, because nothing in this transaction runs after the enqueue, so it is unreachable without inventing a failure; the provider call, which is a scripted `DeliverySend` here, so nothing in this file holds what `dispatchTo` does or that it stays outside the transaction; a pg `DatabaseError` raised by the job insert; and what becomes of the pg-boss job the worker is running when the handler throws — `deliverQueuedBatch` lets it out, and no test drives pg-boss's own failure handling of it |
-| Every `check-*.mjs` gate refusing input it must reject, rather than reporting success having checked nothing | each checker's own `*.test.ts` — all eight spawn the checker as a subprocess against input carrying a violation and require exit 1 naming the offence, each beside a case requiring exit 0 on input it must accept, so a gate that simply always fails does not pass either. How each is pointed at a seeded tree is a fact about the checker rather than a choice: `check-runtime-deps`, `check-image-notices` and `check-type-policy` read `process.cwd()`, so spawning with `cwd:` is enough; `check-enforcement-count` and `check-thrown-errors` take the path as `process.argv[2]`; `check-commit-subjects` is run over a scratch git repository; `check-control-sizing` and `check-page-loading` derive their root from `import.meta.dirname` and take no argument, so a byte copy is spawned from a scratch `scripts/` beside the tree it will walk — which is why those two cases hold their main guard from a path holding a space as well, measured: the `import.meta.url` form put back in `check-control-sizing.mjs` fails the seeded case beside `main-guards.test.ts`. `check-control-sizing` carries a third case, requiring the module to check nothing when it is **imported** rather than run, because its own suite imports it: the module-scope walk it had before called `process.exit(1)` inside the vitest worker on any violation in `apps/web/src`, and all six of its cases then reported `Tests no tests` rather than failing. Every spawning case in these eight suites carries an explicit 60s timeout, because one of them passed locally at 0.24s and timed out on CI under vitest's 5s default. Measured: a `main()` gutted to `return` at its first line leaves 16 of the 17 script suites green — `main-guards.test.ts` included, since it reads the guard's shape and never spawns — and fails exactly the one case in the eighth, `expected +0 to be 1`. It holds that each gate fires on **one** shape of bad input, NOT that it finds every shape: the seeded violation is a line or two each, so a checker narrowed to exactly that line still passes, and nothing here reads a checker's rule for sense |
+| Every `check-*.mjs` gate refusing input it must reject, rather than reporting success having checked nothing | each checker's own `*.test.ts` — all eight spawn the checker as a subprocess against input carrying a violation and require exit 1 naming the offence, each beside a case requiring exit 0 on input it must accept, so a gate that simply always fails does not pass either. How each is pointed at a seeded tree is a fact about the checker rather than a choice: `check-runtime-deps`, `check-image-notices` and `check-type-policy` read `process.cwd()`, so spawning with `cwd:` is enough; `check-enforcement-count` and `check-thrown-errors` take the path as `process.argv[2]`; `check-commit-subjects` is run over a scratch git repository; `check-control-sizing` and `check-page-loading` derive their root from `import.meta.dirname` and take no argument, so a byte copy is spawned from a scratch `scripts/` beside the tree it will walk — which is why those two cases hold their main guard from a path holding a space as well, measured: the `import.meta.url` form put back in `check-control-sizing.mjs` fails the seeded case beside `main-guards.test.ts`. `check-control-sizing` carries a third case, requiring the module to check nothing when it is **imported** rather than run, because its own suite imports it: the module-scope walk it had before called `process.exit(1)` inside the vitest worker on any violation in `apps/web/src`, and all six of its cases then reported `Tests no tests` rather than failing. Every spawning case in these eight suites carries an explicit 60s timeout, because one of them passed locally at 0.24s and timed out on CI under vitest's 5s default. Measured: a `main()` gutted to `return` at its first line leaves 17 of the 18 script suites green — `main-guards.test.ts` included, since it reads the guard's shape and never spawns — and fails exactly the one case in the eighth, `expected +0 to be 1`. It holds that each gate fires on **one** shape of bad input, NOT that it finds every shape: the seeded violation is a line or two each, so a checker narrowed to exactly that line still passes, and nothing here reads a checker's rule for sense |
 | The dashboard image answering an address its router owns with the shell, and a file it does not carry with a refusal | `apps/web-server/src/static-app.test.ts` — drives the real `apps/web/dist`, building it first when it is not there, so an unknown route, a nested route, a missing hashed asset, a missing unhashed file and the asset directory itself are each asserted against real responses. Deleting the one guard that tells a file from a route leaves every happy-path case green and fails those, which is the shape of the defect it exists for: a broken deploy reading as a blank page rather than as a 404 |
 | The API's own paths left unanswered by the dashboard image, and only those | `apps/web-server/src/static-app.test.ts` — `/healthz`, `/api`, `/api/auth/get-session`, `/api/avatars/:username`, `/trpc`, `/trpc/host.list` and the encoded `/%61pi/auth/get-session` must each refuse and must each not be the shell, while `/apixyz`, `/trpcfoo`, `/healthzz`, `/apis` and `/trpcs` must each answer 200 with the shell. Without the guard only `/trpc/host.list` still refuses, on the dot in its last segment, so it is the undotted forms that make the first half bite; the second half is what narrowing `startsWith("/api/")` to `startsWith("/api")` fails |
 | The two cache rules the dashboard image serves under, taken on the file it resolved rather than the path asked for | `apps/web-server/src/static-app.test.ts` — the literal `public, max-age=31536000, immutable` on a content-hashed asset and the literal `no-store` on the shell and on an unhashed file from `apps/web/public`, written out rather than imported from the module under test, so swapping the two values fails it in both directions. One case drives the two apart on purpose: `/assets/..%2findex.html` must serve the shell `no-store` and `/assets%2findex-<hash>.js` the asset `immutable`, so keying either rule on `c.req.path` fails while every ordinary request still passes |
@@ -768,6 +768,7 @@ have:
 | Every task firing claimed before it runs, so two workers cannot both send | `packages/core/src/instance/task.repository.test.ts` — on a real database two concurrent `claimRun` calls on one key leave exactly one winner, a second claim on the same key is refused however much later it comes, and a different key and a different task are both still claimable, so narrowing or widening the unique `(organizationId, taskId, claimKey)` fails it. `packages/core/src/instance/task-scheduler.test.ts` — requires the claim to be taken **before** anything is sent, requires nothing sent when the claim came back taken, and drives two ticks over one join requiring the second to fire nothing. What it does NOT hold: that the claim key names the right occasion — the key builders are held separately by `task.test.ts`, which pins the local-day key for a time, the armed moment for an interval and the join identity for a login |
 | At most one run per join, however many login triggers a task has ticked | `packages/core/src/instance/task.test.ts` — requires `signalClaims` to raise **one** claim for a task carrying both login triggers, keyed `login:<identity>` and recorded as `firstLogin` on the first join of a process and `login` after it, and requires a task whose only trigger is `onFirstLogin` to take that **same** key, so keying a claim on the trigger that raised it fails there; `packages/core/src/instance/task-scheduler.test.ts` — drives two ticks over one join with both triggers ticked and requires one send of both steps, one finished run and one claimed key, so the second claim coming back reads `[ 2, 2 ]` against `[ 2 ]`. What it does NOT hold: that a respawn, a time or an interval is unaffected — no case here puts a login beside another kind of trigger on one tick, so the four key builders are each held alone |
 | A task's steps sent in order, and a half-finished run recorded rather than resumed | `packages/core/src/instance/task-run.test.ts` — sends a shuffled list and requires position order, requires the steps behind a failed one never to be sent, and requires the failure to name which step of how many and how many had been sent. `packages/core/src/instance/task-scheduler.test.ts` — after a failed run, a second tick over the same trigger fires nothing, so a resume added later fails it. `apps/server/src/instance.test.ts` drives **Set task** over HTTP and reads the stored order back. What it does NOT hold: that a step actually reached the client — only that the order and the stopping point are what this manager decided |
+| Every image the release workflow publishes starting, before that workflow publishes it | `scripts/smoke-images.test.ts`, over `.github/workflows/image-smoke.yml` — that workflow builds all four images for the runner and `scripts/smoke-images.mjs` boots them against a `services:` Postgres; `ci.yml` calls it on pull requests and on pushes to `main`, and `release.yml`'s `publish` job declares `needs:` on it, so a tag cannot publish an image that has not started. The suite drives `smoke()` against a fake docker and requires a refusal for each of the four images failing the way v0.2.2 failed, for a server answering `/healthz` with anything else, for a worker that never writes a `pgboss.schedule` row or exits 143 on `SIGTERM`, for a web image whose shell references a module that is missing, and for a database that was not empty when it started. It reads `release.yml`'s matrix, so a fifth published image fails until the gate covers it, and reads `release.yml`'s `needs:`, so taking the gate off the publish path fails. What it does NOT hold: the architectures a release publishes — the gate builds for the runner's `linux/amd64` and the publish pushes `linux/arm64` beside it — nor anything either process does after it has started |
 
 Everything else in this document — the layering direction, the rest of the
 tenancy rules, the host-key trust rules in the dashboard — rests on review and
@@ -3018,9 +3019,11 @@ hold the image's own wiring: that `web.mjs` finds `dist` beside itself, that the
 Dockerfile put it there, or that a distroless container starts at all.
 `docker/web/Dockerfile` asserts the layout at build time — `test -f
 /out/dist/index.html`, `test -d /out/dist/assets`, and an exact-contents check
-on `/out` itself — and the rest is checked by building the image and driving a
-container by hand, which `pnpm test` does not do and CI does not do either. The
-contents check is written as a comparison against the whole sorted listing
+on `/out` itself — and whether a distroless container made of that layout
+starts and serves it is held by the image smoke gate described below, which
+boots the built image and requires the shell and the hashed module it
+references. This suite holds neither, because it drives the app with no image
+around it. The contents check is written as a comparison against the whole sorted listing
 rather than as `test ! -e /out/node_modules`, because nothing in that stage ever
 creates `/out/node_modules`: it was a check that could not fail, which is worse
 than no check, since it reads as coverage.
@@ -3031,8 +3034,110 @@ against `prune-deploy.mjs`'s `runtimeRoots`. The web image ships no
 `node_modules` at all — every dependency is inside `web.mjs` — so its rule is
 that it must mark **nothing** external, and the checker lists it under
 `BUNDLED_WHOLE` for that. Adding `--external:hono` to `docker/web/Dockerfile`
-would otherwise produce an image that builds, passes every gate, and dies on its
-first request with an unresolved import.
+would otherwise produce an image that builds, passes every gate that reads
+source, and dies with an unresolved import. The smoke gate would now catch it
+too, at startup rather than on a request, but it would report a container that
+exited rather than the line that made it exit; the checker names the cause.
+
+## Booting the images that are published
+
+v0.2.2 shipped four images that built, and every pod crash-looped before it
+served anything:
+
+    Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@opentelemetry/api'
+      imported from /app/node_modules/pg-boss/dist/telemetry.js
+
+`pg-boss` imports `@opentelemetry/api` and declares it in **no** field
+`prune-deploy.mjs` reads — it is a `peerDependency`, and the prune walks
+`dependencies` and `optionalDependencies` out from `runtimeRoots` — so the
+package was invisible to the prune and was deleted from the image. `pnpm lint`,
+`pnpm typecheck`, the whole suite and all eight `check-*.mjs` passed.
+`check-runtime-deps.mjs` passed correctly: it compares what esbuild marks
+external against what the prune keeps, and nothing was marked external that the
+prune would drop. Nothing in this repository started the artefact, and starting
+it was the only thing that could have seen this.
+
+`.github/workflows/image-smoke.yml` is a `workflow_call` workflow that builds
+all four published images for the runner's own architecture and runs
+`scripts/smoke-images.mjs` against them, with a `services:` Postgres behind
+them. `ci.yml` calls it as `images`, so it runs on pull requests and on pushes
+to `main`; `release.yml` calls it as `smoke` and its `publish` job declares
+`needs: smoke`, so no image reaches ghcr.io without having started. The second
+call is the one that earns its minutes: ArgoCD Image Updater moves the cluster
+to the newest published semver tag by itself, and rolling back is not available,
+because the migrate Job runs as a PreSync hook and an older migrate image
+refuses a newer schema. A gate that ran after publishing would have watched this
+outage rather than stopped it.
+
+What each image's check proves, and what it does not:
+
+- **`open-mcc-migrate`** runs to completion against the empty database and must
+  exit 0. It is also what gives the other two a schema, so a migrate that exits
+  0 having written nothing fails at the next step rather than at this one.
+- **`open-mcc-server`** boots with `DATABASE_URL`, `SEALBOX_KEYS`,
+  `BETTER_AUTH_SECRET`, `ALLOWED_ORIGINS` and `PORT`, and must answer `GET
+  /healthz` with `"ok":true`. That is every await in `startServer` up to
+  `serveFn`: the secret store, `boss.start()`, `reconcileQueues`, the singleton
+  lock, `appliedSchemaVersion`, the auth stack and the mounted router. The
+  schedulers and the health poller start **after** `serveFn` and are not
+  covered, and no request past `/healthz` is made.
+- **`open-mcc-worker`** boots and must write a `pgboss.schedule` row — pg-boss
+  started and `startWorker` reached its first `boss.schedule` — and must then
+  exit **0** on `docker stop`. Exit 0 is the load-bearing half: the `SIGTERM`
+  handler is registered only after `await startWorker` returns, so a worker
+  still booting takes the signal with no handler and exits 143, and a worker
+  that threw is already gone with 1. There is no port to probe and this stands
+  in for one.
+- **`open-mcc-web`** boots and must serve the dashboard shell at `/`, with the
+  hashed module that shell references answering 200. That is `web.mjs` finding
+  `dist` beside itself inside a distroless container — the wiring the section
+  above records its own suite as not holding.
+
+The `SEALBOX_KEYS` the server and the worker boot with is **generated by the
+server image itself**, through `server.mjs --generate-sealbox-key`, which is the
+path `scripts/install.sh` takes. So the gate carries no key of its own and
+exercises the flag an installer depends on along the way. A junk value would not
+substitute: `createSecretStore` validates the format, so an invalid one fails
+config rather than module loading, and a gate failing there would be naming the
+wrong thing.
+
+The database must be **empty** when the gate starts, and the prober refuses one
+that is not rather than wiping it. Every signal under it is a count that starts
+at zero — the schema the migrate image writes, the `pgboss.schedule` row the
+worker writes — so a prober pointed at a database an earlier run had already
+filled would pass having proved nothing. Measured: the repository's own
+`TEST_DATABASE_URL` database already answers 3 to the schedule count, so this is
+not a hypothetical.
+
+`SMOKE_DATABASE_URL` names `host.docker.internal`, mapped with
+`--add-host=host.docker.internal:host-gateway`, because the probed containers do
+not share the runner's network namespace and `localhost` inside one of them is
+that container. Probed ports are published on `127.0.0.1` alone.
+
+The builds read the `type=gha` scopes `release.yml` writes and write only their
+own `-smoke` scopes, so a single-architecture smoke build never degrades the
+multi-architecture cache a publish depends on. `open-mcc-server` is built before
+`open-mcc-migrate` because the two share the whole `build` stage of
+`docker/server/Dockerfile`. The probing itself is under ten seconds on warm
+images; the four builds are what the job costs.
+
+`pnpm lint` does **not** run the prober, and `scripts/smoke-images.mjs` is
+deliberately not named `check-*.mjs`: it needs a docker daemon, four built
+images and an empty Postgres, and a gate in that list that cannot be run on a
+laptop would be worked around rather than fixed. What holds it is
+`scripts/smoke-images.test.ts`, which drives `smoke()` against a fake docker
+rather than a real one.
+
+Two things the gate still cannot see. It builds for the runner, `linux/amd64`,
+while `release.yml` pushes `linux/amd64,linux/arm64`, so a failure only arm64
+has would still ship. And the `node_modules` these images ship are **not**
+lockfile-pinned: `pnpm deploy --prod --legacy` prints `A pnpm-lock.yaml file
+exists. The current configuration prohibits to read or write a lockfile` and
+resolves afresh. Measured on this commit, whose lockfile pins `pg-boss@12.30.0`:
+the image ships `12.37.1`. So the same commit built on two days can ship two
+different `pg-boss` builds, and which dependency field that build declares
+`@opentelemetry/api` in is upstream's to change. The gate catches that on the
+rebuild. It does not stop it happening.
 
 ## Tests
 

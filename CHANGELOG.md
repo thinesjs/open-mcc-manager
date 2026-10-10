@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.2](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.1...v0.2.2) (2026-10-10)
+
+### Features
+
+* add instance tasks with ordered steps and claimed runs ([4fcf82d](https://github.com/thinesjs/open-mcc-manager/commit/4fcf82d4fc6bc469a53ba36deedf6fc5b9f8e690))
+* surface instance tasks under the schedule tab ([0204642](https://github.com/thinesjs/open-mcc-manager/commit/02046421ddde8d0c33f6bdd97443b99c0f28f72c))
+
+### Fixes
+
+* give the session cookie a __Host- prefix a browser will enforce ([c3ae8f3](https://github.com/thinesjs/open-mcc-manager/commit/c3ae8f344aee78fe94f603df244e5dcabefb3727))
+* keep task signals long enough to judge a first login ([c78375d](https://github.com/thinesjs/open-mcc-manager/commit/c78375dffcbacaa495f49ea4ff519da3fe6d594d))
 ## [0.2.1](https://github.com/thinesjs/open-mcc-manager/compare/v0.2.0...v0.2.1) (2026-09-23)
 
 ### Features

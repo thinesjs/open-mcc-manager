@@ -6,6 +6,7 @@ const nodeModules = path.join(deployRoot, "node_modules")
 
 const runtimeRoots = [
 	"@hono/node-server",
+	"@opentelemetry/api",
 	"@hono/trpc-server",
 	"@trpc/server",
 	"argon2",

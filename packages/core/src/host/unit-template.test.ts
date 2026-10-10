@@ -27,7 +27,7 @@ const IMAGE = "b54641a0139b45834e25e82fa2cf2be60bafa6a1b6a22868bb1df7182a27a7b9"
 
 const PORT = "$${OPEN_MCC_PORT}"
 
-const SLIRP = "slirp4netns:port_handler=slirp4netns"
+const SLIRP = "slirp4netns"
 
 const PREFLIGHT = `ExecStartPre=/bin/sh -c 'f="${DIR}/config/MinecraftClient.ini"; [ ! -L "$$f" ] && [ -f "$$f" ] && [ -s "$$f" ] && [ -r "$$f" ] || { echo "open-mcc: the saved settings file is missing or unreadable" >&2; exit 1; }'`
 
@@ -163,6 +163,17 @@ describe("the unit that runs a bot in its container", () => {
 
 	it("publishes live control only on the host's loopback, at the port unit.env names", () => {
 		expect(instance).toContain(`EnvironmentFile=${DIR}/unit.env`)
+		expect(lineOf(instance, "ExecStart=")).toContain(` -p 127.0.0.1:${PORT}:${PORT} `)
+	})
+
+	it("names the stack and nothing else, so Podman keeps its own port handler", () => {
+		const networkFlag = (unit: string): string | undefined =>
+			/ --network=(\S+) /.exec(lineOf(unit, "ExecStart="))?.[1]
+
+		expect(networkFlag(onSlirp[INSTANCE_UNIT_NAME] ?? "")).toBe("slirp4netns")
+		expect(networkFlag(onSlirp[AUTH_UNIT_NAME] ?? "")).toBe("slirp4netns")
+		expect(networkFlag(onPasta[INSTANCE_UNIT_NAME] ?? "")).toBe("pasta")
+		expect(networkFlag(onPasta[AUTH_UNIT_NAME] ?? "")).toBe("pasta")
 		expect(lineOf(instance, "ExecStart=")).toContain(` -p 127.0.0.1:${PORT}:${PORT} `)
 	})
 

@@ -23,7 +23,7 @@
 		"nanoid": "^5.0.9",
 		"pg-boss": "^12.30.0",
 		"sshpk": "^1.18.0",
-		"undici": "^8.10.2"
+		"undici": "^8.12.2"
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*",

@@ -20,7 +20,7 @@
 		"@open-mcc/transport": "workspace:*",
 		"@trpc/server": "^11.0.0",
 		"argon2": "^0.41.1",
-		"better-auth": "^1.7.2",
+		"better-auth": "^1.7.7",
 		"hono": "^4.6.14",
 		"pg": "^8.23.0",
 		"pg-boss": "^12.30.0",

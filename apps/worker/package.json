@@ -15,7 +15,7 @@
 		"@open-mcc/transport": "workspace:*",
 		"kysely": "^0.29.5",
 		"pg-boss": "^12.30.0",
-		"zod": "^3.24.0"
+		"zod": "^4.6.6"
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*",

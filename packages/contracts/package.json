@@ -14,7 +14,7 @@
 	},
 	"dependencies": {
 		"smol-toml": "^1.8.0",
-		"zod": "^3.24.0"
+		"zod": "^4.6.6"
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*"

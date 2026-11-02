@@ -25,7 +25,7 @@
 		"react-dom": "^19.0.0",
 		"react-use-measure": "^2.1.7",
 		"tailwind-merge": "^2.6.0",
-		"zod": "^3.24.0"
+		"zod": "^4.6.6"
 	},
 	"devDependencies": {
 		"@open-mcc/config": "workspace:*",

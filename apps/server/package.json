@@ -12,7 +12,7 @@
 		"keys:generate": "tsx src/generate-sealbox-key-cli.ts"
 	},
 	"dependencies": {
-		"@hono/node-server": "^2.1.1",
+		"@hono/node-server": "^2.1.6",
 		"@hono/trpc-server": "^0.4.2",
 		"@open-mcc/contracts": "workspace:*",
 		"@open-mcc/core": "workspace:*",
